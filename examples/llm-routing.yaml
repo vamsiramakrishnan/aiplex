@@ -1,0 +1,54 @@
+# LLM Routing — configure model failover and cost budgets
+#
+# No instances needed — Envoy AI Gateway handles model routing directly.
+# Usage: aiplex apply -f examples/llm-routing.yaml
+
+version: v1
+
+routes:
+  # Primary model with failover chain
+  - model_id: gemini-2.5-flash
+    backends:
+      - provider: google
+        model_id: gemini-2.5-flash
+        weight: 100
+        enabled: true
+    fallbacks:
+      - claude-sonnet-4-20250514
+      - gpt-4.1-mini
+    budget:
+      max_daily_cost_usd: 50.00
+      max_monthly_cost_usd: 1000.00
+      alert_threshold_pct: 75
+
+  # Cost-optimized model for bulk processing
+  - model_id: gpt-4.1-mini
+    backends:
+      - provider: openai
+        model_id: gpt-4.1-mini
+        weight: 100
+        enabled: true
+    budget:
+      max_daily_cost_usd: 20.00
+
+  # High-capability model for complex reasoning
+  - model_id: claude-sonnet-4-20250514
+    backends:
+      - provider: anthropic
+        model_id: claude-sonnet-4-20250514
+        weight: 100
+        enabled: true
+    budget:
+      max_daily_cost_usd: 100.00
+      max_daily_tokens: 5000000
+
+agents:
+  - client_id: analytics-pipeline
+    display_name: Analytics Pipeline
+    description: Batch processing agent — uses cost-optimized models
+    auth_method: client_credentials
+    grant_types:
+      - client_credentials
+    allowed_scopes:
+      - llm:model:gpt-4.1-mini
+      - llm:model:gemini-2.5-flash

@@ -1,0 +1,90 @@
+# Multi-Agent Setup — A2APlex agent delegation with full cross-plane access
+#
+# This example deploys an agent ecosystem where agents can delegate to each
+# other, access tools, and call models — all governed by scoped permissions.
+#
+# Usage: aiplex apply -f examples/multi-agent.yaml
+
+version: v1
+
+instances:
+  # MCP servers (tools)
+  - name: Knowledge Base
+    plane: mcplex
+    template: kb-search-server
+
+  - name: Assessment Engine
+    plane: mcplex
+    template: assessment-server
+
+  - name: Progress Tracker
+    plane: mcplex
+    template: progress-tracker
+
+  # A2A agents (delegatable)
+  - name: Research Agent
+    plane: a2aplex
+    template: research-agent
+
+  - name: Visualization Agent
+    plane: a2aplex
+    template: viz-agent
+
+  - name: Summarizer
+    plane: a2aplex
+    template: summarizer-agent
+
+agents:
+  # Tutor agent — orchestrates everything
+  - client_id: tutor-agent
+    display_name: Tutor Agent
+    description: Primary tutoring agent — delegates research, viz, and summarization
+    auth_method: client_credentials
+    grant_types:
+      - client_credentials
+    allowed_scopes:
+      # Tools
+      - mcp:tools:search_curriculum
+      - mcp:tools:get_document
+      - mcp:tools:generate_quiz
+      - mcp:tools:read_mastery
+      - mcp:tools:update_mastery
+      # Agents
+      - a2a:task:research
+      - a2a:task:visualize
+      - a2a:task:summarize
+      # Models
+      - llm:model:gemini-2.5-flash
+
+  # Research agent — can search knowledge base but not delegate further
+  - client_id: research-agent
+    display_name: Research Agent
+    auth_method: client_credentials
+    grant_types:
+      - client_credentials
+    allowed_scopes:
+      - mcp:tools:search_curriculum
+      - mcp:tools:get_document
+      - llm:model:gemini-2.5-flash
+
+  # Viz agent — generates visualizations
+  - client_id: viz-agent
+    display_name: Visualization Agent
+    auth_method: client_credentials
+    grant_types:
+      - client_credentials
+    allowed_scopes:
+      - llm:model:gemini-2.5-flash
+
+routes:
+  - model_id: gemini-2.5-flash
+    backends:
+      - provider: google
+        model_id: gemini-2.5-flash
+        weight: 100
+        enabled: true
+    fallbacks:
+      - claude-sonnet-4-20250514
+    budget:
+      max_daily_cost_usd: 25.00
+      alert_threshold_pct: 80

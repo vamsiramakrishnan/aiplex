@@ -1,0 +1,33 @@
+# MCPlex Only — deploy MCP servers and grant tool access
+#
+# Simplest setup: just tools, no agents or models.
+# Usage: aiplex apply -f examples/mcplex-only.yaml
+
+version: v1
+
+instances:
+  - name: GitHub MCP Server
+    plane: mcplex
+    template: github-mcp-server
+    config:
+      token_secret: github-token  # Secret Manager reference
+
+  - name: Postgres MCP Server
+    plane: mcplex
+    template: postgres-mcp-server
+    config:
+      connection_secret: pg-connection  # Secret Manager reference
+
+agents:
+  - client_id: coding-agent
+    display_name: Coding Agent
+    description: IDE agent with GitHub and database access
+    auth_method: authorization_code  # PKCE for IDE clients
+    grant_types:
+      - authorization_code
+    allowed_scopes:
+      - mcp:tools:github_search
+      - mcp:tools:github_read_file
+      - mcp:tools:github_create_pr
+      - mcp:tools:pg_query
+      - mcp:tools:pg_schema

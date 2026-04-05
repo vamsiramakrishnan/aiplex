@@ -154,18 +154,26 @@ func (h *LLMHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Check budget BEFORE recording usage — reject if over limit
+	if rc, err := h.store.GetRouteConfig(r.Context(), record.ModelID); err == nil && rc.Budget != nil {
+		summary, _ := h.store.GetUsageSummary(r.Context(), record.ModelID, "", "day")
+		if rc.Budget.MaxDailyCostUSD > 0 && summary.TotalCostUSD+record.CostUSD > rc.Budget.MaxDailyCostUSD {
+			w.Header().Set("X-Budget-Warning", "daily_cost_exceeded")
+			Error(w, r, http.StatusTooManyRequests, "BUDGET_EXCEEDED",
+				"daily cost budget exceeded for this model")
+			return
+		}
+		if rc.Budget.MaxDailyTokens > 0 && summary.TotalTokens+int64(record.TotalTokens) > rc.Budget.MaxDailyTokens {
+			w.Header().Set("X-Budget-Warning", "daily_tokens_exceeded")
+			Error(w, r, http.StatusTooManyRequests, "BUDGET_EXCEEDED",
+				"daily token budget exceeded for this model")
+			return
+		}
+	}
+
 	if err := h.store.AppendUsage(r.Context(), &record); err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
-	}
-
-	// Check budget if route config exists
-	if rc, err := h.store.GetRouteConfig(r.Context(), record.ModelID); err == nil && rc.Budget != nil {
-		summary, _ := h.store.GetUsageSummary(r.Context(), record.ModelID, "", "day")
-		if rc.Budget.MaxDailyCostUSD > 0 && summary.TotalCostUSD > rc.Budget.MaxDailyCostUSD {
-			// Budget exceeded — log warning (in production, block requests)
-			w.Header().Set("X-Budget-Warning", "daily_cost_exceeded")
-		}
 	}
 
 	JSON(w, http.StatusCreated, record)

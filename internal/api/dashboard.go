@@ -42,11 +42,11 @@ func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	// LLM usage (last 24h)
 	usage, _ := h.store.GetUsageSummary(ctx, "", "", "day")
 
-	// Delegations count
-	delegations, _ := h.store.ListDelegations(ctx, "", 10000)
+	// Delegations count (efficient — no full fetch)
+	delegationCount, _ := h.store.CountDelegations(ctx)
 
-	// Policy denials
-	denials, _ := h.store.ListPolicyDenials(ctx, 10000)
+	// Policy denial count (efficient — no full fetch)
+	denialCount, _ := h.store.CountPolicyDenials(ctx)
 
 	stats := models.DashboardStats{
 		TotalInstances:   len(allInstances),
@@ -59,8 +59,8 @@ func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		DailyCostUSD:     usage.TotalCostUSD,
 		DailyTokens:      usage.TotalTokens,
 		DailyRequests:    usage.RequestCount,
-		A2ADelegations:   int64(len(delegations)),
-		PolicyDenials:    int64(len(denials)),
+		A2ADelegations:   delegationCount,
+		PolicyDenials:    denialCount,
 	}
 
 	JSON(w, http.StatusOK, stats)

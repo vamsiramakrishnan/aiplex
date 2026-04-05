@@ -1,9 +1,44 @@
 import { useState } from 'react'
 
 interface ScopeSelectorProps {
-  available: string[]
+  available?: string[]
   selected: string[]
   onChange: (scopes: string[]) => void
+}
+
+// Common scopes for quick selection
+const COMMON_SCOPES: Record<string, { label: string; scopes: string[] }> = {
+  MCPlex: {
+    label: 'Tools',
+    scopes: [
+      'mcp:tools:search_curriculum',
+      'mcp:tools:get_document',
+      'mcp:tools:generate_quiz',
+      'mcp:tools:read_mastery',
+      'mcp:tools:update_mastery',
+      'mcp:tools:github_search',
+      'mcp:tools:github_read_file',
+      'mcp:tools:pg_query',
+    ],
+  },
+  A2APlex: {
+    label: 'Tasks',
+    scopes: [
+      'a2a:task:research',
+      'a2a:task:visualize',
+      'a2a:task:summarize',
+    ],
+  },
+  LLMPlex: {
+    label: 'Models',
+    scopes: [
+      'llm:model:gemini-2.5-flash',
+      'llm:model:gemini-2.5-pro',
+      'llm:model:claude-sonnet-4-20250514',
+      'llm:model:gpt-4.1',
+      'llm:model:gpt-4.1-mini',
+    ],
+  },
 }
 
 function groupByPlane(scopes: string[]): Record<string, string[]> {
@@ -20,14 +55,19 @@ function groupByPlane(scopes: string[]): Record<string, string[]> {
 }
 
 function scopeLabel(scope: string): string {
-  // mcp:tools:search_curriculum → search_curriculum
   const parts = scope.split(':')
   return parts[parts.length - 1]
 }
 
 export default function ScopeSelector({ available, selected, onChange }: ScopeSelectorProps) {
   const [search, setSearch] = useState('')
-  const groups = groupByPlane(available)
+  const [customScope, setCustomScope] = useState('')
+
+  // Use available scopes if provided, otherwise use common scopes
+  const allScopes = available ?? Object.values(COMMON_SCOPES).flatMap(g => g.scopes)
+  // Include any selected scopes that aren't in the available list
+  const merged = [...new Set([...allScopes, ...selected])]
+  const groups = groupByPlane(merged)
 
   const toggle = (scope: string) => {
     if (selected.includes(scope)) {
@@ -43,6 +83,14 @@ export default function ScopeSelector({ available, selected, onChange }: ScopeSe
       onChange(selected.filter((s) => !scopes.includes(s)))
     } else {
       onChange([...new Set([...selected, ...scopes])])
+    }
+  }
+
+  const addCustom = () => {
+    const scope = customScope.trim()
+    if (scope && !selected.includes(scope)) {
+      onChange([...selected, scope])
+      setCustomScope('')
     }
   }
 
@@ -93,8 +141,27 @@ export default function ScopeSelector({ available, selected, onChange }: ScopeSe
         </div>
       ))}
 
+      {/* Custom scope entry */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="Add custom scope (e.g. mcp:tools:my_tool)"
+          value={customScope}
+          onChange={(e) => setCustomScope(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addCustom()}
+          className="flex-1 border rounded px-3 py-2 text-sm font-mono"
+        />
+        <button
+          onClick={addCustom}
+          disabled={!customScope.trim()}
+          className="px-3 py-2 border rounded text-sm hover:bg-gray-50 disabled:opacity-50"
+        >
+          Add
+        </button>
+      </div>
+
       <div className="text-xs text-gray-500">
-        {selected.length} of {available.length} scopes selected
+        {selected.length} scope{selected.length !== 1 ? 's' : ''} selected
       </div>
     </div>
   )
