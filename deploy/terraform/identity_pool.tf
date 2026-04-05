@@ -77,3 +77,65 @@ resource "google_project_iam_member" "aiplex_api_secrets" {
   role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${google_service_account.aiplex_api.email}"
 }
+
+# ── External Agent WIF → GCP Service Account Bindings ──
+#
+# External agents (AWS, Azure) authenticate via WIF and impersonate a
+# dedicated GCP service account scoped to AIPlex API access only.
+
+resource "google_service_account" "external_agent" {
+  account_id   = "aiplex-external-agent"
+  display_name = "AIPlex External Agent"
+  description  = "Service account for WIF-authenticated external agents"
+  project      = var.project_id
+}
+
+# Allow AWS agents with specific roles to impersonate the external agent SA
+resource "google_service_account_iam_member" "aws_agent_wif" {
+  service_account_id = google_service_account.external_agent.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.aiplex.name}/attribute.aws_role/${var.aws_agent_role}"
+}
+
+variable "aws_agent_role" {
+  description = "AWS IAM role name that external agents assume (e.g. aiplex-agent)"
+  type        = string
+  default     = "aiplex-agent"
+}
+
+# Allow Azure AD service principals to impersonate the external agent SA
+resource "google_service_account_iam_member" "azure_agent_wif" {
+  service_account_id = google_service_account.external_agent.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.aiplex.name}/attribute.tenant_id/${var.azure_agent_tenant_id}"
+}
+
+variable "azure_agent_tenant_id" {
+  description = "Azure AD tenant ID for external agents"
+  type        = string
+  default     = ""
+}
+
+# Grant the external agent SA minimal permissions: IAP access + token creator
+resource "google_project_iam_member" "external_agent_iap" {
+  project = var.project_id
+  role    = "roles/iap.httpsResourceAccessor"
+  member  = "serviceAccount:${google_service_account.external_agent.email}"
+}
+
+# Allow external agent SA to create tokens for Hydra client_credentials flow
+resource "google_service_account_iam_member" "external_agent_token_creator" {
+  service_account_id = google_service_account.external_agent.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.external_agent.email}"
+}
+
+# ── Outputs ──
+
+output "workload_identity_pool_name" {
+  value = google_iam_workload_identity_pool.aiplex.name
+}
+
+output "external_agent_sa_email" {
+  value = google_service_account.external_agent.email
+}

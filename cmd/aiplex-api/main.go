@@ -62,6 +62,16 @@ func main() {
 	// Auth (Ory Hydra)
 	hydraClient := auth.NewHydraClient(cfg.HydraAdminURL)
 
+	// WIF Validator
+	wifValidator := auth.NewWIFValidator(store, auth.WIFConfig{
+		WorkforcePoolID: cfg.WorkforcePoolID,
+		WorkloadPoolID:  cfg.WIFPool,
+		TrustedIssuers: []string{
+			"https://accounts.google.com",
+			"https://sts.windows.net/",
+		},
+	})
+
 	// Handlers
 	catalogH := api.NewCatalogHandler(aggregator, store)
 	instanceH := api.NewInstanceHandler(store, engine)
@@ -70,6 +80,7 @@ func main() {
 	llmH := api.NewLLMHandler(store)
 	a2aH := api.NewA2AHandler(store)
 	dashH := api.NewDashboardHandler(store)
+	iamH := api.NewIAMHandler(store, wifValidator)
 
 	// Router
 	r := chi.NewRouter()
@@ -77,7 +88,8 @@ func main() {
 	r.Use(api.RequestID)
 	r.Use(api.Logger)
 	r.Use(api.CORS("*")) // TODO: restrict to Console origin in production
-	r.Use(api.MaxBody(1 << 20)) // 1MB max request body
+	r.Use(api.MaxBody(1 << 20))          // 1MB max request body
+	r.Use(api.WIFAuth(wifValidator))     // Extract WIF identity + sync Dimension B
 
 	// Health (readyz checks store connectivity)
 	healthH := api.NewHealthHandler(store)
@@ -132,6 +144,18 @@ func main() {
 			r.Get("/stats", dashH.GetStats)
 			r.Get("/denials", dashH.ListPolicyDenials)
 			r.Post("/denials", dashH.RecordPolicyDenial)
+		})
+
+		// IAM — role bindings, WIF identity resolution
+		r.Route("/iam", func(r chi.Router) {
+			r.Get("/roles", iamH.ListRoles)
+			r.Get("/whoami", iamH.ResolveIdentity)
+			r.Post("/validate-principal", iamH.ValidateWIFPrincipal)
+			r.Get("/role-bindings", iamH.ListRoleBindings)
+			r.Post("/role-bindings", iamH.CreateRoleBinding)
+			r.Get("/role-bindings/{id}", iamH.GetRoleBinding)
+			r.Put("/role-bindings/{id}", iamH.UpdateRoleBinding)
+			r.Delete("/role-bindings/{id}", iamH.DeleteRoleBinding)
 		})
 	})
 

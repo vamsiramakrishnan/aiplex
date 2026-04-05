@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -66,11 +67,18 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate WIF principal if provided
+	if agent.WIFPrincipal != "" {
+		if err := auth.ValidateWIFPrincipal(agent.WIFPrincipal); err != nil {
+			Error(w, r, http.StatusBadRequest, "INVALID_WIF_PRINCIPAL", err.Error())
+			return
+		}
+	}
+
 	agent.RegisteredAt = time.Now()
 	agent.Status = "active"
 
 	// TODO: create OAuth client in Hydra via admin API
-	// TODO: validate WIF principal if provided
 
 	if err := h.store.PutAgent(r.Context(), &agent); err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())

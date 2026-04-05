@@ -66,6 +66,13 @@ type Store interface {
 	// Counts (efficient dashboard queries)
 	CountDelegations(ctx context.Context) (int64, error)
 	CountPolicyDenials(ctx context.Context) (int64, error)
+
+	// IAM role bindings (group → role + scopes)
+	GetRoleBinding(ctx context.Context, id string) (*models.RoleBinding, error)
+	ListRoleBindings(ctx context.Context) ([]models.RoleBinding, error)
+	ListRoleBindingsByGroup(ctx context.Context, group string) ([]models.RoleBinding, error)
+	PutRoleBinding(ctx context.Context, rb *models.RoleBinding) error
+	DeleteRoleBinding(ctx context.Context, id string) error
 }
 
 // ErrNotFound is returned when a resource does not exist.
@@ -85,6 +92,7 @@ type MemoryStore struct {
 	delegations     map[string]*models.Delegation
 	delegationList  []models.Delegation
 	policyDenials   []models.PolicyDenial
+	roleBindings    map[string]*models.RoleBinding
 }
 
 // NewMemoryStore creates an empty in-memory store.
@@ -97,6 +105,7 @@ func NewMemoryStore() *MemoryStore {
 		routeConfigs:    make(map[string]*models.LLMRouteConfig),
 		providerConfigs: make(map[string]*models.ProviderConfig),
 		delegations:     make(map[string]*models.Delegation),
+		roleBindings:    make(map[string]*models.RoleBinding),
 	}
 }
 
@@ -484,4 +493,55 @@ func (m *MemoryStore) CountPolicyDenials(_ context.Context) (int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return int64(len(m.policyDenials)), nil
+}
+
+// ── IAM Role Bindings ──
+
+func (m *MemoryStore) GetRoleBinding(_ context.Context, id string) (*models.RoleBinding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rb, ok := m.roleBindings[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return rb, nil
+}
+
+func (m *MemoryStore) ListRoleBindings(_ context.Context) ([]models.RoleBinding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]models.RoleBinding, 0, len(m.roleBindings))
+	for _, rb := range m.roleBindings {
+		out = append(out, *rb)
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) ListRoleBindingsByGroup(_ context.Context, group string) ([]models.RoleBinding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []models.RoleBinding
+	for _, rb := range m.roleBindings {
+		if rb.Group == group {
+			out = append(out, *rb)
+		}
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) PutRoleBinding(_ context.Context, rb *models.RoleBinding) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.roleBindings[rb.ID] = rb
+	return nil
+}
+
+func (m *MemoryStore) DeleteRoleBinding(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.roleBindings[id]; !ok {
+		return ErrNotFound
+	}
+	delete(m.roleBindings, id)
+	return nil
 }
