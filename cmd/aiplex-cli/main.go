@@ -88,11 +88,15 @@ Get started:
 		logoutCmd(),
 		configCmd(),
 		healthCmd(),
+		doctorCmd(),
+		platformCmd(),
 
 		// Operations
 		statusCmd(),
+		applyCmd(),
 		deployCmd(),
 		undeployCmd(),
+		logsCmd(),
 		listCmd(),
 		getCmd(),
 		agentsCmd(),
