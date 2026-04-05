@@ -11,11 +11,14 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://docs.aiplex.dev',
-  baseUrl: '/',
+  // For custom domain: url: 'https://docs.aiplex.dev', baseUrl: '/'
+  // For GitHub Pages without custom domain:
+  url: 'https://vamsiramakrishnan.github.io',
+  baseUrl: '/aiplex/',
 
   organizationName: 'vamsiramakrishnan',
   projectName: 'aiplex',
+  trailingSlash: false,
 
   onBrokenLinks: 'throw',
   markdown: {
