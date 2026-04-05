@@ -62,8 +62,7 @@ func (h *InstanceHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: extract owner from JWT claims
-	owner := "anonymous"
+	owner := extractOwner(r)
 
 	inst, err := h.engine.Deploy(r.Context(), req.Plane, req.TemplateID, req.Config, owner, req.DisplayName)
 	if err != nil {
@@ -78,8 +77,7 @@ func (h *InstanceHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 func (h *InstanceHandler) Undeploy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	// TODO: extract owner from JWT claims
-	owner := "anonymous"
+	owner := extractOwner(r)
 
 	if err := h.engine.Undeploy(r.Context(), id, owner); err != nil {
 		if errors.Is(err, registry.ErrNotFound) {

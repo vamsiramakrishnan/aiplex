@@ -62,6 +62,10 @@ type Store interface {
 	// Metrics / policy denials
 	AppendPolicyDenial(ctx context.Context, d *models.PolicyDenial) error
 	ListPolicyDenials(ctx context.Context, limit int) ([]models.PolicyDenial, error)
+
+	// Counts (efficient dashboard queries)
+	CountDelegations(ctx context.Context) (int64, error)
+	CountPolicyDenials(ctx context.Context) (int64, error)
 }
 
 // ErrNotFound is returned when a resource does not exist.
@@ -468,4 +472,16 @@ func (m *MemoryStore) ListPolicyDenials(_ context.Context, limit int) ([]models.
 		}
 	}
 	return out, nil
+}
+
+func (m *MemoryStore) CountDelegations(_ context.Context) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return int64(len(m.delegationList)), nil
+}
+
+func (m *MemoryStore) CountPolicyDenials(_ context.Context) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return int64(len(m.policyDenials)), nil
 }

@@ -79,9 +79,10 @@ func main() {
 	r.Use(api.CORS("*")) // TODO: restrict to Console origin in production
 	r.Use(api.MaxBody(1 << 20)) // 1MB max request body
 
-	// Health
-	r.Get("/healthz", api.Health)
-	r.Get("/readyz", api.Health)
+	// Health (readyz checks store connectivity)
+	healthH := api.NewHealthHandler(store)
+	r.Get("/healthz", healthH.Liveness)
+	r.Get("/readyz", healthH.Readiness)
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {

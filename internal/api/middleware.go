@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -18,12 +21,11 @@ const (
 
 // RequestID injects a request ID from the X-Request-Id header (or generates one).
 func RequestID(next http.Handler) http.Handler {
-	var counter uint64
+	var counter atomic.Uint64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := r.Header.Get("X-Request-Id")
 		if rid == "" {
-			counter++
-			rid = "req-" + formatUint(counter)
+			rid = "req-" + formatUint(counter.Add(1))
 		}
 		ctx := context.WithValue(r.Context(), keyRequestID, rid)
 		w.Header().Set("X-Request-Id", rid)
@@ -112,6 +114,31 @@ func MaxBody(maxBytes int64) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// extractOwner extracts the user identity from the Authorization header JWT.
+// Falls back to "anonymous" when no valid JWT is present (e.g., dev mode).
+func extractOwner(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return "anonymous"
+	}
+	token := strings.TrimPrefix(auth, "Bearer ")
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "anonymous"
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "anonymous"
+	}
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.Sub == "" {
+		return "anonymous"
+	}
+	return claims.Sub
 }
 
 // ValidatePlane checks that the plane query param is valid if provided.
