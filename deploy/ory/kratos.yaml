@@ -2,7 +2,8 @@
 # See: https://www.ory.sh/docs/kratos/reference/configuration
 version: v1.0.0
 
-dsn: postgres://kratos:CHANGE_ME@alloydb-proxy:5432/kratos?sslmode=disable
+# DSN is injected via Helm values or K8s Secret reference.
+dsn: postgres://kratos:$(ALLOYDB_PASSWORD)@alloydb-proxy:5432/kratos?sslmode=disable
 
 serve:
   public:
@@ -101,6 +102,8 @@ ciphers:
 
 secrets:
   cookie:
-    - CHANGE_ME_COOKIE_SECRET
+    # Injected from K8s Secret 'kratos-secrets' key 'cookie-secret'.
+    - $(KRATOS_COOKIE_SECRET)
   cipher:
-    - CHANGE_ME_CIPHER_SECRET
+    # Injected from K8s Secret 'kratos-secrets' key 'cipher-secret'.
+    - $(KRATOS_CIPHER_SECRET)

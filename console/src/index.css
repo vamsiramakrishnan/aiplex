@@ -5,3 +5,46 @@
 body {
   @apply bg-gray-50 text-gray-900 antialiased;
 }
+
+.dark body {
+  @apply bg-gray-950 text-gray-100;
+}
+
+/* Skeleton shimmer animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.15) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.dark .skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Dark mode via media query fallback */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) body {
+    @apply bg-gray-950 text-gray-100;
+  }
+}

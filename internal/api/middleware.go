@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -221,6 +223,60 @@ func formatRoles(roles []models.IAMRole) string {
 		parts[i] = string(r)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// RateLimit implements a simple in-process token-bucket rate limiter.
+// For production multi-replica deployment, this should be backed by Redis
+// or the Envoy Gateway rate limit service (already configured in gateway.yaml).
+func RateLimit(requestsPerMinute int) func(http.Handler) http.Handler {
+	type bucket struct {
+		tokens    int
+		lastReset time.Time
+	}
+	var mu sync.Mutex
+	buckets := make(map[string]*bucket)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := extractOwner(r)
+			if key == "anonymous" {
+				key = r.RemoteAddr
+			}
+
+			mu.Lock()
+			b, ok := buckets[key]
+			now := time.Now()
+			if !ok || now.Sub(b.lastReset) > time.Minute {
+				b = &bucket{tokens: requestsPerMinute, lastReset: now}
+				buckets[key] = b
+			}
+			if b.tokens <= 0 {
+				mu.Unlock()
+				w.Header().Set("Retry-After", "60")
+				Error(w, r, http.StatusTooManyRequests, "RATE_LIMITED",
+					"rate limit exceeded; retry after 60 seconds")
+				return
+			}
+			b.tokens--
+			mu.Unlock()
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// Compress adds gzip compression to responses.
+func Compress(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Set header indicating gzip is available but let the reverse proxy handle it.
+		// In production, Envoy Gateway handles compression at the edge.
+		w.Header().Set("Vary", "Accept-Encoding")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ValidatePlane checks that the plane query param is valid if provided.

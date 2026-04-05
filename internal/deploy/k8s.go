@@ -2,7 +2,6 @@ package deploy
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/rs/zerolog/log"
 )
@@ -42,37 +41,5 @@ func (n *NoOpK8sClient) Delete(_ context.Context, apiVersion, kind, name, namesp
 	return nil
 }
 
-// LiveK8sClient uses client-go to interact with a real K8s cluster.
-// It applies manifests via server-side apply using dynamic client.
-type LiveK8sClient struct {
-	// In production, this would hold:
-	// dynamicClient dynamic.Interface
-	// discoveryClient discovery.DiscoveryInterface
-	// mapper meta.RESTMapper
-}
-
-// NewLiveK8sClient creates a client-go backed K8s client.
-// For now, returns a stub — will be fully wired when client-go is added.
-func NewLiveK8sClient() (*LiveK8sClient, error) {
-	// TODO: wire up client-go
-	// config, err := rest.InClusterConfig()
-	// if err != nil {
-	//     config, err = clientcmd.BuildConfigFromFlags("", filepath.Join(homedir.HomeDir(), ".kube", "config"))
-	// }
-	// dynamicClient, err := dynamic.NewForConfig(config)
-	// discoveryClient, err := discovery.NewDiscoveryClientForConfig(config)
-	return &LiveK8sClient{}, nil
-}
-
-func (l *LiveK8sClient) Apply(ctx context.Context, m Manifest) error {
-	// TODO: implement with server-side apply
-	// 1. Parse YAML to unstructured.Unstructured
-	// 2. Resolve GVR from apiVersion + kind using discovery
-	// 3. Use dynamicClient.Resource(gvr).Namespace(ns).Apply()
-	return fmt.Errorf("live K8s client not yet implemented — use NoOpK8sClient for development")
-}
-
-func (l *LiveK8sClient) Delete(ctx context.Context, apiVersion, kind, name, namespace string) error {
-	// TODO: implement with dynamic client
-	return fmt.Errorf("live K8s client not yet implemented — use NoOpK8sClient for development")
-}
+// LiveK8sClient is implemented in k8s_live.go — applies manifests to a real
+// cluster via kubectl with server-side apply semantics.

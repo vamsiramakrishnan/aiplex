@@ -1,0 +1,134 @@
+# K8s NetworkPolicies — defense-in-depth fallback if Istio mesh fails.
+# These mirror the Istio AuthorizationPolicies at the CNI level.
+
+# ── aiplex-system: allow internal + gateway ingress ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aiplex-system-default
+  namespace: aiplex-system
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  # Allow traffic from same namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: aiplex-system
+  # Allow traffic from GKE ingress controller (Gateway)
+  - from: []
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 80
+      protocol: TCP
+  egress:
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  # Allow same namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: aiplex-system
+  # Allow plane namespaces (for deploy engine)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          aiplex.io/plane: mcplex
+    - namespaceSelector:
+        matchLabels:
+          aiplex.io/plane: a2aplex
+  # Allow external: AlloyDB, Firestore, Secret Manager, Google APIs
+  - to: []
+    ports:
+    - port: 443
+      protocol: TCP
+    - port: 5432
+      protocol: TCP
+---
+# ── mcplex: only accept from aiplex-system, no arbitrary egress ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcplex-isolation
+  namespace: mcplex
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: aiplex-system
+  egress:
+  # DNS
+  - to: []
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  # HTTPS to external APIs (tools may call external services)
+  - to: []
+    ports:
+    - port: 443
+      protocol: TCP
+---
+# ── a2aplex: only accept from aiplex-system, limited egress ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: a2aplex-isolation
+  namespace: a2aplex
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: aiplex-system
+  egress:
+  # DNS
+  - to: []
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  # Allow calling back to aiplex-system (for agent-to-agent via gateway)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: aiplex-system
+  # HTTPS
+  - to: []
+    ports:
+    - port: 443
+      protocol: TCP
+---
+# ── llmplex: deny all (no pods, Envoy handles routing) ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llmplex-deny-all
+  namespace: llmplex
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress: []
+  egress: []

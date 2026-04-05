@@ -79,7 +79,8 @@ Get started:
 
 	root.PersistentFlags().StringVar(&apiURL, "url", "", "AIPlex API URL (env: AIPLEX_URL)")
 	root.PersistentFlags().StringVar(&token, "token", "", "Bearer token (env: AIPLEX_TOKEN)")
-	root.PersistentFlags().StringVarP(&output, "output", "o", "table", "Output format: table, json")
+	root.PersistentFlags().StringVarP(&output, "output", "o", "table", "Output format: table, json, yaml")
+	root.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 
 	root.AddCommand(
 		// Onboarding
@@ -103,6 +104,11 @@ Get started:
 		llmCmd(),
 		a2aCmd(),
 		catalogCmd(),
+
+		// Utilities
+		completionCmd(),
+		versionCmd(),
+		validateCmd(),
 	)
 
 	if err := root.Execute(); err != nil {

@@ -1,0 +1,261 @@
+# Gateway API resources — connects the Global HTTPS LB to backend services.
+# This is the missing link between Terraform-provisioned LB and K8s services.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: gke-l7-global-external-managed
+spec:
+  controllerName: networking.gke.io/gateway
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: aiplex-gateway
+  namespace: aiplex-system
+  annotations:
+    networking.gke.io/certmap: aiplex-cert-map
+spec:
+  gatewayClassName: gke-l7-global-external-managed
+  addresses:
+  - type: NamedAddress
+    value: aiplex-ip
+  listeners:
+  - name: https
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+    allowedRoutes:
+      namespaces:
+        from: All
+  - name: http-redirect
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces:
+        from: All
+---
+# Redirect HTTP → HTTPS
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-redirect
+  namespace: aiplex-system
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    sectionName: http-redirect
+  rules:
+  - filters:
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 301
+---
+# Console (SPA) — serves on root domain
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: console-route
+  namespace: aiplex-system
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    sectionName: https
+  hostnames:
+  - "DOMAIN"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: aiplex-console
+      port: 80
+---
+# AIPlex API — /api/*, /auth/*, /healthz, /readyz, /v0.1/*
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+  namespace: aiplex-system
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    sectionName: https
+  hostnames:
+  - "DOMAIN"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api/
+    - path:
+        type: PathPrefix
+        value: /auth/
+    - path:
+        type: PathPrefix
+        value: /healthz
+    - path:
+        type: PathPrefix
+        value: /readyz
+    - path:
+        type: PathPrefix
+        value: /v0.1/
+    - path:
+        type: PathPrefix
+        value: /metrics
+    - path:
+        type: PathPrefix
+        value: /events
+    backendRefs:
+    - name: aiplex-api
+      port: 8080
+---
+# MCPlex plane routes — /mcp/* → dynamically deployed MCP servers
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcplex-route
+  namespace: mcplex
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    namespace: aiplex-system
+    sectionName: https
+  hostnames:
+  - "DOMAIN"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /mcp/
+    filters:
+    - type: ExtensionRef
+      extensionRef:
+        group: gateway.envoyproxy.io
+        kind: SecurityPolicy
+        name: aiplex-authz
+    backendRefs:
+    - name: aiplex-api
+      namespace: aiplex-system
+      port: 8080
+---
+# A2APlex plane routes — /a2a/* → dynamically deployed A2A agents
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: a2aplex-route
+  namespace: a2aplex
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    namespace: aiplex-system
+    sectionName: https
+  hostnames:
+  - "DOMAIN"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /a2a/
+    backendRefs:
+    - name: aiplex-api
+      namespace: aiplex-system
+      port: 8080
+---
+# A2A Agent Card discovery — /.well-known/agent.json per instance
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: a2a-discovery-route
+  namespace: a2aplex
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    namespace: aiplex-system
+    sectionName: https
+  hostnames:
+  - "DOMAIN"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /a2a/
+      headers:
+      - name: Accept
+        value: application/json
+    backendRefs:
+    - name: aiplex-api
+      namespace: aiplex-system
+      port: 8080
+---
+# LLMPlex routes — /llm/* → Envoy AI Gateway handles directly
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: llmplex-route
+  namespace: aiplex-system
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    sectionName: https
+  hostnames:
+  - "DOMAIN"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /llm/
+    backendRefs:
+    - name: aiplex-api
+      port: 8080
+---
+# SecurityPolicy — ext_authz via OPA for all plane traffic
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: aiplex-authz
+  namespace: aiplex-system
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: aiplex-gateway
+  extAuth:
+    grpc:
+      backendRef:
+        name: opa-ext-authz
+        port: 9191
+    withRequestBody:
+      maxRequestBytes: 65536
+---
+# BackendTrafficPolicy — per-user rate limiting
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: global-rate-limit
+  namespace: aiplex-system
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: aiplex-gateway
+  rateLimit:
+    type: Global
+    global:
+      rules:
+      - clientSelectors:
+        - headers:
+          - name: x-jwt-sub
+            type: Distinct
+        limit:
+          requests: 200
+          unit: Minute
+      - clientSelectors:
+        - headers:
+          - name: x-jwt-sub
+            type: Distinct
+        limit:
+          requests: 5000
+          unit: Hour

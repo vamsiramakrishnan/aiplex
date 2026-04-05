@@ -175,3 +175,38 @@ func (f *FirestoreStore) AppendPolicyDenial(ctx context.Context, d *models.Polic
 func (f *FirestoreStore) ListPolicyDenials(ctx context.Context, limit int) ([]models.PolicyDenial, error) {
 	return f.memory.ListPolicyDenials(ctx, limit)
 }
+
+func (f *FirestoreStore) CountDelegations(ctx context.Context) (int64, error) {
+	return f.memory.CountDelegations(ctx)
+}
+
+func (f *FirestoreStore) CountPolicyDenials(ctx context.Context) (int64, error) {
+	return f.memory.CountPolicyDenials(ctx)
+}
+
+// ── IAM Role Bindings ──
+
+func (f *FirestoreStore) GetRoleBinding(ctx context.Context, id string) (*models.RoleBinding, error) {
+	// Firestore: role_bindings/{id}
+	return f.memory.GetRoleBinding(ctx, id)
+}
+
+func (f *FirestoreStore) ListRoleBindings(ctx context.Context) ([]models.RoleBinding, error) {
+	// Firestore: role_bindings, order by created_at desc
+	return f.memory.ListRoleBindings(ctx)
+}
+
+func (f *FirestoreStore) ListRoleBindingsByGroup(ctx context.Context, group string) ([]models.RoleBinding, error) {
+	// Firestore: role_bindings where group == {group}
+	return f.memory.ListRoleBindingsByGroup(ctx, group)
+}
+
+func (f *FirestoreStore) PutRoleBinding(ctx context.Context, rb *models.RoleBinding) error {
+	// Firestore: role_bindings/{rb.ID}.Set(rb)
+	return f.memory.PutRoleBinding(ctx, rb)
+}
+
+func (f *FirestoreStore) DeleteRoleBinding(ctx context.Context, id string) error {
+	// Firestore: role_bindings/{id}.Delete()
+	return f.memory.DeleteRoleBinding(ctx, id)
+}

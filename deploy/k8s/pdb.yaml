@@ -1,0 +1,44 @@
+# PodDisruptionBudgets — guarantee availability during node maintenance/upgrades.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aiplex-api-pdb
+  namespace: aiplex-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aiplex-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aiplex-console-pdb
+  namespace: aiplex-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aiplex-console
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: opa-ext-authz-pdb
+  namespace: aiplex-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: opa-ext-authz
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: otel-collector-pdb
+  namespace: aiplex-system
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      app: otel-collector

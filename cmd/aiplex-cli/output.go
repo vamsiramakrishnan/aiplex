@@ -6,12 +6,23 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+
+	"gopkg.in/yaml.v3"
 )
+
+var debug bool
 
 func printJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(v)
+}
+
+func printYAML(v any) {
+	enc := yaml.NewEncoder(os.Stdout)
+	enc.SetIndent(2)
+	enc.Encode(v)
+	enc.Close()
 }
 
 func printTable(headers []string, rows [][]string) {
@@ -22,4 +33,10 @@ func printTable(headers []string, rows [][]string) {
 		fmt.Fprintln(w, strings.Join(row, "\t"))
 	}
 	w.Flush()
+}
+
+func debugf(format string, args ...any) {
+	if debug {
+		fmt.Fprintf(os.Stderr, "[DEBUG] "+format+"\n", args...)
+	}
 }

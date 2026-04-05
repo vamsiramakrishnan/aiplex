@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
@@ -14,11 +16,16 @@ import (
 // AgentHandler serves agent registration and permission endpoints.
 type AgentHandler struct {
 	store registry.Store
+	hydra *auth.HydraClient
 }
 
 // NewAgentHandler creates an agent API handler.
-func NewAgentHandler(store registry.Store) *AgentHandler {
-	return &AgentHandler{store: store}
+func NewAgentHandler(store registry.Store, hydra ...*auth.HydraClient) *AgentHandler {
+	h := &AgentHandler{store: store}
+	if len(hydra) > 0 {
+		h.hydra = hydra[0]
+	}
+	return h
 }
 
 // List returns all registered agents.
@@ -77,8 +84,29 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	agent.RegisteredAt = time.Now()
 	agent.Status = "active"
+	agent.ResourceVersion = 1
 
-	// TODO: create OAuth client in Hydra via admin API
+	// Create OAuth client in Hydra (non-fatal — agent is registered locally even if Hydra is unavailable)
+	if h.hydra != nil {
+		grantTypes := agent.GrantTypes
+		if len(grantTypes) == 0 {
+			grantTypes = []string{"client_credentials"}
+		}
+		oauthClient := auth.OAuthClient{
+			ClientID:                agent.ClientID,
+			ClientName:              agent.DisplayName,
+			GrantTypes:              grantTypes,
+			Scope:                   strings.Join(agent.AllowedScopes, " "),
+			RedirectURIs:            agent.RedirectURIs,
+			TokenEndpointAuthMethod: "client_secret_basic",
+		}
+		if err := h.hydra.CreateClient(r.Context(), oauthClient); err != nil {
+			// Log but don't fail — Hydra may not be available in dev mode
+			zerolog.Ctx(r.Context()).Warn().Err(err).
+				Str("client_id", agent.ClientID).
+				Msg("failed to create Hydra OAuth client")
+		}
+	}
 
 	if err := h.store.PutAgent(r.Context(), &agent); err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
@@ -92,7 +120,14 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *AgentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	clientID := r.PathValue("clientId")
 
-	// TODO: delete OAuth client from Hydra
+	// Delete OAuth client from Hydra
+	if h.hydra != nil {
+		if err := h.hydra.DeleteClient(r.Context(), clientID); err != nil {
+			zerolog.Ctx(r.Context()).Warn().Err(err).
+				Str("client_id", clientID).
+				Msg("failed to delete Hydra OAuth client")
+		}
+	}
 
 	if err := h.store.DeleteAgent(r.Context(), clientID); err != nil {
 		if errors.Is(err, registry.ErrNotFound) {

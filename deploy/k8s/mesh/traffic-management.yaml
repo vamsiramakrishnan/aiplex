@@ -1,0 +1,124 @@
+# Istio traffic management — retries, timeouts, circuit breaking, outlier detection.
+
+# ── aiplex-api: retries + timeout + circuit breaking ──
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: aiplex-api
+  namespace: aiplex-system
+spec:
+  host: aiplex-api.aiplex-system.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        h2UpgradePolicy: DEFAULT
+        maxRequestsPerConnection: 10
+        maxRetries: 3
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+    loadBalancer:
+      simple: LEAST_REQUEST
+---
+# ── OPA ext-authz: fast failover, low timeout ──
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: opa-ext-authz
+  namespace: aiplex-system
+spec:
+  host: opa-ext-authz.aiplex-system.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 200
+      http:
+        maxRequestsPerConnection: 100
+        maxRetries: 2
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 10s
+      baseEjectionTime: 10s
+      maxEjectionPercent: 30
+---
+# ── VirtualService: aiplex-api retry + timeout policy ──
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: aiplex-api
+  namespace: aiplex-system
+spec:
+  hosts:
+  - aiplex-api
+  http:
+  - route:
+    - destination:
+        host: aiplex-api
+        port:
+          number: 8080
+    timeout: 30s
+    retries:
+      attempts: 2
+      perTryTimeout: 10s
+      retryOn: gateway-error,connect-failure,refused-stream,unavailable
+---
+# ── VirtualService: OPA ext-authz — minimal timeout for policy checks ──
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: opa-ext-authz
+  namespace: aiplex-system
+spec:
+  hosts:
+  - opa-ext-authz
+  http:
+  - route:
+    - destination:
+        host: opa-ext-authz
+        port:
+          number: 9191
+    timeout: 5s
+    retries:
+      attempts: 1
+      perTryTimeout: 2s
+      retryOn: connect-failure,refused-stream
+---
+# ── MCPlex: retry on 503 for tool calls ──
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: mcplex-default
+  namespace: mcplex
+spec:
+  host: "*.mcplex.svc.cluster.local"
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 50
+    outlierDetection:
+      consecutive5xxErrors: 3
+      interval: 30s
+      baseEjectionTime: 60s
+      maxEjectionPercent: 50
+---
+# ── A2APlex: retry with longer timeout for agent delegation ──
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: a2aplex-default
+  namespace: a2aplex
+spec:
+  host: "*.a2aplex.svc.cluster.local"
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 50
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 30

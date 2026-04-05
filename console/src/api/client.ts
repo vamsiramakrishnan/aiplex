@@ -1,9 +1,22 @@
 const BASE = '/api/v1'
+const TOKEN_KEY = 'aiplex_token'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = (() => {
+    try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
+  })()
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> ?? {}),
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers,
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }))
@@ -187,3 +200,53 @@ export async function applyManifest(manifest: Manifest): Promise<{
 
   return { applied, failed }
 }
+
+// Deploy history
+export interface HistoryEntry {
+  timestamp: string
+  action: string
+  actor: string
+  details?: string
+}
+
+export const getInstanceHistory = (id: string) =>
+  request<HistoryEntry[]>(`/instances/${id}/history`)
+
+// Dashboard stats
+export interface DashboardStats {
+  total_instances: number
+  instances_by_plane: Record<string, number>
+  total_agents: number
+  total_tool_calls: number
+  total_a2a_delegations: number
+  total_llm_requests: number
+  policy_denials: number
+  cost_usd: number
+}
+
+export const getDashboardStats = () =>
+  request<DashboardStats>('/dashboard/stats')
+
+// Role bindings
+export interface RoleBinding {
+  id: string
+  subject: string
+  subject_type: 'user' | 'agent'
+  scopes: string[]
+  granted_at: string
+  granted_by: string
+}
+
+export const listRoleBindings = () =>
+  request<RoleBinding[]>('/access/bindings')
+
+// Whoami
+export interface WhoamiResponse {
+  sub: string
+  email: string
+  scopes: string[]
+  agents: string[]
+}
+
+export const getWhoami = () =>
+  request<WhoamiResponse>('/auth/whoami')

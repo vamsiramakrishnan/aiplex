@@ -46,7 +46,12 @@ data:
       googlecloud/trace:
         project: PROJECT_ID
 
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
     service:
+      extensions: [health_check]
       pipelines:
         traces:
           receivers: [otlp]
@@ -86,6 +91,8 @@ spec:
           name: otlp-grpc
         - containerPort: 4318
           name: otlp-http
+        - containerPort: 13133
+          name: health
         volumeMounts:
         - name: config
           mountPath: /etc/otel
@@ -96,6 +103,18 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 13133
+          initialDelaySeconds: 5
+          periodSeconds: 10
       volumes:
       - name: config
         configMap:
