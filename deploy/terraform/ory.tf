@@ -108,6 +108,54 @@ resource "random_password" "hydra_system" {
   special = false
 }
 
+resource "google_secret_manager_secret" "hydra_pairwise_salt" {
+  secret_id = "hydra-pairwise-salt"
+  project   = var.project_id
+  replication { auto {} }
+}
+
+resource "google_secret_manager_secret_version" "hydra_pairwise_salt" {
+  secret      = google_secret_manager_secret.hydra_pairwise_salt.id
+  secret_data = random_password.hydra_pairwise_salt.result
+}
+
+resource "random_password" "hydra_pairwise_salt" {
+  length  = 32
+  special = false
+}
+
+resource "google_secret_manager_secret" "kratos_cookie" {
+  secret_id = "kratos-cookie-secret"
+  project   = var.project_id
+  replication { auto {} }
+}
+
+resource "google_secret_manager_secret_version" "kratos_cookie" {
+  secret      = google_secret_manager_secret.kratos_cookie.id
+  secret_data = random_password.kratos_cookie.result
+}
+
+resource "random_password" "kratos_cookie" {
+  length  = 32
+  special = false
+}
+
+resource "google_secret_manager_secret" "kratos_cipher" {
+  secret_id = "kratos-cipher-secret"
+  project   = var.project_id
+  replication { auto {} }
+}
+
+resource "google_secret_manager_secret_version" "kratos_cipher" {
+  secret      = google_secret_manager_secret.kratos_cipher.id
+  secret_data = random_password.kratos_cipher.result
+}
+
+resource "random_password" "kratos_cipher" {
+  length  = 32
+  special = false
+}
+
 # Ory Hydra Helm release
 resource "helm_release" "hydra" {
   name       = "hydra"
@@ -138,6 +186,12 @@ resource "helm_release" "hydra" {
             scope        = "exact"
           }
           secrets = { system = [random_password.hydra_system.result] }
+          oidc = {
+            subject_identifiers = {
+              supported_types = ["public", "pairwise"]
+              pairwise = { salt = random_password.hydra_pairwise_salt.result }
+            }
+          }
         }
       }
       deployment = {
@@ -170,6 +224,10 @@ resource "helm_release" "kratos" {
       kratos = {
         config = {
           dsn = "postgres://kratos:${random_password.alloydb_password.result}@alloydb-proxy:5432/kratos?sslmode=disable"
+          secrets = {
+            cookie = [random_password.kratos_cookie.result]
+            cipher = [random_password.kratos_cipher.result]
+          }
           serve = {
             public = {
               base_url = "https://${var.domain}/.ory/kratos/public/"

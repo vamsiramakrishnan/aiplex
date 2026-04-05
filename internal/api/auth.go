@@ -87,8 +87,12 @@ func (h *AuthHandler) ConsentAccept(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Deny {
-		// TODO: call hydra.RejectConsent
-		JSON(w, http.StatusOK, map[string]string{"redirect_to": "/consent-denied"})
+		redirectURL, err := h.hydra.RejectConsent(r.Context(), req.Challenge, "user_denied", "User denied consent")
+		if err != nil {
+			Error(w, r, http.StatusBadGateway, "HYDRA_ERROR", "consent rejection failed: "+err.Error())
+			return
+		}
+		JSON(w, http.StatusOK, map[string]string{"redirect_to": redirectURL})
 		return
 	}
 

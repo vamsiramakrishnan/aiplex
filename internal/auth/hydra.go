@@ -137,3 +137,29 @@ func (h *HydraClient) AcceptConsent(ctx context.Context, challenge string, grant
 	json.NewDecoder(resp.Body).Decode(&result)
 	return result.RedirectTo, nil
 }
+
+// RejectConsent rejects a consent request.
+func (h *HydraClient) RejectConsent(ctx context.Context, challenge, errorID, errorDescription string) (string, error) {
+	payload := map[string]any{
+		"error":             errorID,
+		"error_description": errorDescription,
+	}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		h.adminURL+"/admin/oauth2/auth/requests/consent/reject?consent_challenge="+challenge,
+		bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("hydra reject consent: %w", err)
+	}
+	defer resp.Body.Close()
+	var result struct {
+		RedirectTo string `json:"redirect_to"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.RedirectTo, nil
+}

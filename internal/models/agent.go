@@ -18,10 +18,14 @@ type Agent struct {
 	SpiffeID     string `json:"spiffe_id,omitempty"`
 	RedirectURIs []string `json:"redirect_uris,omitempty"`
 
+	// Organization
+	Labels map[string]string `json:"labels,omitempty"`
+
 	// Metadata
-	RegisteredAt time.Time `json:"registered_at"`
-	RegisteredBy string    `json:"registered_by"`
-	Status       string    `json:"status"` // active, suspended
+	ResourceVersion int64     `json:"resource_version"`
+	RegisteredAt    time.Time `json:"registered_at"`
+	RegisteredBy    string    `json:"registered_by"`
+	Status          string    `json:"status"` // active, suspended
 }
 
 // AgentPermissions provides a cross-plane view of an agent's effective permissions.

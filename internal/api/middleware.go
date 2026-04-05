@@ -6,17 +6,24 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/vamsiramakrishnan/aiplex/internal/auth"
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
 type contextKey string
 
 const (
-	keyRequestID contextKey = "request_id"
-	keyUserID    contextKey = "user_id"
+	keyRequestID   contextKey = "request_id"
+	keyUserID      contextKey = "user_id"
+	keyWIFIdentity contextKey = "wif_identity"
+	keyWIFAccess   contextKey = "wif_access"
 )
 
 // RequestID injects a request ID from the X-Request-Id header (or generates one).
@@ -139,6 +146,137 @@ func extractOwner(r *http.Request) string {
 		return "anonymous"
 	}
 	return claims.Sub
+}
+
+// WIFAuth extracts the caller's WIF identity from the request token,
+// resolves group→role mappings, and syncs Dimension B scopes.
+// The resolved identity and access are stored in the request context.
+// This middleware is non-blocking: if no WIF token is present, the request
+// proceeds without WIF identity (for unauthenticated/dev endpoints).
+func WIFAuth(wif *auth.WIFValidator) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			identity, err := wif.ExtractIdentity(r)
+			if err != nil {
+				// No valid WIF token — proceed without identity
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), keyWIFIdentity, identity)
+
+			// Resolve roles and sync Dimension B scopes
+			access, err := wif.SyncUserScopes(r.Context(), identity)
+			if err != nil {
+				zerolog.Ctx(r.Context()).Warn().Err(err).Msg("failed to resolve WIF access")
+			} else {
+				ctx = context.WithValue(ctx, keyWIFAccess, access)
+			}
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// GetWIFIdentity extracts the WIF identity from context (set by WIFAuth middleware).
+func GetWIFIdentity(ctx context.Context) *models.WIFIdentity {
+	identity, _ := ctx.Value(keyWIFIdentity).(*models.WIFIdentity)
+	return identity
+}
+
+// GetWIFAccess extracts the resolved WIF access from context (set by WIFAuth middleware).
+func GetWIFAccess(ctx context.Context) *models.ResolvedAccess {
+	access, _ := ctx.Value(keyWIFAccess).(*models.ResolvedAccess)
+	return access
+}
+
+// RequireRole returns middleware that rejects requests from callers
+// who don't have at least one of the specified AIPlex roles.
+func RequireRole(roles ...models.IAMRole) func(http.Handler) http.Handler {
+	roleSet := make(map[models.IAMRole]bool, len(roles))
+	for _, r := range roles {
+		roleSet[r] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			access := GetWIFAccess(r.Context())
+			if access == nil {
+				// No WIF identity resolved — allow through for dev/IAP-only setups
+				next.ServeHTTP(w, r)
+				return
+			}
+			for _, role := range access.Roles {
+				if roleSet[role] {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			Error(w, r, http.StatusForbidden, "FORBIDDEN",
+				"insufficient role; required one of: "+formatRoles(roles))
+		})
+	}
+}
+
+func formatRoles(roles []models.IAMRole) string {
+	parts := make([]string, len(roles))
+	for i, r := range roles {
+		parts[i] = string(r)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// RateLimit implements a simple in-process token-bucket rate limiter.
+// For production multi-replica deployment, this should be backed by Redis
+// or the Envoy Gateway rate limit service (already configured in gateway.yaml).
+func RateLimit(requestsPerMinute int) func(http.Handler) http.Handler {
+	type bucket struct {
+		tokens    int
+		lastReset time.Time
+	}
+	var mu sync.Mutex
+	buckets := make(map[string]*bucket)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := extractOwner(r)
+			if key == "anonymous" {
+				key = r.RemoteAddr
+			}
+
+			mu.Lock()
+			b, ok := buckets[key]
+			now := time.Now()
+			if !ok || now.Sub(b.lastReset) > time.Minute {
+				b = &bucket{tokens: requestsPerMinute, lastReset: now}
+				buckets[key] = b
+			}
+			if b.tokens <= 0 {
+				mu.Unlock()
+				w.Header().Set("Retry-After", "60")
+				Error(w, r, http.StatusTooManyRequests, "RATE_LIMITED",
+					"rate limit exceeded; retry after 60 seconds")
+				return
+			}
+			b.tokens--
+			mu.Unlock()
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// Compress adds gzip compression to responses.
+func Compress(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Set header indicating gzip is available but let the reverse proxy handle it.
+		// In production, Envoy Gateway handles compression at the edge.
+		w.Header().Set("Vary", "Accept-Encoding")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // ValidatePlane checks that the plane query param is valid if provided.

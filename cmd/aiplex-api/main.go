@@ -56,20 +56,40 @@ func main() {
 	}
 	aggregator := catalog.NewAggregator(sources)
 
-	// Deploy engine
-	engine := deploy.NewEngine(store, cfg.TrustDomain)
+	// Deploy engine — use live K8s client in production, no-op in dev
+	var k8sClient deploy.K8sClient
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		k8sClient = deploy.NewLiveK8sClientConfigured()
+		log.Info().Msg("using live K8s client (in-cluster)")
+	} else {
+		k8sClient = deploy.NewNoOpK8sClient()
+		log.Info().Msg("using no-op K8s client (dev mode)")
+	}
+	engine := deploy.NewEngineWithK8s(store, k8sClient, cfg.TrustDomain, cfg.GatewayName)
 
 	// Auth (Ory Hydra)
 	hydraClient := auth.NewHydraClient(cfg.HydraAdminURL)
 
+	// WIF Validator
+	wifValidator := auth.NewWIFValidator(store, auth.WIFConfig{
+		WorkforcePoolID: cfg.WorkforcePoolID,
+		WorkloadPoolID:  cfg.WIFPool,
+		TrustedIssuers: []string{
+			"https://accounts.google.com",
+			"https://sts.windows.net/",
+		},
+	})
+
 	// Handlers
 	catalogH := api.NewCatalogHandler(aggregator, store)
 	instanceH := api.NewInstanceHandler(store, engine)
-	agentH := api.NewAgentHandler(store)
+	agentH := api.NewAgentHandler(store, hydraClient)
 	authH := api.NewAuthHandler(hydraClient, store)
 	llmH := api.NewLLMHandler(store)
 	a2aH := api.NewA2AHandler(store)
 	dashH := api.NewDashboardHandler(store)
+	iamH := api.NewIAMHandler(store, wifValidator)
+	sseH := api.NewSSEHandler(store)
 
 	// Router
 	r := chi.NewRouter()
@@ -77,7 +97,11 @@ func main() {
 	r.Use(api.RequestID)
 	r.Use(api.Logger)
 	r.Use(api.CORS("*")) // TODO: restrict to Console origin in production
-	r.Use(api.MaxBody(1 << 20)) // 1MB max request body
+	r.Use(api.MaxBody(1 << 20))          // 1MB max request body
+	r.Use(api.WIFAuth(wifValidator))     // Extract WIF identity + sync Dimension B
+	r.Use(api.AuditLog)                  // Log all mutations
+	r.Use(api.RateLimit(200))            // 200 req/min per user (in-process)
+	r.Use(api.Compress)                  // Response compression hints
 
 	// Health (readyz checks store connectivity)
 	healthH := api.NewHealthHandler(store)
@@ -133,6 +157,18 @@ func main() {
 			r.Get("/denials", dashH.ListPolicyDenials)
 			r.Post("/denials", dashH.RecordPolicyDenial)
 		})
+
+		// IAM — role bindings, WIF identity resolution
+		r.Route("/iam", func(r chi.Router) {
+			r.Get("/roles", iamH.ListRoles)
+			r.Get("/whoami", iamH.ResolveIdentity)
+			r.Post("/validate-principal", iamH.ValidateWIFPrincipal)
+			r.Get("/role-bindings", iamH.ListRoleBindings)
+			r.Post("/role-bindings", iamH.CreateRoleBinding)
+			r.Get("/role-bindings/{id}", iamH.GetRoleBinding)
+			r.Put("/role-bindings/{id}", iamH.UpdateRoleBinding)
+			r.Delete("/role-bindings/{id}", iamH.DeleteRoleBinding)
+		})
 	})
 
 	// Auth webhooks (Hydra consent + token hook)
@@ -144,6 +180,9 @@ func main() {
 		r.Get("/users/{userId}/scopes", authH.GetUserScopes)
 		r.Put("/users/{userId}/scopes", authH.SetUserScopes)
 	})
+
+	// Server-Sent Events for live dashboard
+	r.Get("/events/stream", sseH.Stream)
 
 	// MCP sub-registry (v0.1 spec)
 	r.Get("/v0.1/servers", catalogH.List)

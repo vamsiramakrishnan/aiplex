@@ -41,6 +41,12 @@ spec:
             path: /
             port: http
           periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 2
+          periodSeconds: 10
 ---
 apiVersion: v1
 kind: Service

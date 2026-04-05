@@ -24,11 +24,12 @@ type Config struct {
 
 	// Envoy AI Gateway
 	GatewayNamespace string `env:"GATEWAY_NAMESPACE,default=aiplex-system"`
-	GatewayName      string `env:"GATEWAY_NAME,default=aiplex-gateway"`
+	GatewayName       string `env:"GATEWAY_NAME,default=aiplex-gateway"`
 
 	// Identity
-	TrustDomain string `env:"TRUST_DOMAIN,default=aiplex-prod.global"`
-	WIFPool     string `env:"WIF_POOL,default=aiplex-prod"`
+	TrustDomain     string `env:"TRUST_DOMAIN,default=aiplex-prod.global"`
+	WIFPool         string `env:"WIF_POOL,default=aiplex-agents"`
+	WorkforcePoolID string `env:"WORKFORCE_POOL_ID,default=aiplex-users"`
 
 	// Observability
 	LogLevel string `env:"LOG_LEVEL,default=info"`
