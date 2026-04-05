@@ -125,3 +125,53 @@ func (f *FirestoreStore) SetUserScopes(ctx context.Context, userID string, scope
 	// Firestore: user_scopes/{userID}.Set({"scopes": scopes})
 	return f.memory.SetUserScopes(ctx, userID, scopes)
 }
+
+// Delegate new methods to memory store
+func (f *FirestoreStore) GetRouteConfig(ctx context.Context, modelID string) (*models.LLMRouteConfig, error) {
+	return f.memory.GetRouteConfig(ctx, modelID)
+}
+func (f *FirestoreStore) ListRouteConfigs(ctx context.Context) ([]models.LLMRouteConfig, error) {
+	return f.memory.ListRouteConfigs(ctx)
+}
+func (f *FirestoreStore) PutRouteConfig(ctx context.Context, rc *models.LLMRouteConfig) error {
+	return f.memory.PutRouteConfig(ctx, rc)
+}
+func (f *FirestoreStore) DeleteRouteConfig(ctx context.Context, modelID string) error {
+	return f.memory.DeleteRouteConfig(ctx, modelID)
+}
+func (f *FirestoreStore) GetProviderConfig(ctx context.Context, provider string) (*models.ProviderConfig, error) {
+	return f.memory.GetProviderConfig(ctx, provider)
+}
+func (f *FirestoreStore) ListProviderConfigs(ctx context.Context) ([]models.ProviderConfig, error) {
+	return f.memory.ListProviderConfigs(ctx)
+}
+func (f *FirestoreStore) PutProviderConfig(ctx context.Context, pc *models.ProviderConfig) error {
+	return f.memory.PutProviderConfig(ctx, pc)
+}
+func (f *FirestoreStore) AppendUsage(ctx context.Context, record *models.UsageRecord) error {
+	return f.memory.AppendUsage(ctx, record)
+}
+func (f *FirestoreStore) GetUsageSummary(ctx context.Context, modelID, agentID, period string) (*models.UsageSummary, error) {
+	return f.memory.GetUsageSummary(ctx, modelID, agentID, period)
+}
+func (f *FirestoreStore) ListUsageRecords(ctx context.Context, modelID, agentID string, since time.Time, limit int) ([]models.UsageRecord, error) {
+	return f.memory.ListUsageRecords(ctx, modelID, agentID, since, limit)
+}
+func (f *FirestoreStore) AppendDelegation(ctx context.Context, d *models.Delegation) error {
+	return f.memory.AppendDelegation(ctx, d)
+}
+func (f *FirestoreStore) GetDelegation(ctx context.Context, id string) (*models.Delegation, error) {
+	return f.memory.GetDelegation(ctx, id)
+}
+func (f *FirestoreStore) ListDelegations(ctx context.Context, agentID string, limit int) ([]models.Delegation, error) {
+	return f.memory.ListDelegations(ctx, agentID, limit)
+}
+func (f *FirestoreStore) UpdateDelegation(ctx context.Context, d *models.Delegation) error {
+	return f.memory.UpdateDelegation(ctx, d)
+}
+func (f *FirestoreStore) AppendPolicyDenial(ctx context.Context, d *models.PolicyDenial) error {
+	return f.memory.AppendPolicyDenial(ctx, d)
+}
+func (f *FirestoreStore) ListPolicyDenials(ctx context.Context, limit int) ([]models.PolicyDenial, error) {
+	return f.memory.ListPolicyDenials(ctx, limit)
+}

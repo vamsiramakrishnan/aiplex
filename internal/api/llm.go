@@ -1,0 +1,205 @@
+package api
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/internal/registry"
+)
+
+// LLMHandler serves LLMPlex routing, provider, and usage endpoints.
+type LLMHandler struct {
+	store registry.Store
+}
+
+// NewLLMHandler creates an LLMPlex API handler.
+func NewLLMHandler(store registry.Store) *LLMHandler {
+	return &LLMHandler{store: store}
+}
+
+// ── Route Configs ──
+
+// ListRouteConfigs returns all LLM routing configurations.
+// GET /api/v1/llm/routes
+func (h *LLMHandler) ListRouteConfigs(w http.ResponseWriter, r *http.Request) {
+	configs, err := h.store.ListRouteConfigs(r.Context())
+	if err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, configs)
+}
+
+// GetRouteConfig returns a single route config by model ID.
+// GET /api/v1/llm/routes/{modelId}
+func (h *LLMHandler) GetRouteConfig(w http.ResponseWriter, r *http.Request) {
+	modelID := r.PathValue("modelId")
+	rc, err := h.store.GetRouteConfig(r.Context(), modelID)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotFound) {
+			Error(w, r, http.StatusNotFound, "NOT_FOUND", "route config not found")
+			return
+		}
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, rc)
+}
+
+// PutRouteConfig creates or updates an LLM routing configuration.
+// PUT /api/v1/llm/routes/{modelId}
+func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
+	modelID := r.PathValue("modelId")
+	var rc models.LLMRouteConfig
+	if err := json.NewDecoder(r.Body).Decode(&rc); err != nil {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+	rc.ModelID = modelID
+	rc.ID = "route-" + modelID
+
+	// Validate weights sum to 100
+	totalWeight := 0
+	for _, b := range rc.Backends {
+		totalWeight += b.Weight
+	}
+	if len(rc.Backends) > 0 && totalWeight != 100 {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "backend weights must sum to 100")
+		return
+	}
+
+	if err := h.store.PutRouteConfig(r.Context(), &rc); err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+
+	// TODO: regenerate Envoy LLMRoute + AIServiceBackend CRDs
+
+	JSON(w, http.StatusOK, rc)
+}
+
+// DeleteRouteConfig removes an LLM routing configuration.
+// DELETE /api/v1/llm/routes/{modelId}
+func (h *LLMHandler) DeleteRouteConfig(w http.ResponseWriter, r *http.Request) {
+	modelID := r.PathValue("modelId")
+	if err := h.store.DeleteRouteConfig(r.Context(), modelID); err != nil {
+		if errors.Is(err, registry.ErrNotFound) {
+			Error(w, r, http.StatusNotFound, "NOT_FOUND", "route config not found")
+			return
+		}
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ── Provider Configs ──
+
+// ListProviders returns all configured LLM providers.
+// GET /api/v1/llm/providers
+func (h *LLMHandler) ListProviders(w http.ResponseWriter, r *http.Request) {
+	providers, err := h.store.ListProviderConfigs(r.Context())
+	if err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, providers)
+}
+
+// PutProvider creates or updates a provider configuration.
+// PUT /api/v1/llm/providers/{provider}
+func (h *LLMHandler) PutProvider(w http.ResponseWriter, r *http.Request) {
+	providerName := r.PathValue("provider")
+	var pc models.ProviderConfig
+	if err := json.NewDecoder(r.Body).Decode(&pc); err != nil {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+	pc.Provider = providerName
+
+	// TODO: validate Secret Manager reference exists
+	// TODO: store API key in Secret Manager if provided directly
+
+	if err := h.store.PutProviderConfig(r.Context(), &pc); err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, pc)
+}
+
+// ── Usage / Cost Tracking ──
+
+// RecordUsage records a single LLM usage event.
+// POST /api/v1/llm/usage
+func (h *LLMHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
+	var record models.UsageRecord
+	if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+	if record.Timestamp.IsZero() {
+		record.Timestamp = time.Now()
+	}
+	record.TotalTokens = record.InputTokens + record.OutputTokens
+
+	// Auto-calculate cost if pricing is known
+	if record.CostUSD == 0 {
+		tmpl, err := h.store.GetTemplate(r.Context(), record.ModelID)
+		if err == nil && tmpl.Pricing != nil {
+			record.CostUSD = (float64(record.InputTokens) * tmpl.Pricing.Input / 1_000_000) +
+				(float64(record.OutputTokens) * tmpl.Pricing.Output / 1_000_000)
+		}
+	}
+
+	if err := h.store.AppendUsage(r.Context(), &record); err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+
+	// Check budget if route config exists
+	if rc, err := h.store.GetRouteConfig(r.Context(), record.ModelID); err == nil && rc.Budget != nil {
+		summary, _ := h.store.GetUsageSummary(r.Context(), record.ModelID, "", "day")
+		if rc.Budget.MaxDailyCostUSD > 0 && summary.TotalCostUSD > rc.Budget.MaxDailyCostUSD {
+			// Budget exceeded — log warning (in production, block requests)
+			w.Header().Set("X-Budget-Warning", "daily_cost_exceeded")
+		}
+	}
+
+	JSON(w, http.StatusCreated, record)
+}
+
+// GetUsageSummary returns aggregated usage stats.
+// GET /api/v1/llm/usage/summary?model_id=X&agent_id=Y&period=day
+func (h *LLMHandler) GetUsageSummary(w http.ResponseWriter, r *http.Request) {
+	modelID := r.URL.Query().Get("model_id")
+	agentID := r.URL.Query().Get("agent_id")
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "day"
+	}
+
+	summary, err := h.store.GetUsageSummary(r.Context(), modelID, agentID, period)
+	if err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, summary)
+}
+
+// ListUsageRecords returns recent usage records.
+// GET /api/v1/llm/usage?model_id=X&agent_id=Y&limit=50
+func (h *LLMHandler) ListUsageRecords(w http.ResponseWriter, r *http.Request) {
+	modelID := r.URL.Query().Get("model_id")
+	agentID := r.URL.Query().Get("agent_id")
+	since := time.Now().Add(-24 * time.Hour) // default: last 24h
+
+	records, err := h.store.ListUsageRecords(r.Context(), modelID, agentID, since, 100)
+	if err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, records)
+}

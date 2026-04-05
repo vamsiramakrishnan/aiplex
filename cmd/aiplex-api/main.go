@@ -67,6 +67,9 @@ func main() {
 	instanceH := api.NewInstanceHandler(store, engine)
 	agentH := api.NewAgentHandler(store)
 	authH := api.NewAuthHandler(hydraClient, store)
+	llmH := api.NewLLMHandler(store)
+	a2aH := api.NewA2AHandler(store)
+	dashH := api.NewDashboardHandler(store)
 
 	// Router
 	r := chi.NewRouter()
@@ -97,6 +100,36 @@ func main() {
 		r.Get("/agents/{clientId}", agentH.Get)
 		r.Delete("/agents/{clientId}", agentH.Delete)
 		r.Get("/agents/{clientId}/permissions", agentH.GetPermissions)
+
+		// LLMPlex — routing, providers, usage
+		r.Route("/llm", func(r chi.Router) {
+			r.Get("/routes", llmH.ListRouteConfigs)
+			r.Get("/routes/{modelId}", llmH.GetRouteConfig)
+			r.Put("/routes/{modelId}", llmH.PutRouteConfig)
+			r.Delete("/routes/{modelId}", llmH.DeleteRouteConfig)
+			r.Get("/providers", llmH.ListProviders)
+			r.Put("/providers/{provider}", llmH.PutProvider)
+			r.Post("/usage", llmH.RecordUsage)
+			r.Get("/usage", llmH.ListUsageRecords)
+			r.Get("/usage/summary", llmH.GetUsageSummary)
+		})
+
+		// A2APlex — delegations, agent cards
+		r.Route("/a2a", func(r chi.Router) {
+			r.Get("/agents", a2aH.ListAgentCards)
+			r.Post("/delegations", a2aH.RecordDelegation)
+			r.Get("/delegations", a2aH.ListDelegations)
+			r.Get("/delegations/{id}", a2aH.GetDelegation)
+			r.Patch("/delegations/{id}", a2aH.UpdateDelegation)
+			r.Get("/delegations/{id}/chain", a2aH.GetDelegationChain)
+		})
+
+		// Dashboard — unified observability
+		r.Route("/dashboard", func(r chi.Router) {
+			r.Get("/stats", dashH.GetStats)
+			r.Get("/denials", dashH.ListPolicyDenials)
+			r.Post("/denials", dashH.RecordPolicyDenial)
+		})
 	})
 
 	// Auth webhooks (Hydra consent + token hook)
@@ -111,6 +144,9 @@ func main() {
 
 	// MCP sub-registry (v0.1 spec)
 	r.Get("/v0.1/servers", catalogH.List)
+
+	// A2A Agent Card discovery (per-instance)
+	r.Get("/a2a/{instanceId}/.well-known/agent.json", a2aH.GetAgentCard)
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

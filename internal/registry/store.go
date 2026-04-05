@@ -36,6 +36,32 @@ type Store interface {
 	// User permissions (Dimension B)
 	GetUserScopes(ctx context.Context, userID string) ([]string, error)
 	SetUserScopes(ctx context.Context, userID string, scopes []string) error
+
+	// LLM route configs
+	GetRouteConfig(ctx context.Context, modelID string) (*models.LLMRouteConfig, error)
+	ListRouteConfigs(ctx context.Context) ([]models.LLMRouteConfig, error)
+	PutRouteConfig(ctx context.Context, rc *models.LLMRouteConfig) error
+	DeleteRouteConfig(ctx context.Context, modelID string) error
+
+	// Provider configs
+	GetProviderConfig(ctx context.Context, provider string) (*models.ProviderConfig, error)
+	ListProviderConfigs(ctx context.Context) ([]models.ProviderConfig, error)
+	PutProviderConfig(ctx context.Context, pc *models.ProviderConfig) error
+
+	// LLM usage tracking
+	AppendUsage(ctx context.Context, record *models.UsageRecord) error
+	GetUsageSummary(ctx context.Context, modelID, agentID, period string) (*models.UsageSummary, error)
+	ListUsageRecords(ctx context.Context, modelID, agentID string, since time.Time, limit int) ([]models.UsageRecord, error)
+
+	// A2A delegations
+	AppendDelegation(ctx context.Context, d *models.Delegation) error
+	GetDelegation(ctx context.Context, id string) (*models.Delegation, error)
+	ListDelegations(ctx context.Context, agentID string, limit int) ([]models.Delegation, error)
+	UpdateDelegation(ctx context.Context, d *models.Delegation) error
+
+	// Metrics / policy denials
+	AppendPolicyDenial(ctx context.Context, d *models.PolicyDenial) error
+	ListPolicyDenials(ctx context.Context, limit int) ([]models.PolicyDenial, error)
 }
 
 // ErrNotFound is returned when a resource does not exist.
@@ -43,21 +69,30 @@ var ErrNotFound = fmt.Errorf("not found")
 
 // MemoryStore is an in-memory Store implementation for development and testing.
 type MemoryStore struct {
-	mu         sync.RWMutex
-	instances  map[string]*models.Instance
-	templates  map[string]*models.Template
-	agents     map[string]*models.Agent
-	history    []models.DeployHistory
-	userScopes map[string][]string
+	mu              sync.RWMutex
+	instances       map[string]*models.Instance
+	templates       map[string]*models.Template
+	agents          map[string]*models.Agent
+	history         []models.DeployHistory
+	userScopes      map[string][]string
+	routeConfigs    map[string]*models.LLMRouteConfig
+	providerConfigs map[string]*models.ProviderConfig
+	usageRecords    []models.UsageRecord
+	delegations     map[string]*models.Delegation
+	delegationList  []models.Delegation
+	policyDenials   []models.PolicyDenial
 }
 
 // NewMemoryStore creates an empty in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		instances:  make(map[string]*models.Instance),
-		templates:  make(map[string]*models.Template),
-		agents:     make(map[string]*models.Agent),
-		userScopes: make(map[string][]string),
+		instances:       make(map[string]*models.Instance),
+		templates:       make(map[string]*models.Template),
+		agents:          make(map[string]*models.Agent),
+		userScopes:      make(map[string][]string),
+		routeConfigs:    make(map[string]*models.LLMRouteConfig),
+		providerConfigs: make(map[string]*models.ProviderConfig),
+		delegations:     make(map[string]*models.Delegation),
 	}
 }
 
@@ -214,4 +249,223 @@ func (m *MemoryStore) SetUserScopes(_ context.Context, userID string, scopes []s
 	defer m.mu.Unlock()
 	m.userScopes[userID] = scopes
 	return nil
+}
+
+// ── LLM Route Configs ──
+
+func (m *MemoryStore) GetRouteConfig(_ context.Context, modelID string) (*models.LLMRouteConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rc, ok := m.routeConfigs[modelID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return rc, nil
+}
+
+func (m *MemoryStore) ListRouteConfigs(_ context.Context) ([]models.LLMRouteConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]models.LLMRouteConfig, 0, len(m.routeConfigs))
+	for _, rc := range m.routeConfigs {
+		out = append(out, *rc)
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) PutRouteConfig(_ context.Context, rc *models.LLMRouteConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rc.UpdatedAt = time.Now()
+	if rc.CreatedAt.IsZero() {
+		rc.CreatedAt = time.Now()
+	}
+	m.routeConfigs[rc.ModelID] = rc
+	return nil
+}
+
+func (m *MemoryStore) DeleteRouteConfig(_ context.Context, modelID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.routeConfigs[modelID]; !ok {
+		return ErrNotFound
+	}
+	delete(m.routeConfigs, modelID)
+	return nil
+}
+
+// ── Provider Configs ──
+
+func (m *MemoryStore) GetProviderConfig(_ context.Context, provider string) (*models.ProviderConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	pc, ok := m.providerConfigs[provider]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return pc, nil
+}
+
+func (m *MemoryStore) ListProviderConfigs(_ context.Context) ([]models.ProviderConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]models.ProviderConfig, 0, len(m.providerConfigs))
+	for _, pc := range m.providerConfigs {
+		out = append(out, *pc)
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) PutProviderConfig(_ context.Context, pc *models.ProviderConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.providerConfigs[pc.Provider] = pc
+	return nil
+}
+
+// ── Usage Tracking ──
+
+func (m *MemoryStore) AppendUsage(_ context.Context, record *models.UsageRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.usageRecords = append(m.usageRecords, *record)
+	return nil
+}
+
+func (m *MemoryStore) GetUsageSummary(_ context.Context, modelID, agentID, period string) (*models.UsageSummary, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var cutoff time.Time
+	now := time.Now()
+	switch period {
+	case "day":
+		cutoff = now.Add(-24 * time.Hour)
+	case "week":
+		cutoff = now.Add(-7 * 24 * time.Hour)
+	case "month":
+		cutoff = now.Add(-30 * 24 * time.Hour)
+	default:
+		cutoff = now.Add(-24 * time.Hour)
+		period = "day"
+	}
+
+	summary := &models.UsageSummary{ModelID: modelID, AgentID: agentID, Period: period}
+	var totalLatency int64
+	for _, r := range m.usageRecords {
+		if r.Timestamp.Before(cutoff) {
+			continue
+		}
+		if modelID != "" && r.ModelID != modelID {
+			continue
+		}
+		if agentID != "" && r.AgentID != agentID {
+			continue
+		}
+		summary.InputTokens += int64(r.InputTokens)
+		summary.OutputTokens += int64(r.OutputTokens)
+		summary.TotalTokens += int64(r.TotalTokens)
+		summary.TotalCostUSD += r.CostUSD
+		summary.RequestCount++
+		totalLatency += int64(r.LatencyMs)
+		if r.Cached {
+			summary.CacheHits++
+		}
+	}
+	if summary.RequestCount > 0 {
+		summary.AvgLatencyMs = float64(totalLatency) / float64(summary.RequestCount)
+	}
+	return summary, nil
+}
+
+func (m *MemoryStore) ListUsageRecords(_ context.Context, modelID, agentID string, since time.Time, limit int) ([]models.UsageRecord, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []models.UsageRecord
+	for i := len(m.usageRecords) - 1; i >= 0; i-- {
+		r := m.usageRecords[i]
+		if r.Timestamp.Before(since) {
+			continue
+		}
+		if modelID != "" && r.ModelID != modelID {
+			continue
+		}
+		if agentID != "" && r.AgentID != agentID {
+			continue
+		}
+		out = append(out, r)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// ── A2A Delegations ──
+
+func (m *MemoryStore) AppendDelegation(_ context.Context, d *models.Delegation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.delegations[d.ID] = d
+	m.delegationList = append(m.delegationList, *d)
+	return nil
+}
+
+func (m *MemoryStore) GetDelegation(_ context.Context, id string) (*models.Delegation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	d, ok := m.delegations[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return d, nil
+}
+
+func (m *MemoryStore) ListDelegations(_ context.Context, agentID string, limit int) ([]models.Delegation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []models.Delegation
+	for i := len(m.delegationList) - 1; i >= 0; i-- {
+		d := m.delegationList[i]
+		if agentID != "" && d.CallerAgentID != agentID && d.CalleeAgentID != agentID {
+			continue
+		}
+		out = append(out, d)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) UpdateDelegation(_ context.Context, d *models.Delegation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.delegations[d.ID]; !ok {
+		return ErrNotFound
+	}
+	m.delegations[d.ID] = d
+	return nil
+}
+
+// ── Policy Denials ──
+
+func (m *MemoryStore) AppendPolicyDenial(_ context.Context, d *models.PolicyDenial) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.policyDenials = append(m.policyDenials, *d)
+	return nil
+}
+
+func (m *MemoryStore) ListPolicyDenials(_ context.Context, limit int) ([]models.PolicyDenial, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []models.PolicyDenial
+	for i := len(m.policyDenials) - 1; i >= 0; i-- {
+		out = append(out, m.policyDenials[i])
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
