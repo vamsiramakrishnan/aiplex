@@ -76,7 +76,7 @@ token := io.jwt.decode_verify(
 ```
 
 - `io.jwt.decode_verify` performs full JWT validation: signature check, expiry, issuer
-- JWKS is fetched from Keycloak's well-known endpoint and cached by OPA
+- JWKS is fetched from Hydra's well-known endpoint and cached by OPA
 - If verification fails, `token` is undefined → `claims` is undefined → all `allow` rules fail → `default allow := false` kicks in
 - The `authorization` header must contain the bare token (Envoy strips "Bearer " prefix via header mutation before ext_authz)
 
@@ -182,9 +182,9 @@ spec:
             - "--server"
             - "--addr=:9191"
             - "--set=decision_logs.console=true"
-            - "--set=services.keycloak.url=https://aiplex.example.com"
-            - "--set=bundles.keycloak.service=keycloak"
-            - "--set=bundles.keycloak.resource=auth/realms/aiplex/protocol/openid-connect/certs"
+            - "--set=services.hydra.url=https://aiplex.example.com"
+            - "--set=bundles.hydra.service=hydra"
+            - "--set=bundles.hydra.resource=.well-known/jwks.json"
             - "/policies"
           ports:
             - containerPort: 9191
@@ -219,15 +219,15 @@ Policy updates = ConfigMap update + OPA restart. No bundle server needed for 20 
 
 ### JWKS Caching
 
-OPA fetches Keycloak's JWKS endpoint on startup and caches it:
+OPA fetches Hydra's JWKS endpoint on startup and caches it:
 
 ```
-https://aiplex.example.com/auth/realms/aiplex/protocol/openid-connect/certs
+https://aiplex.example.com/.well-known/jwks.json
 ```
 
-- Cache TTL: 5 minutes (Keycloak rotates keys on a longer schedule)
+- Cache TTL: 5 minutes (Hydra rotates keys on a longer schedule)
 - If JWKS fetch fails, OPA uses cached keys
-- Key rotation: Keycloak publishes both old and new keys during rotation window
+- Key rotation: Hydra publishes both old and new keys during rotation window
 
 ---
 
@@ -395,21 +395,21 @@ Run with: `opa test policies/ -v`
 
 ```python
 # test_opa_integration.py
-async def test_opa_allows_valid_tool_call(opa_container, keycloak_jwt):
+async def test_opa_allows_valid_tool_call(opa_container, hydra_jwt):
     """Spin up OPA in a container, send real ext_authz requests."""
     response = await ext_authz_check(
         opa_url=opa_container.url,
-        jwt=keycloak_jwt(scopes=["mcp:tools:search"]),
+        jwt=hydra_jwt(scopes=["mcp:tools:search"]),
         body={"method": "tools/call", "params": {"name": "search"}},
         path="/mcp/server-1/mcp"
     )
     assert response.status == "OK"
 
-async def test_opa_denies_cross_plane_scope(opa_container, keycloak_jwt):
+async def test_opa_denies_cross_plane_scope(opa_container, hydra_jwt):
     """A2A scope should not authorize MCPlex tool calls."""
     response = await ext_authz_check(
         opa_url=opa_container.url,
-        jwt=keycloak_jwt(scopes=["a2a:task:research"]),
+        jwt=hydra_jwt(scopes=["a2a:task:research"]),
         body={"method": "tools/call", "params": {"name": "search"}},
         path="/mcp/server-1/mcp"
     )

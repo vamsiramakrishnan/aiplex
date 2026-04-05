@@ -262,7 +262,7 @@ sum(increase(aiplex_llm_input_tokens_total[7d])) by (model) ...
 |-------|-----------|----------|
 | All Envoy replicas down | `up{job="envoy-ai-gateway"} == 0` for 1 min | Critical |
 | OPA all instances down | `up{job="opa-ext-authz"} == 0` for 1 min | Critical |
-| Keycloak down | `up{job="keycloak"} == 0` for 5 min | Critical |
+| Hydra down | `up{job="hydra"} == 0` for 5 min | Critical |
 | Error rate > 10% | `rate(aiplex_requests_total{status=~"5.."}[5m]) / rate(aiplex_requests_total[5m]) > 0.1` | Critical |
 
 ### Warning Alerts (Notify)

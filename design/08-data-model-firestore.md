@@ -2,7 +2,7 @@
 
 ## Overview
 
-Firestore stores instance metadata, cached catalog templates, and the append-only deploy audit trail. It is NOT the source of truth for authorization (that's Keycloak) or routing (that's K8s CRDs). Firestore holds the "what's deployed" state that the Console and API read.
+Firestore stores instance metadata, cached catalog templates, and the append-only deploy audit trail. It is NOT the source of truth for authorization (that's Ory Hydra) or routing (that's K8s CRDs). Firestore holds the "what's deployed" state that the Console and API read.
 
 ---
 
@@ -264,9 +264,9 @@ Firestore provides strong consistency for single-document reads and queries with
 
 ### No Transactions Needed
 
-The deploy engine writes to Firestore last (after K8s + Keycloak). If Firestore write fails, K8s resources exist but the instance isn't tracked. The cleanup job detects orphaned K8s resources (label-based) and either re-registers them or cleans them up.
+The deploy engine writes to Firestore last (after K8s + Hydra). If Firestore write fails, K8s resources exist but the instance isn't tracked. The cleanup job detects orphaned K8s resources (label-based) and either re-registers them or cleans them up.
 
-> Decision: No Firestore transactions. Each document is independent. The deploy engine's rollback handles partial failures at the application level. Simpler than coordinating Firestore + K8s + Keycloak in a single transaction.
+> Decision: No Firestore transactions. Each document is independent. The deploy engine's rollback handles partial failures at the application level. Simpler than coordinating Firestore + K8s + Hydra in a single transaction.
 
 ---
 

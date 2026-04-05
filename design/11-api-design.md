@@ -20,15 +20,15 @@ https://aiplex.example.com/api/v1/
 
 ## Authentication
 
-All API endpoints require a valid Keycloak JWT:
+All API endpoints require a valid Hydra JWT:
 
 ```
 Authorization: Bearer <JWT>
 ```
 
-The API validates the JWT locally (using Keycloak's JWKS) and extracts `sub` (user) and `azp` (client/agent) for authorization and audit.
+The API validates the JWT locally (using Hydra's JWKS) and extracts `sub` (user) and `azp` (client/agent) for authorization and audit.
 
-Console users get their JWT from Keycloak's OIDC flow. Programmatic clients use client credentials.
+Console users get their JWT from Kratos OIDC flow. Programmatic clients use client credentials.
 
 ---
 
@@ -315,7 +315,7 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
 | `DEPLOY_FAILED` | 500 | Deploy engine failed (with rollback) |
 | `DEPLOY_TIMEOUT` | 504 | Pod didn't become ready in time |
 | `INSTANCE_NOT_RUNNING` | 409 | Action requires running instance |
-| `KEYCLOAK_ERROR` | 502 | Keycloak API call failed |
+| `HYDRA_ERROR` | 502 | Hydra API call failed |
 | `ALREADY_EXISTS` | 409 | Agent or resource already registered |
 
 ---
@@ -338,7 +338,7 @@ In addition to Envoy-level rate limiting, the API applies its own limits for exp
 
 | Endpoint | Limit | Reason |
 |----------|-------|--------|
-| `POST /api/v1/deploy` | 10/min per user | Deploys are expensive (K8s + Keycloak) |
+| `POST /api/v1/deploy` | 10/min per user | Deploys are expensive (K8s + Hydra) |
 | `POST /api/v1/agents` | 5/min per user | Prevents agent registration spam |
 | `GET /api/v1/catalog/*` | 60/min per user | External registry calls |
 | All other endpoints | 200/min per user | General protection |

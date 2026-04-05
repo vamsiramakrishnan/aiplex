@@ -43,8 +43,8 @@ The deploy engine is AIPlex's core orchestrator. It takes a template + config + 
 └───────────────────────┬─────────────────────────────────┘
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│  5. Register in Keycloak                                 │
-│     a. Create client scopes (one per tool/task/model)    │
+│  5. Register in Ory Hydra                                │
+│     a. Create scopes (one per tool/task/model)           │
 │     b. Create resource (instance as protected resource)  │
 │     c. Set scope descriptions (human-readable)           │
 └───────────────────────┬─────────────────────────────────┘
@@ -58,7 +58,7 @@ The deploy engine is AIPlex's core orchestrator. It takes a template + config + 
                         ▼
 ┌─────────────────────────────────────────────────────────┐
 │  7. Grant Owner Access                                   │
-│     Add scopes to owner's Keycloak user policy           │
+│     Add scopes to owner's Ory Hydra user policy          │
 │     Owner can immediately use the deployed instance      │
 └───────────────────────┬─────────────────────────────────┘
                         ▼
@@ -81,14 +81,14 @@ The deploy engine is AIPlex's core orchestrator. It takes a template + config + 
 from aiplex.deploy.identity import create_managed_identity
 from aiplex.deploy.manifests import create_k8s_deployment, create_k8s_service, create_network_policy
 from aiplex.deploy.routes import apply_mcproute, apply_httproute, apply_llmroute
-from aiplex.access.keycloak_client import KeycloakClient
+from aiplex.access.hydra_client import HydraClient
 from aiplex.registry.store import FirestoreStore
 from aiplex.models.instance import Instance, InstanceStatus
 
 
 class DeployEngine:
-    def __init__(self, keycloak: KeycloakClient, store: FirestoreStore, k8s: K8sClient):
-        self.keycloak = keycloak
+    def __init__(self, hydra: HydraClient, store: FirestoreStore, k8s: K8sClient):
+        self.hydra = hydra
         self.store = store
         self.k8s = k8s
 
@@ -110,7 +110,7 @@ class DeployEngine:
             scopes = await self._discover_scopes(plane, instance_id, template, namespace)
 
             # Phase 3: Auth Registration
-            await self._register_in_keycloak(instance_id, template, scopes)
+            await self._register_in_hydra(instance_id, template, scopes)
             await self._grant_owner_access(owner, instance_id, scopes)
 
             # Phase 4: Route Registration
@@ -157,12 +157,12 @@ class DeployEngine:
         # 1. Delete route
         await self._delete_route(plane, instance_id)
 
-        # 2. Delete Keycloak registration
-        await self.keycloak.delete_resource(instance_id)
+        # 2. Delete Hydra registration
+        await self.hydra.delete_resource(instance_id)
         for scope in instance["scopes"]:
             # Only delete scope if no other instance uses it
             if not await self._scope_used_elsewhere(scope, instance_id):
-                await self.keycloak.delete_client_scope(scope)
+                await self.hydra.delete_scope(scope)
 
         # 3. Delete K8s resources
         if plane != "llmplex":
@@ -220,13 +220,13 @@ class DeployEngine:
         })
         return response.json()["result"]["tools"]
 
-    async def _register_in_keycloak(self, instance_id, template, scopes):
+    async def _register_in_hydra(self, instance_id, template, scopes):
         for scope in scopes:
-            await self.keycloak.create_client_scope(
+            await self.hydra.create_scope(
                 name=scope,
                 description=self._scope_description(scope, template),
             )
-        await self.keycloak.create_resource(
+        await self.hydra.create_resource(
             name=instance_id,
             display_name=template.display_name,
             scopes=scopes,
@@ -239,7 +239,7 @@ class DeployEngine:
         except Exception:
             pass
         try:
-            await self.keycloak.delete_resource(instance_id)
+            await self.hydra.delete_resource(instance_id)
         except Exception:
             pass
         if plane != "llmplex":
@@ -330,13 +330,13 @@ The deploy engine uses a **compensating transaction** pattern:
 |-------|-----------------|-----------------|
 | Identity | GCP SA + K8s SA + WI binding | Delete all three |
 | K8s | Deployment + Service + NetworkPolicy | Delete all three |
-| Keycloak | Client scopes + resource | Delete scopes + resource |
+| Ory Hydra | OAuth scopes + resource | Delete scopes + resource |
 | Route | MCPRoute / HTTPRoute / LLMRoute | Delete route CRD |
 | Firestore | Instance record | Mark as `failed` |
 
 Rollback is best-effort. If rollback itself fails, the instance is marked `failed` in Firestore and a manual cleanup alert is raised.
 
-> Decision: No distributed transaction. Each phase is idempotent (uses `kubectl apply` / Keycloak upsert). Re-running deploy with the same instance ID is safe. The "failed" state triggers a cleanup job that runs every 5 minutes.
+> Decision: No distributed transaction. Each phase is idempotent (uses `kubectl apply` / Hydra upsert). Re-running deploy with the same instance ID is safe. The "failed" state triggers a cleanup job that runs every 5 minutes.
 
 ---
 
@@ -441,7 +441,7 @@ Config updates trigger a rolling restart (K8s default behavior when env vars cha
 ## Edge Cases
 
 ### Deploy of same template twice
-Each deployment gets a unique instance ID. Two instances of the same template run independently with separate identities, routes, and scopes. The scopes may overlap (e.g., both expose `mcp:tools:search`), and Keycloak handles this correctly (idempotent scope creation).
+Each deployment gets a unique instance ID. Two instances of the same template run independently with separate identities, routes, and scopes. The scopes may overlap (e.g., both expose `mcp:tools:search`), and Hydra handles this correctly (idempotent scope creation).
 
 ### Template image not pullable
 K8s will report ImagePullBackOff. The readiness wait times out after 120s. Deploy engine rolls back. Instance is marked `failed`. The error message includes the ImagePullBackOff reason.
@@ -449,8 +449,8 @@ K8s will report ImagePullBackOff. The readiness wait times out after 120s. Deplo
 ### MCP server returns no tools
 `tools/list` returns an empty array. The instance is deployed with zero scopes. It's accessible (the route exists) but useless (no tool calls will be authorized). The admin sees this in the Console and can investigate.
 
-### Keycloak unavailable during deploy
-Phase 3 fails. Rollback deletes K8s resources and route. Instance is not created. The user retries when Keycloak is back.
+### Ory Hydra unavailable during deploy
+Phase 3 fails. Rollback deletes K8s resources and route. Instance is not created. The user retries when Hydra is back.
 
 ### Concurrent deploys of the same template
-Each gets a unique instance ID — no conflict. K8s resources, routes, and Keycloak registrations are all namespaced by instance ID.
+Each gets a unique instance ID — no conflict. K8s resources, routes, and Hydra registrations are all namespaced by instance ID.

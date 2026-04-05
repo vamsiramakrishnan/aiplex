@@ -7,7 +7,7 @@ This folder contains detailed design documents for each major subsystem of AIPle
 | # | Document | Subsystem | Key Questions Answered |
 |---|----------|-----------|----------------------|
 | 01 | [Architecture & Request Flow](01-architecture-request-flow.md) | System-wide | How does a request travel from agent to backend? What happens at each hop? |
-| 02 | [Auth & Keycloak](02-auth-keycloak.md) | Access control | How do the three permission dimensions work? Token lifecycle? Consent UX? |
+| 02 | [Auth: Ory Hydra + Kratos](02-auth-keycloak.md) | Access control | How do the three permission dimensions work? Token lifecycle? Consent UX? |
 | 03 | [OPA Policy Engine](03-opa-policy.md) | Authorization | How does JWT-only policy work? Edge cases? Testing the Rego? |
 | 04 | [Envoy AI Gateway & Routing](04-envoy-gateway-routing.md) | Traffic management | How are routes generated? Failover? Rate limiting per plane? |
 | 05 | [Identity & Zero Trust](05-identity-zero-trust.md) | SPIFFE / WIF / mTLS | How does workload identity work? Cross-cloud agents? Certificate rotation? |
@@ -20,7 +20,7 @@ This folder contains detailed design documents for each major subsystem of AIPle
 | 12 | [Security Model](12-security-model.md) | Cross-cutting | Threat model, blast radius, supply chain, secrets management |
 | 13 | [Developer Experience](13-developer-experience.md) | DX | aiplex.yaml, CLI, questionnaire system, 60-second deploy promise |
 | 14 | [Performance Architecture](14-performance-architecture.md) | Rust/Go core | Why Go+Rust, idempotency guarantees, binary packaging |
-| 15 | [Auth Alternatives](15-auth-alternatives-keycloak-rethink.md) | Auth rethink | Keycloak vs Ory Hydra vs Dex vs Zitadel — lighter, faster, Go-native |
+| 15 | [Auth Alternatives](15-auth-alternatives-keycloak-rethink.md) | Auth rethink | Auth stack comparison — Keycloak vs Ory Hydra vs Dex vs Zitadel |
 
 ## How to Read These
 

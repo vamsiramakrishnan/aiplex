@@ -2,7 +2,7 @@
 
 ## Philosophy
 
-AIPlex should feel like magic. A developer should go from "I want to deploy this MCP server" to a running, identity-bound, governed instance in under 60 seconds — with a single YAML file, a single CLI command, or a 3-question form. No Kubernetes knowledge. No Keycloak expertise. No Envoy configuration.
+AIPlex should feel like magic. A developer should go from "I want to deploy this MCP server" to a running, identity-bound, governed instance in under 60 seconds — with a single YAML file, a single CLI command, or a 3-question form. No Kubernetes knowledge. No OAuth expertise. No Envoy configuration.
 
 **The DX bar we're chasing:**
 - Vercel: `git push` → deployed
@@ -33,7 +33,7 @@ config:
 
 access:
   agents: [tutor-agent, assessment-agent]
-  users: [teachers, students]       # Keycloak role names
+  users: [teachers, students]       # Kratos role names
   
 # That's it. Everything below is optional.
 
@@ -59,7 +59,7 @@ monitoring:                         # Optional: defaults to standard alerts
 1. Validates YAML against schema (instant feedback)
 2. Resolves template from catalog (or uses inline image)
 3. Creates identity, K8s resources, discovers scopes
-4. Registers scopes in Keycloak
+4. Registers scopes in Hydra
 5. Grants access to specified agents and user roles
 6. Creates route, persists to Firestore
 7. Prints: `✓ curriculum-search deployed → https://aiplex.example.com/mcp/curriculum-search-a1b2c3`
@@ -70,12 +70,12 @@ monitoring:                         # Optional: defaults to standard alerts
 - K8s NetworkPolicy YAML
 - K8s ServiceAccount YAML
 - MCPRoute / HTTPRoute CRD
-- Keycloak scope creation API calls
-- Keycloak resource registration API calls
-- Keycloak permission policy updates
+- Hydra scope creation API calls
+- Hydra resource registration API calls
+- Hydra permission policy updates
 - Firestore instance record
 
-> Decision: `aiplex.yaml` is NOT a K8s CRD. It's an AIPlex-native format that compiles down to multiple K8s resources, Keycloak configs, and Firestore records. Users never touch the underlying primitives.
+> Decision: `aiplex.yaml` is NOT a K8s CRD. It's an AIPlex-native format that compiles down to multiple K8s resources, Hydra configs, and Firestore records. Users never touch the underlying primitives.
 
 ### 2. The CLI (`aiplex` command)
 
@@ -106,7 +106,7 @@ Deploying curriculum-search...
   ✓ Identity created (spiffe://...curriculum-search-a1b2c3)
   ✓ Pod running (1 replica, healthy)
   ✓ Tools discovered: search_curriculum, get_document
-  ✓ Scopes registered in Keycloak
+  ✓ Scopes registered in Hydra
   ✓ Access granted to 2 agents, 2 roles
   ✓ Route active: /mcp/curriculum-search-a1b2c3
 
@@ -251,7 +251,7 @@ Bootstrapping AIPlex platform...
   ✓ GKE Autopilot cluster created
   ✓ Namespaces created (aiplex-system, mcplex, a2aplex)
   ✓ Cloud Service Mesh enabled
-  ✓ Keycloak deployed (admin: admin@mycompany.com)
+  ✓ Ory Hydra + Kratos deployed
   ✓ OPA policy deployed
   ✓ Envoy AI Gateway configured
   ✓ AIPlex API deployed
@@ -262,14 +262,14 @@ Bootstrapping AIPlex platform...
 Platform ready in 8m 23s
   Console: https://aiplex.mycompany.com
   API:     https://aiplex.mycompany.com/api/v1
-  Keycloak: https://aiplex.mycompany.com/auth
+  Auth:     https://aiplex.mycompany.com/oauth2
 ```
 
 **Under the hood:**
 1. Runs Terraform (`deploy/terraform/`) with user-provided variables
 2. Waits for GKE cluster ready
 3. Applies K8s manifests (`deploy/k8s/`)
-4. Configures Keycloak realm (`deploy/keycloak/`)
+4. Configures Ory Hydra + Kratos (`deploy/ory/`)
 5. Validates end-to-end connectivity
 
 ### Idempotent Re-runs
@@ -278,12 +278,12 @@ Platform ready in 8m 23s
 # Running init again is safe — it only updates what changed
 $ aiplex platform init
   ✓ GKE cluster: no changes
-  ✓ Keycloak: no changes
+  ✓ Ory Hydra/Kratos: no changes
   ✓ AIPlex API: updated (new image tag)
   ✓ Console: updated (new build)
 ```
 
-This is critical. `aiplex platform init` is not a "run once" script. It's a convergence loop. Run it 100 times, get the same result. Terraform + `kubectl apply` + Keycloak realm import all support idempotent operations.
+This is critical. `aiplex platform init` is not a "run once" script. It's a convergence loop. Run it 100 times, get the same result. Terraform + `kubectl apply` + Hydra/Kratos config all support idempotent operations.
 
 ---
 
@@ -487,4 +487,4 @@ From zero to governed AI tool access in 60 seconds:
 60s  ✓ Done. URL printed. Agent can call tools immediately.
 ```
 
-If we can't hit 60 seconds, we've failed at DX. The infrastructure complexity (SPIFFE, mTLS, Keycloak, OPA, Envoy) must be completely invisible.
+If we can't hit 60 seconds, we've failed at DX. The infrastructure complexity (SPIFFE, mTLS, Ory, OPA, Envoy) must be completely invisible.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AIPlex Console is a React SPA that provides a unified management interface for all three planes. It talks to the AIPlex API for data and actions, and to Keycloak for authentication. The Console is served as static files from the AIPlex API pod.
+The AIPlex Console is a React SPA that provides a unified management interface for all three planes. It talks to the AIPlex API for data and actions, and to Ory Kratos/Hydra for authentication. The Console is served as static files from the AIPlex API pod.
 
 ---
 
@@ -10,7 +10,7 @@ The AIPlex Console is a React SPA that provides a unified management interface f
 
 ```
 App.tsx
-├── AuthProvider (Keycloak OIDC)
+├── AuthProvider (Ory Kratos OIDC)
 ├── Layout
 │   ├── Sidebar / TopNav
 │   │   └── PlaneSelector.tsx (MCPlex / A2APlex / LLMPlex / Agents / Dashboard)
@@ -57,7 +57,7 @@ App.tsx
 | State | TanStack Query (React Query) | Server state caching, auto-refetch |
 | UI Components | Shadcn/ui + Tailwind CSS | Accessible, customizable, no vendor lock |
 | Forms | React Hook Form + Zod | JSON Schema → Zod → form validation |
-| Auth | keycloak-js | Official Keycloak adapter |
+| Auth | @ory/client | Official Ory SDK |
 | Charts | Recharts | Lightweight, React-native charting |
 | Build | Vite | Fast dev server, optimized builds |
 
@@ -68,33 +68,31 @@ App.tsx
 ```typescript
 // App.tsx
 
-import Keycloak from 'keycloak-js';
+import { Configuration, FrontendApi, Session } from '@ory/client';
 
-const keycloak = new Keycloak({
-  url: import.meta.env.VITE_KEYCLOAK_URL,
-  realm: 'aiplex',
-  clientId: 'aiplex-console',
-});
+const ory = new FrontendApi(
+  new Configuration({
+    basePath: import.meta.env.VITE_ORY_KRATOS_URL,
+    baseOptions: { withCredentials: true },
+  })
+);
 
 function App() {
-  const [authenticated, setAuthenticated] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
-    keycloak.init({
-      onLoad: 'login-required',
-      pkceMethod: 'S256',
-      checkLoginIframe: false,
-    }).then(auth => {
-      setAuthenticated(auth);
-      // Auto-refresh token before expiry
-      setInterval(() => keycloak.updateToken(60), 30000);
-    });
+    ory.toSession()
+      .then(({ data }) => setSession(data))
+      .catch(() => {
+        // No active session — redirect to Kratos login
+        window.location.href = `${import.meta.env.VITE_ORY_KRATOS_URL}/self-service/login/browser`;
+      });
   }, []);
 
-  if (!authenticated) return <LoadingScreen />;
+  if (!session) return <LoadingScreen />;
 
   return (
-    <AuthContext.Provider value={{ keycloak }}>
+    <AuthContext.Provider value={{ session, ory }}>
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
       </QueryClientProvider>

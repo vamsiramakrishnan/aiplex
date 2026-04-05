@@ -50,7 +50,7 @@ AIPlex is a unified control plane governing three interaction planes (MCPlex, A2
 | OPA sidecar | JWT scope validation | All authorized requests denied |
 | Cloud Service Mesh | mTLS between all pods | East-west traffic fails |
 | AIPlex API | Deploy, catalog, registry, access management | Control plane down, data plane unaffected |
-| Keycloak | Token issuance, consent, identity brokering | No new tokens; existing tokens valid until expiry |
+| Ory Hydra + Kratos | Token issuance, consent, identity brokering | No new tokens; existing tokens valid until expiry |
 | Firestore | Instance metadata, templates, audit trail | Deploys fail; running instances unaffected |
 
 ---
@@ -305,7 +305,7 @@ All error responses follow a consistent structure regardless of plane:
 │ NetworkPolicy: allow from GKE Gateway        │
 │ AuthzPolicy:   allow from envoy-ai-gateway   │
 │                                              │
-│ Pods: aiplex-api, keycloak, console          │
+│ Pods: aiplex-api, hydra, kratos, console     │
 └──────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────┐
@@ -331,7 +331,7 @@ A compromised MCP server cannot:
 - Call other MCP servers (no lateral movement within mcplex)
 - Call A2A agents (cross-namespace denied)
 - Call LLM providers (only Envoy has API keys)
-- Call AIPlex API or Keycloak (cross-namespace denied)
+- Call AIPlex API or Hydra/Kratos (cross-namespace denied)
 
 > Decision: Each MCP server and A2A agent also gets a per-pod NetworkPolicy that denies egress to other pods in the same namespace. Lateral movement within a namespace is also blocked.
 
@@ -342,7 +342,7 @@ A compromised MCP server cannot:
 | Component Down | Impact | Mitigation |
 |---------------|--------|------------|
 | OPA sidecar | All requests denied (fail-closed) | OPA runs as DaemonSet; pod disruption budget = 0 |
-| Keycloak | No new tokens; existing tokens work until expiry | Set token expiry to 1h; users can work during outage |
+| Ory Hydra | No new tokens; existing tokens work until expiry | Set token expiry to 1h; users can work during outage |
 | AIPlex API | No deploys/unddeploys; running instances unaffected | Control plane / data plane separation |
 | Firestore | No catalog browse, no deploy history | Catalog has in-memory cache; deploys queue for retry |
 | Single MCP server | One tool unavailable | Other tools unaffected; client gets 502 for that server |

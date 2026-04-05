@@ -203,7 +203,7 @@ func main() {
     r.Use(middleware.Logger)
     r.Use(middleware.Recoverer)
     r.Use(middleware.RequestID)
-    r.Use(auth.JWTMiddleware(keycloakJWKS))
+    r.Use(auth.JWTMiddleware(hydraJWKS))
 
     // Catalog
     r.Route("/api/v1/catalog/{plane}", func(r chi.Router) {
@@ -262,7 +262,7 @@ import (
 type Engine struct {
     k8s      kubernetes.Interface
     dynamic  client.Client
-    keycloak *keycloak.Client
+    hydra    *hydra.Client
     store    *firestore.Client
 }
 
@@ -305,9 +305,9 @@ func (e *Engine) Deploy(ctx context.Context, req DeployRequest) (*Instance, erro
         return nil, err
     }
 
-    // Phase 3: Keycloak + Route (parallel)
+    // Phase 3: Hydra + Route (parallel)
     g, ctx = errgroup.WithContext(ctx)
-    g.Go(func() error { return e.registerInKeycloak(ctx, instanceID, req.Template, scopes) })
+    g.Go(func() error { return e.registerInHydra(ctx, instanceID, req.Template, scopes) })
     g.Go(func() error { return e.createRoute(ctx, req.Plane, instanceID, req.Template) })
     if err := g.Wait(); err != nil {
         e.rollback(ctx, instanceID, req.Plane, namespace)
@@ -397,7 +397,7 @@ func (e *Engine) applyResource(ctx context.Context, obj client.Object) error {
 
 Server-side apply (SSA) is the gold standard for idempotent K8s operations. It creates if missing, updates if different, no-ops if identical.
 
-### Keycloak Scope Registration
+### Hydra Scope Registration
 
 ```go
 func (kc *Client) EnsureClientScope(ctx context.Context, name, description string) error {
@@ -457,8 +457,8 @@ func PlatformInit(cfg PlatformConfig) error {
         return err
     }
     
-    // Keycloak realm import is idempotent (skip existing)
-    if err := keycloak.ImportRealm(cfg.RealmExport, SkipExisting); err != nil {
+    // Hydra client import is idempotent (skip existing)
+    if err := hydra.ImportClients(cfg.ClientsConfig, SkipExisting); err != nil {
         return err
     }
     

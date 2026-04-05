@@ -24,7 +24,7 @@ Every workload gets a SPIFFE ID derived from its Kubernetes service account:
 Namespace: aiplex-system
   spiffe://.../ns/aiplex-system/sa/aiplex-api
   spiffe://.../ns/aiplex-system/sa/envoy-ai-gateway
-  spiffe://.../ns/aiplex-system/sa/keycloak
+  spiffe://.../ns/aiplex-system/sa/ory-hydra
 
 Namespace: mcplex
   spiffe://.../ns/mcplex/sa/knowledge-base-xyz
@@ -251,11 +251,11 @@ External Agent (e.g., on AWS)
   │     subject_token=<AWS/Azure/OIDC token>
   │     audience=//iam.googleapis.com/projects/{PROJECT_NUMBER}/locations/global/workloadIdentityPools/aiplex-prod/providers/{provider}
   │
-  │  3. Use federated token to get Keycloak client credentials
-  │     (WIF principal maps to a Keycloak client)
+  │  3. Use federated token to get Hydra OAuth client credentials
+  │     (WIF principal maps to a Hydra OAuth client)
   │
-  │  4. Get AIPlex JWT from Keycloak
-  │     POST /auth/realms/aiplex/protocol/openid-connect/token
+  │  4. Get AIPlex JWT from Ory Hydra
+  │     POST /oauth2/token
   │     grant_type=client_credentials
   │     client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer
   │     client_assertion=<GCP federated token>
@@ -336,8 +336,8 @@ async def validate_wif_principal(principal: str) -> WIFIdentity:
     if parsed.provider_id not in ALLOWED_PROVIDERS:
         raise InvalidPrincipalError(f"Unknown provider: {parsed.provider_id}")
     
-    # Check if this principal is registered as an agent in Keycloak
-    client = await keycloak.find_client_by_attribute("wif_principal", principal)
+    # Check if this principal is registered as an agent in Ory Hydra
+    client = await hydra.find_client_by_metadata("wif_principal", principal)
     if not client:
         raise UnregisteredAgentError(f"Principal not registered: {principal}")
     
@@ -353,7 +353,7 @@ async def validate_wif_principal(principal: str) -> WIFIdentity:
 
 ## The `act` Claim Bridge
 
-The SPIFFE ID is embedded in the JWT's `act` claim, linking the cryptographic identity (SPIFFE) to the application-level identity (Keycloak client):
+The SPIFFE ID is embedded in the JWT's `act` claim, linking the cryptographic identity (SPIFFE) to the application-level identity (Hydra OAuth client):
 
 ```json
 {
@@ -367,7 +367,7 @@ The SPIFFE ID is embedded in the JWT's `act` claim, linking the cryptographic id
 
 **Why both?**
 - SPIFFE: infrastructure-level identity (mTLS, network policy). Verified by the mesh.
-- Keycloak client: application-level identity (scopes, consent, audit). Verified by OPA.
+- Hydra OAuth client: application-level identity (scopes, consent, audit). Verified by OPA.
 - The `act` claim bridges them in audit logs: "user X's request, carried by agent Y (SPIFFE Z)"
 
 ---
@@ -377,7 +377,7 @@ The SPIFFE ID is embedded in the JWT's `act` claim, linking the cryptographic id
 | Threat | Mitigation |
 |--------|------------|
 | Compromised MCP server impersonates another | Each server has unique SPIFFE ID; mTLS prevents impersonation |
-| External agent uses stolen AWS credentials | WIF attribute conditions restrict to specific roles; Keycloak requires registered client |
+| External agent uses stolen AWS credentials | WIF attribute conditions restrict to specific roles; Ory Hydra requires registered client |
 | Man-in-the-middle between Gateway and backend | Strict mTLS; mesh sidecar on every pod |
 | Lateral movement within namespace | Per-pod NetworkPolicy denies pod-to-pod traffic |
 | Certificate theft from pod filesystem | 24-hour certificate lifetime limits window; in-memory only (tmpfs) |
@@ -388,7 +388,7 @@ The SPIFFE ID is embedded in the JWT's `act` claim, linking the cryptographic id
 ## Edge Cases
 
 ### Agent moves between clouds
-If an agent migrates from AWS to Azure, it gets a new WIF principal. The AIPlex admin must register the new principal and deregister the old one. The Keycloak client (and its scopes) can be preserved.
+If an agent migrates from AWS to Azure, it gets a new WIF principal. The AIPlex admin must register the new principal and deregister the old one. The Hydra OAuth client (and its scopes) can be preserved.
 
 ### GKE node replacement
 When GKE replaces a node, pods are rescheduled. New pods automatically get new certificates from the SPIRE agent (which runs as a DaemonSet). No manual intervention.
