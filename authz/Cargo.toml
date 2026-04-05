@@ -1,0 +1,15 @@
+[package]
+name = "aiplex-authz"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance ext_authz service for AIPlex (replaces OPA on the data path)"
+
+[dependencies]
+tonic = "0.12"
+prost = "0.13"
+tokio = { version = "1", features = ["full"] }
+jsonwebtoken = "9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"

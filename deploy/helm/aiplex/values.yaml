@@ -1,0 +1,125 @@
+# AIPlex Helm chart values
+# Override per environment: values-dev.yaml, values-prod.yaml
+
+global:
+  domain: aiplex.example.com
+  projectId: my-gcp-project
+  trustDomain: my-gcp-project.svc.id.goog
+  registry: us-central1-docker.pkg.dev/my-gcp-project/aiplex
+
+# ─── AIPlex API ───
+api:
+  replicas: 2
+  image:
+    repository: ""  # defaults to global.registry/aiplex-api
+    tag: latest
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  env: {}
+  # Extra environment variables
+  # MY_VAR: my-value
+
+# ─── AIPlex Console ───
+console:
+  replicas: 2
+  image:
+    repository: ""  # defaults to global.registry/aiplex-console
+    tag: latest
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ─── OPA ext_authz ───
+opa:
+  enabled: true
+  replicas: 2
+  image: openpolicyagent/opa:latest-envoy
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# ─── OTel Collector ───
+otel:
+  enabled: true
+  replicas: 1
+  image: otel/opentelemetry-collector-contrib:latest
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ─── AlloyDB Auth Proxy ───
+alloydbProxy:
+  enabled: true
+  replicas: 2
+  instanceUri: ""  # projects/PROJECT/locations/REGION/clusters/CLUSTER/instances/INSTANCE
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# ─── Mesh ───
+mesh:
+  enabled: true
+  strictMtls: true
+
+# ─── Ory Hydra (subchart) ───
+hydra:
+  enabled: true
+  hydra:
+    config:
+      urls:
+        self:
+          issuer: https://aiplex.example.com/auth/realms/aiplex
+        consent: https://aiplex.example.com/auth/consent
+        login: https://aiplex.example.com/auth/login
+      oauth2:
+        token_hook:
+          url: http://aiplex-api:8080/auth/token-hook
+      strategies:
+        access_token: jwt
+        scope: exact
+      # DSN set via secret
+  deployment:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+# ─── Ory Kratos (subchart) ───
+kratos:
+  enabled: true
+  kratos:
+    config:
+      identity:
+        default_schema_id: user_v1
+        schemas:
+          - id: user_v1
+            url: file:///etc/kratos/identity-schema.json
+      selfservice:
+        flows:
+          login:
+            ui_url: https://aiplex.example.com/auth/login
+          registration:
+            ui_url: https://aiplex.example.com/auth/register
+  deployment:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi

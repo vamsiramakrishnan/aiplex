@@ -1,0 +1,68 @@
+# Ory Hydra server configuration for AIPlex
+# See: https://www.ory.sh/docs/hydra/reference/configuration
+serve:
+  public:
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://console.aiplex.example.com
+      allowed_methods:
+        - POST
+        - GET
+        - PUT
+        - PATCH
+        - DELETE
+      allowed_headers:
+        - Authorization
+        - Content-Type
+
+  admin:
+    host: 0.0.0.0
+    port: 4445
+
+urls:
+  self:
+    issuer: https://aiplex.example.com/auth/realms/aiplex
+  consent: https://aiplex.example.com/auth/consent
+  login: https://aiplex.example.com/auth/login
+  logout: https://aiplex.example.com/auth/logout
+
+dsn: postgres://hydra:CHANGE_ME@alloydb-proxy:5432/hydra?sslmode=disable
+
+secrets:
+  system:
+    - CHANGE_ME_SYSTEM_SECRET
+
+oidc:
+  subject_identifiers:
+    supported_types:
+      - public
+      - pairwise
+    pairwise:
+      salt: CHANGE_ME_PAIRWISE_SALT
+
+oauth2:
+  expose_internal_errors: false
+  # Token hook injects the act claim (RFC 8693)
+  token_hook:
+    url: http://aiplex-api.aiplex-system.svc.cluster.local:8080/auth/token-hook
+
+strategies:
+  access_token: jwt
+  scope: exact
+
+ttl:
+  access_token: 1h
+  refresh_token: 720h
+  id_token: 1h
+  auth_code: 10m
+  login_consent_request: 30m
+
+webfinger:
+  jwks:
+    broadcast_keys:
+      - hydra.jwt.access-token
+
+log:
+  level: info
+  format: json

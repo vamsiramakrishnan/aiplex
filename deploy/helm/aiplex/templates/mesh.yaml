@@ -1,0 +1,43 @@
+{{- if .Values.mesh.enabled }}
+{{- if .Values.mesh.strictMtls }}
+{{- range $ns := list "aiplex-system" "mcplex" "a2aplex" "llmplex" }}
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: strict-mtls
+  namespace: {{ $ns }}
+spec:
+  mtls:
+    mode: STRICT
+---
+{{- end }}
+{{- end }}
+
+# Blast radius isolation: plane namespaces only accept traffic from aiplex-system
+{{- range $ns := list "mcplex" "a2aplex" }}
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-gateway-only
+  namespace: {{ $ns }}
+spec:
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["aiplex-system"]
+---
+{{- end }}
+
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-system-internal
+  namespace: aiplex-system
+spec:
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["aiplex-system"]
+{{- end }}

@@ -12,9 +12,9 @@ AIPlex is a unified control plane for AI agent interactions. It governs three pl
 
 You build two things: the AIPlex API (Python/FastAPI) and the AIPlex Console (React). Everything else is configuration.
 
-**Build**: AIPlex API, AIPlex Console
-**Configure**: Keycloak (auth), Envoy AI Gateway (routing), OPA (scope check)
-**Managed**: GKE Autopilot, Cloud Service Mesh, Firestore, Cloud SQL, Secret Manager
+**Build**: AIPlex API (Go), AIPlex Console (React), aiplex-authz (Rust)
+**Configure**: Ory Hydra + Kratos (auth), Envoy AI Gateway (routing), aiplex-authz (scope check)
+**Managed**: GKE Autopilot, Cloud Service Mesh, Firestore, AlloyDB, Secret Manager
 
 -----
 
@@ -47,10 +47,13 @@ Agents / IDEs / CLIs / Other Agents
 │  ┌────┴───────────────────────────────────────────────────────┐   │
 │  │  namespace: aiplex-system                                   │   │
 │  │                                                             │   │
-│  │  AIPlex API        Keycloak         AIPlex Console          │   │
-│  │  (deploy, catalog, (OAuth 2.1,      (React SPA)             │   │
-│  │   registry, access) OIDC, consent,                          │   │
-│  │                     admin, authz)                            │   │
+│  │  AIPlex API      Ory Hydra       AIPlex Console            │   │
+│  │  (deploy, catalog,(OAuth 2.1,    (React SPA)               │   │
+│  │   registry,       token issue)                              │   │
+│  │   access,                                                   │   │
+│  │   consent handler) Ory Kratos                               │   │
+│  │                   (identity,                                │   │
+│  │                    OIDC broker)                              │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │       │ mTLS                                                      │
 │  ┌────┴───────────────────────────────────────────────────────┐   │
@@ -69,7 +72,7 @@ Agents / IDEs / CLIs / Other Agents
 │  │  Routes to: Gemini, Claude, GPT, Bedrock, Ollama            │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                   │
-│  External: Firestore │ Cloud SQL │ Secret Mgr │ CA Service        │
+│  External: Firestore │ AlloyDB │ Secret Mgr │ CA Service        │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -77,7 +80,7 @@ Agents / IDEs / CLIs / Other Agents
 
 ## The Unified Scope Namespace
 
-One Keycloak realm, one token format, three planes of authorization:
+One Ory Hydra OAuth server, one token format, three planes of authorization:
 
 ```
 mcp:tools:{tool_name}          MCPlex    — tool-level access
@@ -105,30 +108,31 @@ A single JWT carries scopes across all planes:
 
 -----
 
-## Auth — Keycloak End-to-End
+## Auth — Ory Hydra + Kratos
 
-### What Keycloak Manages
+### Auth Architecture (Two Go Services)
 
-|Concept           |AIPlex Mapping                                                          |
-|------------------|------------------------------------------------------------------------|
-|Clients           |Registered agents (tutor-agent, assessment-agent, external coding-agent)|
-|Users             |Humans (students, teachers, admins, parents)                            |
-|Client Scopes     |Tool permissions, task types, model access                              |
-|Resources         |MCP servers, A2A agents, LLM endpoints                                  |
-|Policies          |Who can access what (user policies, agent policies, time-based)         |
-|Permissions       |Resource + scope + policy bindings                                      |
-|Identity Brokering|Corporate IdP via OIDC (Azure AD, Okta, Google)                         |
-|Consent           |Tool/task/model scopes shown to user for approval                       |
+**Ory Hydra** = OAuth 2.1 / OIDC server (Go, 30MB image, 50MB RAM). Issues JWTs, handles client credentials, PKCE, device grant. Consent is a webhook — AIPlex API owns the consent UX.
+
+**Ory Kratos** = Identity management (Go, 30MB image, 50MB RAM). User signup/login, OIDC brokering to Google/Azure/Okta, MFA, account recovery.
+
+|Component      |AIPlex Mapping                                                          |
+|---------------|------------------------------------------------------------------------|
+|Hydra Clients  |Registered agents (tutor-agent, assessment-agent, external coding-agent)|
+|Kratos Users   |Humans (students, teachers, admins, parents)                            |
+|Hydra Scopes   |Tool permissions, task types, model access                              |
+|AIPlex API     |Consent handler, scope management, resource registration, permissions   |
+|Kratos Social  |Corporate IdP via OIDC (Azure AD, Okta, Google)                         |
 
 ### Three Dimensions (All Planes)
 
-|Dimension           |What                                          |Who Configures |Stored In               |
-|--------------------|----------------------------------------------|---------------|------------------------|
-|**A: Agent ceiling**|Which tools/tasks/models an agent can ever use|AIPlex admin   |Keycloak client policies|
-|**B: User ceiling** |Which tools/tasks/models a user can access    |AIPlex admin   |Keycloak user policies  |
-|**C: Delegation**   |What user consented to for this specific agent|User at runtime|OAuth token scopes      |
+|Dimension           |What                                          |Who Configures |Stored In                  |
+|--------------------|----------------------------------------------|---------------|---------------------------|
+|**A: Agent ceiling**|Which tools/tasks/models an agent can ever use|AIPlex admin   |Hydra client allowed scopes|
+|**B: User ceiling** |Which tools/tasks/models a user can access    |AIPlex admin   |AIPlex API (Firestore)     |
+|**C: Delegation**   |What user consented to for this specific agent|User at runtime|Hydra consent + token      |
 
-**Effective permission = A ∩ B ∩ C**, evaluated by Keycloak at token issuance. The JWT carries only the intersection.
+**Effective permission = A ∩ B ∩ C**, computed by AIPlex API's consent handler during Hydra's consent webhook. The JWT carries only the intersection.
 
 ### Token Format (RFC 8693 Actor Claim)
 
@@ -149,13 +153,13 @@ A single JWT carries scopes across all planes:
 |--------------------|-------------------------------|-------------------------|
 |Internal (same GKE) |SPIFFE (mTLS direct)           |Client Credentials       |
 |External (AWS/Azure)|WIF → GCP federated token      |Client Credentials       |
-|IDE (Cursor/Copilot)|User login via Keycloak        |Authorization Code + PKCE|
+|IDE (Cursor/Copilot)|User login via Kratos + Hydra  |Authorization Code + PKCE|
 |CLI (Claude Code)   |User approval                  |Device Grant (RFC 8628)  |
 |With user delegation|Any of the above + user consent|Authorization Code + PKCE|
 
-### Protocol Mapper: `act` Claim (~30 Lines Java)
+### Token Hook: `act` Claim (~20 Lines Go)
 
-Keycloak protocol mapper adds the agent’s WIF principal as an RFC 8693 actor claim. One small Java class, deployed as a Keycloak SPI JAR.
+Hydra calls a token hook on AIPlex API before issuing each token. The hook injects the agent’s SPIFFE ID as an RFC 8693 actor claim. No Java, no SPI JARs — just a Go HTTP handler.
 
 -----
 
@@ -372,12 +376,12 @@ async def deploy(plane: str, template: Template, config: dict, owner: str) -> In
     elif plane == "llmplex":
         scopes = [f"llm:model:{template.model_id}"]
 
-    # 3. Register scopes in Keycloak
+    # 3. Register scopes in Hydra
     for scope in scopes:
-        await keycloak.create_client_scope(name=scope, description=template.description)
+        await hydra.create_scope(name=scope, description=template.description)
 
-    # 4. Register as Keycloak resource
-    await keycloak.create_resource(name=instance_id, scopes=scopes)
+    # 4. Register as OAuth resource
+    await hydra.create_resource(name=instance_id, scopes=scopes)
 
     # 5. Generate route CRD
     if plane == "mcplex":
@@ -474,16 +478,16 @@ AIPlex exposes `GET /v0.1/servers` (MCPlex subregistry) so MCP clients can disco
 
 ### Console → Backend Mapping
 
-|UI Action           |AIPlex API      |Keycloak                   |K8s                    |Envoy                      |
-|--------------------|----------------|---------------------------|-----------------------|---------------------------|
-|Deploy MCP server   |Firestore write |Create resource + scopes   |Deployment, Service, SA|MCPRoute                   |
-|Deploy A2A agent    |Firestore write |Create resource + scopes   |Deployment, Service, SA|HTTPRoute                  |
-|Add LLM provider    |Firestore write |Create resource + scopes   |—                      |LLMRoute + AIServiceBackend|
-|Register agent      |Validate WIF    |Create client + policies   |—                      |—                          |
-|Edit agent perms (A)|—               |Update client policy scopes|—                      |—                          |
-|Set user perms (B)  |—               |Update user policy         |—                      |—                          |
-|User consent (C)    |—               |OAuth consent flow         |—                      |—                          |
-|Undeploy anything   |Delete Firestore|Delete resource + scopes   |Delete K8s resources   |Delete route CRD           |
+|UI Action           |AIPlex API               |Ory Hydra/Kratos            |K8s                    |Envoy                      |
+|--------------------|-------------------------|----------------------------|-----------------------|---------------------------|
+|Deploy MCP server   |Firestore write          |Create scopes in Hydra      |Deployment, Service, SA|MCPRoute                   |
+|Deploy A2A agent    |Firestore write          |Create scopes in Hydra      |Deployment, Service, SA|HTTPRoute                  |
+|Add LLM provider    |Firestore write          |Create scopes in Hydra      |—                      |LLMRoute + AIServiceBackend|
+|Register agent      |Validate WIF             |Create client in Hydra      |—                      |—                          |
+|Edit agent perms (A)|Update Firestore         |Update client allowed scopes|—                      |—                          |
+|Set user perms (B)  |Update Firestore         |—                           |—                      |—                          |
+|User consent (C)    |Consent handler (webhook)|Hydra consent accept/reject |—                      |—                          |
+|Undeploy anything   |Delete Firestore         |Delete scopes in Hydra      |Delete K8s resources   |Delete route CRD           |
 
 -----
 
@@ -498,7 +502,7 @@ aiplex/
 │   ├── terraform/
 │   │   ├── gke.tf                    # GKE Autopilot + Cloud Service Mesh
 │   │   ├── identity_pool.tf          # SPIFFE pool + WIF providers
-│   │   ├── keycloak.tf               # Cloud SQL + Keycloak Helm
+│   │   ├── ory.tf                    # AlloyDB + Ory Hydra/Kratos Helm
 │   │   ├── gateway.tf                # HTTPS LB + IAP + Envoy AI Gateway
 │   │   ├── firestore.tf
 │   │   └── artifact_registry.tf
@@ -506,16 +510,17 @@ aiplex/
 │   │   ├── namespaces.yaml           # aiplex-system, mcplex, a2aplex
 │   │   ├── aiplex-api.yaml
 │   │   ├── aiplex-console.yaml
-│   │   ├── keycloak-realm.json
+│   │   ├── hydra-config.yaml          # Ory Hydra configuration
 │   │   ├── opa-config.yaml           # 20-line Rego policy
 │   │   ├── mesh/
 │   │   │   ├── peer-authentication.yaml
 │   │   │   └── authorization-policy.yaml
 │   │   └── otel-collector.yaml
-│   └── keycloak/
-│       ├── realm-export.json
-│       ├── protocol-mapper/           # act claim mapper (Java)
-│       └── theme/                     # AIPlex-branded login + consent
+│   └── ory/
+│       ├── hydra.yaml                 # Hydra server config
+│       ├── kratos.yaml                # Kratos identity config
+│       ├── kratos-identity-schema.json # User identity schema
+│       └── social-providers/          # OIDC provider configs
 ├── src/
 │   └── aiplex/
 │       ├── main.py                    # FastAPI entrypoint
@@ -540,7 +545,10 @@ aiplex/
 │       │   ├── routes.py              # MCPRoute / HTTPRoute / LLMRoute generation
 │       │   └── manifests.py           # K8s manifest generation
 │       ├── access/
-│       │   ├── keycloak_client.py     # Keycloak Admin API wrapper
+│       │   ├── hydra_client.py        # Ory Hydra Admin API wrapper
+│       │   ├── kratos_client.py       # Ory Kratos Admin API wrapper
+│       │   ├── consent.py             # Hydra consent webhook handler
+│       │   ├── token_hook.py          # Hydra token hook (act claim injection)
 │       │   ├── agents.py              # Agent registration + Dim A
 │       │   ├── users.py               # User permissions + Dim B
 │       │   └── wif.py                 # WIF principal validation
@@ -595,7 +603,7 @@ templates/{id}                           # Cached catalog entries (all planes)
 deploy_history/{id}                      # Append-only audit trail
 ```
 
-Permissions are NOT in Firestore. Keycloak is the source of truth for all authorization.
+Permissions are NOT in Firestore (except user ceilings / Dim B). Ory Hydra is the source of truth for OAuth clients and consent. OPA/aiplex-authz enforces at runtime.
 
 -----
 
@@ -620,7 +628,7 @@ Dashboard shows unified view: tool calls + agent delegations + model inference +
 ```
 Build:  AIPlex API (deploy engine for MCPlex), Console (catalog + deploy)
 Deploy: GKE Autopilot, Firestore, basic Envoy Gateway
-Auth:   IAP only (no Keycloak, no OPA)
+Auth:   IAP only (no Ory, no OPA)
 ```
 
 Working product: browse MCP catalog, click-to-deploy, access via IAP.
@@ -628,8 +636,8 @@ Working product: browse MCP catalog, click-to-deploy, access via IAP.
 ### Phase 2: Auth + Tool-Level (3 weeks)
 
 ```
-Add:    Keycloak (Helm), Cloud SQL, OPA sidecar, Envoy AI Gateway
-Build:  Realm config, scope registration, agent registration UI, permissions UI
+Add:    Ory Hydra + Kratos (Helm), AlloyDB, OPA/aiplex-authz, Envoy AI Gateway
+Build:  Hydra config, consent handler, scope registration, agent registration UI, permissions UI
 ```
 
 Working product: OAuth login, agent registration, tool-level consent.
@@ -638,7 +646,7 @@ Working product: OAuth login, agent registration, tool-level consent.
 
 ```
 Add:    Cloud Service Mesh, Managed Workload Identity, WIF providers
-Build:  SPIFFE in deploy engine, act claim protocol mapper
+Build:  SPIFFE in deploy engine, act claim token hook
 ```
 
 Working product: mTLS, per-server SPIFFE, cross-cloud agents.
@@ -679,9 +687,13 @@ MCPlex alone ships in 9 weeks (Phases 1-3). Each additional plane is 2 weeks of 
 
 Envoy AI Gateway already handles MCP (MCPRoute), LLM inference (LLMRoute with provider failover), and arbitrary HTTP (HTTPRoute for A2A). One gateway = one auth check, one rate limiter, one audit trail. Adding a plane is adding a route CRD, not a new system.
 
-### Why one Keycloak realm for all planes?
+### Why Ory Hydra + Kratos, not Keycloak?
 
-An agent’s permissions span planes: the tutor agent calls tools (MCPlex), delegates to other agents (A2APlex), and calls models (LLMPlex). A single realm with unified scopes means one token carries all three. No cross-realm token exchange.
+Go-native (30MB images vs Keycloak’s 500MB), 50MB RAM vs 1.5GB, sub-second startup vs 30s. Hydra’s consent webhook means AIPlex owns the consent UX entirely (React in the Console, not a Keycloak FreeMarker theme). Token hook for custom claims — no Java SPI. Same OAuth 2.1 / OIDC compliance, 15x smaller footprint.
+
+### Why one Hydra instance for all planes?
+
+An agent’s permissions span planes: the tutor agent calls tools (MCPlex), delegates to other agents (A2APlex), and calls models (LLMPlex). A single OAuth server with unified scopes means one token carries all three. No cross-service token exchange.
 
 ### Why unified OPA policy?
 
@@ -691,9 +703,9 @@ The Rego policy is 20 lines because the pattern is identical: parse the JWT, che
 
 Blast radius isolation. A compromised MCP server can’t reach A2A agents. A rogue A2A agent can’t call models. Network policies + mesh AuthorizationPolicy enforce this at the infrastructure level.
 
-### Why Keycloak, not custom auth?
+### Why not custom auth?
 
-Auth is commodity plumbing. Keycloak gives login, consent, DCR, MFA, OIDC brokering, admin console, and Authorization Services. Every hour saved on auth goes into the deploy UX, catalog federation, and governance that differentiate AIPlex.
+Auth is commodity plumbing. Ory Hydra gives OAuth 2.1 token issuance, DCR, PKCE, device grant. Ory Kratos gives login, MFA, OIDC brokering, account recovery. Both are Go, cloud-native, and lightweight. Every hour saved on auth goes into the deploy UX, catalog federation, and governance that differentiate AIPlex.
 
 -----
 

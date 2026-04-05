@@ -1,0 +1,106 @@
+# Ory Kratos identity management configuration for AIPlex
+# See: https://www.ory.sh/docs/kratos/reference/configuration
+version: v1.0.0
+
+dsn: postgres://kratos:CHANGE_ME@alloydb-proxy:5432/kratos?sslmode=disable
+
+serve:
+  public:
+    base_url: https://aiplex.example.com/.ory/kratos/public/
+    cors:
+      enabled: true
+      allowed_origins:
+        - https://console.aiplex.example.com
+  admin:
+    base_url: http://kratos-admin:4434/
+
+selfservice:
+  default_browser_return_url: https://console.aiplex.example.com/
+  allowed_return_urls:
+    - https://console.aiplex.example.com
+
+  methods:
+    password:
+      enabled: true
+    oidc:
+      enabled: true
+      config:
+        providers: []
+        # Populated per-tenant. Example:
+        # - id: google
+        #   provider: google
+        #   client_id: GOOGLE_CLIENT_ID
+        #   client_secret: GOOGLE_CLIENT_SECRET
+        #   mapper_url: file:///etc/kratos/oidc-mappers/google.jsonnet
+        #   scope:
+        #     - email
+        #     - profile
+        # - id: azure
+        #   provider: microsoft
+        #   client_id: AZURE_CLIENT_ID
+        #   client_secret: AZURE_CLIENT_SECRET
+        #   microsoft_tenant: TENANT_ID
+        #   mapper_url: file:///etc/kratos/oidc-mappers/azure.jsonnet
+        #   scope:
+        #     - email
+        #     - profile
+    totp:
+      enabled: true
+      config:
+        issuer: AIPlex
+
+  flows:
+    login:
+      ui_url: https://console.aiplex.example.com/auth/login
+      lifespan: 10m
+    registration:
+      ui_url: https://console.aiplex.example.com/auth/register
+      lifespan: 10m
+      after:
+        oidc:
+          hooks:
+            - hook: session
+    verification:
+      enabled: true
+      ui_url: https://console.aiplex.example.com/auth/verify
+    recovery:
+      enabled: true
+      ui_url: https://console.aiplex.example.com/auth/recovery
+    settings:
+      ui_url: https://console.aiplex.example.com/auth/settings
+    error:
+      ui_url: https://console.aiplex.example.com/auth/error
+
+identity:
+  default_schema_id: user_v1
+  schemas:
+    - id: user_v1
+      url: file:///etc/kratos/identity-schema.json
+
+session:
+  lifespan: 24h
+  cookie:
+    name: aiplex_session
+    same_site: Lax
+
+hashers:
+  argon2:
+    parallelism: 1
+    memory: 128MB
+    iterations: 2
+    salt_length: 16
+    key_length: 16
+
+log:
+  level: info
+  format: json
+  leak_sensitive_values: false
+
+ciphers:
+  algorithm: xchacha20-poly1305
+
+secrets:
+  cookie:
+    - CHANGE_ME_COOKIE_SECRET
+  cipher:
+    - CHANGE_ME_CIPHER_SECRET
