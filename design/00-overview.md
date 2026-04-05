@@ -22,6 +22,7 @@ This folder contains detailed design documents for each major subsystem of AIPle
 | 14 | [Performance Architecture](14-performance-architecture.md) | Rust/Go core | Why Go+Rust, idempotency guarantees, binary packaging |
 | 15 | [Auth Alternatives](15-auth-alternatives-keycloak-rethink.md) | Auth rethink | Auth stack comparison — Keycloak vs Ory Hydra vs Dex vs Zitadel |
 | 16 | [Delightful Onboarding](16-delightful-onboarding.md) | UX/DX | Zero-jargon onboarding, SDK, progressive disclosure, error messages |
+| 17 | [Seamless Platform Bootstrap](17-seamless-platform-bootstrap.md) | Setup | No kubectl/helm/terraform — single binary, one command, Owner role only |
 
 ## How to Read These
 
