@@ -1,0 +1,99 @@
+# AIPlex — Production overlay
+#
+# Usage:
+#   helm install aiplex deploy/helm/aiplex \
+#     --values deploy/helm/aiplex/values.yaml \
+#     --values deploy/helm/aiplex/values-prod.yaml
+
+global:
+  # Override these per deployment:
+  # domain: aiplex.mycompany.com
+  # projectId: my-prod-project
+  # trustDomain: my-prod-project.svc.id.goog
+  # registry: us-central1-docker.pkg.dev/my-prod-project/aiplex
+
+# HA: 3+ replicas, production resource limits
+api:
+  replicas: 3
+  image:
+    tag: ""  # Set to specific version, not latest
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+  env:
+    LOG_LEVEL: info
+
+console:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+opa:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 200m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+otel:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+alloydbProxy:
+  enabled: true
+  replicas: 3
+
+mesh:
+  enabled: true
+  strictMtls: true  # Enforce mTLS everywhere
+
+hydra:
+  enabled: true
+  hydra:
+    config:
+      oauth2:
+        token_hook:
+          url: http://aiplex-api:8080/auth/token-hook
+      strategies:
+        access_token: jwt
+        scope: exact
+  deployment:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+kratos:
+  enabled: true
+  deployment:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi

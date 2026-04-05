@@ -1,0 +1,109 @@
+# AIPlex Local Development Environment
+#
+# Starts all dependencies locally for development:
+#   docker compose up -d
+#   make run-local
+#
+# Access:
+#   AIPlex API:  http://localhost:8080
+#   Hydra Admin: http://localhost:4445
+#   Kratos:      http://localhost:4433
+#   OPA:         http://localhost:8181
+#   Firestore:   localhost:8086
+
+services:
+  # Firestore emulator
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: >
+      gcloud emulators firestore start
+      --host-port=0.0.0.0:8086
+      --project=aiplex-dev
+    ports:
+      - "8086:8086"
+    environment:
+      - FIRESTORE_EMULATOR_HOST=0.0.0.0:8086
+
+  # PostgreSQL (stands in for AlloyDB in dev)
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aiplex
+      POSTGRES_PASSWORD: aiplex-dev
+      POSTGRES_DB: aiplex
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deploy/ory/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiplex"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Ory Hydra (OAuth 2.1 / OIDC server)
+  hydra:
+    image: oryd/hydra:v2.3.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: serve all --dev
+    environment:
+      DSN: postgres://aiplex:aiplex-dev@postgres:5432/hydra?sslmode=disable
+      URLS_SELF_ISSUER: http://localhost:4444
+      URLS_CONSENT: http://localhost:8080/auth/consent
+      URLS_LOGIN: http://localhost:8080/auth/login
+      URLS_LOGOUT: http://localhost:8080/auth/logout
+      SECRETS_SYSTEM: dev-secret-at-least-32-chars-long!!
+      OIDC_SUBJECT_IDENTIFIERS_SUPPORTED_TYPES: public
+      LOG_LEVEL: info
+    ports:
+      - "4444:4444"   # Public (token endpoint)
+      - "4445:4445"   # Admin
+
+  # Ory Hydra migration (runs once)
+  hydra-migrate:
+    image: oryd/hydra:v2.3.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: migrate sql --yes postgres://aiplex:aiplex-dev@postgres:5432/hydra?sslmode=disable
+    restart: "no"
+
+  # Ory Kratos (Identity management)
+  kratos:
+    image: oryd/kratos:v1.3.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: serve --dev --config /etc/kratos/kratos.yml
+    environment:
+      DSN: postgres://aiplex:aiplex-dev@postgres:5432/kratos?sslmode=disable
+      LOG_LEVEL: info
+    ports:
+      - "4433:4433"   # Public
+      - "4434:4434"   # Admin
+    volumes:
+      - ./deploy/ory/kratos-dev.yml:/etc/kratos/kratos.yml:ro
+
+  # Kratos migration
+  kratos-migrate:
+    image: oryd/kratos:v1.3.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: migrate sql --yes postgres://aiplex:aiplex-dev@postgres:5432/kratos?sslmode=disable
+    restart: "no"
+
+  # OPA (Open Policy Agent)
+  opa:
+    image: openpolicyagent/opa:latest
+    command: run --server --addr=:8181 /policies
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./policies:/policies:ro
+
+volumes:
+  postgres-data:

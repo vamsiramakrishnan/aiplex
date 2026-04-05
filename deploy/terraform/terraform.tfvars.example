@@ -1,0 +1,44 @@
+# AIPlex Terraform Variables
+#
+# Copy this file and fill in your values:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# Or generate interactively:
+#   aiplex init
+
+# ── Required ─────────────────────────────────────────────
+
+# GCP project ID (must exist, billing enabled)
+project_id = "my-gcp-project"
+
+# GCP region for all resources
+# Recommended: us-central1, europe-west1, asia-southeast1
+region = "us-central1"
+
+# Domain for AIPlex HTTPS endpoint
+# A DNS record must point to the load balancer IP after deploy
+domain = "aiplex.example.com"
+
+# ── Optional ─────────────────────────────────────────────
+
+# Admin email (for alerts and initial setup)
+# admin_email = "admin@example.com"
+
+# AlloyDB sizing (vCPUs — minimum 2)
+# Dev: 2, Staging: 4, Production: 8+
+# alloydb_cpu_count = 2
+
+# Artifact Registry name
+# registry_name = "aiplex"
+
+# Hydra internal URL (auto-configured by Helm, rarely needs override)
+# hydra_admin_url = "http://hydra-admin.aiplex-system.svc.cluster.local:4445"
+
+# ── Workload Identity Federation (for external agents) ───
+# Only needed if agents run outside GCP (AWS, Azure, on-prem)
+
+# AWS account ID for WIF provider
+# aws_account_id = "123456789012"
+
+# Azure tenant ID for WIF provider
+# azure_tenant_id = "00000000-0000-0000-0000-000000000000"

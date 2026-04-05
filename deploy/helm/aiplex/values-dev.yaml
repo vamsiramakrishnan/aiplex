@@ -1,0 +1,86 @@
+# AIPlex — Development overlay
+#
+# Usage:
+#   helm install aiplex deploy/helm/aiplex \
+#     --values deploy/helm/aiplex/values.yaml \
+#     --values deploy/helm/aiplex/values-dev.yaml
+
+global:
+  domain: aiplex-dev.example.com
+
+# Single replica for all services — saves cost
+api:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  env:
+    LOG_LEVEL: debug
+
+console:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+opa:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+otel:
+  enabled: false  # Skip observability in dev
+
+alloydbProxy:
+  enabled: false  # Use local PostgreSQL instead
+
+mesh:
+  enabled: false     # No mTLS in dev — simplifies debugging
+  strictMtls: false
+
+hydra:
+  enabled: true
+  hydra:
+    config:
+      urls:
+        self:
+          issuer: http://localhost:4444
+        consent: http://localhost:8080/auth/consent
+        login: http://localhost:8080/auth/login
+      secrets:
+        system:
+          - dev-secret-at-least-32-chars-long!!
+  deployment:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+
+kratos:
+  enabled: true
+  kratos:
+    config:
+      selfservice:
+        flows:
+          login:
+            ui_url: http://localhost:3000/auth/login
+          registration:
+            ui_url: http://localhost:3000/auth/register
+  deployment:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
