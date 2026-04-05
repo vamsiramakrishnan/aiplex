@@ -109,7 +109,7 @@ Keycloak is a Java monolith (~500MB image, 1-2GB RAM, 10-30s startup). It's feat
 | Total RAM | 1-2GB | 100-200MB |
 | Cold start | 10-30s | < 1s |
 | Language | Java | Go |
-| Database | PostgreSQL (Cloud SQL) | PostgreSQL (same Cloud SQL) |
+| Database | PostgreSQL (AlloyDB) | PostgreSQL (same AlloyDB) |
 
 ---
 
@@ -245,7 +245,7 @@ func tokenHook(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-5. **K8s-native Helm charts.** Both Hydra and Kratos have production-ready Helm charts with PostgreSQL (same Cloud SQL we'd use for Keycloak).
+5. **K8s-native Helm charts.** Both Hydra and Kratos have production-ready Helm charts with PostgreSQL (same AlloyDB we'd use for Keycloak).
 
 6. **OpenID Certified.** Hydra is OpenID certified for all relevant profiles.
 
@@ -277,7 +277,7 @@ Agents / IDEs / CLIs
 │   grant      │ │            │ │            │
 └──────────────┘ └────────────┘ └────────────┘
        │                              │
-       └──────── Cloud SQL ───────────┘
+       └──────── AlloyDB ───────────┘
 ```
 
 ### Key Difference: Consent Flow
@@ -320,7 +320,7 @@ Alternatively, **start with Ory from Phase 1.** The Helm chart setup is comparab
 | Custom claims | Java SPI JAR | Go webhook (in AIPlex API) |
 | Consent UI | Keycloak theme (FreeMarker) | AIPlex Console (React) |
 | Admin UI | Keycloak Admin Console | AIPlex Console |
-| Database | Cloud SQL PostgreSQL | Cloud SQL PostgreSQL (same) |
+| Database | AlloyDB PostgreSQL | AlloyDB PostgreSQL (same) |
 | **Total auth footprint** | **~500MB image, ~1.5GB RAM** | **~60MB images, ~100MB RAM** |
 
 **15x smaller. 15x less memory.** Same functionality for AIPlex's specific needs.

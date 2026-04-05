@@ -247,7 +247,7 @@ $ aiplex platform init
 ? Admin email: admin@mycompany.com
 
 Bootstrapping AIPlex platform...
-  ✓ Terraform init (GKE, Firestore, Cloud SQL, Secret Manager)
+  ✓ Terraform init (GKE, Firestore, AlloyDB, Secret Manager)
   ✓ GKE Autopilot cluster created
   ✓ Namespaces created (aiplex-system, mcplex, a2aplex)
   ✓ Cloud Service Mesh enabled

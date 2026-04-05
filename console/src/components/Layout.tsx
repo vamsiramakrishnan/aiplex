@@ -6,6 +6,7 @@ const navItems = [
   { to: '/a2aplex', label: 'A2APlex' },
   { to: '/llmplex', label: 'LLMPlex' },
   { to: '/agents', label: 'Agents' },
+  { to: '/permissions', label: 'Permissions' },
 ]
 
 export default function Layout() {

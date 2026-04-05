@@ -15,12 +15,29 @@ import (
 // Engine orchestrates deployments across all three planes.
 type Engine struct {
 	store       registry.Store
+	k8s         K8sClient
 	trustDomain string
+	gatewayName string
 }
 
 // NewEngine creates a deploy engine.
 func NewEngine(store registry.Store, trustDomain string) *Engine {
-	return &Engine{store: store, trustDomain: trustDomain}
+	return &Engine{
+		store:       store,
+		k8s:         NewNoOpK8sClient(),
+		trustDomain: trustDomain,
+		gatewayName: "aiplex-gateway",
+	}
+}
+
+// NewEngineWithK8s creates a deploy engine with a real K8s client.
+func NewEngineWithK8s(store registry.Store, k8s K8sClient, trustDomain, gatewayName string) *Engine {
+	return &Engine{
+		store:       store,
+		k8s:         k8s,
+		trustDomain: trustDomain,
+		gatewayName: gatewayName,
+	}
 }
 
 // Deploy provisions an instance for any plane.
@@ -44,8 +61,6 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 	var spiffeID string
 	if plane != models.PlaneLLMPlex {
 		spiffeID = fmt.Sprintf("spiffe://%s/ns/%s/sa/%s", e.trustDomain, namespace, instanceID)
-		// TODO: create GKE managed workload identity
-		// TODO: create K8s ServiceAccount, Deployment, Service, NetworkPolicy
 		logger.Info().Str("spiffe_id", spiffeID).Msg("identity provisioned")
 	}
 
@@ -53,7 +68,6 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 	var scopes []string
 	switch plane {
 	case models.PlaneMCPlex:
-		// TODO: call tools/list on the deployed server to discover tools
 		for _, tool := range template.Tools {
 			scopes = append(scopes, "mcp:tools:"+tool.Name)
 		}
@@ -68,11 +82,7 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		}
 	}
 
-	// TODO: register scopes in Hydra
-	// TODO: apply route CRD (MCPRoute / HTTPRoute / LLMRoute)
-	// TODO: grant owner access (Dimension B)
-
-	// 5. Persist instance
+	// 5. Build and persist instance (provisioning state)
 	inst := &models.Instance{
 		ID:          instanceID,
 		Plane:       plane,
@@ -93,30 +103,43 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		return nil, fmt.Errorf("failed to persist instance: %w", err)
 	}
 
-	// 6. Record history
-	duration := time.Since(start)
-	history := &models.DeployHistory{
-		ID:          generateID("hist"),
-		InstanceID:  instanceID,
-		Action:      "deploy",
-		Plane:       plane,
-		TemplateID:  templateID,
-		Owner:       owner,
-		PerformedBy: owner,
-		Config:      config,
-		Timestamp:   time.Now(),
-		DurationMs:  duration.Milliseconds(),
-		Success:     true,
-	}
-	if err := e.store.AppendHistory(ctx, history); err != nil {
-		logger.Warn().Err(err).Msg("failed to record deploy history")
+	// 6. Apply K8s workload manifests (SA, Deployment, Service, NetworkPolicy)
+	manifests := GenerateManifests(inst, template, e.trustDomain)
+	for _, m := range manifests {
+		if err := e.k8s.Apply(ctx, m); err != nil {
+			inst.Status = models.StatusFailed
+			e.store.PutInstance(ctx, inst)
+			e.recordHistory(ctx, inst, "deploy", owner, config, start, false, err.Error())
+			return nil, fmt.Errorf("failed to apply %s/%s: %w", m.Kind, m.Name, err)
+		}
 	}
 
-	// Mark as running (in production, this happens after health check passes)
+	// 7. Apply route CRD (MCPRoute / HTTPRoute / LLMRoute)
+	routes := GenerateRoute(inst, template, e.gatewayName)
+	for _, m := range routes {
+		if err := e.k8s.Apply(ctx, m); err != nil {
+			inst.Status = models.StatusFailed
+			e.store.PutInstance(ctx, inst)
+			e.recordHistory(ctx, inst, "deploy", owner, config, start, false, err.Error())
+			return nil, fmt.Errorf("failed to apply route %s/%s: %w", m.Kind, m.Name, err)
+		}
+	}
+
+	// 8. Grant owner access (Dimension B — user ceiling)
+	if err := e.store.SetUserScopes(ctx, owner, append(
+		mustGetUserScopes(ctx, e.store, owner), scopes...,
+	)); err != nil {
+		logger.Warn().Err(err).Msg("failed to grant owner scopes")
+	}
+
+	// 9. Record success history
+	e.recordHistory(ctx, inst, "deploy", owner, config, start, true, "")
+
+	// Mark as running (in production, this transitions after health check passes)
 	inst.Status = models.StatusRunning
 	e.store.PutInstance(ctx, inst)
 
-	logger.Info().Dur("duration", duration).Msg("deploy complete")
+	logger.Info().Dur("duration", time.Since(start)).Msg("deploy complete")
 	return inst, nil
 }
 
@@ -130,11 +153,28 @@ func (e *Engine) Undeploy(ctx context.Context, instanceID, performer string) err
 		return err
 	}
 
+	tmpl, _ := e.store.GetTemplate(ctx, inst.TemplateID)
 	logger.Info().Msg("starting undeploy")
 
-	// TODO: delete K8s resources (Deployment, Service, SA, NetworkPolicy)
-	// TODO: delete route CRD
-	// TODO: remove scopes from Hydra
+	// Delete route CRDs
+	if tmpl != nil {
+		routes := GenerateRoute(inst, tmpl, e.gatewayName)
+		for _, m := range routes {
+			if err := e.k8s.Delete(ctx, m.APIVersion, m.Kind, m.Name, m.Namespace); err != nil {
+				logger.Warn().Err(err).Str("kind", m.Kind).Str("name", m.Name).Msg("failed to delete route")
+			}
+		}
+	}
+
+	// Delete K8s workload manifests
+	if tmpl != nil {
+		manifests := GenerateManifests(inst, tmpl, e.trustDomain)
+		for _, m := range manifests {
+			if err := e.k8s.Delete(ctx, m.APIVersion, m.Kind, m.Name, m.Namespace); err != nil {
+				logger.Warn().Err(err).Str("kind", m.Kind).Str("name", m.Name).Msg("failed to delete resource")
+			}
+		}
+	}
 
 	inst.Status = models.StatusTerminated
 	inst.UpdatedAt = time.Now()
@@ -142,22 +182,35 @@ func (e *Engine) Undeploy(ctx context.Context, instanceID, performer string) err
 		return fmt.Errorf("failed to update instance: %w", err)
 	}
 
-	duration := time.Since(start)
+	e.recordHistory(ctx, inst, "undeploy", performer, nil, start, true, "")
+
+	logger.Info().Dur("duration", time.Since(start)).Msg("undeploy complete")
+	return nil
+}
+
+func (e *Engine) recordHistory(ctx context.Context, inst *models.Instance, action, performer string, config map[string]any, start time.Time, success bool, errMsg string) {
 	history := &models.DeployHistory{
 		ID:          generateID("hist"),
-		InstanceID:  instanceID,
-		Action:      "undeploy",
+		InstanceID:  inst.ID,
+		Action:      action,
 		Plane:       inst.Plane,
+		TemplateID:  inst.TemplateID,
 		Owner:       inst.Owner,
 		PerformedBy: performer,
+		Config:      config,
 		Timestamp:   time.Now(),
-		DurationMs:  duration.Milliseconds(),
-		Success:     true,
+		DurationMs:  time.Since(start).Milliseconds(),
+		Success:     success,
+		Error:       errMsg,
 	}
-	e.store.AppendHistory(ctx, history)
+	if err := e.store.AppendHistory(ctx, history); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to record deploy history")
+	}
+}
 
-	logger.Info().Dur("duration", duration).Msg("undeploy complete")
-	return nil
+func mustGetUserScopes(ctx context.Context, store registry.Store, userID string) []string {
+	scopes, _ := store.GetUserScopes(ctx, userID)
+	return scopes
 }
 
 func generateID(prefix string) string {

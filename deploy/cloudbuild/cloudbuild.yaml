@@ -1,0 +1,145 @@
+# Cloud Build pipeline for AIPlex
+# Builds, tests, signs, and deploys container images.
+# Binary Authorization ensures only signed images run on GKE.
+
+steps:
+  # ─── 1. Run Go tests ───
+  - id: test-api
+    name: golang:1.24-alpine
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        cd /workspace
+        go test ./... -v -count=1
+
+  # ─── 2. Build AIPlex API image ───
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGISTRY}/aiplex-api:${SHORT_SHA}
+      - -t
+      - ${_REGISTRY}/aiplex-api:latest
+      - -f
+      - Dockerfile
+      - .
+    waitFor: [test-api]
+
+  # ─── 3. Build Console image ───
+  - id: build-console
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGISTRY}/aiplex-console:${SHORT_SHA}
+      - -t
+      - ${_REGISTRY}/aiplex-console:latest
+      - -f
+      - console/Dockerfile
+      - console/
+    waitFor: ['-']  # Can run in parallel with API tests
+
+  # ─── 4. Push images to Artifact Registry ───
+  - id: push-api
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, '${_REGISTRY}/aiplex-api']
+    waitFor: [build-api]
+
+  - id: push-console
+    name: gcr.io/cloud-builders/docker
+    args: [push, --all-tags, '${_REGISTRY}/aiplex-console']
+    waitFor: [build-console]
+
+  # ─── 5. Vulnerability scanning ───
+  - id: scan-api
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud artifacts docker images scan \
+          ${_REGISTRY}/aiplex-api:${SHORT_SHA} \
+          --remote \
+          --format='value(response.scan)' > /workspace/scan-api.txt
+        gcloud artifacts docker images list-vulnerabilities \
+          $(cat /workspace/scan-api.txt) \
+          --format='table(vulnerability.effectiveSeverity, vulnerability.cvssScore, vulnerability.packageIssue.affectedPackage, vulnerability.packageIssue.fixedPackage)' \
+          --severity=CRITICAL,HIGH
+    waitFor: [push-api]
+
+  # ─── 6. Create attestation (cryptographic signing) ───
+  - id: sign-api
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        # Get the image digest
+        DIGEST=$(gcloud artifacts docker images describe \
+          ${_REGISTRY}/aiplex-api:${SHORT_SHA} \
+          --format='value(image_summary.digest)')
+
+        # Create attestation using the Binary Authorization attestor
+        gcloud container binauthz attestations sign-and-create \
+          --project=${PROJECT_ID} \
+          --artifact-url="${_REGISTRY}/aiplex-api@$${DIGEST}" \
+          --attestor=projects/${PROJECT_ID}/attestors/${_ATTESTOR_ID} \
+          --keyversion=projects/${PROJECT_ID}/locations/${_KMS_LOCATION}/keyRings/${_KMS_KEYRING}/cryptoKeys/${_KMS_KEY}/cryptoKeyVersions/1
+    waitFor: [scan-api]
+
+  - id: sign-console
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        DIGEST=$(gcloud artifacts docker images describe \
+          ${_REGISTRY}/aiplex-console:${SHORT_SHA} \
+          --format='value(image_summary.digest)')
+
+        gcloud container binauthz attestations sign-and-create \
+          --project=${PROJECT_ID} \
+          --artifact-url="${_REGISTRY}/aiplex-console@$${DIGEST}" \
+          --attestor=projects/${PROJECT_ID}/attestors/${_ATTESTOR_ID} \
+          --keyversion=projects/${PROJECT_ID}/locations/${_KMS_LOCATION}/keyRings/${_KMS_KEYRING}/cryptoKeys/${_KMS_KEY}/cryptoKeyVersions/1
+    waitFor: [push-console]
+
+  # ─── 7. Deploy via Helm ───
+  - id: deploy
+    name: gcr.io/cloud-builders/gke-deploy
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud container clusters get-credentials aiplex --region=${_REGION} --project=${PROJECT_ID}
+
+        helm upgrade --install aiplex deploy/helm/aiplex \
+          --namespace aiplex-system \
+          --create-namespace \
+          --set global.projectId=${PROJECT_ID} \
+          --set global.domain=${_DOMAIN} \
+          --set global.registry=${_REGISTRY} \
+          --set api.image.tag=${SHORT_SHA} \
+          --set console.image.tag=${SHORT_SHA} \
+          --wait \
+          --timeout 5m
+    waitFor: [sign-api, sign-console]
+
+substitutions:
+  _REGISTRY: us-central1-docker.pkg.dev/${PROJECT_ID}/aiplex
+  _REGION: us-central1
+  _DOMAIN: aiplex.example.com
+  _ATTESTOR_ID: aiplex-attestor
+  _KMS_LOCATION: us-central1
+  _KMS_KEYRING: aiplex-keys
+  _KMS_KEY: aiplex-signer
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+images:
+  - ${_REGISTRY}/aiplex-api:${SHORT_SHA}
+  - ${_REGISTRY}/aiplex-console:${SHORT_SHA}

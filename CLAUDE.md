@@ -14,7 +14,7 @@ You build two things: the AIPlex API (Python/FastAPI) and the AIPlex Console (Re
 
 **Build**: AIPlex API (Go), AIPlex Console (React), aiplex-authz (Rust)
 **Configure**: Ory Hydra + Kratos (auth), Envoy AI Gateway (routing), aiplex-authz (scope check)
-**Managed**: GKE Autopilot, Cloud Service Mesh, Firestore, Cloud SQL, Secret Manager
+**Managed**: GKE Autopilot, Cloud Service Mesh, Firestore, AlloyDB, Secret Manager
 
 -----
 
@@ -72,7 +72,7 @@ Agents / IDEs / CLIs / Other Agents
 │  │  Routes to: Gemini, Claude, GPT, Bedrock, Ollama            │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                                                                   │
-│  External: Firestore │ Cloud SQL │ Secret Mgr │ CA Service        │
+│  External: Firestore │ AlloyDB │ Secret Mgr │ CA Service        │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -502,7 +502,7 @@ aiplex/
 │   ├── terraform/
 │   │   ├── gke.tf                    # GKE Autopilot + Cloud Service Mesh
 │   │   ├── identity_pool.tf          # SPIFFE pool + WIF providers
-│   │   ├── ory.tf                    # Cloud SQL + Ory Hydra/Kratos Helm
+│   │   ├── ory.tf                    # AlloyDB + Ory Hydra/Kratos Helm
 │   │   ├── gateway.tf                # HTTPS LB + IAP + Envoy AI Gateway
 │   │   ├── firestore.tf
 │   │   └── artifact_registry.tf
@@ -636,7 +636,7 @@ Working product: browse MCP catalog, click-to-deploy, access via IAP.
 ### Phase 2: Auth + Tool-Level (3 weeks)
 
 ```
-Add:    Ory Hydra + Kratos (Helm), Cloud SQL, OPA/aiplex-authz, Envoy AI Gateway
+Add:    Ory Hydra + Kratos (Helm), AlloyDB, OPA/aiplex-authz, Envoy AI Gateway
 Build:  Hydra config, consent handler, scope registration, agent registration UI, permissions UI
 ```
 

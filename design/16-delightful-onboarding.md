@@ -230,7 +230,7 @@ $ aiplex platform setup
 
 No mention of:
 - GKE Autopilot (it's "compute cluster")
-- Cloud SQL (it's "database")
+- AlloyDB (it's "database")
 - Ory Hydra + Kratos (it's "auth services")
 - Envoy AI Gateway (it's "gateway")
 - OTel Collector (it's "monitoring")
@@ -255,7 +255,7 @@ No mention of:
 ```
 Terraform apply:
   ✓ google_container_cluster.aiplex (GKE Autopilot)
-  ✓ google_sql_database_instance.aiplex (Cloud SQL)
+  ✓ google_sql_database_instance.aiplex (AlloyDB)
   ✓ google_firestore_database.aiplex
   ✓ google_certificate_manager_certificate.aiplex
   ✓ google_iam_workload_identity_pool.aiplex
@@ -509,7 +509,7 @@ Getting Started
 ├── Prerequisites
 │   ├── Install gcloud CLI
 │   ├── Configure GKE cluster
-│   ├── Set up Cloud SQL
+│   ├── Set up AlloyDB
 │   ├── Install Helm
 │   ├── Deploy Ory Hydra
 │   ├── Deploy Ory Kratos

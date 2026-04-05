@@ -1,0 +1,96 @@
+{{- if .Values.opa.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-policy
+  namespace: {{ include "aiplex.namespace" . }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+data:
+  aiplex_authz.rego: |
+    package aiplex.authz
+    import rego.v1
+
+    default allow := false
+
+    token := io.jwt.decode_verify(
+        input.attributes.request.http.headers.authorization,
+        {{"{"}}{{ printf `"iss": "https://%s/auth/realms/aiplex"` .Values.global.domain }}{{"}"}}
+    )
+    claims := token[2]
+    scopes := split(claims.scope, " ")
+    body := json.unmarshal(input.attributes.request.http.body)
+    path := input.attributes.request.http.path
+
+    allow if {
+        body.method == "tools/call"
+        sprintf("mcp:tools:%s", [body.params.name]) in scopes
+    }
+    allow if {
+        startswith(path, "/a2a/")
+        sprintf("a2a:task:%s", [body.task_type]) in scopes
+    }
+    allow if {
+        startswith(path, "/llm/")
+        model := input.attributes.request.http.headers["x-model-id"]
+        sprintf("llm:model:%s", [model]) in scopes
+    }
+    allow if {
+        body.method in {"initialize", "tools/list", "resources/list",
+                        "tasks/list", "agents/list", "models/list", "ping"}
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opa-ext-authz
+  namespace: {{ include "aiplex.namespace" . }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+    app.kubernetes.io/name: opa-ext-authz
+spec:
+  replicas: {{ .Values.opa.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opa-ext-authz
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: opa-ext-authz
+    spec:
+      containers:
+      - name: opa
+        image: {{ .Values.opa.image }}
+        args:
+        - "run"
+        - "--server"
+        - "--addr=0.0.0.0:8181"
+        - "--set=plugins.envoy_ext_authz_grpc.addr=0.0.0.0:9191"
+        - "--set=plugins.envoy_ext_authz_grpc.path=aiplex/authz/allow"
+        - "/policies/aiplex_authz.rego"
+        ports:
+        - containerPort: 9191
+          name: grpc
+        volumeMounts:
+        - name: policy
+          mountPath: /policies
+        resources:
+          {{- toYaml .Values.opa.resources | nindent 10 }}
+      volumes:
+      - name: policy
+        configMap:
+          name: opa-policy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opa-ext-authz
+  namespace: {{ include "aiplex.namespace" . }}
+spec:
+  selector:
+    app.kubernetes.io/name: opa-ext-authz
+  ports:
+  - name: grpc
+    port: 9191
+    targetPort: grpc
+{{- end }}

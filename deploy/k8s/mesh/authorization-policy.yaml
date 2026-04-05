@@ -1,0 +1,51 @@
+# Blast radius isolation: each plane namespace only accepts traffic from aiplex-system (Envoy Gateway)
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-gateway-only
+  namespace: mcplex
+spec:
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["aiplex-system"]
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-gateway-only
+  namespace: a2aplex
+spec:
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["aiplex-system"]
+---
+# LLMPlex: Envoy handles model routing directly, no pods in this namespace.
+# This policy denies all direct pod-to-pod traffic as a safety net.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: llmplex
+spec:
+  action: DENY
+  rules:
+  - from:
+    - source:
+        notNamespaces: ["aiplex-system"]
+---
+# aiplex-system: allow internal communication between system components
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-system-internal
+  namespace: aiplex-system
+spec:
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        namespaces: ["aiplex-system"]

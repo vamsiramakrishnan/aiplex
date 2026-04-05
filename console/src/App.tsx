@@ -6,6 +6,7 @@ import A2APlex from './pages/A2APlex'
 import LLMPlex from './pages/LLMPlex'
 import Agents from './pages/Agents'
 import Deploy from './pages/Deploy'
+import Permissions from './pages/Permissions'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/llmplex" element={<LLMPlex />} />
         <Route path="/agents" element={<Agents />} />
         <Route path="/deploy" element={<Deploy />} />
+        <Route path="/permissions" element={<Permissions />} />
       </Route>
     </Routes>
   )

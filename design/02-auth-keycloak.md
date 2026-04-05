@@ -406,7 +406,7 @@ If an agent needs a new scope mid-session:
 # Ory Hydra on GKE
 Helm chart: ory/hydra
 Image size: ~10MB (Go static binary)
-Database: Cloud SQL PostgreSQL (HA, automated backups)
+Database: AlloyDB PostgreSQL (HA, automated backups)
 Replicas: 2 (HA)
 Memory: ~50MB per pod
 TLS: Cloud Service Mesh mTLS (no separate cert)
@@ -415,7 +415,7 @@ Config: ConfigMap (hydra.yaml) + Secret (system secret, DB DSN)
 # Ory Kratos on GKE
 Helm chart: ory/kratos
 Image size: ~15MB (Go static binary)
-Database: Cloud SQL PostgreSQL (same instance, separate schema)
+Database: AlloyDB PostgreSQL (same instance, separate schema)
 Replicas: 2 (HA)
 Memory: ~50MB per pod
 TLS: Cloud Service Mesh mTLS
@@ -471,4 +471,4 @@ If the email matches an existing Kratos identity, Kratos links the new social si
 Existing JWTs remain valid (OPA validates locally using cached JWKS). No new tokens can be issued. Agents with refresh tokens will fail to refresh after access token expiry. Impact window = token TTL (1 hour). Hydra and Kratos are stateless Go binaries — restarts are sub-second.
 
 ### Clock skew
-JWT validation allows 30-second clock skew (`nbf` and `exp` claims). Hydra, Kratos, and OPA pods use GKE node time (synced via NTP). Cloud SQL and Firestore use Google-managed time.
+JWT validation allows 30-second clock skew (`nbf` and `exp` claims). Hydra, Kratos, and OPA pods use GKE node time (synced via NTP). AlloyDB and Firestore use Google-managed time.

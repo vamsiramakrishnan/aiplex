@@ -9,7 +9,7 @@ A user with **one thing** — a GCP project with Owner role — runs **one comma
 - Install Terraform
 - Configure IAM policies
 - Create service accounts
-- Set up Cloud SQL
+- Set up AlloyDB
 - Touch a YAML file
 - Open the GCP Console
 - Know what a namespace is
@@ -129,7 +129,7 @@ $ aiplex platform setup
 ```go
 apis := []string{
     "container.googleapis.com",        // GKE
-    "sqladmin.googleapis.com",         // Cloud SQL
+    "sqladmin.googleapis.com",         // AlloyDB
     "firestore.googleapis.com",        // Firestore
     "secretmanager.googleapis.com",    // Secret Manager
     "certificatemanager.googleapis.com", // TLS certs
@@ -238,11 +238,11 @@ func setupIAM(project string) error {
         },
         {
             name:  "aiplex-hydra",
-            roles: []string{"roles/cloudsql.client"},
+            roles: []string{"roles/alloydb.client"},
         },
         {
             name:  "aiplex-kratos",
-            roles: []string{"roles/cloudsql.client"},
+            roles: []string{"roles/alloydb.client"},
         },
     }
 
@@ -276,14 +276,14 @@ $ aiplex platform setup
   Phase 1: Infrastructure
     ✓ Enabling required APIs
     ✓ Creating compute cluster
-    ✗ Creating database (Cloud SQL quota exceeded)
+    ✗ Creating database (AlloyDB quota exceeded)
 
   Setup paused. Fix the issue and re-run:
     aiplex platform setup --resume
 
   To check quotas:
     https://console.cloud.google.com/iam-admin/quotas?project=my-school-prod
-    Look for "Cloud SQL instances" and request an increase.
+    Look for "AlloyDB instances" and request an increase.
 ```
 
 Re-running `aiplex platform setup` is always safe (idempotent). It skips completed steps and retries failed ones.

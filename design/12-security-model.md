@@ -70,7 +70,7 @@ Layer 6: Audit
 | T6 | User consents to malicious scope | Unintended access | Medium | Consent screen shows human-readable descriptions; admin sets ceiling |
 | T7 | Malicious image deployed via catalog | Code execution | Medium | SecurityContext restrictions; image scanning (future) |
 | T8 | OPA bypass via malformed request | Authorization bypass | Low | Fail-closed policy; OPA denies if body unparseable |
-| T9 | Hydra compromise | Full auth bypass | Low | Hydra on Cloud SQL HA; RBAC for admin access; audit logs |
+| T9 | Hydra compromise | Full auth bypass | Low | Hydra on AlloyDB HA; RBAC for admin access; audit logs |
 | T10 | Token replay across sessions | Session hijacking | Low | JTI claim for replay detection (future); short token TTL |
 | T11 | Cost abuse via LLM calls | Financial damage | Medium | Per-user rate limits on LLMPlex; cost budgets (future) |
 | T12 | Discovery enumeration | Information disclosure | Low | Discovery shows capability names, not data; rate limited |
@@ -172,7 +172,7 @@ Everything else is internal:
 - MCP servers: internal only
 - A2A agents: internal only
 - Firestore: VPC-internal + IAM
-- Cloud SQL: VPC-internal + IAM
+- AlloyDB: VPC-internal + IAM
 
 ### Cloud Armor Rules
 
@@ -270,7 +270,7 @@ defaultAdmissionRule:
 1. Rotate all signing keys (forces all token re-issuance)
 2. Invalidate all active sessions
 3. Review admin audit logs
-4. Restore from Cloud SQL backup if DB is compromised
+4. Restore from AlloyDB backup if DB is compromised
 
 ---
 
@@ -279,7 +279,7 @@ defaultAdmissionRule:
 | Requirement | How AIPlex Addresses It |
 |-------------|------------------------|
 | Data encryption in transit | mTLS (internal) + TLS 1.3 (external) |
-| Data encryption at rest | Firestore + Cloud SQL encryption (Google-managed keys) |
+| Data encryption at rest | Firestore + AlloyDB encryption (Google-managed keys) |
 | Access logging | Every request logged with user + agent identity |
 | Principle of least privilege | Three-dimension scope model; agents get only what's needed |
 | Identity management | Ory Kratos + Hydra with OIDC brokering to corporate IdPs |

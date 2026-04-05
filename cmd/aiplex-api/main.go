@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
+	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/catalog"
 	"github.com/vamsiramakrishnan/aiplex/internal/config"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
@@ -58,10 +59,14 @@ func main() {
 	// Deploy engine
 	engine := deploy.NewEngine(store, cfg.TrustDomain)
 
+	// Auth (Ory Hydra)
+	hydraClient := auth.NewHydraClient(cfg.HydraAdminURL)
+
 	// Handlers
 	catalogH := api.NewCatalogHandler(aggregator, store)
 	instanceH := api.NewInstanceHandler(store, engine)
 	agentH := api.NewAgentHandler(store)
+	authH := api.NewAuthHandler(hydraClient, store)
 
 	// Router
 	r := chi.NewRouter()
@@ -92,6 +97,16 @@ func main() {
 		r.Get("/agents/{clientId}", agentH.Get)
 		r.Delete("/agents/{clientId}", agentH.Delete)
 		r.Get("/agents/{clientId}/permissions", agentH.GetPermissions)
+	})
+
+	// Auth webhooks (Hydra consent + token hook)
+	r.Route("/auth", func(r chi.Router) {
+		r.Get("/consent", authH.ConsentGet)
+		r.Post("/consent", authH.ConsentAccept)
+		r.Post("/token-hook", authH.TokenHook)
+		r.Get("/login", authH.LoginRedirect)
+		r.Get("/users/{userId}/scopes", authH.GetUserScopes)
+		r.Put("/users/{userId}/scopes", authH.SetUserScopes)
 	})
 
 	// MCP sub-registry (v0.1 spec)
