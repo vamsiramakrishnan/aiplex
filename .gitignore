@@ -52,3 +52,6 @@ docker-compose.override.yml
 *.p12
 *secret*
 !deploy/terraform/terraform.tfvars.example
+docs-site/node_modules/
+docs-site/build/
+docs-site/.docusaurus/
