@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
@@ -188,16 +189,15 @@ func loadManifest(path string) (*AiplexManifest, error) {
 			return nil, fmt.Errorf("parse JSON: %w", err)
 		}
 	case ".yaml", ".yml":
-		// Simple YAML-to-JSON conversion for common cases
-		// For full YAML support, would use gopkg.in/yaml.v3
-		// For now, try JSON first (YAML is a superset of JSON)
-		if err := json.Unmarshal(data, &manifest); err != nil {
-			return nil, fmt.Errorf("parse YAML: install yaml support or use JSON format: %w", err)
+		if err := yaml.Unmarshal(data, &manifest); err != nil {
+			return nil, fmt.Errorf("parse YAML: %w", err)
 		}
 	default:
-		// Try JSON
-		if err := json.Unmarshal(data, &manifest); err != nil {
-			return nil, fmt.Errorf("unsupported format %s — use .json or .yaml", ext)
+		// Try YAML first (superset of JSON), then JSON
+		if err := yaml.Unmarshal(data, &manifest); err != nil {
+			if err2 := json.Unmarshal(data, &manifest); err2 != nil {
+				return nil, fmt.Errorf("unsupported format %s — use .json or .yaml", ext)
+			}
 		}
 	}
 

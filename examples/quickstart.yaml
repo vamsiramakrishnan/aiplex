@@ -1,0 +1,53 @@
+# AIPlex Quickstart — deploy a complete tutoring setup
+#
+# Usage:
+#   aiplex apply -f examples/quickstart.yaml
+
+version: v1
+
+# MCP servers (tools) and A2A agents (delegatable agents)
+instances:
+  - name: Knowledge Base
+    plane: mcplex
+    template: kb-search-server
+    config:
+      corpus: default
+
+  - name: Research Agent
+    plane: a2aplex
+    template: research-agent
+
+# Register AI agents with their permission ceilings (Dimension A)
+agents:
+  - client_id: tutor-agent
+    display_name: Tutor Agent
+    description: Socratic tutoring agent with tool, agent, and model access
+    auth_method: client_credentials
+    grant_types:
+      - client_credentials
+    allowed_scopes:
+      # MCPlex — which tools this agent can call
+      - mcp:tools:search_curriculum
+      - mcp:tools:get_document
+      # A2APlex — which agents it can delegate to
+      - a2a:task:research
+      # LLMPlex — which models it can use
+      - llm:model:gemini-2.5-flash
+
+# LLM routing rules with failover and budgets
+routes:
+  - model_id: gemini-2.5-flash
+    backends:
+      - provider: google
+        model_id: gemini-2.5-flash
+        weight: 80
+        enabled: true
+      - provider: anthropic
+        model_id: claude-sonnet-4-20250514
+        weight: 20
+        enabled: true
+    fallbacks:
+      - gpt-4.1-mini
+    budget:
+      max_daily_cost_usd: 10.00
+      alert_threshold_pct: 80

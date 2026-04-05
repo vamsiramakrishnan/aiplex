@@ -76,6 +76,8 @@ func main() {
 	r.Use(api.Recover)
 	r.Use(api.RequestID)
 	r.Use(api.Logger)
+	r.Use(api.CORS("*")) // TODO: restrict to Console origin in production
+	r.Use(api.MaxBody(1 << 20)) // 1MB max request body
 
 	// Health
 	r.Get("/healthz", api.Health)
