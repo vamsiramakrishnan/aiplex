@@ -11,11 +11,13 @@ variable "workforce_pool_id" {
 variable "organization_id" {
   description = "Google Cloud organization ID (required for workforce pools)"
   type        = string
+  default     = ""
 }
 
 # ── Workforce Identity Pool ──
 
 resource "google_iam_workforce_pool" "aiplex_users" {
+  count             = var.organization_id != "" ? 1 : 0
   provider          = google-beta
   workforce_pool_id = var.workforce_pool_id
   parent            = "organizations/${var.organization_id}"
@@ -29,9 +31,10 @@ resource "google_iam_workforce_pool" "aiplex_users" {
 # ── Google Workspace / Cloud Identity OIDC Provider ──
 
 resource "google_iam_workforce_pool_provider" "google_workspace" {
+  count                 = var.organization_id != "" ? 1 : 0
   provider              = google-beta
-  workforce_pool_id     = google_iam_workforce_pool.aiplex_users.workforce_pool_id
-  location              = google_iam_workforce_pool.aiplex_users.location
+  workforce_pool_id     = google_iam_workforce_pool.aiplex_users[0].workforce_pool_id
+  location              = google_iam_workforce_pool.aiplex_users[0].location
   workforce_pool_provider_id = "google-workspace"
   display_name          = "Google Workspace"
   description           = "Google Workspace users (students, teachers, admins)"
@@ -60,19 +63,22 @@ resource "google_iam_workforce_pool_provider" "google_workspace" {
 variable "google_workspace_client_id" {
   description = "OAuth client ID for Google Workspace OIDC"
   type        = string
+  default     = ""
 }
 
 variable "google_workspace_domain" {
   description = "Google Workspace domain (e.g. school.edu)"
   type        = string
+  default     = ""
 }
 
 # ── Azure AD OIDC Provider (corporate users via Azure) ──
 
 resource "google_iam_workforce_pool_provider" "azure_ad" {
+  count                 = var.organization_id != "" ? 1 : 0
   provider              = google-beta
-  workforce_pool_id     = google_iam_workforce_pool.aiplex_users.workforce_pool_id
-  location              = google_iam_workforce_pool.aiplex_users.location
+  workforce_pool_id     = google_iam_workforce_pool.aiplex_users[0].workforce_pool_id
+  location              = google_iam_workforce_pool.aiplex_users[0].location
   workforce_pool_provider_id = "azure-ad"
   display_name          = "Azure AD"
   description           = "Azure AD users from corporate tenants"
@@ -110,11 +116,11 @@ variable "azure_ad_client_id" {
 # ── Okta OIDC Provider ──
 
 resource "google_iam_workforce_pool_provider" "okta" {
-  count    = var.okta_issuer_uri != "" ? 1 : 0
+  count    = var.organization_id != "" && var.okta_issuer_uri != "" ? 1 : 0
   provider = google-beta
 
-  workforce_pool_id          = google_iam_workforce_pool.aiplex_users.workforce_pool_id
-  location                   = google_iam_workforce_pool.aiplex_users.location
+  workforce_pool_id          = google_iam_workforce_pool.aiplex_users[0].workforce_pool_id
+  location                   = google_iam_workforce_pool.aiplex_users[0].location
   workforce_pool_provider_id = "okta"
   display_name               = "Okta"
   description                = "Okta SSO users"
@@ -156,29 +162,33 @@ variable "okta_client_id" {
 
 # AIPlex Admins — full access to the AIPlex API + GCP project viewer
 resource "google_project_iam_member" "wif_admins_iap" {
+  count   = var.organization_id != "" ? 1 : 0
   project = var.project_id
   role    = "roles/iap.httpsResourceAccessor"
-  member  = "principalSet://iam.googleapis.com/${google_iam_workforce_pool.aiplex_users.name}/group/aiplex-admins"
+  member  = "principalSet://iam.googleapis.com/${google_iam_workforce_pool.aiplex_users[0].name}/group/aiplex-admins"
 }
 
 # AIPlex Deployers — can access AIPlex API via IAP (deploy + manage instances)
 resource "google_project_iam_member" "wif_deployers_iap" {
+  count   = var.organization_id != "" ? 1 : 0
   project = var.project_id
   role    = "roles/iap.httpsResourceAccessor"
-  member  = "principalSet://iam.googleapis.com/${google_iam_workforce_pool.aiplex_users.name}/group/aiplex-deployers"
+  member  = "principalSet://iam.googleapis.com/${google_iam_workforce_pool.aiplex_users[0].name}/group/aiplex-deployers"
 }
 
 # AIPlex Viewers — read-only access via IAP
 resource "google_project_iam_member" "wif_viewers_iap" {
+  count   = var.organization_id != "" ? 1 : 0
   project = var.project_id
   role    = "roles/iap.httpsResourceAccessor"
-  member  = "principalSet://iam.googleapis.com/${google_iam_workforce_pool.aiplex_users.name}/group/aiplex-viewers"
+  member  = "principalSet://iam.googleapis.com/${google_iam_workforce_pool.aiplex_users[0].name}/group/aiplex-viewers"
 }
 
 # ── Custom IAM Role for AIPlex API Access ──
 # This restricts what WIF-authenticated principals can do at the GCP level.
 
 resource "google_project_iam_custom_role" "aiplex_user" {
+  count       = var.organization_id != "" ? 1 : 0
   role_id     = "aiplexUser"
   title       = "AIPlex User"
   description = "Minimal GCP permissions for accessing the AIPlex platform via IAP"
@@ -192,14 +202,14 @@ resource "google_project_iam_custom_role" "aiplex_user" {
 
 output "workforce_pool_name" {
   description = "Full resource name of the workforce identity pool"
-  value       = google_iam_workforce_pool.aiplex_users.name
+  value       = var.organization_id != "" ? google_iam_workforce_pool.aiplex_users[0].name : ""
 }
 
 output "workforce_pool_id" {
-  value = google_iam_workforce_pool.aiplex_users.workforce_pool_id
+  value = var.organization_id != "" ? google_iam_workforce_pool.aiplex_users[0].workforce_pool_id : ""
 }
 
 output "google_workspace_provider" {
   description = "Google Workspace provider resource name"
-  value       = google_iam_workforce_pool_provider.google_workspace.name
+  value       = var.organization_id != "" ? google_iam_workforce_pool_provider.google_workspace[0].name : ""
 }
