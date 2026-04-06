@@ -108,6 +108,7 @@ Get started:
 		versionCmd(),
 
 		// Onboarding
+		quickstartCmd(),
 		initCmd(),
 		loginCmd(),
 		logoutCmd(),
