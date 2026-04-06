@@ -31,6 +31,14 @@ func initCmd() *cobra.Command {
 		force   bool
 	)
 
+	var (
+		// Advanced configuration
+		orgID           string
+		workspaceDomain string
+		workspaceClient string
+		alloydbCPU      string
+	)
+
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Set up AIPlex on a GCP project",
@@ -211,6 +219,60 @@ Examples:
 				fmt.Println()
 			}
 
+			// ── Step 2b: Advanced Configuration (optional) ──────
+			if needsInteractiveInput {
+				fmt.Println("[2b/6] Advanced Configuration (all optional — press Enter to skip)")
+				fmt.Println()
+
+				// Default values
+				if alloydbCPU == "" {
+					alloydbCPU = "2"
+				}
+
+				advancedForm := huh.NewForm(
+					huh.NewGroup(
+						huh.NewInput().
+							Title("Organization ID").
+							Description("GCP org ID for workforce identity pools (leave empty to skip)").
+							Value(&orgID).
+							Placeholder(""),
+
+						huh.NewInput().
+							Title("Google Workspace Domain").
+							Description("e.g. school.edu — for workforce identity (leave empty to skip)").
+							Value(&workspaceDomain).
+							Placeholder(""),
+
+						huh.NewInput().
+							Title("Google Workspace OAuth Client ID").
+							Description("For workforce OIDC (leave empty to skip)").
+							Value(&workspaceClient).
+							Placeholder(""),
+
+						huh.NewSelect[string]().
+							Title("AlloyDB CPU Count").
+							Description("vCPUs for PostgreSQL (Hydra + Kratos)").
+							Options(
+								huh.NewOption("2 vCPUs (Dev)", "2"),
+								huh.NewOption("4 vCPUs (Staging)", "4"),
+								huh.NewOption("8 vCPUs (Production)", "8"),
+							).
+							Value(&alloydbCPU),
+					),
+				)
+
+				if err := advancedForm.Run(); err != nil {
+					// User cancelled — use defaults, continue
+					fmt.Println("  Using defaults for advanced configuration.")
+				}
+				fmt.Println()
+			} else {
+				// Non-interactive: set defaults
+				if alloydbCPU == "" {
+					alloydbCPU = "2"
+				}
+			}
+
 			// ── Step 3: Validate GCP project ─────────────────────
 
 			fmt.Println("[3/6] Validating GCP project...")
@@ -321,7 +383,7 @@ Examples:
 			fmt.Println("[5/6] Generating configuration...")
 			{
 				tfvarsPath := filepath.Join("deploy", "terraform", "terraform.tfvars")
-				content := renderTFVars(project, region, domain, adminEmail)
+				content := renderTFVars(project, region, domain, adminEmail, orgID, workspaceDomain, workspaceClient, alloydbCPU)
 
 				if dryRun {
 					fmt.Println("  [dry-run] Would generate:")
@@ -548,9 +610,14 @@ domain     = "{{.Domain}}"
 # Admin
 admin_email = "{{.AdminEmail}}"
 
+# Organization (optional — for workforce identity)
+organization_id = "{{.OrgID}}"
+google_workspace_domain = "{{.WorkspaceDomain}}"
+google_workspace_client_id = "{{.WorkspaceClient}}"
+
 # AlloyDB (vCPUs — min 2)
 # Dev: 2, Staging: 4, Production: 8+
-alloydb_cpu_count = 2
+alloydb_cpu_count = {{.AlloyDBCPU}}
 
 # DNS (set to false if you manage DNS externally)
 manage_dns = true
@@ -563,14 +630,18 @@ registry_name = "aiplex"
 hydra_admin_url = "http://hydra-admin.aiplex-system.svc.cluster.local:4445"
 `
 
-func renderTFVars(project, region, domain, adminEmail string) string {
+func renderTFVars(project, region, domain, adminEmail, orgID, workspaceDomain, workspaceClient, alloydbCPU string) string {
 	t := template.Must(template.New("tfvars").Parse(tfvarsTmpl))
 	var buf strings.Builder
 	t.Execute(&buf, map[string]string{
-		"Project":    project,
-		"Region":     region,
-		"Domain":     domain,
-		"AdminEmail": adminEmail,
+		"Project":         project,
+		"Region":          region,
+		"Domain":          domain,
+		"AdminEmail":      adminEmail,
+		"OrgID":           orgID,
+		"WorkspaceDomain": workspaceDomain,
+		"WorkspaceClient": workspaceClient,
+		"AlloyDBCPU":      alloydbCPU,
 	})
 	return buf.String()
 }
