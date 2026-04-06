@@ -1,18 +1,60 @@
-use serde::Deserialize;
 use std::collections::HashSet;
+use std::env;
+use std::net::SocketAddr;
+
+use axum::{
+    extract::Json,
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Router,
+};
+use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 /// JWT claims from Ory Hydra.
 #[derive(Debug, Deserialize)]
 struct Claims {
+    #[serde(default)]
     sub: String,
-    azp: Option<String>,
+    #[serde(default)]
+    azp: String,
+    #[serde(default)]
     scope: String,
+    #[serde(default)]
+    #[allow(dead_code)]
     act: Option<ActorClaim>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ActorClaim {
+    #[allow(dead_code)]
     sub: String,
+}
+
+/// Envoy HTTP ext_authz check request (simplified subset).
+#[derive(Debug, Deserialize)]
+struct CheckRequest {
+    #[serde(default)]
+    headers: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    method: String,
+    #[serde(default)]
+    body: Option<serde_json::Value>,
+}
+
+/// Envoy HTTP ext_authz check response.
+#[derive(Debug, Serialize)]
+struct CheckResponse {
+    allowed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    denied_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    headers: Option<std::collections::HashMap<String, String>>,
 }
 
 /// Check if a request is authorized based on JWT scopes.
@@ -22,64 +64,238 @@ struct ActorClaim {
 fn check_authorization(
     scopes: &HashSet<&str>,
     path: &str,
-    method: Option<&str>,       // JSON-RPC method (MCP)
-    tool_name: Option<&str>,    // tools/call param
-    task_type: Option<&str>,    // A2A task type
-    model_id: Option<&str>,     // LLM model header
-) -> bool {
-    // Discovery methods are always allowed
-    if let Some(m) = method {
-        match m {
-            "initialize" | "tools/list" | "resources/list"
-            | "tasks/list" | "agents/list" | "models/list" | "ping" => return true,
-            _ => {}
-        }
+    body: Option<&serde_json::Value>,
+) -> (bool, Option<String>) {
+    // Health/readiness — always allowed
+    if path == "/healthz" || path == "/readyz" {
+        return (true, None);
     }
 
-    // MCPlex: tool calls
-    if method == Some("tools/call") {
-        if let Some(name) = tool_name {
-            let required = format!("mcp:tools:{}", name);
-            return scopes.contains(required.as_str());
+    // Discovery methods are always allowed
+    if let Some(body_val) = body {
+        if let Some(method) = body_val.get("method").and_then(|v| v.as_str()) {
+            match method {
+                "initialize" | "tools/list" | "resources/list"
+                | "tasks/list" | "agents/list" | "models/list" | "ping" => {
+                    return (true, None);
+                }
+                _ => {}
+            }
+
+            // MCPlex: tools/call
+            if method == "tools/call" {
+                if let Some(name) = body_val
+                    .get("params")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|n| n.as_str())
+                {
+                    let required = format!("mcp:tools:{}", name);
+                    if scopes.contains(required.as_str()) {
+                        return (true, None);
+                    }
+                    return (false, Some(format!("missing scope: {}", required)));
+                }
+            }
         }
     }
 
     // A2APlex: agent-to-agent delegation
     if path.starts_with("/a2a/") {
-        if let Some(tt) = task_type {
-            let required = format!("a2a:task:{}", tt);
-            return scopes.contains(required.as_str());
+        if let Some(body_val) = body {
+            if let Some(task_type) = body_val.get("task_type").and_then(|v| v.as_str()) {
+                let required = format!("a2a:task:{}", task_type);
+                if scopes.contains(required.as_str()) {
+                    return (true, None);
+                }
+                return (false, Some(format!("missing scope: {}", required)));
+            }
         }
     }
 
     // LLMPlex: model inference
     if path.starts_with("/llm/") {
-        if let Some(mid) = model_id {
-            let required = format!("llm:model:{}", mid);
-            return scopes.contains(required.as_str());
+        if let Some(body_val) = body {
+            if let Some(model_id) = body_val.get("model").and_then(|v| v.as_str()) {
+                let required = format!("llm:model:{}", model_id);
+                if scopes.contains(required.as_str()) {
+                    return (true, None);
+                }
+                return (false, Some(format!("missing scope: {}", required)));
+            }
         }
     }
 
-    false
+    // Default deny
+    (
+        false,
+        Some(format!("no matching policy for path: {}", path)),
+    )
+}
+
+async fn check_handler(Json(req): Json<CheckRequest>) -> impl IntoResponse {
+    let auth_header = req
+        .headers
+        .get("authorization")
+        .or_else(|| req.headers.get("Authorization"))
+        .map(|s| s.as_str())
+        .unwrap_or("");
+
+    // Extract JWT token
+    let token_str = auth_header.strip_prefix("Bearer ").unwrap_or("");
+    if token_str.is_empty() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(CheckResponse {
+                allowed: false,
+                denied_reason: Some("missing authorization header".to_string()),
+                headers: None,
+            }),
+        );
+    }
+
+    // Decode JWT (skip signature validation in dev mode for testing)
+    let issuer = env::var("JWT_ISSUER").unwrap_or_default();
+    let mut validation = Validation::new(Algorithm::RS256);
+
+    if issuer.is_empty() {
+        // Dev mode: skip signature validation
+        validation.insecure_disable_signature_validation();
+        validation.validate_aud = false;
+        validation.validate_exp = false;
+    } else {
+        // Prod mode: validate issuer
+        validation.set_issuer(&[&issuer]);
+        validation.validate_aud = false;
+    }
+
+    let key = DecodingKey::from_secret(b""); // Only used when validation is disabled
+    let claims = match decode::<Claims>(token_str, &key, &validation) {
+        Ok(data) => data.claims,
+        Err(e) => {
+            warn!("JWT decode failed: {}", e);
+            return (
+                StatusCode::FORBIDDEN,
+                Json(CheckResponse {
+                    allowed: false,
+                    denied_reason: Some(format!("invalid token: {}", e)),
+                    headers: None,
+                }),
+            );
+        }
+    };
+
+    let scopes: HashSet<&str> = claims.scope.split_whitespace().collect();
+    let (allowed, reason) = check_authorization(&scopes, &req.path, req.body.as_ref());
+
+    if allowed {
+        (
+            StatusCode::OK,
+            Json(CheckResponse {
+                allowed: true,
+                denied_reason: None,
+                headers: None,
+            }),
+        )
+    } else {
+        info!(
+            sub = %claims.sub,
+            azp = %claims.azp,
+            path = %req.path,
+            reason = ?reason,
+            "denied"
+        );
+        (
+            StatusCode::FORBIDDEN,
+            Json(CheckResponse {
+                allowed: false,
+                denied_reason: reason,
+                headers: None,
+            }),
+        )
+    }
+}
+
+async fn health() -> &'static str {
+    "ok"
 }
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::init();
-    tracing::info!("aiplex-authz starting");
+    tracing_subscriber::fmt::init();
 
-    // TODO: implement gRPC ext_authz server using tonic
-    // For now, this validates the core authorization logic compiles.
-    // The gRPC service will implement envoy.service.auth.v3.Authorization
+    let port: u16 = env::var("PORT")
+        .unwrap_or_else(|_| "9191".to_string())
+        .parse()
+        .unwrap_or(9191);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
-    let scopes: HashSet<&str> = ["mcp:tools:search", "llm:model:gemini-2.5-flash"]
-        .into_iter()
-        .collect();
+    let app = Router::new()
+        .route("/check", post(check_handler))
+        .route("/healthz", get(health))
+        .route("/readyz", get(health));
 
-    assert!(check_authorization(&scopes, "/mcp/server", Some("tools/call"), Some("search"), None, None));
-    assert!(!check_authorization(&scopes, "/mcp/server", Some("tools/call"), Some("delete_all"), None, None));
-    assert!(check_authorization(&scopes, "/llm/v1/chat", None, None, None, Some("gemini-2.5-flash")));
-    assert!(check_authorization(&scopes, "/mcp/server", Some("tools/list"), None, None, None));
+    info!("aiplex-authz listening on {}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
 
-    tracing::info!("authorization logic validated");
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_discovery_allowed() {
+        let scopes = HashSet::new();
+        let body = serde_json::json!({"method": "tools/list"});
+        let (allowed, _) = check_authorization(&scopes, "/mcp/server", Some(&body));
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_tool_call_with_scope() {
+        let scopes: HashSet<&str> = ["mcp:tools:search"].into_iter().collect();
+        let body = serde_json::json!({"method": "tools/call", "params": {"name": "search"}});
+        let (allowed, _) = check_authorization(&scopes, "/mcp/server", Some(&body));
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_tool_call_without_scope() {
+        let scopes: HashSet<&str> = ["mcp:tools:other"].into_iter().collect();
+        let body = serde_json::json!({"method": "tools/call", "params": {"name": "search"}});
+        let (allowed, reason) = check_authorization(&scopes, "/mcp/server", Some(&body));
+        assert!(!allowed);
+        assert!(reason.unwrap().contains("mcp:tools:search"));
+    }
+
+    #[test]
+    fn test_a2a_task_access() {
+        let scopes: HashSet<&str> = ["a2a:task:research"].into_iter().collect();
+        let body = serde_json::json!({"task_type": "research"});
+        let (allowed, _) = check_authorization(&scopes, "/a2a/research-agent", Some(&body));
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_llm_model_access() {
+        let scopes: HashSet<&str> = ["llm:model:gemini-2.5-flash"].into_iter().collect();
+        let body = serde_json::json!({"model": "gemini-2.5-flash"});
+        let (allowed, _) = check_authorization(&scopes, "/llm/v1/chat", Some(&body));
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_health_always_allowed() {
+        let scopes = HashSet::new();
+        let (allowed, _) = check_authorization(&scopes, "/healthz", None);
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_default_deny() {
+        let scopes = HashSet::new();
+        let (allowed, reason) = check_authorization(&scopes, "/unknown/path", None);
+        assert!(!allowed);
+        assert!(reason.is_some());
+    }
 }

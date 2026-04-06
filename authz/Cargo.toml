@@ -5,8 +5,7 @@ edition = "2021"
 description = "High-performance ext_authz service for AIPlex (replaces OPA on the data path)"
 
 [dependencies]
-tonic = "0.12"
-prost = "0.13"
+axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 jsonwebtoken = "9"
 serde = { version = "1", features = ["derive"] }
