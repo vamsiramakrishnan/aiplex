@@ -120,6 +120,7 @@ func (c *Config) SetContext(name, url, project, region, domain string) {
 }
 
 // LoadCredentials reads tokens from ~/.aiplex/credentials.json.
+// Handles both encrypted and plaintext formats for backward compatibility.
 func LoadCredentials() (*Credentials, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -133,6 +134,14 @@ func LoadCredentials() (*Credentials, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read credentials: %w", err)
 	}
+
+	// Try decrypting first (new format)
+	decrypted, err := decrypt(data, credentialKey())
+	if err == nil {
+		data = decrypted
+	}
+	// If decryption fails, try parsing as plaintext (backward compat)
+
 	var creds Credentials
 	if err := json.Unmarshal(data, &creds); err != nil {
 		return nil, fmt.Errorf("parse credentials: %w", err)
@@ -143,7 +152,7 @@ func LoadCredentials() (*Credentials, error) {
 	return &creds, nil
 }
 
-// Save writes credentials to ~/.aiplex/credentials.json with restricted permissions.
+// Save writes credentials to ~/.aiplex/credentials.json, encrypted at rest.
 func (c *Credentials) Save() error {
 	dir, err := Dir()
 	if err != nil {
@@ -153,7 +162,12 @@ func (c *Credentials) Save() error {
 	if err != nil {
 		return fmt.Errorf("marshal credentials: %w", err)
 	}
-	return os.WriteFile(filepath.Join(dir, "credentials.json"), data, 0600)
+	encrypted, err := encrypt(data, credentialKey())
+	if err != nil {
+		// Fall back to plaintext if encryption fails
+		return os.WriteFile(filepath.Join(dir, "credentials.json"), data, 0600)
+	}
+	return os.WriteFile(filepath.Join(dir, "credentials.json"), encrypted, 0600)
 }
 
 // GetToken returns the token for the given context, or nil.
