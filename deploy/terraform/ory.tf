@@ -95,7 +95,9 @@ resource "kubernetes_service" "alloydb_proxy" {
 resource "google_secret_manager_secret" "hydra_system" {
   secret_id = "hydra-system-secret"
   project   = var.project_id
-  replication { auto {} }
+  replication {
+    auto {}
+  }
 }
 
 resource "google_secret_manager_secret_version" "hydra_system" {
@@ -111,7 +113,9 @@ resource "random_password" "hydra_system" {
 resource "google_secret_manager_secret" "hydra_pairwise_salt" {
   secret_id = "hydra-pairwise-salt"
   project   = var.project_id
-  replication { auto {} }
+  replication {
+    auto {}
+  }
 }
 
 resource "google_secret_manager_secret_version" "hydra_pairwise_salt" {
@@ -127,7 +131,9 @@ resource "random_password" "hydra_pairwise_salt" {
 resource "google_secret_manager_secret" "kratos_cookie" {
   secret_id = "kratos-cookie-secret"
   project   = var.project_id
-  replication { auto {} }
+  replication {
+    auto {}
+  }
 }
 
 resource "google_secret_manager_secret_version" "kratos_cookie" {
@@ -143,7 +149,9 @@ resource "random_password" "kratos_cookie" {
 resource "google_secret_manager_secret" "kratos_cipher" {
   secret_id = "kratos-cipher-secret"
   project   = var.project_id
-  replication { auto {} }
+  replication {
+    auto {}
+  }
 }
 
 resource "google_secret_manager_secret_version" "kratos_cipher" {
