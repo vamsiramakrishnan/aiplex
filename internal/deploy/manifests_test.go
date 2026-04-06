@@ -140,3 +140,83 @@ func TestGenerateRoute_LLMPlex(t *testing.T) {
 		t.Error("AIServiceBackend missing provider")
 	}
 }
+
+func TestGenerateRoutesFromConfig_WeightedBackends(t *testing.T) {
+	config := &models.LLMRouteConfig{
+		ModelID: "gemini-2.5-flash",
+		Backends: []models.LLMBackend{
+			{Provider: "google", ModelID: "gemini-2.5-flash", Weight: 80, Enabled: true},
+			{Provider: "anthropic", ModelID: "claude-sonnet-4", Weight: 20, Enabled: true},
+		},
+		Fallbacks: []string{"gpt-4.1-mini"},
+	}
+
+	manifests := deploy.GenerateRoutesFromConfig(config, "aiplex-gateway")
+
+	if len(manifests) != 3 {
+		t.Fatalf("expected 3 manifests (1 LLMRoute + 2 backends), got %d", len(manifests))
+	}
+
+	// First manifest should be LLMRoute
+	if manifests[0].Kind != "LLMRoute" {
+		t.Errorf("first manifest kind = %q, want LLMRoute", manifests[0].Kind)
+	}
+
+	routeYAML := manifests[0].YAML
+	if !strings.Contains(routeYAML, "weight: 80") {
+		t.Error("LLMRoute should contain weight: 80")
+	}
+	if !strings.Contains(routeYAML, "weight: 20") {
+		t.Error("LLMRoute should contain weight: 20")
+	}
+	if !strings.Contains(routeYAML, "fallback") {
+		t.Error("LLMRoute should contain fallback section")
+	}
+}
+
+func TestGenerateRoutesFromConfig_DisabledBackend(t *testing.T) {
+	config := &models.LLMRouteConfig{
+		ModelID: "test-model",
+		Backends: []models.LLMBackend{
+			{Provider: "google", ModelID: "test", Weight: 100, Enabled: true},
+			{Provider: "anthropic", ModelID: "test2", Weight: 0, Enabled: false},
+		},
+	}
+
+	manifests := deploy.GenerateRoutesFromConfig(config, "gw")
+
+	// Should only have 2: 1 LLMRoute + 1 enabled backend
+	if len(manifests) != 2 {
+		t.Fatalf("expected 2 manifests (disabled backend excluded), got %d", len(manifests))
+	}
+}
+
+func TestGenerateRoutesFromConfig_YAMLFormat(t *testing.T) {
+	config := &models.LLMRouteConfig{
+		ModelID: "gemini-2.5-flash",
+		Backends: []models.LLMBackend{
+			{Provider: "google", ModelID: "gemini-2.5-flash", Weight: 80, Enabled: true},
+			{Provider: "anthropic", ModelID: "claude-sonnet-4", Weight: 20, Enabled: true},
+		},
+		Fallbacks: []string{"gpt-4.1-mini"},
+	}
+
+	manifests := deploy.GenerateRoutesFromConfig(config, "aiplex-gateway")
+
+	// Log the YAML output for manual verification
+	t.Logf("\n=== LLMRoute ===\n%s\n", manifests[0].YAML)
+	t.Logf("\n=== Backend 1 (google) ===\n%s\n", manifests[1].YAML)
+	t.Logf("\n=== Backend 2 (anthropic) ===\n%s\n", manifests[2].YAML)
+
+	// Verify structure
+	routeYAML := manifests[0].YAML
+	if !strings.Contains(routeYAML, "gemini-2.5-flash-google-backend") {
+		t.Error("LLMRoute missing google backend reference")
+	}
+	if !strings.Contains(routeYAML, "gemini-2.5-flash-anthropic-backend") {
+		t.Error("LLMRoute missing anthropic backend reference")
+	}
+	if !strings.Contains(routeYAML, "gpt-4.1-mini-backend") {
+		t.Error("LLMRoute missing fallback backend reference")
+	}
+}

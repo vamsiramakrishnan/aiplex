@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
@@ -140,4 +141,74 @@ spec:
 `, backendName, inst.ID, provider, modelID, provider),
 		},
 	}
+}
+
+// GenerateRoutesFromConfig creates Envoy LLMRoute + AIServiceBackend manifests
+// from a route configuration with weighted backends and fallbacks.
+func GenerateRoutesFromConfig(config *models.LLMRouteConfig, gatewayName string) []Manifest {
+	var manifests []Manifest
+	var backendRefs []string
+
+	for _, backend := range config.Backends {
+		if !backend.Enabled {
+			continue
+		}
+		backendName := fmt.Sprintf("%s-%s-backend", config.ModelID, backend.Provider)
+
+		backendYAML := fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: AIServiceBackend
+metadata:
+  name: %s
+  namespace: aiplex-system
+spec:
+  provider: %s
+  model: %s
+  apiKey:
+    secretRef:
+      name: %s-api-key`, backendName, backend.Provider, backend.ModelID, backend.Provider)
+
+		manifests = append(manifests, Manifest{
+			APIVersion: "aigateway.envoyproxy.io/v1alpha1",
+			Kind:       "AIServiceBackend",
+			Name:       backendName,
+			Namespace:  "aiplex-system",
+			YAML:       backendYAML,
+		})
+
+		backendRefs = append(backendRefs, fmt.Sprintf("    - name: %s\n      weight: %d", backendName, backend.Weight))
+	}
+
+	routeYAML := fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
+kind: LLMRoute
+metadata:
+  name: llm-%s
+  namespace: aiplex-system
+spec:
+  parentRefs:
+    - name: %s
+  rules:
+    - matches:
+        - headers:
+            - name: x-model-id
+              value: %s
+      backendRefs:
+%s`, config.ModelID, gatewayName, config.ModelID, strings.Join(backendRefs, "\n"))
+
+	if len(config.Fallbacks) > 0 {
+		var fallbackLines []string
+		for _, fb := range config.Fallbacks {
+			fallbackLines = append(fallbackLines, fmt.Sprintf("        - name: %s-backend", fb))
+		}
+		routeYAML += fmt.Sprintf("\n      fallback:\n%s", strings.Join(fallbackLines, "\n"))
+	}
+
+	manifests = append([]Manifest{{
+		APIVersion: "aigateway.envoyproxy.io/v1alpha1",
+		Kind:       "LLMRoute",
+		Name:       "llm-" + config.ModelID,
+		Namespace:  "aiplex-system",
+		YAML:       routeYAML,
+	}}, manifests...)
+
+	return manifests
 }
