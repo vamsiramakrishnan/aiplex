@@ -35,7 +35,9 @@ credentials.json
 # Node / Console
 console/node_modules/
 console/build/
-console/dist/
+console/dist/*
+!console/dist/.gitkeep
+!console/dist/index.html
 console/.env
 
 # Rust (authz)
