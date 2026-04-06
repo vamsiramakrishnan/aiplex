@@ -216,3 +216,101 @@ func TestAgentRegisterAndGet(t *testing.T) {
 		t.Errorf("delete: expected 204, got %d", w.Code)
 	}
 }
+
+func TestAgentRegister_InvalidAuthMethod(t *testing.T) {
+	r, _ := setupRouter()
+	body := `{"client_id":"bad","display_name":"Bad","auth_method":"invalid","allowed_scopes":["mcp:tools:x"]}`
+	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+
+	var errResp map[string]any
+	json.NewDecoder(w.Body).Decode(&errResp)
+	if errResp["code"] != "INVALID_AUTH_METHOD" {
+		t.Errorf("expected error code INVALID_AUTH_METHOD, got %v", errResp["code"])
+	}
+}
+
+func TestAgentRegister_InvalidScope(t *testing.T) {
+	r, _ := setupRouter()
+	body := `{"client_id":"bad2","display_name":"Bad","auth_method":"client_credentials","allowed_scopes":["invalid:scope"]}`
+	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+
+	var errResp map[string]any
+	json.NewDecoder(w.Body).Decode(&errResp)
+	if errResp["code"] != "INVALID_SCOPE" {
+		t.Errorf("expected error code INVALID_SCOPE, got %v", errResp["code"])
+	}
+}
+
+func TestAgentRegister_MissingRedirectURIs(t *testing.T) {
+	r, _ := setupRouter()
+	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_scopes":["mcp:tools:x"]}`
+	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+
+	var errResp map[string]any
+	json.NewDecoder(w.Body).Decode(&errResp)
+	if errResp["code"] != "MISSING_REDIRECT_URIS" {
+		t.Errorf("expected error code MISSING_REDIRECT_URIS, got %v", errResp["code"])
+	}
+}
+
+func TestAgentRegister_InvalidRedirectURI(t *testing.T) {
+	r, _ := setupRouter()
+	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_scopes":["mcp:tools:x"],"redirect_uris":["http://example.com/callback"]}`
+	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 400 {
+		t.Errorf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+
+	var errResp map[string]any
+	json.NewDecoder(w.Body).Decode(&errResp)
+	if errResp["code"] != "INVALID_REDIRECT_URI" {
+		t.Errorf("expected error code INVALID_REDIRECT_URI, got %v", errResp["code"])
+	}
+}
+
+func TestAgentRegister_ValidRedirectURI(t *testing.T) {
+	r, _ := setupRouter()
+	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_scopes":["mcp:tools:x"],"redirect_uris":["https://example.com/callback","http://localhost:3000/callback"]}`
+	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 201 {
+		t.Fatalf("status = %d, want 201: %s", w.Code, w.Body.String())
+	}
+
+	var agent models.Agent
+	json.NewDecoder(w.Body).Decode(&agent)
+	if agent.ClientID != "auth-agent" {
+		t.Errorf("expected client_id auth-agent, got %s", agent.ClientID)
+	}
+	if len(agent.RedirectURIs) != 2 {
+		t.Errorf("expected 2 redirect URIs, got %d", len(agent.RedirectURIs))
+	}
+}

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -68,6 +69,43 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate auth method
+	validAuthMethods := map[string]bool{
+		"client_credentials": true,
+		"authorization_code": true,
+		"device_code":        true,
+	}
+	if !validAuthMethods[agent.AuthMethod] {
+		Error(w, r, http.StatusBadRequest, "INVALID_AUTH_METHOD",
+			fmt.Sprintf("auth_method must be one of: client_credentials, authorization_code, device_code; got %q", agent.AuthMethod))
+		return
+	}
+
+	// Validate scope format
+	for _, scope := range agent.AllowedScopes {
+		if !strings.HasPrefix(scope, "mcp:") && !strings.HasPrefix(scope, "a2a:") && !strings.HasPrefix(scope, "llm:") {
+			Error(w, r, http.StatusBadRequest, "INVALID_SCOPE",
+				fmt.Sprintf("scope %q must start with mcp:, a2a:, or llm:", scope))
+			return
+		}
+	}
+
+	// Validate redirect URIs for authorization_code flow
+	if agent.AuthMethod == "authorization_code" {
+		if len(agent.RedirectURIs) == 0 {
+			Error(w, r, http.StatusBadRequest, "MISSING_REDIRECT_URIS",
+				"authorization_code flow requires at least one redirect_uri")
+			return
+		}
+		for _, uri := range agent.RedirectURIs {
+			if !strings.HasPrefix(uri, "https://") && !strings.HasPrefix(uri, "http://localhost") {
+				Error(w, r, http.StatusBadRequest, "INVALID_REDIRECT_URI",
+					fmt.Sprintf("redirect_uri %q must use HTTPS (or http://localhost for dev)", uri))
+				return
+			}
+		}
+	}
+
 	// Check if agent already exists
 	if _, err := h.store.GetAgent(r.Context(), agent.ClientID); err == nil {
 		Error(w, r, http.StatusConflict, "CONFLICT", "agent already exists")
@@ -100,11 +138,14 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 			RedirectURIs:            agent.RedirectURIs,
 			TokenEndpointAuthMethod: "client_secret_basic",
 		}
-		if err := h.hydra.CreateClient(r.Context(), oauthClient); err != nil {
+		resp, err := h.hydra.CreateClient(r.Context(), oauthClient)
+		if err != nil {
 			// Log but don't fail — Hydra may not be available in dev mode
 			zerolog.Ctx(r.Context()).Warn().Err(err).
 				Str("client_id", agent.ClientID).
 				Msg("failed to create Hydra OAuth client")
+		} else if resp != nil {
+			agent.ClientSecret = resp.ClientSecret
 		}
 	}
 
