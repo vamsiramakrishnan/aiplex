@@ -15,11 +15,17 @@ export default function Agents() {
   const agents = useQuery({ queryKey: ['agents'], queryFn: listAgents })
   const [showRegister, setShowRegister] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const remove = useMutation({
     mutationFn: deleteAgent,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
   })
+
+  const filteredAgents = agents.data?.filter(agent =>
+    agent.client_id?.toLowerCase().includes(search.toLowerCase()) ||
+    agent.display_name?.toLowerCase().includes(search.toLowerCase())
+  ) || []
 
   return (
     <div>
@@ -45,6 +51,16 @@ export default function Agents() {
         />
       )}
 
+      <div className="mb-4">
+        <input
+          type="text"
+          placeholder="Search agents..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full border rounded px-3 py-2 text-sm"
+        />
+      </div>
+
       <div className="bg-white rounded-lg shadow">
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
@@ -58,7 +74,7 @@ export default function Agents() {
             </tr>
           </thead>
           <tbody>
-            {agents.data?.map((agent) => (
+            {filteredAgents.map((agent) => (
               <>
                 <tr
                   key={agent.client_id}
@@ -117,10 +133,12 @@ export default function Agents() {
                 )}
               </>
             ))}
-            {agents.data?.length === 0 && (
+            {filteredAgents.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
-                  No agents registered yet. Click "Register Agent" to get started.
+                  {agents.data?.length === 0
+                    ? 'No agents registered yet. Click "Register Agent" to get started.'
+                    : 'No agents match your search.'}
                 </td>
               </tr>
             )}

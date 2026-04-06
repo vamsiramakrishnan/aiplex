@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { deployInstance, getCatalog, type Template, type Manifest, applyManifest } from '../api/client'
 
 type Step = 'plane' | 'template' | 'config' | 'review'
@@ -34,6 +35,7 @@ export default function Deploy() {
 
 function DeployWizard() {
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
   const [step, setStep] = useState<Step>('plane')
   const [plane, setPlane] = useState('mcplex')
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
@@ -44,6 +46,32 @@ function DeployWizard() {
     queryKey: ['catalog', plane],
     queryFn: () => getCatalog(plane),
   })
+
+  // Pre-populate from URL params
+  useEffect(() => {
+    const urlPlane = searchParams.get('plane')
+    const urlTemplate = searchParams.get('template')
+
+    if (urlPlane && ['mcplex', 'a2aplex', 'llmplex'].includes(urlPlane)) {
+      setPlane(urlPlane)
+      if (urlTemplate) {
+        // Move to template step and wait for catalog to load
+        setStep('template')
+      }
+    }
+  }, [searchParams])
+
+  // Auto-select template when catalog loads if template param is present
+  useEffect(() => {
+    const urlTemplate = searchParams.get('template')
+    if (urlTemplate && catalog?.templates && !selectedTemplate) {
+      const template = catalog.templates.find(t => t.id === urlTemplate)
+      if (template) {
+        setSelectedTemplate(template)
+        setStep('config')
+      }
+    }
+  }, [catalog, searchParams, selectedTemplate])
 
   const deploy = useMutation({
     mutationFn: deployInstance,

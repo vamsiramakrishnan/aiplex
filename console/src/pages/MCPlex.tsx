@@ -1,12 +1,21 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { getCatalog, listInstances } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
 export default function MCPlex() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState<'catalog' | 'instances'>('instances')
+  const [search, setSearch] = useState('')
   const catalog = useQuery({ queryKey: ['catalog', 'mcplex'], queryFn: () => getCatalog('mcplex') })
   const instances = useQuery({ queryKey: ['instances', 'mcplex'], queryFn: () => listInstances('mcplex') })
+
+  const filteredInstances = instances.data?.filter(i =>
+    i.display_name?.toLowerCase().includes(search.toLowerCase()) ||
+    i.id?.toLowerCase().includes(search.toLowerCase()) ||
+    i.template_id?.toLowerCase().includes(search.toLowerCase())
+  ) || []
 
   return (
     <div>
@@ -29,27 +38,38 @@ export default function MCPlex() {
       </div>
 
       {tab === 'instances' && (
-        <div className="bg-white rounded-lg shadow">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left px-4 py-3">Name</th>
-                <th className="text-left px-4 py-3">Template</th>
-                <th className="text-left px-4 py-3">Status</th>
-                <th className="text-left px-4 py-3">Scopes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {instances.data?.map((inst) => (
-                <tr key={inst.id} className="border-t">
-                  <td className="px-4 py-3 font-medium">{inst.display_name || inst.id}</td>
-                  <td className="px-4 py-3 text-gray-500">{inst.template_id}</td>
-                  <td className="px-4 py-3"><StatusBadge status={inst.status} /></td>
-                  <td className="px-4 py-3 text-gray-500">{inst.scopes?.length ?? 0} tools</td>
+        <div>
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="Search instances..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="bg-white rounded-lg shadow">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-4 py-3">Name</th>
+                  <th className="text-left px-4 py-3">Template</th>
+                  <th className="text-left px-4 py-3">Status</th>
+                  <th className="text-left px-4 py-3">Scopes</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredInstances.map((inst) => (
+                  <tr key={inst.id} className="border-t">
+                    <td className="px-4 py-3 font-medium">{inst.display_name || inst.id}</td>
+                    <td className="px-4 py-3 text-gray-500">{inst.template_id}</td>
+                    <td className="px-4 py-3"><StatusBadge status={inst.status} /></td>
+                    <td className="px-4 py-3 text-gray-500">{inst.scopes?.length ?? 0} tools</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -62,7 +82,10 @@ export default function MCPlex() {
                 {t.verified && <span className="text-xs text-green-600">Verified</span>}
               </div>
               <p className="text-sm text-gray-500 mb-3">{t.description}</p>
-              <button className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700">
+              <button
+                onClick={() => navigate(`/deploy?plane=mcplex&template=${t.id}`)}
+                className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+              >
                 Deploy
               </button>
             </div>

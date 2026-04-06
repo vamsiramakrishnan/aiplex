@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { getCatalog } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
@@ -27,10 +28,17 @@ const getAgentCards = () => fetch('/api/v1/a2a/agents').then(r => r.json()) as P
 const getDelegations = () => fetch('/api/v1/a2a/delegations').then(r => r.json()) as Promise<Delegation[]>
 
 export default function A2APlex() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState<'agents' | 'catalog' | 'delegations'>('agents')
+  const [search, setSearch] = useState('')
   const catalog = useQuery({ queryKey: ['catalog', 'a2aplex'], queryFn: () => getCatalog('a2aplex') })
   const agentCards = useQuery({ queryKey: ['a2a-agents'], queryFn: getAgentCards })
   const delegations = useQuery({ queryKey: ['a2a-delegations'], queryFn: getDelegations })
+
+  const filteredAgentCards = agentCards.data?.filter(card =>
+    card.name?.toLowerCase().includes(search.toLowerCase()) ||
+    card.instance_id?.toLowerCase().includes(search.toLowerCase())
+  ) || []
 
   return (
     <div>
@@ -54,9 +62,18 @@ export default function A2APlex() {
       {tab === 'agents' && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Running A2A Agents</h3>
-          {agentCards.data && agentCards.data.length > 0 ? (
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="Search agents..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm"
+            />
+          </div>
+          {filteredAgentCards.length > 0 ? (
             <div className="grid grid-cols-2 gap-4">
-              {agentCards.data.map((card) => (
+              {filteredAgentCards.map((card) => (
                 <div key={card.instance_id} className="bg-white rounded-lg shadow p-4">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-semibold">{card.name || card.instance_id}</h4>
@@ -83,7 +100,9 @@ export default function A2APlex() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">No A2A agents deployed.</p>
+            <p className="text-gray-400 text-sm">
+              {agentCards.data?.length === 0 ? 'No A2A agents deployed.' : 'No agents match your search.'}
+            </p>
           )}
         </div>
       )}
@@ -97,7 +116,10 @@ export default function A2APlex() {
                 {t.verified && <span className="text-xs text-green-600">Verified</span>}
               </div>
               <p className="text-sm text-gray-500 mb-3">{t.description}</p>
-              <button className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700">
+              <button
+                onClick={() => navigate(`/deploy?plane=a2aplex&template=${t.id}`)}
+                className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+              >
                 Deploy
               </button>
             </div>
