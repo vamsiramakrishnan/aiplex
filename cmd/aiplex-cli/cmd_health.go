@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -126,7 +128,27 @@ Checks:
 			if allHealthy {
 				fmt.Println("All checks passed.")
 			} else {
-				fmt.Println("Some checks failed. Troubleshooting:")
+				fmt.Println()
+				fmt.Println("Troubleshooting:")
+				fmt.Println("  Fetching logs from unhealthy pods...")
+				fmt.Println()
+				logsOut, err := exec.Command("kubectl", "logs",
+					"-n", "aiplex-system",
+					"-l", "app.kubernetes.io/part-of=aiplex",
+					"--tail=20",
+					"--all-containers",
+				).CombinedOutput()
+				if err == nil && len(logsOut) > 0 {
+					fmt.Println("  Recent pod logs (last 20 lines):")
+					for _, line := range strings.Split(strings.TrimSpace(string(logsOut)), "\n") {
+						fmt.Printf("    %s\n", line)
+					}
+				} else {
+					fmt.Println("  Could not fetch pod logs. Run manually:")
+					fmt.Println("    kubectl logs -n aiplex-system -l app.kubernetes.io/part-of=aiplex --tail=50")
+				}
+				fmt.Println()
+				fmt.Println("  Common issues:")
 				fmt.Println("  - Is the API server running? Check: kubectl -n aiplex-system get pods")
 				fmt.Println("  - Is the domain configured? Check DNS and SSL cert")
 				fmt.Println("  - Are you authenticated? Run: aiplex login")

@@ -83,16 +83,21 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 			// Step 1: Terraform state bucket
 			if !skipInfra {
 				fmt.Println("[1/6] Terraform state bucket...")
+				sp := startSpinner("Creating state bucket")
 				if err := ensureStateBucket(ctx.Project); err != nil {
-					fmt.Printf("  [WARN] %v — create manually or Terraform will fail\n", err)
+					sp.fail(fmt.Sprintf("State bucket: %v — create manually or Terraform will fail", err))
 				} else {
-					fmt.Println("  [pass] State bucket ready")
+					sp.finish(fmt.Sprintf("State bucket ready (gs://%s)", stateBucketName(ctx.Project)))
 				}
 				fmt.Println()
 
-				// Step 2: Terraform init
+				// Step 2: Terraform init (backend-config derived from project ID)
 				fmt.Println("[2/6] Terraform init...")
-				if err := runCmd(tfDir, "terraform", "init", "-input=false"); err != nil {
+				bucket := stateBucketName(ctx.Project)
+				if err := runCmd(tfDir, "terraform", "init",
+					"-input=false",
+					fmt.Sprintf("-backend-config=bucket=%s", bucket),
+				); err != nil {
 					return fmt.Errorf("terraform init failed: %w", err)
 				}
 				fmt.Println()
@@ -365,7 +370,16 @@ func platformDestroyCmd() *cobra.Command {
 	return cmd
 }
 
-// ─── Helpers ────────────────────────────────────────────────
+func upgradeCmd() *cobra.Command {
+	cmd := platformApplyCmd()
+	cmd.Use = "upgrade"
+	cmd.Short = "Upgrade the AIPlex platform (alias for platform apply)"
+	cmd.Long = `Re-runs the full deployment pipeline to upgrade infrastructure and application.
+This is an alias for "aiplex platform apply".`
+	return cmd
+}
+
+// ─── Helpers ────────────────────────────────────────────────────
 
 func runCmd(dir string, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
@@ -436,8 +450,13 @@ func getTerraformOutputs(dir string) (map[string]string, error) {
 	return result, nil
 }
 
+// stateBucketName returns a project-specific bucket name for Terraform state.
+func stateBucketName(project string) string {
+	return fmt.Sprintf("%s-aiplex-tfstate", project)
+}
+
 func ensureStateBucket(project string) error {
-	bucket := "aiplex-terraform-state"
+	bucket := stateBucketName(project)
 	// Check if bucket exists
 	err := exec.Command("gcloud", "storage", "buckets", "describe",
 		fmt.Sprintf("gs://%s", bucket), "--project", project, "--quiet").Run()
