@@ -57,6 +57,14 @@ Examples:
 			fmt.Println("  ╚══════════════════════════════════════╝")
 			fmt.Println()
 
+			// ── Step 0: Ensure tools are installed ───────────────
+
+			fmt.Println("[0/6] Checking developer tools...")
+			if err := ensureTools(); err != nil {
+				fmt.Printf("  [WARN] %v\n", err)
+			}
+			fmt.Println()
+
 			// ── Step 1: gcloud auth ──────────────────────────────
 
 			fmt.Println("[1/6] Checking GCP authentication...")
@@ -134,6 +142,14 @@ Examples:
 				domain = prompt(reader, "  Domain", defaultDomain)
 			}
 
+			// Validate domain
+			if ok, warning := validateDomain(domain); !ok {
+				fmt.Printf("  [WARN] %s\n", warning)
+				fmt.Println("  Continuing with this domain — you can update later with:")
+				fmt.Println("    aiplex config set-context --domain <your-domain>")
+				fmt.Println()
+			}
+
 			// Admin email — auto-detect from gcloud account
 			defaultEmail := gcpAccount
 			adminEmail := prompt(reader, "  Admin email", defaultEmail)
@@ -198,27 +214,21 @@ Examples:
 			}
 			fmt.Println()
 
-			// ── Step 4: Check tools ──────────────────────────────
+			// ── Step 4: Verify tools ─────────────────────────────
 
-			fmt.Println("[4/6] Checking required tools...")
+			fmt.Println("[4/6] Verifying tools...")
 			toolChecks := []preflightCheck{
 				checkBinaryVersion("gcloud", "--version", "Google Cloud SDK"),
 				checkBinaryVersion("terraform", "version", "Terraform"),
 				checkBinaryVersion("helm", "version --short", "Helm"),
 				checkBinaryVersion("kubectl", "version --client --short", "kubectl"),
 			}
-			toolsOK := true
 			for _, c := range toolChecks {
 				if c.passed {
 					fmt.Printf("  [pass] %s\n", c.name)
 				} else {
 					fmt.Printf("  [FAIL] %s — %s\n", c.name, c.fix)
-					toolsOK = false
 				}
-			}
-			if !toolsOK {
-				fmt.Println()
-				fmt.Println("  Install missing tools before running 'aiplex platform apply'.")
 			}
 			fmt.Println()
 
@@ -532,8 +542,93 @@ TRUST_DOMAIN=%s.svc.id.goog
 `, project, project)
 }
 
+// validateDomain checks if a domain has valid DNS or is a known test domain.
+func validateDomain(domain string) (ok bool, warning string) {
+	// nip.io and sslip.io are auto-resolving test domains — always valid
+	if strings.HasSuffix(domain, ".nip.io") || strings.HasSuffix(domain, ".sslip.io") {
+		return true, ""
+	}
+
+	// Check DNS resolution
+	out, err := exec.Command("dig", "+short", domain).Output()
+	if err != nil {
+		// dig not available — skip validation
+		return true, ""
+	}
+	resolved := strings.TrimSpace(string(out))
+	if resolved == "" {
+		return false, fmt.Sprintf("DNS for %q does not resolve yet. You can configure DNS after deploy.", domain)
+	}
+	return true, ""
+}
+
 func sanitizeContextName(s string) string {
 	s = strings.ReplaceAll(s, " ", "-")
 	s = strings.ToLower(s)
 	return s
+}
+
+// ensureTools installs mise and project tools if a .mise.toml exists.
+func ensureTools() error {
+	// Check for .mise.toml in repo root
+	miseConfig := findMiseConfig()
+	if miseConfig == "" {
+		fmt.Println("  No .mise.toml found — skipping tool install")
+		return nil
+	}
+
+	// Check if mise is installed
+	misePath, err := exec.LookPath("mise")
+	if err != nil {
+		// Try ~/.local/bin
+		home, _ := os.UserHomeDir()
+		misePath = filepath.Join(home, ".local", "bin", "mise")
+		if _, err := os.Stat(misePath); err != nil {
+			fmt.Println("  Installing mise (tool version manager)...")
+			installCmd := exec.Command("bash", "-c", "curl -fsSL https://mise.run | sh")
+			installCmd.Stdout = os.Stdout
+			installCmd.Stderr = os.Stderr
+			if err := installCmd.Run(); err != nil {
+				return fmt.Errorf("failed to install mise: %w", err)
+			}
+		}
+	}
+
+	// Trust the config
+	trustCmd := exec.Command(misePath, "trust", miseConfig)
+	trustCmd.Run() // ignore error if already trusted
+
+	// Install tools
+	fmt.Println("  Installing tools from .mise.toml...")
+	installCmd := exec.Command(misePath, "install", "--yes")
+	installCmd.Dir = filepath.Dir(miseConfig)
+	installCmd.Stdout = os.Stdout
+	installCmd.Stderr = os.Stderr
+	if err := installCmd.Run(); err != nil {
+		return fmt.Errorf("mise install failed: %w", err)
+	}
+
+	// Add mise shims to PATH so tools are available for the rest of init
+	home, _ := os.UserHomeDir()
+	shimsDir := filepath.Join(home, ".local", "share", "mise", "shims")
+	os.Setenv("PATH", shimsDir+":"+os.Getenv("PATH"))
+
+	fmt.Println("  [pass] All tools installed")
+	return nil
+}
+
+func findMiseConfig() string {
+	candidates := []string{
+		".mise.toml",
+		"../.mise.toml",
+	}
+	for _, c := range candidates {
+		abs, err := filepath.Abs(c)
+		if err == nil {
+			if _, err := os.Stat(abs); err == nil {
+				return abs
+			}
+		}
+	}
+	return ""
 }
