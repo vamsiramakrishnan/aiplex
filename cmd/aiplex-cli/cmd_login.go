@@ -49,7 +49,7 @@ Examples:
 
 			// If --token was passed globally, just store it
 			if token != "" {
-				return storeToken(ctxName, token)
+				return storeToken(ctxName, token, "")
 			}
 
 			fmt.Printf("Logging in to %s (%s)...\n\n", ctxName, ctx.URL)
@@ -70,7 +70,17 @@ Examples:
 			fmt.Println("To authorize this CLI, visit:")
 			fmt.Printf("  %s\n\n", deviceResp.VerificationURIComplete)
 			fmt.Printf("  Or go to: %s\n", deviceResp.VerificationURI)
-			fmt.Printf("  Enter code: %s\n\n", deviceResp.UserCode)
+			fmt.Printf("  Enter code: %s\n", deviceResp.UserCode)
+			fmt.Println()
+
+			// Auto-open browser
+			if err := openBrowser(deviceResp.VerificationURIComplete); err == nil {
+				fmt.Println("  Browser opened automatically.")
+			} else {
+				fmt.Println("  Open the URL above in your browser.")
+			}
+
+			fmt.Println()
 			fmt.Println("Waiting for authorization...")
 
 			// Step 3: Poll for token
@@ -80,7 +90,7 @@ Examples:
 			}
 
 			// Step 4: Store credentials
-			if err := storeToken(ctxName, tokenResp.AccessToken); err != nil {
+			if err := storeToken(ctxName, tokenResp.AccessToken, tokenResp.RefreshToken); err != nil {
 				return err
 			}
 
@@ -176,17 +186,22 @@ func pollForToken(baseURL, deviceCode string, interval int) (*tokenResponse, err
 	}
 }
 
-func storeToken(contextName, accessToken string) error {
+func storeToken(contextName, accessToken, refreshTok string) error {
 	creds, err := cliconfig.LoadCredentials()
 	if err != nil {
 		return fmt.Errorf("load credentials: %w", err)
 	}
 
-	creds.SetToken(contextName, &cliconfig.TokenEntry{
+	entry := &cliconfig.TokenEntry{
 		AccessToken: accessToken,
 		TokenType:   "bearer",
 		ExpiresAt:   time.Now().Add(24 * time.Hour).Format(time.RFC3339),
-	})
+	}
+	if refreshTok != "" {
+		entry.RefreshToken = refreshTok
+	}
+
+	creds.SetToken(contextName, entry)
 
 	if err := creds.Save(); err != nil {
 		return fmt.Errorf("save credentials: %w", err)
@@ -227,4 +242,28 @@ func logoutCmd() *cobra.Command {
 // We add it via the init import pattern if needed.
 func init() {
 	// logoutCmd is added in main.go via root.AddCommand
+}
+
+// refreshToken attempts to exchange a refresh token for a new access token.
+func refreshToken(baseURL, refreshTok string) (*tokenResponse, error) {
+	data := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshTok},
+		"client_id":     {"aiplex-cli"},
+	}
+
+	resp, err := http.PostForm(baseURL+"/oauth2/token", data)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var tr tokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+		return nil, err
+	}
+	if tr.Error != "" {
+		return nil, fmt.Errorf("refresh failed: %s", tr.Error)
+	}
+	return &tr, nil
 }
