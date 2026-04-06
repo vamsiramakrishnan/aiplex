@@ -37,8 +37,26 @@ func main() {
 	zerolog.SetGlobalLevel(level)
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
 
-	// Store (in-memory for dev; swap for Firestore in production)
-	store := registry.NewMemoryStore()
+	// Store — use Firestore when configured, otherwise in-memory
+	var store registry.Store
+	projectID := os.Getenv("GCP_PROJECT_ID")
+	if projectID == "" {
+		projectID = os.Getenv("FIRESTORE_PROJECT_ID")
+	}
+
+	if projectID != "" {
+		databaseID := os.Getenv("FIRESTORE_DATABASE_ID") // optional, defaults to (default)
+		fs, err := registry.NewFirestoreStore(projectID, databaseID)
+		if err != nil {
+			log.Fatal().Err(err).Msg("firestore init failed")
+		}
+		defer fs.Close()
+		store = fs
+		log.Info().Str("project", projectID).Str("database", databaseID).Msg("using Firestore store")
+	} else {
+		store = registry.NewMemoryStore()
+		log.Warn().Msg("using in-memory store — data will not persist across restarts")
+	}
 
 	// Seed built-in LLM provider templates
 	providers := catalog.NewBuiltInProviders()
@@ -85,7 +103,7 @@ func main() {
 	instanceH := api.NewInstanceHandler(store, engine)
 	agentH := api.NewAgentHandler(store, hydraClient)
 	authH := api.NewAuthHandler(hydraClient, store)
-	llmH := api.NewLLMHandler(store)
+	llmH := api.NewLLMHandler(store, k8sClient, cfg.GatewayName)
 	a2aH := api.NewA2AHandler(store)
 	dashH := api.NewDashboardHandler(store)
 	iamH := api.NewIAMHandler(store, wifValidator)

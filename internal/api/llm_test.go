@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
+	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -23,7 +24,8 @@ func setupLLMRouter() (chi.Router, *registry.MemoryStore) {
 		Pricing: &models.Pricing{Input: 0.15, Output: 0.60},
 	})
 
-	h := api.NewLLMHandler(store)
+	k8s := deploy.NewNoOpK8sClient()
+	h := api.NewLLMHandler(store, k8s, "aiplex-gateway")
 	r := chi.NewRouter()
 	r.Get("/api/v1/llm/routes", h.ListRouteConfigs)
 	r.Get("/api/v1/llm/routes/{modelId}", h.GetRouteConfig)
