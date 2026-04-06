@@ -181,3 +181,175 @@ func TestLLM_UsageTracking(t *testing.T) {
 		t.Errorf("expected 1500 tokens, got %d", summary.TotalTokens)
 	}
 }
+
+func TestLLM_MonthlyBudgetEnforcement(t *testing.T) {
+	r, store := setupLLMRouter()
+
+	// Set up a route with $1 monthly budget
+	routeBody := `{
+		"backends": [{"provider": "google", "model_id": "gemini-2.5-flash", "weight": 100, "enabled": true}],
+		"budget": {"max_monthly_cost_usd": 1.0}
+	}`
+	req := httptest.NewRequest("PUT", "/api/v1/llm/routes/gemini-2.5-flash", strings.NewReader(routeBody))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("put route: expected 200, got %d", w.Code)
+	}
+
+	// Record usage that approaches the monthly budget
+	usageBody := `{
+		"model_id": "gemini-2.5-flash",
+		"provider": "google",
+		"agent_id": "test-agent",
+		"user_id": "user@test.com",
+		"input_tokens": 500000,
+		"output_tokens": 500000,
+		"cost_usd": 0.75
+	}`
+	req = httptest.NewRequest("POST", "/api/v1/llm/usage", strings.NewReader(usageBody))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 201 {
+		t.Fatalf("first usage: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify monthly summary
+	monthlySummary, _ := store.GetUsageSummary(context.Background(), "gemini-2.5-flash", "", "month")
+	if monthlySummary.TotalCostUSD != 0.75 {
+		t.Errorf("expected $0.75 monthly cost, got $%.2f", monthlySummary.TotalCostUSD)
+	}
+
+	// Try to record usage that exceeds monthly budget
+	usageBody2 := `{
+		"model_id": "gemini-2.5-flash",
+		"provider": "google",
+		"agent_id": "test-agent",
+		"user_id": "user@test.com",
+		"input_tokens": 300000,
+		"output_tokens": 300000,
+		"cost_usd": 0.30
+	}`
+	req = httptest.NewRequest("POST", "/api/v1/llm/usage", strings.NewReader(usageBody2))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 429 {
+		t.Errorf("expected 429 for monthly budget exceeded, got %d: %s", w.Code, w.Body.String())
+	}
+
+	warning := w.Header().Get("X-Budget-Warning")
+	if warning != "monthly_cost_exceeded" {
+		t.Errorf("expected X-Budget-Warning header, got %q", warning)
+	}
+}
+
+func TestLLM_RateLimiting(t *testing.T) {
+	r, _ := setupLLMRouter()
+
+	// Set up a route with 2 requests/minute limit
+	routeBody := `{
+		"backends": [{"provider": "google", "model_id": "gemini-2.5-flash", "weight": 100, "enabled": true}],
+		"rate_limit": {"requests_per_minute": 2, "tokens_per_minute": 10000}
+	}`
+	req := httptest.NewRequest("PUT", "/api/v1/llm/routes/gemini-2.5-flash", strings.NewReader(routeBody))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("put route: expected 200, got %d", w.Code)
+	}
+
+	// Make 2 requests (should succeed)
+	for i := 0; i < 2; i++ {
+		usageBody := `{
+			"model_id": "gemini-2.5-flash",
+			"provider": "google",
+			"agent_id": "test-agent",
+			"user_id": "user@test.com",
+			"input_tokens": 100,
+			"output_tokens": 100
+		}`
+		req = httptest.NewRequest("POST", "/api/v1/llm/usage", strings.NewReader(usageBody))
+		w = httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != 201 {
+			t.Fatalf("request %d: expected 201, got %d: %s", i+1, w.Code, w.Body.String())
+		}
+	}
+
+	// Make 3rd request (should get 429)
+	usageBody := `{
+		"model_id": "gemini-2.5-flash",
+		"provider": "google",
+		"agent_id": "test-agent",
+		"user_id": "user@test.com",
+		"input_tokens": 100,
+		"output_tokens": 100
+	}`
+	req = httptest.NewRequest("POST", "/api/v1/llm/usage", strings.NewReader(usageBody))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 429 {
+		t.Errorf("expected 429 for rate limit exceeded, got %d: %s", w.Code, w.Body.String())
+	}
+
+	retryAfter := w.Header().Get("Retry-After")
+	if retryAfter != "60" {
+		t.Errorf("expected Retry-After: 60, got %q", retryAfter)
+	}
+}
+
+func TestLLM_TokenRateLimiting(t *testing.T) {
+	r, _ := setupLLMRouter()
+
+	// Set up a route with 500 tokens/minute limit
+	routeBody := `{
+		"backends": [{"provider": "google", "model_id": "gemini-2.5-flash", "weight": 100, "enabled": true}],
+		"rate_limit": {"requests_per_minute": 100, "tokens_per_minute": 500}
+	}`
+	req := httptest.NewRequest("PUT", "/api/v1/llm/routes/gemini-2.5-flash", strings.NewReader(routeBody))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("put route: expected 200, got %d", w.Code)
+	}
+
+	// Use 300 tokens (should succeed)
+	usageBody := `{
+		"model_id": "gemini-2.5-flash",
+		"provider": "google",
+		"agent_id": "test-agent",
+		"user_id": "user@test.com",
+		"input_tokens": 200,
+		"output_tokens": 100
+	}`
+	req = httptest.NewRequest("POST", "/api/v1/llm/usage", strings.NewReader(usageBody))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 201 {
+		t.Fatalf("first request: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Try to use 300 more tokens (should exceed 500 token limit)
+	usageBody2 := `{
+		"model_id": "gemini-2.5-flash",
+		"provider": "google",
+		"agent_id": "test-agent",
+		"user_id": "user@test.com",
+		"input_tokens": 200,
+		"output_tokens": 100
+	}`
+	req = httptest.NewRequest("POST", "/api/v1/llm/usage", strings.NewReader(usageBody2))
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 429 {
+		t.Errorf("expected 429 for token rate limit exceeded, got %d: %s", w.Code, w.Body.String())
+	}
+
+	retryAfter := w.Header().Get("Retry-After")
+	if retryAfter != "60" {
+		t.Errorf("expected Retry-After: 60, got %q", retryAfter)
+	}
+}

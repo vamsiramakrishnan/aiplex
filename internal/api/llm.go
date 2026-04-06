@@ -199,6 +199,47 @@ func (h *LLMHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
 				"daily token budget exceeded for this model")
 			return
 		}
+
+		// Monthly cost check
+		if rc.Budget.MaxMonthlyCostUSD > 0 {
+			monthlySummary, _ := h.store.GetUsageSummary(r.Context(), record.ModelID, "", "month")
+			if monthlySummary.TotalCostUSD+record.CostUSD > rc.Budget.MaxMonthlyCostUSD {
+				w.Header().Set("X-Budget-Warning", "monthly_cost_exceeded")
+				Error(w, r, http.StatusTooManyRequests, "BUDGET_EXCEEDED",
+					fmt.Sprintf("monthly cost budget exceeded: $%.2f / $%.2f",
+						monthlySummary.TotalCostUSD+record.CostUSD, rc.Budget.MaxMonthlyCostUSD))
+				return
+			}
+		}
+	}
+
+	// Per-minute rate limiting
+	if rc, err := h.store.GetRouteConfig(r.Context(), record.ModelID); err == nil && rc.RateLimit != nil {
+		// Count requests in the last minute
+		minuteAgo := time.Now().Add(-1 * time.Minute)
+		recentRecords, _ := h.store.ListUsageRecords(r.Context(), record.ModelID, "", minuteAgo, 0)
+
+		if rc.RateLimit.RequestsPerMinute > 0 && len(recentRecords) >= rc.RateLimit.RequestsPerMinute {
+			w.Header().Set("Retry-After", "60")
+			Error(w, r, http.StatusTooManyRequests, "RATE_LIMITED",
+				fmt.Sprintf("rate limit exceeded: %d/%d requests per minute",
+					len(recentRecords), rc.RateLimit.RequestsPerMinute))
+			return
+		}
+
+		if rc.RateLimit.TokensPerMinute > 0 {
+			var minuteTokens int64
+			for _, rec := range recentRecords {
+				minuteTokens += int64(rec.TotalTokens)
+			}
+			if minuteTokens+int64(record.TotalTokens) > int64(rc.RateLimit.TokensPerMinute) {
+				w.Header().Set("Retry-After", "60")
+				Error(w, r, http.StatusTooManyRequests, "RATE_LIMITED",
+					fmt.Sprintf("token rate limit exceeded: %d/%d tokens per minute",
+						minuteTokens+int64(record.TotalTokens), rc.RateLimit.TokensPerMinute))
+				return
+			}
+		}
 	}
 
 	if err := h.store.AppendUsage(r.Context(), &record); err != nil {
