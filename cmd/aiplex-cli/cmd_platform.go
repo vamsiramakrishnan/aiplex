@@ -140,11 +140,12 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 			// Step 4: Configure kubectl
 			if !skipInfra {
 				fmt.Println("[4/6] Configuring kubectl...")
+				sp := startSpinner("Getting cluster credentials")
 				if err := runCmd(".", "gcloud", "container", "clusters", "get-credentials",
 					"aiplex", "--region", ctx.Region, "--project", ctx.Project); err != nil {
-					fmt.Printf("  [WARN] kubectl config failed: %v\n", err)
+					sp.fail(fmt.Sprintf("kubectl config failed: %v", err))
 				} else {
-					fmt.Println("  [pass] kubectl configured")
+					sp.finish("kubectl configured for cluster 'aiplex'")
 				}
 				fmt.Println()
 			}
