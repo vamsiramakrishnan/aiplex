@@ -1,0 +1,76 @@
+# GoReleaser — builds and publishes aiplex CLI binaries
+#
+# Usage:
+#   goreleaser release --clean         # tag + release
+#   goreleaser build --snapshot --clean  # local test build
+#
+# Triggered by: git tag v0.1.0 && git push --tags
+
+version: 2
+
+builds:
+  - id: aiplex
+    main: ./cmd/aiplex-cli
+    binary: aiplex
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+
+archives:
+  - id: default
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: "aiplex_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^ci:"
+
+brews:
+  - name: aiplex
+    repository:
+      owner: vamsiramakrishnan
+      name: homebrew-tap
+    homepage: "https://github.com/vamsiramakrishnan/aiplex"
+    description: "AIPlex CLI — unified control plane for AI agent interactions"
+    install: |
+      bin.install "aiplex"
+    test: |
+      system "#{bin}/aiplex", "version"
+
+release:
+  github:
+    owner: vamsiramakrishnan
+    name: aiplex
+  header: |
+    ## Installation
+
+    ```bash
+    # macOS / Linux
+    curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | sh
+
+    # macOS (Homebrew)
+    brew install vamsiramakrishnan/tap/aiplex
+
+    # From source
+    go install github.com/vamsiramakrishnan/aiplex/cmd/aiplex-cli@latest
+    ```

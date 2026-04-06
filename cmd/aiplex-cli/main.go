@@ -113,9 +113,12 @@ Get started:
 		loginCmd(),
 		logoutCmd(),
 		configCmd(),
+		whoamiCmd(),
+		ctxCmd(),
 		healthCmd(),
 		doctorCmd(),
 		platformCmd(),
+		upgradeCmd(),
 
 		// Operations
 		statusCmd(),

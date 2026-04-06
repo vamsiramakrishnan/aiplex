@@ -1,0 +1,20 @@
+# AIPlex — Tool versions managed by mise (https://mise.jdx.dev)
+#
+# Install mise:  curl -fsSL https://mise.run | sh
+# Install tools: mise install
+# Activate:      eval "$(mise activate bash)"  (add to ~/.bashrc)
+
+[tools]
+go       = "1.24"
+node     = "22"
+terraform = "1.12"
+helm     = "3.17"
+kubectl  = "1.32"
+
+[env]
+# Local development defaults (override in .env for production)
+AIPLEX_HOST = "0.0.0.0"
+AIPLEX_PORT = "8080"
+LOG_LEVEL = "debug"
+FIRESTORE_EMULATOR_HOST = "localhost:8086"
+FIRESTORE_PROJECT_ID = "aiplex-dev"

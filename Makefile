@@ -154,8 +154,16 @@ setup: ## Install tools + CLI, run aiplex init
 deps: ## Check installed tools
 	@command -v mise >/dev/null 2>&1 && mise ls --current || echo "Run: make setup"
 
+# ─── Release ────────────────────────────────────────────
+
+release-dry: ## Preview release (no publish)
+	goreleaser build --snapshot --clean
+
+release: ## Tag and release (requires GITHUB_TOKEN)
+	goreleaser release --clean
+
 # ─── Clean ──────────────────────────────────────────────
 
 clean: ## Remove build artifacts
-	rm -rf bin/ coverage.out coverage.html
+	rm -rf bin/ aiplex-api aiplex-cli dist/ coverage.out coverage.html
 	$(GO) clean -cache

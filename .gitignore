@@ -1,5 +1,7 @@
 # Binaries
 bin/
+/aiplex-api
+/aiplex-cli
 *.exe
 *.dll
 *.so
@@ -33,7 +35,12 @@ credentials.json
 # Node / Console
 console/node_modules/
 console/build/
+console/dist/
 console/.env
+
+# Rust (authz)
+authz/target/
+authz/Cargo.lock
 
 # IDE
 .idea/

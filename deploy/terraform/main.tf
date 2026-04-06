@@ -18,9 +18,11 @@ terraform {
       version = "~> 2.31"
     }
   }
+  # Backend configured dynamically by `aiplex platform apply`:
+  #   terraform init -backend-config="bucket={project_id}-aiplex-tfstate"
+  # This avoids hardcoding the bucket name per environment.
   backend "gcs" {
-    bucket = "aiplex-terraform-state"
-    prefix = "prod"
+    prefix = "aiplex"
   }
 }
 
