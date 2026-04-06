@@ -109,9 +109,14 @@ Examples:
 			fmt.Println("[2/6] Project Configuration")
 			fmt.Println()
 
+			// Auto-derive domain and email when not provided
+			if domain == "" && project != "" {
+				domain = fmt.Sprintf("aiplex.%s.nip.io", project)
+			}
+
 			// Collect inputs interactively (if not provided via flags)
 			var adminEmail string
-			needsInteractiveInput := project == "" || region == "" || domain == ""
+			needsInteractiveInput := project == "" || region == ""
 
 			if needsInteractiveInput {
 				// Set defaults before form
