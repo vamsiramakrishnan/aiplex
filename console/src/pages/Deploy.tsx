@@ -1,12 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { deployInstance, getCatalog, type Template, type Manifest, applyManifest } from '../api/client'
-import PlaneSelector from '../components/PlaneSelector'
 
 type Step = 'plane' | 'template' | 'config' | 'review'
 
 export default function Deploy() {
-  const queryClient = useQueryClient()
   const [mode, setMode] = useState<'wizard' | 'yaml'>('wizard')
 
   return (
@@ -177,12 +175,6 @@ function DeployWizard() {
               placeholder={selectedTemplate.name}
             />
           </div>
-
-          {selectedTemplate.config_schema && (
-            <div className="text-xs text-gray-500">
-              Additional configuration available for this template.
-            </div>
-          )}
 
           {selectedTemplate.pricing && (
             <div className="text-sm bg-blue-50 border border-blue-200 rounded p-3">

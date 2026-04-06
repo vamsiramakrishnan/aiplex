@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getCatalog, listInstances } from '../api/client'
+import { getCatalog } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
 interface Delegation {
@@ -29,7 +29,6 @@ const getDelegations = () => fetch('/api/v1/a2a/delegations').then(r => r.json()
 export default function A2APlex() {
   const [tab, setTab] = useState<'agents' | 'catalog' | 'delegations'>('agents')
   const catalog = useQuery({ queryKey: ['catalog', 'a2aplex'], queryFn: () => getCatalog('a2aplex') })
-  const instances = useQuery({ queryKey: ['instances', 'a2aplex'], queryFn: () => listInstances('a2aplex') })
   const agentCards = useQuery({ queryKey: ['a2a-agents'], queryFn: getAgentCards })
   const delegations = useQuery({ queryKey: ['a2a-delegations'], queryFn: getDelegations })
 

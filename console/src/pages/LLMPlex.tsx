@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { getCatalog, listInstances } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
@@ -24,7 +24,6 @@ interface UsageSummary {
 }
 
 const getRoutes = () => fetch('/api/v1/llm/routes').then(r => r.json()) as Promise<RouteConfig[]>
-const getProviders = () => fetch('/api/v1/llm/providers').then(r => r.json()) as Promise<{ provider: string; display_name: string; enabled: boolean }[]>
 const getUsageSummary = (period: string) => fetch(`/api/v1/llm/usage/summary?period=${period}`).then(r => r.json()) as Promise<UsageSummary>
 
 export default function LLMPlex() {
