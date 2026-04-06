@@ -68,6 +68,7 @@ func main() {
 
 	// Catalog aggregator
 	sources := []catalog.Source{
+		catalog.NewOfficialMCPSource(""), // Official MCP registry
 		catalog.NewLocalSource(store, models.PlaneMCPlex),
 		catalog.NewLocalSource(store, models.PlaneA2APlex),
 		catalog.NewLocalSource(store, models.PlaneLLMPlex),
