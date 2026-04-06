@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -83,6 +84,9 @@ Get started:
 	root.PersistentFlags().BoolVar(&debug, "debug", false, "Enable debug output")
 
 	root.AddCommand(
+		// Metadata
+		versionCmd(),
+
 		// Onboarding
 		initCmd(),
 		loginCmd(),
@@ -107,7 +111,6 @@ Get started:
 
 		// Utilities
 		completionCmd(),
-		versionCmd(),
 		validateCmd(),
 	)
 

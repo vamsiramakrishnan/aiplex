@@ -12,29 +12,32 @@ func completionCmd() *cobra.Command {
 		Short: "Generate shell completion scripts",
 		Long: `Generate shell completion scripts for aiplex.
 
-To load completions:
+Add to your shell profile:
 
-Bash:
-  $ source <(aiplex completion bash)
-  # To load completions for each session, execute once:
-  $ aiplex completion bash > /etc/bash_completion.d/aiplex
+  # Bash (~/.bashrc or ~/.bash_profile)
+  echo 'source <(aiplex completion bash)' >> ~/.bashrc
+  source ~/.bashrc
 
-Zsh:
-  $ source <(aiplex completion zsh)
-  # To load completions for each session, execute once:
-  $ aiplex completion zsh > "${fpath[1]}/_aiplex"
+  # Zsh (~/.zshrc)
+  echo 'source <(aiplex completion zsh)' >> ~/.zshrc
+  source ~/.zshrc
 
-Fish:
-  $ aiplex completion fish | source
-  # To load completions for each session, execute once:
-  $ aiplex completion fish > ~/.config/fish/completions/aiplex.fish
+  # Fish (~/.config/fish/config.fish)
+  aiplex completion fish | source
 
-PowerShell:
-  PS> aiplex completion powershell | Out-String | Invoke-Expression
-`,
+  # PowerShell ($PROFILE)
+  aiplex completion powershell | Out-String | Invoke-Expression`,
+		Args:                  cobra.ExactArgs(1),
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
-		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
+		Example: `  # Generate bash completions and source them
+  source <(aiplex completion bash)
+
+  # Generate zsh completions persistently
+  aiplex completion zsh > ~/.zsh/completions/_aiplex
+
+  # Generate fish completions persistently
+  aiplex completion fish > ~/.config/fish/completions/aiplex.fish`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch args[0] {
 			case "bash":
@@ -45,8 +48,9 @@ PowerShell:
 				return cmd.Root().GenFishCompletion(os.Stdout, true)
 			case "powershell":
 				return cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
+			default:
+				return cmd.Help()
 			}
-			return nil
 		},
 	}
 	return cmd
