@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -10,6 +11,18 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
+
+func init() {
+	// Add mise shims to PATH so exec.Command finds mise-managed tools
+	// (terraform, helm, kubectl, etc.) without requiring `eval "$(mise activate bash)"`
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		shims := filepath.Join(home, ".local", "share", "mise", "shims")
+		if _, err := os.Stat(shims); err == nil {
+			os.Setenv("PATH", shims+":"+os.Getenv("PATH"))
+		}
+	}
+}
 
 var (
 	apiURL string
