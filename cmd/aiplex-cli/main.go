@@ -134,6 +134,7 @@ Get started:
 		catalogCmd(),
 
 		// Utilities
+		tuiCmd(),
 		completionCmd(),
 		validateCmd(),
 	)
