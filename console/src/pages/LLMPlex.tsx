@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { getCatalog, listInstances } from '../api/client'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, type LLMBackend } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
 interface RouteConfig {
@@ -26,12 +26,146 @@ interface UsageSummary {
 const getRoutes = () => fetch('/api/v1/llm/routes').then(r => r.json()) as Promise<RouteConfig[]>
 const getUsageSummary = (period: string) => fetch(`/api/v1/llm/usage/summary?period=${period}`).then(r => r.json()) as Promise<UsageSummary>
 
+interface RouteFormData {
+  model_id: string
+  backends: LLMBackend[]
+  fallbacks: string[]
+  budget: {
+    max_daily_cost_usd: number
+    alert_threshold_pct: number
+  }
+}
+
 export default function LLMPlex() {
   const [tab, setTab] = useState<'providers' | 'routes' | 'costs'>('providers')
+  const [showRouteForm, setShowRouteForm] = useState(false)
+  const [editingRoute, setEditingRoute] = useState<RouteConfig | null>(null)
+  const [formData, setFormData] = useState<RouteFormData>({
+    model_id: '',
+    backends: [],
+    fallbacks: [],
+    budget: { max_daily_cost_usd: 0, alert_threshold_pct: 80 }
+  })
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  const queryClient = useQueryClient()
   const catalog = useQuery({ queryKey: ['catalog', 'llmplex'], queryFn: () => getCatalog('llmplex') })
   const instances = useQuery({ queryKey: ['instances', 'llmplex'], queryFn: () => listInstances('llmplex') })
   const routes = useQuery({ queryKey: ['llm-routes'], queryFn: getRoutes })
   const usage = useQuery({ queryKey: ['llm-usage', 'day'], queryFn: () => getUsageSummary('day') })
+
+  const putRouteMutation = useMutation({
+    mutationFn: ({ modelId, config }: { modelId: string; config: Partial<RouteConfig> }) =>
+      putLLMRoute(modelId, config),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['llm-routes'] })
+      setFeedback({ type: 'success', message: 'Route saved successfully' })
+      setShowRouteForm(false)
+      setEditingRoute(null)
+      setTimeout(() => setFeedback(null), 3000)
+    },
+    onError: (error: Error) => {
+      setFeedback({ type: 'error', message: error.message })
+      setTimeout(() => setFeedback(null), 5000)
+    },
+  })
+
+  const deleteRouteMutation = useMutation({
+    mutationFn: (modelId: string) => deleteLLMRoute(modelId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['llm-routes'] })
+      setFeedback({ type: 'success', message: 'Route deleted successfully' })
+      setDeleteConfirm(null)
+      setTimeout(() => setFeedback(null), 3000)
+    },
+    onError: (error: Error) => {
+      setFeedback({ type: 'error', message: error.message })
+      setTimeout(() => setFeedback(null), 5000)
+    },
+  })
+
+  const openNewRouteForm = () => {
+    setFormData({
+      model_id: '',
+      backends: [],
+      fallbacks: [],
+      budget: { max_daily_cost_usd: 0, alert_threshold_pct: 80 }
+    })
+    setEditingRoute(null)
+    setShowRouteForm(true)
+  }
+
+  const openEditRouteForm = (route: RouteConfig) => {
+    setFormData({
+      model_id: route.model_id,
+      backends: route.backends,
+      fallbacks: route.fallbacks || [],
+      budget: route.budget || { max_daily_cost_usd: 0, alert_threshold_pct: 80 }
+    })
+    setEditingRoute(route)
+    setShowRouteForm(true)
+  }
+
+  const addBackend = () => {
+    setFormData({
+      ...formData,
+      backends: [
+        ...formData.backends,
+        { provider: 'google', model_id: '', weight: 100, enabled: true }
+      ]
+    })
+  }
+
+  const updateBackend = (index: number, field: keyof LLMBackend, value: string | number | boolean) => {
+    const updated = [...formData.backends]
+    updated[index] = { ...updated[index], [field]: value }
+    setFormData({ ...formData, backends: updated })
+  }
+
+  const removeBackend = (index: number) => {
+    setFormData({
+      ...formData,
+      backends: formData.backends.filter((_, i) => i !== index)
+    })
+  }
+
+  const addFallback = () => {
+    const fallback = prompt('Enter fallback model ID:')
+    if (fallback) {
+      setFormData({ ...formData, fallbacks: [...formData.fallbacks, fallback] })
+    }
+  }
+
+  const removeFallback = (index: number) => {
+    setFormData({
+      ...formData,
+      fallbacks: formData.fallbacks.filter((_, i) => i !== index)
+    })
+  }
+
+  const saveRoute = () => {
+    if (!formData.model_id) {
+      setFeedback({ type: 'error', message: 'Model ID is required' })
+      setTimeout(() => setFeedback(null), 3000)
+      return
+    }
+    if (formData.backends.length === 0) {
+      setFeedback({ type: 'error', message: 'At least one backend is required' })
+      setTimeout(() => setFeedback(null), 3000)
+      return
+    }
+
+    putRouteMutation.mutate({
+      modelId: formData.model_id,
+      config: {
+        model_id: formData.model_id,
+        backends: formData.backends,
+        fallbacks: formData.fallbacks.length > 0 ? formData.fallbacks : undefined,
+        budget: formData.budget.max_daily_cost_usd > 0 ? formData.budget : undefined
+      }
+    })
+  }
 
   return (
     <div>
@@ -109,12 +243,43 @@ export default function LLMPlex() {
 
       {tab === 'routes' && (
         <div>
-          <h3 className="font-semibold text-lg mb-3">Routing Rules</h3>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold text-lg">Routing Rules</h3>
+            <button
+              onClick={openNewRouteForm}
+              className="px-4 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700"
+            >
+              + New Route
+            </button>
+          </div>
+
+          {feedback && (
+            <div className={`mb-4 p-3 rounded ${feedback.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+              {feedback.message}
+            </div>
+          )}
+
           {routes.data && routes.data.length > 0 ? (
             <div className="space-y-4">
               {routes.data.map((rc) => (
                 <div key={rc.model_id} className="bg-white rounded-lg shadow p-4">
-                  <h4 className="font-semibold mb-3">{rc.model_id}</h4>
+                  <div className="flex justify-between items-start mb-3">
+                    <h4 className="font-semibold">{rc.model_id}</h4>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => openEditRouteForm(rc)}
+                        className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirm(rc.model_id)}
+                        className="px-3 py-1 text-sm bg-red-100 text-red-700 hover:bg-red-200 rounded"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     {rc.backends.map((b, i) => (
                       <div key={i} className="flex items-center gap-3 text-sm">
@@ -145,7 +310,202 @@ export default function LLMPlex() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">No routing rules configured. Deploy a model to get started.</p>
+            <p className="text-gray-400 text-sm">No routing rules configured. Click "New Route" to get started.</p>
+          )}
+
+          {/* Delete confirmation modal */}
+          {deleteConfirm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                <h3 className="font-semibold text-lg mb-2">Delete Route</h3>
+                <p className="text-gray-600 mb-4">
+                  Are you sure you want to delete the route for <strong>{deleteConfirm}</strong>? This action cannot be undone.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setDeleteConfirm(null)}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => deleteRouteMutation.mutate(deleteConfirm)}
+                    className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded"
+                    disabled={deleteRouteMutation.isPending}
+                  >
+                    {deleteRouteMutation.isPending ? 'Deleting...' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Route form modal */}
+          {showRouteForm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
+              <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 my-8">
+                <h3 className="font-semibold text-lg mb-4">
+                  {editingRoute ? `Edit Route: ${editingRoute.model_id}` : 'New Route'}
+                </h3>
+
+                <div className="space-y-4">
+                  {/* Model ID */}
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Model ID</label>
+                    <input
+                      type="text"
+                      value={formData.model_id}
+                      onChange={(e) => setFormData({ ...formData, model_id: e.target.value })}
+                      disabled={!!editingRoute}
+                      className="w-full px-3 py-2 border rounded disabled:bg-gray-100"
+                      placeholder="e.g., gemini-2.5-flash"
+                    />
+                  </div>
+
+                  {/* Backends */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-medium">Backends</label>
+                      <button
+                        onClick={addBackend}
+                        className="px-3 py-1 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                      >
+                        + Add Backend
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {formData.backends.map((backend, idx) => (
+                        <div key={idx} className="bg-gray-50 p-3 rounded space-y-2">
+                          <div className="flex gap-2">
+                            <select
+                              value={backend.provider}
+                              onChange={(e) => updateBackend(idx, 'provider', e.target.value)}
+                              className="px-2 py-1 border rounded text-sm"
+                            >
+                              <option value="google">Google</option>
+                              <option value="anthropic">Anthropic</option>
+                              <option value="openai">OpenAI</option>
+                              <option value="bedrock">Bedrock</option>
+                              <option value="ollama">Ollama</option>
+                            </select>
+                            <input
+                              type="text"
+                              value={backend.model_id}
+                              onChange={(e) => updateBackend(idx, 'model_id', e.target.value)}
+                              placeholder="Model ID"
+                              className="flex-1 px-2 py-1 border rounded text-sm"
+                            />
+                            <input
+                              type="number"
+                              value={backend.weight}
+                              onChange={(e) => updateBackend(idx, 'weight', parseInt(e.target.value) || 0)}
+                              placeholder="Weight"
+                              className="w-20 px-2 py-1 border rounded text-sm"
+                            />
+                            <label className="flex items-center gap-1 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={backend.enabled}
+                                onChange={(e) => updateBackend(idx, 'enabled', e.target.checked)}
+                              />
+                              Enabled
+                            </label>
+                            <button
+                              onClick={() => removeBackend(idx)}
+                              className="px-2 py-1 bg-red-100 text-red-700 text-sm rounded hover:bg-red-200"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {formData.backends.length === 0 && (
+                        <p className="text-sm text-gray-400">No backends added yet. Click "Add Backend" to start.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Fallbacks */}
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-medium">Fallback Models (optional)</label>
+                      <button
+                        onClick={addFallback}
+                        className="px-3 py-1 bg-gray-200 text-sm rounded hover:bg-gray-300"
+                      >
+                        + Add Fallback
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      {formData.fallbacks.map((fb, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="text-sm text-gray-600">{fb}</span>
+                          <button
+                            onClick={() => removeFallback(idx)}
+                            className="text-xs text-red-600 hover:text-red-800"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Budget */}
+                  <div className="border-t pt-4">
+                    <label className="block text-sm font-medium mb-2">Budget (optional)</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Max Daily Cost (USD)</label>
+                        <input
+                          type="number"
+                          value={formData.budget.max_daily_cost_usd}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            budget: { ...formData.budget, max_daily_cost_usd: parseFloat(e.target.value) || 0 }
+                          })}
+                          className="w-full px-3 py-2 border rounded"
+                          placeholder="0"
+                          step="0.01"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Alert Threshold (%)</label>
+                        <input
+                          type="number"
+                          value={formData.budget.alert_threshold_pct}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            budget: { ...formData.budget, alert_threshold_pct: parseInt(e.target.value) || 0 }
+                          })}
+                          className="w-full px-3 py-2 border rounded"
+                          placeholder="80"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 mt-6">
+                  <button
+                    onClick={() => {
+                      setShowRouteForm(false)
+                      setEditingRoute(null)
+                    }}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveRoute}
+                    className="px-4 py-2 bg-brand-600 text-white hover:bg-brand-700 rounded"
+                    disabled={putRouteMutation.isPending}
+                  >
+                    {putRouteMutation.isPending ? 'Saving...' : 'Save Route'}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       )}
