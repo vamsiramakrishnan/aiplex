@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 )
 
 // HydraClient wraps the Ory Hydra Admin API.
@@ -32,23 +34,36 @@ type OAuthClient struct {
 	TokenEndpointAuthMethod string `json:"token_endpoint_auth_method"`
 }
 
-// CreateClient registers a new OAuth client in Hydra.
-func (h *HydraClient) CreateClient(ctx context.Context, client OAuthClient) error {
+// CreateClientResponse contains the response from Hydra client creation.
+type CreateClientResponse struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
+// CreateClient registers a new OAuth client in Hydra and returns the client_secret.
+func (h *HydraClient) CreateClient(ctx context.Context, client OAuthClient) (*CreateClientResponse, error) {
 	body, _ := json.Marshal(client)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.adminURL+"/admin/clients", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("hydra create client: %w", err)
+		return nil, fmt.Errorf("hydra create client: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("hydra create client: status %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hydra create client: status %d: %s", resp.StatusCode, body)
 	}
-	return nil
+
+	// Parse response to get client_secret
+	var result CreateClientResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("hydra decode response: %w", err)
+	}
+	return &result, nil
 }
 
 // DeleteClient removes an OAuth client from Hydra.
@@ -68,7 +83,7 @@ func (h *HydraClient) DeleteClient(ctx context.Context, clientID string) error {
 	return nil
 }
 
-// CreateScope registers a scope in Hydra (via scope metadata).
+// CreateScope is deprecated. Use UpdateClientScopes instead.
 func (h *HydraClient) CreateScope(ctx context.Context, scope, description string) error {
 	// Hydra doesn't have a dedicated scope registry — scopes are validated
 	// against the client's allowed_scope. This is a no-op placeholder for
@@ -76,6 +91,32 @@ func (h *HydraClient) CreateScope(ctx context.Context, scope, description string
 	_ = ctx
 	_ = scope
 	_ = description
+	return nil
+}
+
+// UpdateClientScopes patches an OAuth client's allowed scopes in Hydra.
+func (h *HydraClient) UpdateClientScopes(ctx context.Context, clientID string, scopes []string) error {
+	patch := map[string]any{
+		"scope": strings.Join(scopes, " "),
+	}
+	data, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, "PATCH", h.adminURL+"/admin/clients/"+clientID, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("hydra update scopes: status %d: %s", resp.StatusCode, body)
+	}
 	return nil
 }
 

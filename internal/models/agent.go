@@ -13,6 +13,9 @@ type Agent struct {
 	// Dimension A: agent ceiling — max scopes this agent can ever request
 	AllowedScopes []string `json:"allowed_scopes"`
 
+	// OAuth secret (returned only on registration, never persisted)
+	ClientSecret string `json:"client_secret,omitempty" firestore:"-"`
+
 	// Identity
 	WIFPrincipal string `json:"wif_principal,omitempty"`
 	SpiffeID     string `json:"spiffe_id,omitempty"`
