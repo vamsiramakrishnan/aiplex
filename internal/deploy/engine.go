@@ -114,6 +114,29 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		}
 	}
 
+	// Discover actual tools from running server (MCPlex/A2APlex only)
+	if plane != models.PlaneLLMPlex {
+		serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080", instanceID, namespace)
+		discovered, err := DiscoverTools(ctx, serviceURL)
+		if err != nil {
+			logger.Warn().Err(err).Str("instance", instanceID).Msg("tool discovery failed — using template scopes")
+		} else if len(discovered) > 0 {
+			var prefix string
+			switch plane {
+			case models.PlaneMCPlex:
+				prefix = "mcp:tools:"
+			case models.PlaneA2APlex:
+				prefix = "a2a:task:"
+			}
+			discoveredScopes := make([]string, len(discovered))
+			for i, tool := range discovered {
+				discoveredScopes[i] = prefix + tool.Name
+			}
+			inst.Scopes = discoveredScopes
+			logger.Info().Int("count", len(discovered)).Str("instance", instanceID).Msg("discovered tools from running server")
+		}
+	}
+
 	// 7. Apply route CRD (MCPRoute / HTTPRoute / LLMRoute)
 	routes := GenerateRoute(inst, template, e.gatewayName)
 	for _, m := range routes {
