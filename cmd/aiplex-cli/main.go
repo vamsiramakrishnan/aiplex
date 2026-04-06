@@ -30,6 +30,9 @@ func newClient() *aiplex.Client {
 		t = os.Getenv("AIPLEX_TOKEN")
 	}
 
+	resolvedToken := t
+	var tok *cliconfig.TokenEntry
+
 	// Fall back to persistent config
 	if url == "" || t == "" {
 		cfg, err := cliconfig.Load()
@@ -42,7 +45,24 @@ func newClient() *aiplex.Client {
 					creds, err := cliconfig.LoadCredentials()
 					if err == nil {
 						if entry := creds.GetToken(ctx.Name); entry != nil {
-							t = entry.AccessToken
+							tok = entry
+							resolvedToken = entry.AccessToken
+						}
+					}
+				}
+
+				// Auto-refresh expired tokens
+				if tok != nil && tok.AccessToken != "" && tok.RefreshToken != "" && tok.ExpiresAt != "" {
+					if expiry, err := time.Parse(time.RFC3339, tok.ExpiresAt); err == nil {
+						if time.Now().After(expiry.Add(-5 * time.Minute)) {
+							// Token expired or expiring soon — try refresh
+							if ctx.URL != "" {
+								tr, err := refreshToken(ctx.URL, tok.RefreshToken)
+								if err == nil && tr.AccessToken != "" {
+									storeToken(cfg.CurrentContext, tr.AccessToken, tr.RefreshToken)
+									resolvedToken = tr.AccessToken
+								}
+							}
 						}
 					}
 				}
@@ -55,8 +75,8 @@ func newClient() *aiplex.Client {
 	}
 
 	c := aiplex.NewClient(url)
-	if t != "" {
-		c.SetToken(t)
+	if resolvedToken != "" {
+		c.SetToken(resolvedToken)
 	}
 	return c
 }

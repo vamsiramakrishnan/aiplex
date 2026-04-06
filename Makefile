@@ -21,7 +21,9 @@ BINARY_API  := bin/aiplex-api
 BINARY_CLI  := bin/aiplex
 GO          := go
 GOFLAGS     := -trimpath
-LDFLAGS     := -s -w
+VERSION     := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT      := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+LDFLAGS     := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
 # ─── Help ───────────────────────────────────────────────
 
@@ -146,16 +148,11 @@ verify: build-cli ## Run health check + status
 
 # ─── Dependencies ───────────────────────────────────────
 
-deps: ## Check and install required tools
-	@echo "Checking dependencies..."
-	@command -v go >/dev/null 2>&1       || (echo "  MISSING: go — https://go.dev/dl/" && exit 1)
-	@command -v docker >/dev/null 2>&1   || echo "  MISSING: docker (optional for local dev)"
-	@command -v terraform >/dev/null 2>&1 || echo "  MISSING: terraform (needed for GCP deploy)"
-	@command -v helm >/dev/null 2>&1     || echo "  MISSING: helm (needed for GCP deploy)"
-	@command -v kubectl >/dev/null 2>&1  || echo "  MISSING: kubectl (needed for GCP deploy)"
-	@command -v gcloud >/dev/null 2>&1   || echo "  MISSING: gcloud (needed for GCP deploy)"
-	@command -v node >/dev/null 2>&1     || echo "  MISSING: node (needed for console)"
-	@echo "Done."
+setup: ## Install tools + CLI, run aiplex init
+	@chmod +x setup.sh && ./setup.sh
+
+deps: ## Check installed tools
+	@command -v mise >/dev/null 2>&1 && mise ls --current || echo "Run: make setup"
 
 # ─── Clean ──────────────────────────────────────────────
 
