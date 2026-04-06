@@ -47,6 +47,21 @@ aiplex doctor
 ✓ All checks passed
 ```
 
+### Shell Completion
+
+Generate shell completions for faster typing:
+
+```bash
+# Bash
+aiplex completion bash >> ~/.bashrc
+
+# Zsh
+aiplex completion zsh >> ~/.zshrc
+
+# Fish
+aiplex completion fish >> ~/.config/fish/completions/aiplex.fish
+```
+
 ## Local Development
 
 For contributing to AIPlex or running it locally:
@@ -57,6 +72,14 @@ For contributing to AIPlex or running it locally:
 - Docker & Docker Compose
 - Node.js 20+ (for the console)
 
+Or use the automated setup:
+
+```bash
+git clone https://github.com/vamsiramakrishnan/aiplex.git
+cd aiplex
+./setup.sh   # Installs mise + all tools (Go, Terraform, Helm, kubectl, Node)
+```
+
 ### Clone and Build
 
 ```bash
@@ -65,6 +88,14 @@ cd aiplex
 make deps    # Check all dependencies
 make build   # Build API server and CLI
 ```
+
+### Developer Tools (mise)
+
+AIPlex uses [mise](https://mise.jdx.dev) to manage tool versions. Running `./setup.sh` installs mise and all tools:
+
+- Go 1.24, Terraform 1.12, Helm 3.17, kubectl 1.32, Node 22
+
+Tool versions are pinned in `.mise.toml` at the repo root.
 
 ### Run Locally
 

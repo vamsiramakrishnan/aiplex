@@ -53,6 +53,9 @@ A single JWT carries scopes across all three planes:
 ### CLI (Fastest)
 
 ```bash
+# One command — zero to running platform
+aiplex quickstart
+
 # Interactive — guided prompts, zero YAML
 aiplex deploy
 
@@ -62,7 +65,17 @@ aiplex apply -f aiplex.yaml
 
 ### Console (Visual)
 
-A React-based web UI for browsing catalogs, deploying instances, managing permissions, and monitoring usage across all three planes.
+The AIPlex Console runs in your browser — either deployed in-cluster or locally via `aiplex console`. It provides catalog browsing, deployment wizards, permission management, and usage monitoring across all three planes.
+
+### TUI (Terminal)
+
+For power users who prefer staying in the terminal:
+
+```bash
+aiplex tui
+```
+
+Full-screen dashboard with tabs for instances, agents, and catalog. Keyboard-driven.
 
 ### SDK (Programmatic)
 

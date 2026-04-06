@@ -16,14 +16,19 @@ AIPlex governs three interaction planes through a single gateway, auth stack, po
 # Install
 curl -fsSL https://get.aiplex.dev | sh
 
-# Login
+# Zero to running platform in one command
+aiplex quickstart
+
+# Or step-by-step:
 aiplex login
-
-# Deploy your first tool
 aiplex deploy
-
-# Check status
 aiplex status my-tool
+
+# Terminal dashboard
+aiplex tui
+
+# Local console
+aiplex console
 ```
 
 **[Full Documentation](https://docs.aiplex.dev)** | **[Quickstart Guide](https://docs.aiplex.dev/docs/getting-started/quickstart)**
@@ -124,12 +129,24 @@ Enforced by a [20-line Rego policy](policies/aiplex_authz.rego) / Rust ext_authz
 git clone https://github.com/vamsiramakrishnan/aiplex.git
 cd aiplex
 
+# One-command setup (installs mise + all tools)
+./setup.sh
+
+# Or manually:
 make deps        # Check prerequisites
 make docker-up   # Start backing services
 make build       # Build API + CLI
 make run-local   # Start API server
 make console-dev # Start React dev server
+
+# View current context
+aiplex whoami
+
+# Enable shell completion
+aiplex completion bash >> ~/.bashrc
 ```
+
+Tool versions (Go, Terraform, Helm, kubectl, Node) are pinned in `.mise.toml`.
 
 See [Installation](https://docs.aiplex.dev/docs/getting-started/installation) for details.
 

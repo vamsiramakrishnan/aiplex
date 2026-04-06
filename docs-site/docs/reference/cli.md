@@ -26,6 +26,7 @@ go install github.com/vamsiramakrishnan/aiplex/cmd/aiplex-cli@latest
 | `--token` | `AIPLEX_TOKEN` | Bearer token |
 | `--output` / `-o` | — | Output format: `table` (default), `json`, `yaml` |
 | `--quiet` / `-q` | — | Suppress non-essential output |
+| `--debug` | — | Enable debug logging |
 
 ## Authentication
 
@@ -38,9 +39,50 @@ aiplex login                    # Browser-based OAuth
 aiplex login --use-gcloud       # Use existing gcloud credentials
 ```
 
-Credentials stored in `~/.aiplex/credentials.json`.
+Credentials stored in `~/.aiplex/credentials.json` (encrypted at rest with AES-256-GCM).
+
+### `aiplex whoami`
+
+Show current context, project, region, and auth status.
+
+```bash
+aiplex whoami
+```
+
+Output:
+```
+User:     vamsi@example.com
+Project:  aiplex-prod
+Region:   us-central1
+API:      https://aiplex.example.com
+Auth:     Valid (expires in 23h 45m)
+```
+
+### `aiplex ctx`
+
+Switch between contexts (shorthand for `config use-context`).
+
+```bash
+aiplex ctx                      # List contexts
+aiplex ctx dev                  # Switch to dev context
+aiplex ctx prod                 # Switch to prod context
+```
 
 ## Deploy & Manage
+
+### `aiplex quickstart`
+
+Zero to running platform in one command.
+
+```bash
+aiplex quickstart               # Runs init + deploy + example
+```
+
+This command:
+1. Generates an `aiplex.yaml` configuration
+2. Deploys the platform if needed
+3. Deploys an example MCP server
+4. Shows you how to connect
 
 ### `aiplex deploy`
 
@@ -339,6 +381,14 @@ Upgrade the platform.
 aiplex platform upgrade
 ```
 
+### `aiplex upgrade`
+
+Alias for `aiplex platform apply` — re-runs the deployment pipeline.
+
+```bash
+aiplex upgrade                  # Apply latest configuration
+```
+
 ### `aiplex platform destroy`
 
 Tear down all infrastructure.
@@ -366,6 +416,32 @@ aiplex dashboard
 aiplex dashboard --period 24h
 ```
 
+### `aiplex tui`
+
+Interactive terminal dashboard with tabs for instances, agents, and catalog.
+
+```bash
+aiplex tui
+```
+
+Navigation:
+- `Tab` / `Shift+Tab` — switch tabs
+- `r` — refresh data
+- `q` — quit
+
+Full-screen, keyboard-driven interface for power users who prefer staying in the terminal.
+
+### `aiplex console`
+
+Launch the AIPlex Console locally.
+
+```bash
+aiplex console                  # Start on default port (8080)
+aiplex console --port 3000      # Custom port
+```
+
+Opens your browser to the embedded React console for catalog browsing, deployment wizards, and permission management.
+
 ### `aiplex health`
 
 Check API health.
@@ -374,13 +450,52 @@ Check API health.
 aiplex health
 ```
 
+### `aiplex version`
+
+Show CLI version information.
+
+```bash
+aiplex version                  # Current version
+aiplex version --check          # Check for updates
+```
+
+## Shell Completion
+
+### `aiplex completion`
+
+Generate shell completion scripts.
+
+```bash
+aiplex completion bash          # Bash completion
+aiplex completion zsh           # Zsh completion
+aiplex completion fish          # Fish completion
+```
+
+Installation:
+```bash
+# Bash
+aiplex completion bash >> ~/.bashrc
+
+# Zsh
+aiplex completion zsh >> ~/.zshrc
+
+# Fish
+aiplex completion fish >> ~/.config/fish/completions/aiplex.fish
+```
+
 ## Configuration
 
 Config stored in `~/.aiplex/`:
 
 | File | Purpose |
 |------|---------|
-| `config.json` | API URL, default output format |
-| `credentials.json` | Auth tokens |
+| `config.json` | API URL, default output format, contexts |
+| `credentials.json` | Auth tokens (encrypted at rest with AES-256-GCM) |
 
 Resolution order: CLI flags > environment variables > config file.
+
+### Security Features
+
+- **Credential encryption**: All tokens stored in `credentials.json` are encrypted at rest using AES-256-GCM
+- **Token auto-refresh**: Tokens are automatically refreshed 5 minutes before expiry
+- **Context isolation**: Each context maintains separate credentials and configuration
