@@ -91,6 +91,9 @@ func llmRoute(inst *models.Instance, tmpl *models.Template, gatewayName string) 
 	modelID := tmpl.ModelID
 	backendName := inst.ID + "-backend"
 
+	// Default to provider-based secret name
+	secretName := provider + "-api-key"
+
 	return []Manifest{
 		{
 			APIVersion: "aigateway.envoyproxy.io/v1alpha1",
@@ -137,8 +140,8 @@ spec:
   model: %s
   apiKey:
     secretRef:
-      name: %s-api-key
-`, backendName, inst.ID, provider, modelID, provider),
+      name: %s
+`, backendName, inst.ID, provider, modelID, secretName),
 		},
 	}
 }
@@ -155,6 +158,11 @@ func GenerateRoutesFromConfig(config *models.LLMRouteConfig, gatewayName string)
 		}
 		backendName := fmt.Sprintf("%s-%s-backend", config.ModelID, backend.Provider)
 
+		secretName := backend.SecretRef
+		if secretName == "" {
+			secretName = backend.Provider + "-api-key"
+		}
+
 		backendYAML := fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
 kind: AIServiceBackend
 metadata:
@@ -165,7 +173,7 @@ spec:
   model: %s
   apiKey:
     secretRef:
-      name: %s-api-key`, backendName, backend.Provider, backend.ModelID, backend.Provider)
+      name: %s`, backendName, backend.Provider, backend.ModelID, secretName)
 
 		manifests = append(manifests, Manifest{
 			APIVersion: "aigateway.envoyproxy.io/v1alpha1",

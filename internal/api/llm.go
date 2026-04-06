@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
+	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
 )
 
 // LLMHandler serves LLMPlex routing, provider, and usage endpoints.
@@ -17,11 +19,12 @@ type LLMHandler struct {
 	store       registry.Store
 	k8s         deploy.K8sClient
 	gatewayName string
+	secrets     *secrets.Manager
 }
 
 // NewLLMHandler creates an LLMPlex API handler.
-func NewLLMHandler(store registry.Store, k8s deploy.K8sClient, gatewayName string) *LLMHandler {
-	return &LLMHandler{store: store, k8s: k8s, gatewayName: gatewayName}
+func NewLLMHandler(store registry.Store, k8s deploy.K8sClient, gatewayName string, sm *secrets.Manager) *LLMHandler {
+	return &LLMHandler{store: store, k8s: k8s, gatewayName: gatewayName, secrets: sm}
 }
 
 // ── Route Configs ──
@@ -138,8 +141,17 @@ func (h *LLMHandler) PutProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	pc.Provider = providerName
 
-	// TODO: validate Secret Manager reference exists
-	// TODO: store API key in Secret Manager if provided directly
+	// Validate Secret Manager reference exists
+	if h.secrets != nil && pc.SecretRef != "" {
+		exists, err := h.secrets.Exists(r.Context(), pc.SecretRef)
+		if err != nil {
+			zerolog.Ctx(r.Context()).Warn().Err(err).Str("secret", pc.SecretRef).Msg("secret validation failed")
+		} else if !exists {
+			Error(w, r, http.StatusBadRequest, "SECRET_NOT_FOUND",
+				fmt.Sprintf("secret %q not found in Secret Manager — create it first with: gcloud secrets create %s --data-file=key.txt", pc.SecretRef, pc.SecretRef))
+			return
+		}
+	}
 
 	if err := h.store.PutProviderConfig(r.Context(), &pc); err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())

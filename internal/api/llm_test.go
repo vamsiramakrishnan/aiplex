@@ -25,7 +25,7 @@ func setupLLMRouter() (chi.Router, *registry.MemoryStore) {
 	})
 
 	k8s := deploy.NewNoOpK8sClient()
-	h := api.NewLLMHandler(store, k8s, "aiplex-gateway")
+	h := api.NewLLMHandler(store, k8s, "aiplex-gateway", nil)
 	r := chi.NewRouter()
 	r.Get("/api/v1/llm/routes", h.ListRouteConfigs)
 	r.Get("/api/v1/llm/routes/{modelId}", h.GetRouteConfig)

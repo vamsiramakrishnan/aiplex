@@ -20,6 +20,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
+	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
 )
 
 func main() {
@@ -98,12 +99,21 @@ func main() {
 		},
 	})
 
+	// Secret Manager (optional — nil in local dev)
+	sm, err := secrets.NewManager(context.Background(), projectID)
+	if err != nil {
+		log.Warn().Err(err).Msg("secret manager init failed — secret validation disabled")
+	}
+	if sm != nil {
+		defer sm.Close()
+	}
+
 	// Handlers
 	catalogH := api.NewCatalogHandler(aggregator, store)
 	instanceH := api.NewInstanceHandler(store, engine)
 	agentH := api.NewAgentHandler(store, hydraClient)
 	authH := api.NewAuthHandler(hydraClient, store)
-	llmH := api.NewLLMHandler(store, k8sClient, cfg.GatewayName)
+	llmH := api.NewLLMHandler(store, k8sClient, cfg.GatewayName, sm)
 	a2aH := api.NewA2AHandler(store)
 	dashH := api.NewDashboardHandler(store)
 	iamH := api.NewIAMHandler(store, wifValidator)
