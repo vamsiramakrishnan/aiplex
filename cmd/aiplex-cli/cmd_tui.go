@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/huh"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -49,6 +51,11 @@ type catalogMsg struct {
 	err  error
 }
 
+type statusUpdateMsg struct {
+	message   string
+	isSuccess bool
+}
+
 // ─── Model ─────────────────────────────────────────────
 
 type tuiModel struct {
@@ -68,10 +75,13 @@ type tuiModel struct {
 	catalogTable  table.Model
 
 	// State
-	loading bool
-	err     error
-	width   int
-	height  int
+	loading    bool
+	err        error
+	width      int
+	height     int
+	statusMsg  string
+	statusTime time.Time
+	isSuccess  bool
 }
 
 func newTUIModel(c *aiplex.Client) tuiModel {
@@ -163,6 +173,12 @@ func (m tuiModel) Init() tea.Cmd {
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Clear status message after 3 seconds
+	if !m.statusTime.IsZero() && time.Since(m.statusTime) > 3*time.Second {
+		m.statusMsg = ""
+		m.statusTime = time.Time{}
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -182,6 +198,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fetchAgents(m.client),
 				fetchCatalog(m.client),
 			)
+		case "d":
+			if m.activeTab == 3 && m.catalog != nil && len(m.catalog.Templates) > 0 {
+				return m, m.deployAction()
+			}
+		case "x":
+			if m.activeTab == 1 && len(m.instances) > 0 {
+				return m, m.undeployAction()
+			}
 		}
 
 	case tea.WindowSizeMsg:
@@ -254,6 +278,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.catalogTable.SetRows(rows)
 		}
 		return m, nil
+
+	case statusUpdateMsg:
+		m.statusMsg = msg.message
+		m.statusTime = time.Now()
+		m.isSuccess = msg.isSuccess
+		return m, tea.Batch(
+			fetchInstances(m.client),
+			fetchStats(m.client),
+		)
 	}
 
 	// Forward key events to active table
@@ -313,10 +346,19 @@ func (m tuiModel) View() string {
 		b.WriteString(m.catalogTable.View())
 	}
 
+	// Status message
+	if m.statusMsg != "" {
+		b.WriteString("\n")
+		style := passStyle
+		if !m.isSuccess {
+			style = failStyle
+		}
+		b.WriteString(style.Render("  " + m.statusMsg))
+	}
+
 	// Footer
 	b.WriteString("\n\n")
-	footer := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render(
-		"  tab: switch panels  •  r: refresh  •  ↑↓: navigate  •  q: quit")
+	footer := m.renderFooter()
 	b.WriteString(footer)
 
 	return b.String()
@@ -371,4 +413,104 @@ func (m tuiModel) renderDashboard() string {
 	}
 
 	return b.String()
+}
+
+// deployAction prompts the user to deploy the selected catalog template
+func (m tuiModel) deployAction() tea.Cmd {
+	return func() tea.Msg {
+		cursor := m.catalogTable.Cursor()
+		if cursor < 0 || cursor >= len(m.catalog.Templates) {
+			return statusUpdateMsg{"No template selected", false}
+		}
+
+		template := m.catalog.Templates[cursor]
+
+		var displayName string
+		form := huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Instance name").
+					Description(fmt.Sprintf("Deploying %s (%s)", template.Name, template.Plane)).
+					Value(&displayName).
+					Validate(func(s string) error {
+						if s == "" {
+							return fmt.Errorf("name required")
+						}
+						return nil
+					}),
+			),
+		)
+
+		err := form.Run()
+		if err != nil {
+			return statusUpdateMsg{"Deploy cancelled", false}
+		}
+
+		req := &aiplex.DeployRequest{
+			Plane:       template.Plane,
+			TemplateID:  template.ID,
+			DisplayName: displayName,
+		}
+
+		inst, err := m.client.Deploy(context.Background(), req)
+		if err != nil {
+			return statusUpdateMsg{fmt.Sprintf("Deploy failed: %v", err), false}
+		}
+
+		return statusUpdateMsg{fmt.Sprintf("Deployed %s (%s)", inst.DisplayName, inst.ID), true}
+	}
+}
+
+// undeployAction prompts the user to undeploy the selected instance
+func (m tuiModel) undeployAction() tea.Cmd {
+	return func() tea.Msg {
+		cursor := m.instanceTable.Cursor()
+		if cursor < 0 || cursor >= len(m.instances) {
+			return statusUpdateMsg{"No instance selected", false}
+		}
+
+		inst := m.instances[cursor]
+		displayName := inst.DisplayName
+		if displayName == "" {
+			displayName = inst.ID
+		}
+
+		var confirm bool
+		form := huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title(fmt.Sprintf("Undeploy %s?", displayName)).
+					Description(fmt.Sprintf("Plane: %s, Template: %s", inst.Plane, inst.TemplateID)).
+					Value(&confirm),
+			),
+		)
+
+		err := form.Run()
+		if err != nil || !confirm {
+			return statusUpdateMsg{"Undeploy cancelled", false}
+		}
+
+		err = m.client.Undeploy(context.Background(), inst.ID)
+		if err != nil {
+			return statusUpdateMsg{fmt.Sprintf("Undeploy failed: %v", err), false}
+		}
+
+		return statusUpdateMsg{fmt.Sprintf("Undeployed %s", displayName), true}
+	}
+}
+
+// renderFooter renders context-sensitive footer with available actions
+func (m tuiModel) renderFooter() string {
+	var actions string
+	switch m.activeTab {
+	case 0: // Dashboard
+		actions = "r: refresh  •  q: quit"
+	case 1: // Instances
+		actions = "x: undeploy  •  r: refresh  •  ↑↓: navigate  •  q: quit"
+	case 2: // Agents
+		actions = "r: refresh  •  ↑↓: navigate  •  q: quit"
+	case 3: // Catalog
+		actions = "d: deploy  •  r: refresh  •  ↑↓: navigate  •  q: quit"
+	}
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("  " + actions)
 }
