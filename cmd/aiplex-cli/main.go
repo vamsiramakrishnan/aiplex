@@ -121,6 +121,7 @@ Get started:
 		upgradeCmd(),
 
 		// Operations
+		consoleCmd(),
 		statusCmd(),
 		applyCmd(),
 		deployCmd(),
