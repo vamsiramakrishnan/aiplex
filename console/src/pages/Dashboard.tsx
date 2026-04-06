@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useSSE } from '../hooks/useSSE'
 
 interface DashboardStats {
   total_instances: number
@@ -30,10 +31,29 @@ const getStats = () => fetch('/api/v1/dashboard/stats').then(r => r.json()) as P
 const getDenials = () => fetch('/api/v1/dashboard/denials').then(r => r.json()) as Promise<PolicyDenial[]>
 
 export default function Dashboard() {
-  const stats = useQuery({ queryKey: ['dashboard-stats'], queryFn: getStats, refetchInterval: 30000 })
+  // Real-time SSE stats (5s updates)
+  const sseStats = useSSE(true)
+
+  // Fallback polling query (1 minute interval in case SSE disconnects)
+  const statsQuery = useQuery({ queryKey: ['dashboard-stats'], queryFn: getStats, refetchInterval: 60000 })
   const denials = useQuery({ queryKey: ['dashboard-denials'], queryFn: getDenials })
 
-  const s = stats.data
+  // Use SSE stats if available, otherwise fall back to query data
+  const s = sseStats ? {
+    total_instances: sseStats.total_instances,
+    running_instances: sseStats.running,
+    registered_agents: sseStats.agents,
+    active_planes: [sseStats.mcplex, sseStats.a2aplex, sseStats.llmplex].filter(n => n > 0).length,
+    mcplex_instances: sseStats.mcplex,
+    a2aplex_instances: sseStats.a2aplex,
+    llmplex_instances: sseStats.llmplex,
+    daily_cost_usd: 0, // SSE doesn't include cost data yet
+    daily_tokens: 0,
+    daily_requests: 0,
+    tool_calls_24h: 0,
+    a2a_delegations_24h: sseStats.delegations,
+    policy_denials_24h: sseStats.denials,
+  } : statsQuery.data
 
   return (
     <div>

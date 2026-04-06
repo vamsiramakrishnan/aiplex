@@ -22,6 +22,11 @@ func NewSSEHandler(store registry.Store) *SSEHandler {
 // Clients connect to GET /events/stream and receive JSON payloads every 5 seconds.
 // This replaces polling for the Console dashboard.
 func (h *SSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
+	// Accept token from query param (EventSource can't set headers)
+	if token := r.URL.Query().Get("token"); token != "" {
+		r.Header.Set("Authorization", "Bearer "+token)
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		Error(w, r, http.StatusInternalServerError, "SSE_UNSUPPORTED", "streaming not supported")
