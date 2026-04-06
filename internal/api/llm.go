@@ -6,18 +6,22 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/rs/zerolog"
+	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
 // LLMHandler serves LLMPlex routing, provider, and usage endpoints.
 type LLMHandler struct {
-	store registry.Store
+	store       registry.Store
+	k8s         deploy.K8sClient
+	gatewayName string
 }
 
 // NewLLMHandler creates an LLMPlex API handler.
-func NewLLMHandler(store registry.Store) *LLMHandler {
-	return &LLMHandler{store: store}
+func NewLLMHandler(store registry.Store, k8s deploy.K8sClient, gatewayName string) *LLMHandler {
+	return &LLMHandler{store: store, k8s: k8s, gatewayName: gatewayName}
 }
 
 // ── Route Configs ──
@@ -76,7 +80,15 @@ func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: regenerate Envoy LLMRoute + AIServiceBackend CRDs
+	// Generate and apply Envoy LLMRoute + AIServiceBackend CRDs
+	manifests := deploy.GenerateRoutesFromConfig(&rc, h.gatewayName)
+	for _, m := range manifests {
+		if err := h.k8s.Apply(r.Context(), m); err != nil {
+			zerolog.Ctx(r.Context()).Warn().Err(err).
+				Str("kind", m.Kind).Str("name", m.Name).
+				Msg("failed to apply LLM route CRD")
+		}
+	}
 
 	JSON(w, http.StatusOK, rc)
 }
@@ -93,6 +105,12 @@ func (h *LLMHandler) DeleteRouteConfig(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
+
+	// Clean up Envoy CRDs
+	if err := h.k8s.Delete(r.Context(), "aigateway.envoyproxy.io/v1alpha1", "LLMRoute", "llm-"+modelID, "aiplex-system"); err != nil {
+		zerolog.Ctx(r.Context()).Warn().Err(err).Msg("failed to delete LLMRoute CRD")
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
