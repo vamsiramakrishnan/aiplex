@@ -83,6 +83,34 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 			// Step 1: Terraform state bucket
 			if !skipInfra {
 				fmt.Println("[1/6] Terraform state bucket...")
+
+				newBucket := stateBucketName(ctx.Project)
+
+				// Check for legacy bucket and offer migration
+				legacyBucket := "aiplex-terraform-state"
+				if newBucket != legacyBucket {
+					legacyExists := exec.Command("gcloud", "storage", "buckets", "describe",
+						fmt.Sprintf("gs://%s", legacyBucket), "--project", ctx.Project, "--quiet").Run()
+					if legacyExists == nil {
+						newExists := exec.Command("gcloud", "storage", "buckets", "describe",
+							fmt.Sprintf("gs://%s", newBucket), "--project", ctx.Project, "--quiet").Run()
+						if newExists != nil {
+							fmt.Printf("  [info] Found legacy state bucket: gs://%s\n", legacyBucket)
+							fmt.Printf("  [info] Migrating to: gs://%s\n", newBucket)
+							copyCmd := exec.Command("gcloud", "storage", "cp", "-r",
+								fmt.Sprintf("gs://%s/*", legacyBucket),
+								fmt.Sprintf("gs://%s/", newBucket),
+								"--project", ctx.Project, "--quiet")
+							if err := copyCmd.Run(); err != nil {
+								fmt.Printf("  [WARN] State migration failed: %v\n", err)
+								fmt.Printf("  Using legacy bucket. Migrate manually later.\n")
+							} else {
+								fmt.Printf("  [pass] State migrated to gs://%s\n", newBucket)
+							}
+						}
+					}
+				}
+
 				sp := startSpinner("Creating state bucket")
 				if err := ensureStateBucket(ctx.Project); err != nil {
 					sp.fail(fmt.Sprintf("State bucket: %v — create manually or Terraform will fail", err))
