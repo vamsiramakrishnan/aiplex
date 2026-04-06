@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -238,4 +239,45 @@ func contextNames(cfg *cliconfig.Config) []string {
 		names = append(names, n)
 	}
 	return names
+}
+
+func ctxCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "ctx [name]",
+		Short: "Switch context (shorthand for config use-context)",
+		Long: `Switch to a named context. Without arguments, shows the current context.
+
+Examples:
+  aiplex ctx              # show current context
+  aiplex ctx production   # switch to production`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := cliconfig.Load()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+
+			if len(args) == 0 {
+				if cfg.CurrentContext == "" {
+					fmt.Println("No active context. Run: aiplex init")
+				} else {
+					fmt.Println(cfg.CurrentContext)
+				}
+				return nil
+			}
+
+			name := args[0]
+			if _, ok := cfg.Contexts[name]; !ok {
+				available := contextNames(cfg)
+				return fmt.Errorf("context %q not found. Available: %s", name, strings.Join(available, ", "))
+			}
+
+			cfg.CurrentContext = name
+			if err := cfg.Save(); err != nil {
+				return fmt.Errorf("save config: %w", err)
+			}
+			fmt.Printf("Switched to context %q\n", name)
+			return nil
+		},
+	}
 }
