@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,6 +8,8 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
@@ -49,12 +50,16 @@ Examples:
   aiplex init --project my-project --region us-central1  # non-interactive
   aiplex init --dry-run                                  # validate only`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reader := bufio.NewReader(os.Stdin)
+			// Styled header
+			titleStyle := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("12")).
+				Padding(0, 1).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("12"))
 
 			fmt.Println()
-			fmt.Println("  ╔══════════════════════════════════════╗")
-			fmt.Println("  ║         AIPlex Setup Wizard          ║")
-			fmt.Println("  ╚══════════════════════════════════════╝")
+			fmt.Println(titleStyle.Render("AIPlex Setup"))
 			fmt.Println()
 
 			// ── Step 0: Ensure tools are installed ───────────────
@@ -104,42 +109,93 @@ Examples:
 			fmt.Println("[2/6] Project Configuration")
 			fmt.Println()
 
-			// Project
-			if project == "" {
-				defaultProject := gcpProject
-				project = prompt(reader, "  GCP Project ID", defaultProject)
-			}
-			if project == "" {
-				return fmt.Errorf("project ID is required")
-			}
-			fmt.Println()
+			// Collect inputs interactively (if not provided via flags)
+			var adminEmail string
+			needsInteractiveInput := project == "" || region == "" || domain == ""
 
-			// Region — show options BEFORE asking
-			if region == "" {
-				fmt.Println("  Available regions:")
-				for i, r := range gcpRegions {
-					marker := "  "
-					if r == "us-central1" {
-						marker = "> "
-					}
-					fmt.Printf("    %s%-25s", marker, r)
-					if (i+1)%3 == 0 {
-						fmt.Println()
-					}
+			if needsInteractiveInput {
+				// Set defaults before form
+				if project == "" {
+					project = gcpProject
 				}
-				fmt.Println()
-				region = prompt(reader, "  Region", "us-central1")
-			}
+				if region == "" {
+					region = "us-central1"
+				}
+				if domain == "" {
+					domain = fmt.Sprintf("aiplex.%s.nip.io", project)
+				}
+				adminEmail = gcpAccount
 
-			// Domain
-			if domain == "" {
-				defaultDomain := fmt.Sprintf("aiplex.%s.nip.io", project)
+				// Build Huh form
+				form := huh.NewForm(
+					huh.NewGroup(
+						huh.NewInput().
+							Title("GCP Project ID").
+							Value(&project).
+							Placeholder(gcpProject).
+							Validate(func(s string) error {
+								if s == "" {
+									return fmt.Errorf("project ID is required")
+								}
+								return nil
+							}),
+
+						huh.NewSelect[string]().
+							Title("Region").
+							Options(
+								huh.NewOption("us-central1  (Iowa)", "us-central1"),
+								huh.NewOption("us-east1  (South Carolina)", "us-east1"),
+								huh.NewOption("us-east4  (Virginia)", "us-east4"),
+								huh.NewOption("us-west1  (Oregon)", "us-west1"),
+								huh.NewOption("us-west2  (Los Angeles)", "us-west2"),
+								huh.NewOption("europe-west1  (Belgium)", "europe-west1"),
+								huh.NewOption("europe-west2  (London)", "europe-west2"),
+								huh.NewOption("europe-west4  (Netherlands)", "europe-west4"),
+								huh.NewOption("europe-north1  (Finland)", "europe-north1"),
+								huh.NewOption("asia-southeast1  (Singapore)", "asia-southeast1"),
+								huh.NewOption("asia-northeast1  (Tokyo)", "asia-northeast1"),
+								huh.NewOption("asia-east1  (Taiwan)", "asia-east1"),
+								huh.NewOption("australia-southeast1  (Sydney)", "australia-southeast1"),
+								huh.NewOption("southamerica-east1  (São Paulo)", "southamerica-east1"),
+							).
+							Value(&region),
+
+						huh.NewInput().
+							Title("Domain").
+							Description("Your domain, or use .nip.io for testing").
+							Value(&domain).
+							Placeholder(fmt.Sprintf("aiplex.%s.nip.io", project)),
+
+						huh.NewInput().
+							Title("Admin email").
+							Value(&adminEmail).
+							Placeholder(gcpAccount),
+					),
+				)
+
+				err := form.Run()
+				if err != nil {
+					return err
+				}
+
+				// Fix domain default if project changed
+				if domain == "" || domain == fmt.Sprintf("aiplex.%s.nip.io", gcpProject) {
+					domain = fmt.Sprintf("aiplex.%s.nip.io", project)
+				}
+				if adminEmail == "" {
+					adminEmail = gcpAccount
+				}
+
 				fmt.Println()
-				fmt.Println("  Domain options:")
-				fmt.Println("    - Your own domain (recommended for production)")
-				fmt.Printf("    - %s (auto-resolves, good for testing)\n", defaultDomain)
-				fmt.Println()
-				domain = prompt(reader, "  Domain", defaultDomain)
+			} else {
+				// Non-interactive: use flag values or defaults
+				if project == "" {
+					return fmt.Errorf("project ID is required")
+				}
+				if domain == "" {
+					domain = fmt.Sprintf("aiplex.%s.nip.io", project)
+				}
+				adminEmail = gcpAccount
 			}
 
 			// Validate domain
@@ -149,11 +205,6 @@ Examples:
 				fmt.Println("    aiplex config set-context --domain <your-domain>")
 				fmt.Println()
 			}
-
-			// Admin email — auto-detect from gcloud account
-			defaultEmail := gcpAccount
-			adminEmail := prompt(reader, "  Admin email", defaultEmail)
-			fmt.Println()
 
 			// ── Step 3: Validate GCP project ─────────────────────
 
@@ -246,8 +297,15 @@ Examples:
 				fmt.Printf("  Project: %s\n", existing.Project)
 				fmt.Printf("  Region:  %s\n", existing.Region)
 				fmt.Println()
-				overwrite := prompt(reader, "  Overwrite? (y/N)", "N")
-				if strings.ToLower(overwrite) != "y" {
+				var overwrite bool
+				err := huh.NewConfirm().
+					Title(fmt.Sprintf("Context %q already exists. Overwrite?", ctxName)).
+					Value(&overwrite).
+					Run()
+				if err != nil {
+					return err
+				}
+				if !overwrite {
 					fmt.Println("  Keeping existing config. Use --force to overwrite.")
 					fmt.Println()
 					goto nextsteps
@@ -471,22 +529,6 @@ func checkBinaryVersion(name, versionFlag, displayName string) preflightCheck {
 		name:   fmt.Sprintf("%s (%s)", displayName, version),
 		passed: true,
 	}
-}
-
-// ─── Prompt Helper ──────────────────────────────────────────
-
-func prompt(reader *bufio.Reader, label, defaultVal string) string {
-	if defaultVal != "" {
-		fmt.Printf("%s [%s]: ", label, defaultVal)
-	} else {
-		fmt.Printf("%s: ", label)
-	}
-	input, _ := reader.ReadString('\n')
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return defaultVal
-	}
-	return input
 }
 
 // ─── Template Rendering ─────────────────────────────────────

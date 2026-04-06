@@ -111,11 +111,11 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 					}
 				}
 
-				sp := startSpinner("Creating state bucket")
-				if err := ensureStateBucket(ctx.Project); err != nil {
-					sp.fail(fmt.Sprintf("State bucket: %v — create manually or Terraform will fail", err))
-				} else {
-					sp.finish(fmt.Sprintf("State bucket ready (gs://%s)", stateBucketName(ctx.Project)))
+				err := runWithSpinner(fmt.Sprintf("Creating state bucket (gs://%s)", stateBucketName(ctx.Project)), func() error {
+					return ensureStateBucket(ctx.Project)
+				})
+				if err != nil {
+					fmt.Printf("  Create manually or Terraform will fail\n")
 				}
 				fmt.Println()
 
@@ -168,12 +168,12 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 			// Step 4: Configure kubectl
 			if !skipInfra {
 				fmt.Println("[4/6] Configuring kubectl...")
-				sp := startSpinner("Getting cluster credentials")
-				if err := runCmd(".", "gcloud", "container", "clusters", "get-credentials",
-					"aiplex", "--region", ctx.Region, "--project", ctx.Project); err != nil {
-					sp.fail(fmt.Sprintf("kubectl config failed: %v", err))
-				} else {
-					sp.finish("kubectl configured for cluster 'aiplex'")
+				err = runWithSpinner("Configuring kubectl", func() error {
+					return runCmd(".", "gcloud", "container", "clusters", "get-credentials",
+						"aiplex", "--region", ctx.Region, "--project", ctx.Project)
+				})
+				if err != nil {
+					// non-fatal, continue
 				}
 				fmt.Println()
 			}
