@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
@@ -110,7 +111,10 @@ func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request
 	JSON(w, http.StatusOK, manifest)
 }
 
-// RecordInvocation appends a skill invocation audit record.
+// RecordInvocation appends a skill invocation audit record. If the invocation
+// failed with a "missing scope:" error (the form returned by aiplex-authz),
+// a matching PolicyDenial is also appended so the unified dashboard surfaces
+// authz-time failures alongside other denials.
 // POST /api/v1/skills/invocations
 func (h *SkillsHandler) RecordInvocation(w http.ResponseWriter, r *http.Request) {
 	var inv models.SkillInvocation
@@ -142,7 +146,48 @@ func (h *SkillsHandler) RecordInvocation(w http.ResponseWriter, r *http.Request)
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
+
+	if inv.Status == "failed" {
+		if scope := extractMissingScope(inv.Error); scope != "" {
+			denial := &models.PolicyDenial{
+				ID:        "den-" + randHex(8),
+				Timestamp: time.Now(),
+				Plane:     string(models.PlaneSkillsPlex),
+				AgentID:   inv.AgentID,
+				UserID:    inv.UserID,
+				Action:    "skills/invoke:" + inv.SkillName,
+				Scope:     scope,
+				Reason:    "scope_missing",
+				RequestID: GetRequestID(r.Context()),
+			}
+			// Best-effort — do not fail the audit write if denial recording fails.
+			_ = h.store.AppendPolicyDenial(r.Context(), denial)
+		}
+	}
+
 	JSON(w, http.StatusCreated, inv)
+}
+
+// extractMissingScope parses the "missing scope: <scope>" form returned by
+// aiplex-authz and the OPA policy for scope-missing denials. Returns an empty
+// string when the error is not a scope-missing failure.
+func extractMissingScope(errMsg string) string {
+	const prefix = "missing scope:"
+	idx := strings.Index(errMsg, prefix)
+	if idx < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(errMsg[idx+len(prefix):])
+	if rest == "" {
+		return ""
+	}
+	// Stop at first whitespace or punctuation so callers can append context.
+	for i, c := range rest {
+		if c == ' ' || c == '\n' || c == ',' || c == ';' {
+			return rest[:i]
+		}
+	}
+	return rest
 }
 
 // ListInvocations returns recent skill invocations, optionally filtered by
