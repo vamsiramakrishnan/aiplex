@@ -28,6 +28,7 @@ func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	mcplex, _ := h.store.ListInstances(ctx, models.PlaneMCPlex)
 	a2aplex, _ := h.store.ListInstances(ctx, models.PlaneA2APlex)
 	llmplex, _ := h.store.ListInstances(ctx, models.PlaneLLMPlex)
+	skillsplex, _ := h.store.ListInstances(ctx, models.PlaneSkillsPlex)
 	agents, _ := h.store.ListAgents(ctx)
 
 	running := 0
@@ -53,9 +54,10 @@ func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		RunningInstances: running,
 		RegisteredAgents: len(agents),
 		ActivePlanes:     len(planes),
-		MCPlexInstances:  len(mcplex),
-		A2APlexInstances: len(a2aplex),
-		LLMPlexInstances: len(llmplex),
+		MCPlexInstances:     len(mcplex),
+		A2APlexInstances:    len(a2aplex),
+		LLMPlexInstances:    len(llmplex),
+		SkillsPlexInstances: len(skillsplex),
 		DailyCostUSD:     usage.TotalCostUSD,
 		DailyTokens:      usage.TotalTokens,
 		DailyRequests:    usage.RequestCount,

@@ -282,10 +282,11 @@ func Compress(next http.Handler) http.Handler {
 // ValidatePlane checks that the plane query param is valid if provided.
 func ValidatePlane(next http.Handler) http.Handler {
 	validPlanes := map[string]bool{
-		"":        true, // empty = all planes
-		"mcplex":  true,
-		"a2aplex": true,
-		"llmplex": true,
+		"":           true, // empty = all planes
+		"mcplex":     true,
+		"a2aplex":    true,
+		"llmplex":    true,
+		"skillsplex": true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		plane := strings.ToLower(r.URL.Query().Get("plane"))

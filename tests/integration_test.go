@@ -53,6 +53,19 @@ func setupFullRouter() *httptest.Server {
 		Category:     "llm",
 		Verified:     true,
 	})
+	store.PutTemplate(ctx, &models.Template{
+		ID:          "code-review",
+		Plane:       models.PlaneSkillsPlex,
+		Name:        "Code Review",
+		Description: "Review pull requests",
+		SkillBundle: "code-review",
+		Skills: []models.SkillInfo{
+			{Name: "review_pr", Description: "Review a PR diff"},
+			{Name: "suggest_tests", Description: "Suggest unit tests"},
+		},
+		Category: "skill",
+		Verified: true,
+	})
 
 	// Set up user scopes (Dimension B)
 	store.SetUserScopes(ctx, "admin@school.edu", []string{
@@ -65,6 +78,7 @@ func setupFullRouter() *httptest.Server {
 		catalog.NewLocalSource(store, models.PlaneMCPlex),
 		catalog.NewLocalSource(store, models.PlaneA2APlex),
 		catalog.NewLocalSource(store, models.PlaneLLMPlex),
+		catalog.NewLocalSource(store, models.PlaneSkillsPlex),
 		catalog.NewBuiltInProviders(),
 	}
 	agg := catalog.NewAggregator(sources)
@@ -75,6 +89,8 @@ func setupFullRouter() *httptest.Server {
 	instanceH := api.NewInstanceHandler(store, engine)
 	agentH := api.NewAgentHandler(store)
 	authH := api.NewAuthHandler(hydraClient, store)
+	skillsH := api.NewSkillsHandler(store)
+	dashH := api.NewDashboardHandler(store)
 
 	r := chi.NewRouter()
 	r.Use(api.RequestID)
@@ -93,7 +109,17 @@ func setupFullRouter() *httptest.Server {
 		r.Get("/agents/{clientId}", agentH.Get)
 		r.Delete("/agents/{clientId}", agentH.Delete)
 		r.Get("/agents/{clientId}/permissions", agentH.GetPermissions)
+		r.Route("/skills", func(r chi.Router) {
+			r.Get("/servers", skillsH.ListSkillServers)
+			r.Post("/invocations", skillsH.RecordInvocation)
+			r.Get("/invocations", skillsH.ListInvocations)
+		})
+		r.Route("/dashboard", func(r chi.Router) {
+			r.Get("/stats", dashH.GetStats)
+			r.Get("/denials", dashH.ListPolicyDenials)
+		})
 	})
+	r.Get("/skills/{instanceId}/.well-known/skills.json", skillsH.GetSkillsManifest)
 	r.Route("/auth", func(r chi.Router) {
 		r.Post("/token-hook", authH.TokenHook)
 		r.Get("/users/{userId}/scopes", authH.GetUserScopes)
@@ -320,5 +346,172 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 	resp, _ = client.Do(req)
 	if resp.StatusCode != 204 {
 		t.Errorf("delete agent: %d", resp.StatusCode)
+	}
+}
+
+// TestE2E_SkillsPlexDeployAndInvocation exercises the full SkillsPlex flow:
+// browse catalog → deploy skill server → fetch manifest → record successful
+// invocation → record denied invocation → verify denial appears in dashboard.
+func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
+	srv := setupFullRouter()
+	defer srv.Close()
+	client := srv.Client()
+
+	// 1. Browse SkillsPlex catalog — built-in skill template should appear.
+	resp, _ := client.Get(srv.URL + "/api/v1/catalog?plane=skillsplex")
+	var catalogPage models.CatalogPage
+	json.NewDecoder(resp.Body).Decode(&catalogPage)
+	resp.Body.Close()
+	if catalogPage.Total < 1 {
+		t.Fatalf("expected at least 1 SkillsPlex template, got %d", catalogPage.Total)
+	}
+	foundCodeReview := false
+	for _, tmpl := range catalogPage.Templates {
+		if tmpl.ID == "code-review" {
+			foundCodeReview = true
+			break
+		}
+	}
+	if !foundCodeReview {
+		t.Fatalf("expected 'code-review' in skillsplex catalog, got %+v", catalogPage.Templates)
+	}
+
+	// 2. Deploy the skill server.
+	body := `{"plane":"skillsplex","template_id":"code-review","display_name":"Code Review"}`
+	resp, _ = client.Post(srv.URL+"/api/v1/instances", "application/json", strings.NewReader(body))
+	if resp.StatusCode != 201 {
+		t.Fatalf("deploy SkillsPlex: %d", resp.StatusCode)
+	}
+	var inst models.Instance
+	json.NewDecoder(resp.Body).Decode(&inst)
+	resp.Body.Close()
+
+	if inst.Plane != models.PlaneSkillsPlex {
+		t.Errorf("Plane = %q, want skillsplex", inst.Plane)
+	}
+	if inst.Status != models.StatusRunning {
+		t.Errorf("Status = %q, want running", inst.Status)
+	}
+	// Two skills + bundle = 3 scopes from the template.
+	if len(inst.Scopes) != 3 {
+		t.Errorf("expected 3 scopes from template, got %d: %v", len(inst.Scopes), inst.Scopes)
+	}
+	if inst.SpiffeID == "" {
+		t.Error("SkillsPlex instance missing SPIFFE ID")
+	}
+
+	// 3. Fetch the well-known skills manifest.
+	resp, _ = client.Get(srv.URL + "/skills/" + inst.ID + "/.well-known/skills.json")
+	if resp.StatusCode != 200 {
+		t.Fatalf("manifest: %d", resp.StatusCode)
+	}
+	var manifest map[string]any
+	json.NewDecoder(resp.Body).Decode(&manifest)
+	resp.Body.Close()
+	if manifest["instance_id"] != inst.ID {
+		t.Errorf("manifest instance_id = %v", manifest["instance_id"])
+	}
+	if manifest["skill_bundle"] != "code-review" {
+		t.Errorf("manifest skill_bundle = %v", manifest["skill_bundle"])
+	}
+	skills := manifest["skills"].([]any)
+	if len(skills) != 2 {
+		t.Errorf("manifest expected 2 skills, got %d", len(skills))
+	}
+
+	// 4. Record a successful invocation.
+	invBody := `{
+		"agent_id": "tutor-agent",
+		"instance_id": "` + inst.ID + `",
+		"skill_name": "review_pr",
+		"user_id": "alice@example.com",
+		"duration_ms": 142
+	}`
+	resp, _ = client.Post(srv.URL+"/api/v1/skills/invocations", "application/json", strings.NewReader(invBody))
+	if resp.StatusCode != 201 {
+		t.Fatalf("record invocation: %d", resp.StatusCode)
+	}
+	var ok models.SkillInvocation
+	json.NewDecoder(resp.Body).Decode(&ok)
+	resp.Body.Close()
+	if ok.Status != "success" {
+		t.Errorf("default Status = %q, want success", ok.Status)
+	}
+	if ok.TraceID == "" || ok.SpanID == "" {
+		t.Errorf("expected trace fields populated, got TraceID=%q SpanID=%q", ok.TraceID, ok.SpanID)
+	}
+
+	// 5. Record a denied invocation (scope missing).
+	deniedBody := `{
+		"agent_id": "tutor-agent",
+		"instance_id": "` + inst.ID + `",
+		"skill_name": "suggest_tests",
+		"user_id": "alice@example.com",
+		"status": "failed",
+		"error": "missing scope: skill:invoke:suggest_tests"
+	}`
+	resp, _ = client.Post(srv.URL+"/api/v1/skills/invocations", "application/json", strings.NewReader(deniedBody))
+	if resp.StatusCode != 201 {
+		t.Fatalf("record denied invocation: %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 6. List invocations — both should be present, newest first.
+	resp, _ = client.Get(srv.URL + "/api/v1/skills/invocations")
+	var invs []models.SkillInvocation
+	json.NewDecoder(resp.Body).Decode(&invs)
+	resp.Body.Close()
+	if len(invs) != 2 {
+		t.Fatalf("expected 2 invocations, got %d", len(invs))
+	}
+
+	// 7. Filter invocations by skill.
+	resp, _ = client.Get(srv.URL + "/api/v1/skills/invocations?skill=review_pr")
+	json.NewDecoder(resp.Body).Decode(&invs)
+	resp.Body.Close()
+	if len(invs) != 1 || invs[0].SkillName != "review_pr" {
+		t.Errorf("filter by skill: got %+v", invs)
+	}
+
+	// 8. Verify the denied invocation produced a PolicyDenial.
+	resp, _ = client.Get(srv.URL + "/api/v1/dashboard/denials")
+	var denials []models.PolicyDenial
+	json.NewDecoder(resp.Body).Decode(&denials)
+	resp.Body.Close()
+	if len(denials) != 1 {
+		t.Fatalf("expected 1 PolicyDenial, got %d", len(denials))
+	}
+	if denials[0].Plane != string(models.PlaneSkillsPlex) {
+		t.Errorf("denial Plane = %q, want skillsplex", denials[0].Plane)
+	}
+	if denials[0].Scope != "skill:invoke:suggest_tests" {
+		t.Errorf("denial Scope = %q, want skill:invoke:suggest_tests", denials[0].Scope)
+	}
+	if denials[0].Reason != "scope_missing" {
+		t.Errorf("denial Reason = %q, want scope_missing", denials[0].Reason)
+	}
+
+	// 9. Skill-server listing surfaces the running instance with its scopes.
+	resp, _ = client.Get(srv.URL + "/api/v1/skills/servers")
+	var servers []map[string]any
+	json.NewDecoder(resp.Body).Decode(&servers)
+	resp.Body.Close()
+	if len(servers) != 1 {
+		t.Fatalf("expected 1 skill server, got %d", len(servers))
+	}
+	if servers[0]["instance_id"] != inst.ID {
+		t.Errorf("server instance_id = %v, want %s", servers[0]["instance_id"], inst.ID)
+	}
+
+	// 10. Dashboard stats reflect the running SkillsPlex instance and the denial.
+	resp, _ = client.Get(srv.URL + "/api/v1/dashboard/stats")
+	var stats models.DashboardStats
+	json.NewDecoder(resp.Body).Decode(&stats)
+	resp.Body.Close()
+	if stats.SkillsPlexInstances != 1 {
+		t.Errorf("SkillsPlexInstances = %d, want 1", stats.SkillsPlexInstances)
+	}
+	if stats.PolicyDenials != 1 {
+		t.Errorf("PolicyDenials = %d, want 1", stats.PolicyDenials)
 	}
 }

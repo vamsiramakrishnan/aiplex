@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import MCPlex from './pages/MCPlex'
 import A2APlex from './pages/A2APlex'
 import LLMPlex from './pages/LLMPlex'
+import SkillsPlex from './pages/SkillsPlex'
 import Agents from './pages/Agents'
 import Deploy from './pages/Deploy'
 import Permissions from './pages/Permissions'
@@ -42,6 +43,7 @@ function AppRoutes() {
           <Route path="/mcplex" element={<MCPlex />} />
           <Route path="/a2aplex" element={<A2APlex />} />
           <Route path="/llmplex" element={<LLMPlex />} />
+          <Route path="/skillsplex" element={<SkillsPlex />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/deploy" element={<Deploy />} />
           <Route path="/permissions" element={<Permissions />} />

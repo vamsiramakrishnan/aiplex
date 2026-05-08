@@ -22,6 +22,10 @@ type Template struct {
 	TaskTypes []string       `json:"task_types,omitempty"`
 	AgentCard map[string]any `json:"agent_card,omitempty"`
 
+	// SkillsPlex
+	Skills      []SkillInfo `json:"skills,omitempty"`
+	SkillBundle string      `json:"skill_bundle,omitempty"`
+
 	// LLMPlex
 	ModelID         string   `json:"model_id,omitempty"`
 	Provider        string   `json:"provider,omitempty"`

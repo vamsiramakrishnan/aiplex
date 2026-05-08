@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -83,9 +84,12 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Validate scope format
 	for _, scope := range agent.AllowedScopes {
-		if !strings.HasPrefix(scope, "mcp:") && !strings.HasPrefix(scope, "a2a:") && !strings.HasPrefix(scope, "llm:") {
+		if !strings.HasPrefix(scope, "mcp:") &&
+			!strings.HasPrefix(scope, "a2a:") &&
+			!strings.HasPrefix(scope, "llm:") &&
+			!strings.HasPrefix(scope, "skill:") {
 			Error(w, r, http.StatusBadRequest, "INVALID_SCOPE",
-				fmt.Sprintf("scope %q must start with mcp:, a2a:, or llm:", scope))
+				fmt.Sprintf("scope %q must start with mcp:, a2a:, llm:, or skill:", scope))
 			return
 		}
 	}
@@ -195,23 +199,31 @@ func (h *AgentHandler) GetPermissions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	descs := h.scopeDescriptions(r.Context())
+
 	// Group scopes by plane
 	ceiling := make(map[models.Plane][]models.ScopeInfo)
 	for _, scope := range agent.AllowedScopes {
 		var plane models.Plane
 		switch {
-		case len(scope) > 4 && scope[:4] == "mcp:":
+		case strings.HasPrefix(scope, "mcp:"):
 			plane = models.PlaneMCPlex
-		case len(scope) > 4 && scope[:4] == "a2a:":
+		case strings.HasPrefix(scope, "a2a:"):
 			plane = models.PlaneA2APlex
-		case len(scope) > 4 && scope[:4] == "llm:":
+		case strings.HasPrefix(scope, "llm:"):
 			plane = models.PlaneLLMPlex
+		case strings.HasPrefix(scope, "skill:"):
+			plane = models.PlaneSkillsPlex
 		default:
 			continue
 		}
+		desc := descs[scope]
+		if desc == "" {
+			desc = humanizeScope(scope)
+		}
 		ceiling[plane] = append(ceiling[plane], models.ScopeInfo{
 			Scope:       scope,
-			Description: scope, // TODO: resolve from Hydra scope metadata
+			Description: desc,
 		})
 	}
 
@@ -219,4 +231,74 @@ func (h *AgentHandler) GetPermissions(w http.ResponseWriter, r *http.Request) {
 		AgentID: clientID,
 		Ceiling: ceiling,
 	})
+}
+
+// scopeDescriptions builds a scope→description map from all known templates.
+// Tools, task types, models, and capabilities all become entries; scopes
+// without template metadata fall back to humanizeScope.
+func (h *AgentHandler) scopeDescriptions(ctx context.Context) map[string]string {
+	out := map[string]string{}
+	planes := []models.Plane{models.PlaneMCPlex, models.PlaneA2APlex, models.PlaneLLMPlex, models.PlaneSkillsPlex}
+	for _, plane := range planes {
+		templates, _, err := h.store.ListTemplates(ctx, plane, 1, 1000)
+		if err != nil {
+			continue
+		}
+		for _, t := range templates {
+			for _, tool := range t.Tools {
+				if tool.Description != "" {
+					out["mcp:tools:"+tool.Name] = tool.Description
+				}
+			}
+			for _, task := range t.TaskTypes {
+				if _, exists := out["a2a:task:"+task]; !exists {
+					out["a2a:task:"+task] = fmt.Sprintf("%s — task type %q", t.Name, task)
+				}
+			}
+			if t.ModelID != "" {
+				label := t.Name
+				if t.Provider != "" {
+					label = fmt.Sprintf("%s (%s)", t.Name, t.Provider)
+				}
+				out["llm:model:"+t.ModelID] = label
+			}
+			for _, cap := range t.Capabilities {
+				out["llm:capability:"+cap] = "Capability: " + cap
+			}
+			for _, skill := range t.Skills {
+				key := "skill:invoke:" + skill.Name
+				if skill.Description != "" {
+					out[key] = skill.Description
+				} else if _, exists := out[key]; !exists {
+					out[key] = fmt.Sprintf("%s — skill %q", t.Name, skill.Name)
+				}
+			}
+			if t.SkillBundle != "" {
+				out["skill:bundle:"+t.SkillBundle] = fmt.Sprintf("%s bundle", t.Name)
+			}
+		}
+	}
+	return out
+}
+
+// humanizeScope renders a scope string into a fallback description when no
+// template metadata is available (e.g. "mcp:tools:search_curriculum" →
+// "MCP tool: search_curriculum").
+func humanizeScope(scope string) string {
+	parts := strings.SplitN(scope, ":", 3)
+	if len(parts) < 3 {
+		return scope
+	}
+	plane, kind, name := parts[0], parts[1], parts[2]
+	switch plane {
+	case "mcp":
+		return fmt.Sprintf("MCP %s: %s", strings.TrimSuffix(kind, "s"), name)
+	case "a2a":
+		return fmt.Sprintf("A2A %s: %s", kind, name)
+	case "llm":
+		return fmt.Sprintf("LLM %s: %s", kind, name)
+	case "skill":
+		return fmt.Sprintf("Skill %s: %s", kind, name)
+	}
+	return scope
 }

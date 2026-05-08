@@ -6,6 +6,7 @@ interface SSEStats {
   mcplex: number;
   a2aplex: number;
   llmplex: number;
+  skillsplex?: number;
   agents: number;
   delegations: number;
   denials: number;

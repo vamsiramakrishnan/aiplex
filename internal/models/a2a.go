@@ -29,21 +29,27 @@ type AuthSchemeInfo struct {
 	Config map[string]any `json:"config,omitempty"`
 }
 
-// Delegation records an agent-to-agent task delegation.
+// Delegation records an agent-to-agent task delegation. TraceID and SpanID
+// follow W3C Trace Context conventions so delegations can be stitched into
+// distributed traces (currently in-process audit; full OTel export is a
+// future Phase 6 deliverable).
 type Delegation struct {
-	ID              string    `json:"id"`
-	CallerAgentID   string    `json:"caller_agent_id"`
-	CalleeAgentID   string    `json:"callee_agent_id"`
-	CallerInstanceID string   `json:"caller_instance_id"`
-	CalleeInstanceID string   `json:"callee_instance_id"`
-	TaskType        string    `json:"task_type"`
-	Status          string    `json:"status"` // pending, running, completed, failed
-	UserID          string    `json:"user_id"`
-	StartedAt       time.Time `json:"started_at"`
-	CompletedAt     *time.Time `json:"completed_at,omitempty"`
-	DurationMs      int64     `json:"duration_ms,omitempty"`
-	Error           string    `json:"error,omitempty"`
-	ParentID        string    `json:"parent_id,omitempty"` // for nested delegations
+	ID               string     `json:"id"`
+	CallerAgentID    string     `json:"caller_agent_id"`
+	CalleeAgentID    string     `json:"callee_agent_id"`
+	CallerInstanceID string     `json:"caller_instance_id"`
+	CalleeInstanceID string     `json:"callee_instance_id"`
+	TaskType         string     `json:"task_type"`
+	Status           string     `json:"status"` // pending, running, completed, failed
+	UserID           string     `json:"user_id"`
+	StartedAt        time.Time  `json:"started_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	DurationMs       int64      `json:"duration_ms,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	ParentID         string     `json:"parent_id,omitempty"`     // for nested delegations
+	TraceID          string     `json:"trace_id,omitempty"`      // 32-hex W3C trace id
+	SpanID           string     `json:"span_id,omitempty"`       // 16-hex W3C span id
+	ParentSpanID     string     `json:"parent_span_id,omitempty"` // span id of the caller
 }
 
 // DelegationChain represents a full call chain from user through agents.

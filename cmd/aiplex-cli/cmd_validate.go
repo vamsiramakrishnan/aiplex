@@ -91,9 +91,9 @@ Example:
 							}
 						}
 						if plane, ok := m["plane"].(string); ok {
-							validPlanes := map[string]bool{"mcplex": true, "a2aplex": true, "llmplex": true}
+							validPlanes := map[string]bool{"mcplex": true, "a2aplex": true, "llmplex": true, "skillsplex": true}
 							if !validPlanes[plane] {
-								errors = append(errors, fmt.Sprintf("instances[%d]: invalid plane %q (expected mcplex, a2aplex, or llmplex)", i, plane))
+								errors = append(errors, fmt.Sprintf("instances[%d]: invalid plane %q (expected mcplex, a2aplex, llmplex, or skillsplex)", i, plane))
 							}
 						}
 					}

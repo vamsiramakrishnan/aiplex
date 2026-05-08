@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -80,6 +81,13 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		for _, cap := range template.Capabilities {
 			scopes = append(scopes, "llm:capability:"+cap)
 		}
+	case models.PlaneSkillsPlex:
+		for _, skill := range template.Skills {
+			scopes = append(scopes, "skill:invoke:"+skill.Name)
+		}
+		if template.SkillBundle != "" {
+			scopes = append(scopes, "skill:bundle:"+template.SkillBundle)
+		}
 	}
 
 	// 5. Build and persist instance (provisioning state)
@@ -114,26 +122,64 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		}
 	}
 
-	// Discover actual tools from running server (MCPlex/A2APlex only)
-	if plane != models.PlaneLLMPlex {
-		serviceURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080", instanceID, namespace)
-		discovered, err := DiscoverTools(ctx, serviceURL)
+	// Discover actual capabilities from running server (MCPlex/A2APlex only).
+	// MCP servers expose tools/list via JSON-RPC; A2A agents expose an Agent Card
+	// at /.well-known/agent.json. Failures are non-fatal — fall back to template
+	// scopes so a slow-starting workload doesn't block the deploy.
+	switch plane {
+	case models.PlaneMCPlex:
+		mcpURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080/mcp", instanceID, namespace)
+		tools, err := DiscoverTools(ctx, mcpURL)
 		if err != nil {
-			logger.Warn().Err(err).Str("instance", instanceID).Msg("tool discovery failed — using template scopes")
-		} else if len(discovered) > 0 {
-			var prefix string
-			switch plane {
-			case models.PlaneMCPlex:
-				prefix = "mcp:tools:"
-			case models.PlaneA2APlex:
-				prefix = "a2a:task:"
+			logger.Warn().Err(err).Str("instance", instanceID).Msg("MCP tool discovery failed — using template scopes")
+		} else if len(tools) > 0 {
+			discovered := make([]string, len(tools))
+			for i, t := range tools {
+				discovered[i] = "mcp:tools:" + t.Name
 			}
-			discoveredScopes := make([]string, len(discovered))
-			for i, tool := range discovered {
-				discoveredScopes[i] = prefix + tool.Name
+			inst.Scopes = discovered
+			logger.Info().Int("count", len(tools)).Msg("discovered MCP tools")
+		}
+	case models.PlaneSkillsPlex:
+		skillsURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080/skills", instanceID, namespace)
+		skills, err := DiscoverSkills(ctx, skillsURL)
+		if err != nil {
+			logger.Warn().Err(err).Str("instance", instanceID).Msg("skills/list discovery failed — using template scopes")
+		} else if len(skills) > 0 {
+			discovered := make([]string, len(skills))
+			for i, s := range skills {
+				discovered[i] = "skill:invoke:" + s
 			}
-			inst.Scopes = discoveredScopes
-			logger.Info().Int("count", len(discovered)).Str("instance", instanceID).Msg("discovered tools from running server")
+			inst.Scopes = discovered
+			logger.Info().Int("count", len(skills)).Msg("discovered skills via skills/list")
+		}
+	case models.PlaneA2APlex:
+		agentURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080", instanceID, namespace)
+		card, err := DiscoverAgentCard(ctx, agentURL)
+		switch {
+		case err == nil && len(card.TaskTypes) > 0:
+			discovered := make([]string, len(card.TaskTypes))
+			for i, tt := range card.TaskTypes {
+				discovered[i] = "a2a:task:" + tt.Type
+			}
+			inst.Scopes = discovered
+			logger.Info().Int("count", len(card.TaskTypes)).Msg("discovered A2A task types via Agent Card")
+		case errors.Is(err, ErrAgentCardNotFound):
+			// Agent Card unavailable — try JSON-RPC tasks/list fallback
+			tasks, ferr := DiscoverTasks(ctx, agentURL)
+			if ferr != nil {
+				logger.Warn().Err(ferr).Str("instance", instanceID).
+					Msg("A2A Agent Card 404 and tasks/list also failed — using template scopes")
+			} else if len(tasks) > 0 {
+				discovered := make([]string, len(tasks))
+				for i, t := range tasks {
+					discovered[i] = "a2a:task:" + t
+				}
+				inst.Scopes = discovered
+				logger.Info().Int("count", len(tasks)).Msg("discovered A2A task types via tasks/list")
+			}
+		default:
+			logger.Warn().Err(err).Str("instance", instanceID).Msg("A2A discovery failed — using template scopes")
 		}
 	}
 

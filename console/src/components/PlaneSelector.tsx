@@ -8,6 +8,7 @@ const planes = [
   { id: 'mcplex', label: 'MCPlex' },
   { id: 'a2aplex', label: 'A2APlex' },
   { id: 'llmplex', label: 'LLMPlex' },
+  { id: 'skillsplex', label: 'SkillsPlex' },
 ]
 
 export default function PlaneSelector({ value, onChange }: PlaneSelectorProps) {

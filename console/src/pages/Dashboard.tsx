@@ -9,6 +9,7 @@ interface DashboardStats {
   mcplex_instances: number
   a2aplex_instances: number
   llmplex_instances: number
+  skillsplex_instances: number
   daily_cost_usd: number
   daily_tokens: number
   daily_requests: number
@@ -43,10 +44,11 @@ export default function Dashboard() {
     total_instances: sseStats.total_instances,
     running_instances: sseStats.running,
     registered_agents: sseStats.agents,
-    active_planes: [sseStats.mcplex, sseStats.a2aplex, sseStats.llmplex].filter(n => n > 0).length,
+    active_planes: [sseStats.mcplex, sseStats.a2aplex, sseStats.llmplex, sseStats.skillsplex ?? 0].filter(n => n > 0).length,
     mcplex_instances: sseStats.mcplex,
     a2aplex_instances: sseStats.a2aplex,
     llmplex_instances: sseStats.llmplex,
+    skillsplex_instances: sseStats.skillsplex ?? 0,
     daily_cost_usd: 0, // SSE doesn't include cost data yet
     daily_tokens: 0,
     daily_requests: 0,
@@ -75,6 +77,7 @@ export default function Dashboard() {
             <PlaneRow label="MCPlex" count={s?.mcplex_instances ?? 0} color="blue" />
             <PlaneRow label="A2APlex" count={s?.a2aplex_instances ?? 0} color="purple" />
             <PlaneRow label="LLMPlex" count={s?.llmplex_instances ?? 0} color="amber" />
+            <PlaneRow label="SkillsPlex" count={s?.skillsplex_instances ?? 0} color="amber" />
           </div>
         </div>
 

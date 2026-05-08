@@ -63,7 +63,7 @@ func (h *SSEHandler) sendStats(w http.ResponseWriter, flusher http.Flusher, r *h
 	delegations, _ := h.store.CountDelegations(ctx)
 	denials, _ := h.store.CountPolicyDenials(ctx)
 
-	var running, mcplex, a2aplex, llmplex int
+	var running, mcplex, a2aplex, llmplex, skillsplex int
 	for _, inst := range instances {
 		if inst.Status == "running" {
 			running++
@@ -75,11 +75,13 @@ func (h *SSEHandler) sendStats(w http.ResponseWriter, flusher http.Flusher, r *h
 			a2aplex++
 		case "llmplex":
 			llmplex++
+		case "skillsplex":
+			skillsplex++
 		}
 	}
 
-	data := fmt.Sprintf(`{"total_instances":%d,"running":%d,"mcplex":%d,"a2aplex":%d,"llmplex":%d,"agents":%d,"delegations":%d,"denials":%d,"timestamp":"%s"}`,
-		len(instances), running, mcplex, a2aplex, llmplex,
+	data := fmt.Sprintf(`{"total_instances":%d,"running":%d,"mcplex":%d,"a2aplex":%d,"llmplex":%d,"skillsplex":%d,"agents":%d,"delegations":%d,"denials":%d,"timestamp":"%s"}`,
+		len(instances), running, mcplex, a2aplex, llmplex, skillsplex,
 		len(agents), delegations, denials,
 		time.Now().Format(time.RFC3339))
 

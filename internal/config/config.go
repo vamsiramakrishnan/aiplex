@@ -34,6 +34,11 @@ type Config struct {
 	// Observability
 	LogLevel string `env:"LOG_LEVEL,default=info"`
 	OTelEndpoint string `env:"OTEL_ENDPOINT,default="`
+
+	// Console SPA origins allowed by CORS. Comma-separated list of full origins
+	// (scheme + host[:port]). When empty, CORS is permissive ("*") for local dev;
+	// production should always set this.
+	AllowedOrigins []string `env:"CONSOLE_ORIGINS,default="`
 }
 
 // Load reads Config from the environment.

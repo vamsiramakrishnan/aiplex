@@ -6,9 +6,10 @@ import "time"
 type Plane string
 
 const (
-	PlaneMCPlex  Plane = "mcplex"
-	PlaneA2APlex Plane = "a2aplex"
-	PlaneLLMPlex Plane = "llmplex"
+	PlaneMCPlex     Plane = "mcplex"
+	PlaneA2APlex    Plane = "a2aplex"
+	PlaneLLMPlex    Plane = "llmplex"
+	PlaneSkillsPlex Plane = "skillsplex"
 )
 
 // InstanceStatus tracks the lifecycle state of a deployed instance.
