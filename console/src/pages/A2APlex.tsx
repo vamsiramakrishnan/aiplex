@@ -14,6 +14,9 @@ interface Delegation {
   started_at: string
   completed_at?: string
   duration_ms?: number
+  trace_id?: string
+  span_id?: string
+  parent_span_id?: string
 }
 
 interface AgentCardSummary {
@@ -42,7 +45,15 @@ export default function A2APlex() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-2">A2APlex</h2>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-2xl font-bold">A2APlex</h2>
+        <button
+          onClick={() => navigate('/deploy?plane=a2aplex')}
+          className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+        >
+          Deploy A2A Agent
+        </button>
+      </div>
       <p className="text-gray-500 mb-6">Agent &harr; Agent (A2A delegation)</p>
 
       <div className="flex gap-2 mb-6">
@@ -100,9 +111,21 @@ export default function A2APlex() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">
-              {agentCards.data?.length === 0 ? 'No A2A agents deployed.' : 'No agents match your search.'}
-            </p>
+            <div className="text-gray-500 text-sm">
+              {agentCards.data?.length === 0 ? (
+                <div className="bg-white rounded-lg shadow p-6 text-center">
+                  <p className="mb-3">No A2A agents deployed yet.</p>
+                  <button
+                    onClick={() => setTab('catalog')}
+                    className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                  >
+                    Browse catalog
+                  </button>
+                </div>
+              ) : (
+                <p>No agents match your search.</p>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -140,6 +163,7 @@ export default function A2APlex() {
                     <th className="text-left px-4 py-3">Task</th>
                     <th className="text-left px-4 py-3">Status</th>
                     <th className="text-left px-4 py-3">Duration</th>
+                    <th className="text-left px-4 py-3">Trace</th>
                     <th className="text-left px-4 py-3">User</th>
                   </tr>
                 </thead>
@@ -156,6 +180,9 @@ export default function A2APlex() {
                       <td className="px-4 py-3"><StatusBadge status={d.status} /></td>
                       <td className="px-4 py-3 text-gray-500">
                         {d.duration_ms ? `${d.duration_ms}ms` : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                        {d.trace_id ? d.trace_id.slice(0, 8) : '-'}
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">{d.user_id}</td>
                     </tr>

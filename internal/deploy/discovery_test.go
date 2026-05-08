@@ -3,9 +3,12 @@ package deploy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
 func TestDiscoverTools_Success(t *testing.T) {
@@ -90,8 +93,79 @@ func TestDiscoverAgentCard_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	_, err := DiscoverAgentCard(context.Background(), srv.URL)
+	if !errors.Is(err, ErrAgentCardNotFound) {
+		t.Fatalf("expected ErrAgentCardNotFound, got %v", err)
+	}
+}
+
+func TestDiscoverAgentCard_InvalidCard(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"name":       "",
+			"task_types": []map[string]any{{"type": "x"}},
+		})
+	}))
+	defer srv.Close()
+
+	_, err := DiscoverAgentCard(context.Background(), srv.URL)
 	if err == nil {
-		t.Fatal("expected error for 404 response")
+		t.Fatal("expected error for missing name")
+	}
+}
+
+func TestValidateAgentCard(t *testing.T) {
+	cases := []struct {
+		name    string
+		card    *models.AgentCard
+		wantErr bool
+	}{
+		{"nil", nil, true},
+		{"empty name", &models.AgentCard{TaskTypes: []models.TaskTypeInfo{{Type: "x"}}}, true},
+		{"no task types", &models.AgentCard{Name: "ok"}, true},
+		{"empty task type", &models.AgentCard{Name: "ok", TaskTypes: []models.TaskTypeInfo{{Type: ""}}}, true},
+		{"duplicate task types", &models.AgentCard{
+			Name: "ok", TaskTypes: []models.TaskTypeInfo{{Type: "a"}, {Type: "a"}},
+		}, true},
+		{"valid", &models.AgentCard{
+			Name: "ok", TaskTypes: []models.TaskTypeInfo{{Type: "research"}, {Type: "summarize"}},
+		}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateAgentCard(tc.card)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr = %v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestDiscoverTasks_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		if req["method"] != "tasks/list" {
+			t.Errorf("expected tasks/list, got %v", req["method"])
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req["id"],
+			"result": map[string]any{
+				"tasks": []map[string]any{
+					{"type": "research"},
+					{"type": "summarize"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	tasks, err := DiscoverTasks(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("DiscoverTasks: %v", err)
+	}
+	if len(tasks) != 2 || tasks[0] != "research" {
+		t.Fatalf("got %v, want [research summarize]", tasks)
 	}
 }
 

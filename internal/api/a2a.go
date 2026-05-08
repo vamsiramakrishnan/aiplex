@@ -1,12 +1,16 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -75,6 +79,11 @@ func (h *A2AHandler) GetAgentCard(w http.ResponseWriter, r *http.Request) {
 		card.Metadata = tmpl.AgentCard
 	}
 
+	if err := deploy.ValidateAgentCard(&card); err != nil {
+		Error(w, r, http.StatusInternalServerError, "INVALID_AGENT_CARD", err.Error())
+		return
+	}
+
 	JSON(w, http.StatusOK, card)
 }
 
@@ -124,12 +133,74 @@ func (h *A2AHandler) RecordDelegation(w http.ResponseWriter, r *http.Request) {
 	if d.Status == "" {
 		d.Status = "pending"
 	}
+	if err := h.fillTraceContext(r, &d); err != nil {
+		Error(w, r, http.StatusInternalServerError, "TRACE_CONTEXT", err.Error())
+		return
+	}
 
 	if err := h.store.AppendDelegation(r.Context(), &d); err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
 	JSON(w, http.StatusCreated, d)
+}
+
+// fillTraceContext populates TraceID/SpanID/ParentSpanID for a new delegation:
+//   - If a W3C `traceparent` header is present, parse and use it.
+//   - Else if a parent delegation exists, inherit its TraceID and use parent's
+//     SpanID as ParentSpanID.
+//   - Else generate a fresh trace.
+func (h *A2AHandler) fillTraceContext(r *http.Request, d *models.Delegation) error {
+	if d.TraceID != "" && d.SpanID != "" {
+		return nil
+	}
+	if tp := r.Header.Get("traceparent"); tp != "" {
+		if tid, sid, ok := parseTraceparent(tp); ok {
+			if d.TraceID == "" {
+				d.TraceID = tid
+			}
+			if d.ParentSpanID == "" {
+				d.ParentSpanID = sid
+			}
+		}
+	}
+	if d.TraceID == "" && d.ParentID != "" {
+		if parent, err := h.store.GetDelegation(r.Context(), d.ParentID); err == nil && parent != nil {
+			d.TraceID = parent.TraceID
+			if d.ParentSpanID == "" {
+				d.ParentSpanID = parent.SpanID
+			}
+		}
+	}
+	if d.TraceID == "" {
+		d.TraceID = randomHex(16)
+	}
+	if d.SpanID == "" {
+		d.SpanID = randomHex(8)
+	}
+	return nil
+}
+
+// parseTraceparent parses a W3C traceparent header of the form
+// "00-<32hex trace>-<16hex span>-<2hex flags>". Returns trace, span, ok.
+func parseTraceparent(tp string) (string, string, bool) {
+	parts := strings.Split(tp, "-")
+	if len(parts) != 4 {
+		return "", "", false
+	}
+	if len(parts[1]) != 32 || len(parts[2]) != 16 {
+		return "", "", false
+	}
+	return parts[1], parts[2], true
+}
+
+// randomHex returns 2*n hex characters of cryptographic randomness.
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b)
 }
 
 // GetDelegation returns a single delegation by ID.

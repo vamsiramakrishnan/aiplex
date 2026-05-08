@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -135,15 +136,30 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 	case models.PlaneA2APlex:
 		agentURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080", instanceID, namespace)
 		card, err := DiscoverAgentCard(ctx, agentURL)
-		if err != nil {
-			logger.Warn().Err(err).Str("instance", instanceID).Msg("A2A Agent Card discovery failed — using template scopes")
-		} else if len(card.TaskTypes) > 0 {
+		switch {
+		case err == nil && len(card.TaskTypes) > 0:
 			discovered := make([]string, len(card.TaskTypes))
 			for i, tt := range card.TaskTypes {
 				discovered[i] = "a2a:task:" + tt.Type
 			}
 			inst.Scopes = discovered
-			logger.Info().Int("count", len(card.TaskTypes)).Msg("discovered A2A task types")
+			logger.Info().Int("count", len(card.TaskTypes)).Msg("discovered A2A task types via Agent Card")
+		case errors.Is(err, ErrAgentCardNotFound):
+			// Agent Card unavailable — try JSON-RPC tasks/list fallback
+			tasks, ferr := DiscoverTasks(ctx, agentURL)
+			if ferr != nil {
+				logger.Warn().Err(ferr).Str("instance", instanceID).
+					Msg("A2A Agent Card 404 and tasks/list also failed — using template scopes")
+			} else if len(tasks) > 0 {
+				discovered := make([]string, len(tasks))
+				for i, t := range tasks {
+					discovered[i] = "a2a:task:" + t
+				}
+				inst.Scopes = discovered
+				logger.Info().Int("count", len(tasks)).Msg("discovered A2A task types via tasks/list")
+			}
+		default:
+			logger.Warn().Err(err).Str("instance", instanceID).Msg("A2A discovery failed — using template scopes")
 		}
 	}
 
