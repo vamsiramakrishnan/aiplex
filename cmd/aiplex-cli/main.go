@@ -145,6 +145,7 @@ Get started:
 		agentsCmd(),
 		llmCmd(),
 		a2aCmd(),
+		skillsCmd(),
 		catalogCmd(),
 
 		// Utilities

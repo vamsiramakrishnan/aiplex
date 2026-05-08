@@ -81,6 +81,13 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		for _, cap := range template.Capabilities {
 			scopes = append(scopes, "llm:capability:"+cap)
 		}
+	case models.PlaneSkillsPlex:
+		for _, skill := range template.Skills {
+			scopes = append(scopes, "skill:invoke:"+skill.Name)
+		}
+		if template.SkillBundle != "" {
+			scopes = append(scopes, "skill:bundle:"+template.SkillBundle)
+		}
 	}
 
 	// 5. Build and persist instance (provisioning state)
@@ -132,6 +139,19 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 			}
 			inst.Scopes = discovered
 			logger.Info().Int("count", len(tools)).Msg("discovered MCP tools")
+		}
+	case models.PlaneSkillsPlex:
+		skillsURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080/skills", instanceID, namespace)
+		skills, err := DiscoverSkills(ctx, skillsURL)
+		if err != nil {
+			logger.Warn().Err(err).Str("instance", instanceID).Msg("skills/list discovery failed — using template scopes")
+		} else if len(skills) > 0 {
+			discovered := make([]string, len(skills))
+			for i, s := range skills {
+				discovered[i] = "skill:invoke:" + s
+			}
+			inst.Scopes = discovered
+			logger.Info().Int("count", len(skills)).Msg("discovered skills via skills/list")
 		}
 	case models.PlaneA2APlex:
 		agentURL := fmt.Sprintf("http://%s.%s.svc.cluster.local:8080", instanceID, namespace)

@@ -52,7 +52,7 @@ function DeployWizard() {
     const urlPlane = searchParams.get('plane')
     const urlTemplate = searchParams.get('template')
 
-    if (urlPlane && ['mcplex', 'a2aplex', 'llmplex'].includes(urlPlane)) {
+    if (urlPlane && ['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].includes(urlPlane)) {
       setPlane(urlPlane)
       if (urlTemplate) {
         // Move to template step and wait for catalog to load
@@ -95,6 +95,7 @@ function DeployWizard() {
     mcplex: 'Deploy MCP servers that expose tools to AI agents (search, database, APIs)',
     a2aplex: 'Deploy A2A agents that other agents can delegate tasks to',
     llmplex: 'Configure LLM model routing, failover, and cost budgets',
+    skillsplex: 'Deploy skill servers that host invokable skill bundles for agents',
   }
 
   return (
@@ -122,7 +123,7 @@ function DeployWizard() {
         <div className="space-y-4">
           <p className="text-sm text-gray-600">What do you want to deploy?</p>
           <div className="grid gap-3">
-            {['mcplex', 'a2aplex', 'llmplex'].map(p => (
+            {['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].map(p => (
               <button
                 key={p}
                 onClick={() => { setPlane(p); setStep('template') }}
@@ -132,7 +133,8 @@ function DeployWizard() {
                 <div className="font-medium">
                   {p === 'mcplex' ? 'MCPlex \u2014 Tools' :
                    p === 'a2aplex' ? 'A2APlex \u2014 Agents' :
-                   'LLMPlex \u2014 Models'}
+                   p === 'llmplex' ? 'LLMPlex \u2014 Models' :
+                   'SkillsPlex \u2014 Skills'}
                 </div>
                 <div className="text-sm text-gray-500 mt-1">{planeDescriptions[p]}</div>
               </button>

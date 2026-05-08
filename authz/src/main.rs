@@ -76,7 +76,8 @@ fn check_authorization(
         if let Some(method) = body_val.get("method").and_then(|v| v.as_str()) {
             match method {
                 "initialize" | "tools/list" | "resources/list"
-                | "tasks/list" | "agents/list" | "models/list" | "ping" => {
+                | "tasks/list" | "agents/list" | "models/list"
+                | "skills/list" | "ping" => {
                     return (true, None);
                 }
                 _ => {}
@@ -95,6 +96,34 @@ fn check_authorization(
                     }
                     return (false, Some(format!("missing scope: {}", required)));
                 }
+            }
+
+            // SkillsPlex: skills/invoke
+            if method == "skills/invoke" {
+                if let Some(name) = body_val
+                    .get("params")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|n| n.as_str())
+                {
+                    let required = format!("skill:invoke:{}", name);
+                    if scopes.contains(required.as_str()) {
+                        return (true, None);
+                    }
+                    return (false, Some(format!("missing scope: {}", required)));
+                }
+            }
+        }
+    }
+
+    // SkillsPlex: HTTP-style /skills/ paths with skill_name in body
+    if path.starts_with("/skills/") {
+        if let Some(body_val) = body {
+            if let Some(name) = body_val.get("skill_name").and_then(|v| v.as_str()) {
+                let required = format!("skill:invoke:{}", name);
+                if scopes.contains(required.as_str()) {
+                    return (true, None);
+                }
+                return (false, Some(format!("missing scope: {}", required)));
             }
         }
     }
@@ -281,6 +310,39 @@ mod tests {
         let scopes: HashSet<&str> = ["llm:model:gemini-2.5-flash"].into_iter().collect();
         let body = serde_json::json!({"model": "gemini-2.5-flash"});
         let (allowed, _) = check_authorization(&scopes, "/llm/v1/chat", Some(&body));
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_skill_invoke_with_scope() {
+        let scopes: HashSet<&str> = ["skill:invoke:review_pr"].into_iter().collect();
+        let body = serde_json::json!({"method": "skills/invoke", "params": {"name": "review_pr"}});
+        let (allowed, _) = check_authorization(&scopes, "/skills/code-review", Some(&body));
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_skill_invoke_without_scope() {
+        let scopes: HashSet<&str> = ["skill:invoke:other"].into_iter().collect();
+        let body = serde_json::json!({"method": "skills/invoke", "params": {"name": "review_pr"}});
+        let (allowed, reason) = check_authorization(&scopes, "/skills/code-review", Some(&body));
+        assert!(!allowed);
+        assert!(reason.unwrap().contains("skill:invoke:review_pr"));
+    }
+
+    #[test]
+    fn test_skills_list_allowed_without_scope() {
+        let scopes = HashSet::new();
+        let body = serde_json::json!({"method": "skills/list"});
+        let (allowed, _) = check_authorization(&scopes, "/skills/code-review", Some(&body));
+        assert!(allowed);
+    }
+
+    #[test]
+    fn test_skill_http_path() {
+        let scopes: HashSet<&str> = ["skill:invoke:draft"].into_iter().collect();
+        let body = serde_json::json!({"skill_name": "draft"});
+        let (allowed, _) = check_authorization(&scopes, "/skills/writing", Some(&body));
         assert!(allowed);
     }
 

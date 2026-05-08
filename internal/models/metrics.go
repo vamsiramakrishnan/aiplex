@@ -17,9 +17,10 @@ type DashboardStats struct {
 	ActivePlanes      int `json:"active_planes"`
 
 	// Per-plane
-	MCPlexInstances  int `json:"mcplex_instances"`
-	A2APlexInstances int `json:"a2aplex_instances"`
-	LLMPlexInstances int `json:"llmplex_instances"`
+	MCPlexInstances     int `json:"mcplex_instances"`
+	A2APlexInstances    int `json:"a2aplex_instances"`
+	LLMPlexInstances    int `json:"llmplex_instances"`
+	SkillsPlexInstances int `json:"skillsplex_instances"`
 
 	// LLM costs (last 24h)
 	DailyCostUSD     float64 `json:"daily_cost_usd"`

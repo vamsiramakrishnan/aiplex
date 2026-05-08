@@ -7,6 +7,7 @@ const navItems = [
   { to: '/mcplex', label: 'MCPlex' },
   { to: '/a2aplex', label: 'A2APlex' },
   { to: '/llmplex', label: 'LLMPlex' },
+  { to: '/skillsplex', label: 'SkillsPlex' },
   { to: '/agents', label: 'Agents' },
   { to: '/permissions', label: 'Permissions' },
 ]
@@ -16,6 +17,7 @@ const routeLabels: Record<string, string> = {
   mcplex: 'MCPlex',
   a2aplex: 'A2APlex',
   llmplex: 'LLMPlex',
+  skillsplex: 'SkillsPlex',
   agents: 'Agents',
   permissions: 'Permissions',
   deploy: 'Deploy',

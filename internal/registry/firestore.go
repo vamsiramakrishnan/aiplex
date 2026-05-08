@@ -626,6 +626,56 @@ func (f *FirestoreStore) UpdateDelegation(ctx context.Context, d *models.Delegat
 	return nil
 }
 
+// ── SkillsPlex Invocations ──
+
+func (f *FirestoreStore) AppendSkillInvocation(ctx context.Context, inv *models.SkillInvocation) error {
+	ref := f.client.Collection("skill_invocations").NewDoc()
+	if inv.ID == "" {
+		inv.ID = ref.ID
+	} else {
+		ref = f.client.Collection("skill_invocations").Doc(inv.ID)
+	}
+	if _, err := ref.Set(ctx, inv); err != nil {
+		return fmt.Errorf("firestore append skill invocation: %w", err)
+	}
+	return nil
+}
+
+func (f *FirestoreStore) ListSkillInvocations(ctx context.Context, agentID, skillName string, limit int) ([]models.SkillInvocation, error) {
+	query := f.client.Collection("skill_invocations").OrderBy("started_at", firestore.Desc)
+	if limit > 0 {
+		query = query.Limit(limit * 2)
+	}
+	iter := query.Documents(ctx)
+	var out []models.SkillInvocation
+	count := 0
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("firestore list skill invocations: %w", err)
+		}
+		var inv models.SkillInvocation
+		if err := doc.DataTo(&inv); err != nil {
+			return nil, fmt.Errorf("firestore decode skill invocation: %w", err)
+		}
+		if agentID != "" && inv.AgentID != agentID {
+			continue
+		}
+		if skillName != "" && inv.SkillName != skillName {
+			continue
+		}
+		out = append(out, inv)
+		count++
+		if limit > 0 && count >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 // ── Policy Denials ──
 
 func (f *FirestoreStore) AppendPolicyDenial(ctx context.Context, d *models.PolicyDenial) error {

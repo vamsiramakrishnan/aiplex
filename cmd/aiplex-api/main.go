@@ -59,11 +59,16 @@ func main() {
 		log.Warn().Msg("using in-memory store — data will not persist across restarts")
 	}
 
-	// Seed built-in LLM provider templates
+	// Seed built-in LLM provider + skill templates
 	providers := catalog.NewBuiltInProviders()
-	templates, _ := providers.Fetch(ctx)
-	for i := range templates {
-		store.PutTemplate(ctx, &templates[i])
+	llmTemplates, _ := providers.Fetch(ctx)
+	for i := range llmTemplates {
+		store.PutTemplate(ctx, &llmTemplates[i])
+	}
+	builtinSkills := catalog.NewBuiltInSkills()
+	skillTemplates, _ := builtinSkills.Fetch(ctx)
+	for i := range skillTemplates {
+		store.PutTemplate(ctx, &skillTemplates[i])
 	}
 
 	// Catalog aggregator
@@ -72,7 +77,9 @@ func main() {
 		catalog.NewLocalSource(store, models.PlaneMCPlex),
 		catalog.NewLocalSource(store, models.PlaneA2APlex),
 		catalog.NewLocalSource(store, models.PlaneLLMPlex),
+		catalog.NewLocalSource(store, models.PlaneSkillsPlex),
 		providers,
+		builtinSkills,
 	}
 	aggregator := catalog.NewAggregator(sources)
 
@@ -116,6 +123,7 @@ func main() {
 	authH := api.NewAuthHandler(hydraClient, store)
 	llmH := api.NewLLMHandler(store, k8sClient, cfg.GatewayName, sm)
 	a2aH := api.NewA2AHandler(store)
+	skillsH := api.NewSkillsHandler(store)
 	dashH := api.NewDashboardHandler(store)
 	iamH := api.NewIAMHandler(store, wifValidator)
 	sseH := api.NewSSEHandler(store)
@@ -187,6 +195,13 @@ func main() {
 			r.Get("/delegations/{id}/chain", a2aH.GetDelegationChain)
 		})
 
+		// SkillsPlex — skill servers, manifests, invocation audit
+		r.Route("/skills", func(r chi.Router) {
+			r.Get("/servers", skillsH.ListSkillServers)
+			r.Post("/invocations", skillsH.RecordInvocation)
+			r.Get("/invocations", skillsH.ListInvocations)
+		})
+
 		// Dashboard — unified observability
 		r.Route("/dashboard", func(r chi.Router) {
 			r.Get("/stats", dashH.GetStats)
@@ -225,6 +240,9 @@ func main() {
 
 	// A2A Agent Card discovery (per-instance)
 	r.Get("/a2a/{instanceId}/.well-known/agent.json", a2aH.GetAgentCard)
+
+	// SkillsPlex skills manifest (per-instance)
+	r.Get("/skills/{instanceId}/.well-known/skills.json", skillsH.GetSkillsManifest)
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

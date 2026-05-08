@@ -564,6 +564,78 @@ func (c *Client) GetDelegationChain(ctx context.Context, id string) (*Delegation
 	return &chain, err
 }
 
+// --- SkillsPlex ---
+
+// SkillServerSummary describes a running SkillsPlex instance.
+type SkillServerSummary struct {
+	InstanceID  string   `json:"instance_id"`
+	Name        string   `json:"name"`
+	URL         string   `json:"url"`
+	SkillBundle string   `json:"skill_bundle,omitempty"`
+	Skills      []string `json:"skills"`
+	Status      string   `json:"status"`
+}
+
+// SkillInvocation mirrors models.SkillInvocation for SDK consumers.
+type SkillInvocation struct {
+	ID           string    `json:"id"`
+	AgentID      string    `json:"agent_id"`
+	InstanceID   string    `json:"instance_id"`
+	SkillName    string    `json:"skill_name"`
+	UserID       string    `json:"user_id,omitempty"`
+	Status       string    `json:"status"`
+	StartedAt    time.Time `json:"started_at"`
+	DurationMs   int64     `json:"duration_ms,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	TraceID      string    `json:"trace_id,omitempty"`
+	SpanID       string    `json:"span_id,omitempty"`
+	ParentSpanID string    `json:"parent_span_id,omitempty"`
+}
+
+// RecordSkillInvocationRequest is the body sent to POST /api/v1/skills/invocations.
+type RecordSkillInvocationRequest struct {
+	AgentID    string `json:"agent_id"`
+	InstanceID string `json:"instance_id"`
+	SkillName  string `json:"skill_name"`
+	UserID     string `json:"user_id,omitempty"`
+	Status     string `json:"status,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
+	Error      string `json:"error,omitempty"`
+	TraceID    string `json:"trace_id,omitempty"`
+}
+
+// ListSkillServers returns running SkillsPlex instances.
+func (c *Client) ListSkillServers(ctx context.Context) ([]SkillServerSummary, error) {
+	var list []SkillServerSummary
+	err := c.do(ctx, "GET", "/api/v1/skills/servers", nil, &list)
+	return list, err
+}
+
+// RecordSkillInvocation appends a skill invocation audit record.
+func (c *Client) RecordSkillInvocation(ctx context.Context, req *RecordSkillInvocationRequest) (*SkillInvocation, error) {
+	var inv SkillInvocation
+	err := c.do(ctx, "POST", "/api/v1/skills/invocations", req, &inv)
+	return &inv, err
+}
+
+// ListSkillInvocations returns recent invocations, optionally filtered.
+func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName string) ([]SkillInvocation, error) {
+	q := url.Values{}
+	if agentID != "" {
+		q.Set("agent_id", agentID)
+	}
+	if skillName != "" {
+		q.Set("skill", skillName)
+	}
+	path := "/api/v1/skills/invocations"
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var list []SkillInvocation
+	err := c.do(ctx, "GET", path, nil, &list)
+	return list, err
+}
+
 // --- Dashboard ---
 
 type DashboardStats struct {

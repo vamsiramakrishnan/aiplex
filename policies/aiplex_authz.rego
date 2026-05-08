@@ -32,8 +32,21 @@ allow if {
     sprintf("llm:model:%s", [model]) in scopes
 }
 
+# ── SkillsPlex: skill invocation (skills/invoke JSON-RPC) ──
+allow if {
+    body.method == "skills/invoke"
+    sprintf("skill:invoke:%s", [body.params.name]) in scopes
+}
+
+# ── SkillsPlex: HTTP-style skill calls under /skills/ ──
+allow if {
+    startswith(path, "/skills/")
+    sprintf("skill:invoke:%s", [body.skill_name]) in scopes
+}
+
 # ── Discovery (all planes) ──
 allow if {
     body.method in {"initialize", "tools/list", "resources/list",
-                    "tasks/list", "agents/list", "models/list", "ping"}
+                    "tasks/list", "agents/list", "models/list",
+                    "skills/list", "ping"}
 }

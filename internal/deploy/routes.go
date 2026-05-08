@@ -8,7 +8,8 @@ import (
 )
 
 // GenerateRoute produces the appropriate route CRD for the given plane.
-// MCPlex → MCPRoute, A2APlex → HTTPRoute, LLMPlex → LLMRoute + AIServiceBackend.
+// MCPlex → MCPRoute, A2APlex → HTTPRoute, LLMPlex → LLMRoute + AIServiceBackend,
+// SkillsPlex → HTTPRoute on /skills/{instance}.
 func GenerateRoute(inst *models.Instance, tmpl *models.Template, gatewayName string) []Manifest {
 	switch inst.Plane {
 	case models.PlaneMCPlex:
@@ -17,6 +18,8 @@ func GenerateRoute(inst *models.Instance, tmpl *models.Template, gatewayName str
 		return []Manifest{httpRoute(inst, gatewayName)}
 	case models.PlaneLLMPlex:
 		return llmRoute(inst, tmpl, gatewayName)
+	case models.PlaneSkillsPlex:
+		return []Manifest{skillRoute(inst, gatewayName)}
 	default:
 		return nil
 	}
@@ -75,6 +78,38 @@ spec:
     - path:
         type: PathPrefix
         value: /a2a/%s
+    backendRefs:
+    - name: %s
+      namespace: %s
+      port: 8080
+`, inst.ID, inst.Namespace, inst.ID, gatewayName, inst.ID, inst.ID, inst.Namespace),
+	}
+}
+
+func skillRoute(inst *models.Instance, gatewayName string) Manifest {
+	return Manifest{
+		APIVersion: "gateway.networking.k8s.io/v1",
+		Kind:       "HTTPRoute",
+		Name:       "skill-" + inst.ID,
+		Namespace:  inst.Namespace,
+		YAML: fmt.Sprintf(`apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: skill-%s
+  namespace: %s
+  labels:
+    app.kubernetes.io/managed-by: aiplex
+    aiplex.io/instance-id: %s
+    aiplex.io/plane: skillsplex
+spec:
+  parentRefs:
+  - name: %s
+    namespace: aiplex-system
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /skills/%s
     backendRefs:
     - name: %s
       namespace: %s

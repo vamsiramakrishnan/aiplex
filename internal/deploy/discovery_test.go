@@ -140,6 +140,35 @@ func TestValidateAgentCard(t *testing.T) {
 	}
 }
 
+func TestDiscoverSkills_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		if req["method"] != "skills/list" {
+			t.Errorf("expected skills/list, got %v", req["method"])
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req["id"],
+			"result": map[string]any{
+				"skills": []map[string]any{
+					{"name": "review_pr"},
+					{"name": "draft"},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	skills, err := DiscoverSkills(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("DiscoverSkills: %v", err)
+	}
+	if len(skills) != 2 || skills[0] != "review_pr" {
+		t.Fatalf("got %v, want [review_pr draft]", skills)
+	}
+}
+
 func TestDiscoverTasks_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any

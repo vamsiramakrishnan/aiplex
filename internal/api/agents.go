@@ -84,9 +84,12 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	// Validate scope format
 	for _, scope := range agent.AllowedScopes {
-		if !strings.HasPrefix(scope, "mcp:") && !strings.HasPrefix(scope, "a2a:") && !strings.HasPrefix(scope, "llm:") {
+		if !strings.HasPrefix(scope, "mcp:") &&
+			!strings.HasPrefix(scope, "a2a:") &&
+			!strings.HasPrefix(scope, "llm:") &&
+			!strings.HasPrefix(scope, "skill:") {
 			Error(w, r, http.StatusBadRequest, "INVALID_SCOPE",
-				fmt.Sprintf("scope %q must start with mcp:, a2a:, or llm:", scope))
+				fmt.Sprintf("scope %q must start with mcp:, a2a:, llm:, or skill:", scope))
 			return
 		}
 	}
@@ -209,6 +212,8 @@ func (h *AgentHandler) GetPermissions(w http.ResponseWriter, r *http.Request) {
 			plane = models.PlaneA2APlex
 		case strings.HasPrefix(scope, "llm:"):
 			plane = models.PlaneLLMPlex
+		case strings.HasPrefix(scope, "skill:"):
+			plane = models.PlaneSkillsPlex
 		default:
 			continue
 		}
@@ -233,7 +238,7 @@ func (h *AgentHandler) GetPermissions(w http.ResponseWriter, r *http.Request) {
 // without template metadata fall back to humanizeScope.
 func (h *AgentHandler) scopeDescriptions(ctx context.Context) map[string]string {
 	out := map[string]string{}
-	planes := []models.Plane{models.PlaneMCPlex, models.PlaneA2APlex, models.PlaneLLMPlex}
+	planes := []models.Plane{models.PlaneMCPlex, models.PlaneA2APlex, models.PlaneLLMPlex, models.PlaneSkillsPlex}
 	for _, plane := range planes {
 		templates, _, err := h.store.ListTemplates(ctx, plane, 1, 1000)
 		if err != nil {
@@ -260,6 +265,17 @@ func (h *AgentHandler) scopeDescriptions(ctx context.Context) map[string]string 
 			for _, cap := range t.Capabilities {
 				out["llm:capability:"+cap] = "Capability: " + cap
 			}
+			for _, skill := range t.Skills {
+				key := "skill:invoke:" + skill.Name
+				if skill.Description != "" {
+					out[key] = skill.Description
+				} else if _, exists := out[key]; !exists {
+					out[key] = fmt.Sprintf("%s — skill %q", t.Name, skill.Name)
+				}
+			}
+			if t.SkillBundle != "" {
+				out["skill:bundle:"+t.SkillBundle] = fmt.Sprintf("%s bundle", t.Name)
+			}
 		}
 	}
 	return out
@@ -281,6 +297,8 @@ func humanizeScope(scope string) string {
 		return fmt.Sprintf("A2A %s: %s", kind, name)
 	case "llm":
 		return fmt.Sprintf("LLM %s: %s", kind, name)
+	case "skill":
+		return fmt.Sprintf("Skill %s: %s", kind, name)
 	}
 	return scope
 }

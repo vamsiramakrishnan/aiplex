@@ -59,6 +59,10 @@ type Store interface {
 	ListDelegations(ctx context.Context, agentID string, limit int) ([]models.Delegation, error)
 	UpdateDelegation(ctx context.Context, d *models.Delegation) error
 
+	// SkillsPlex invocations (append-only audit)
+	AppendSkillInvocation(ctx context.Context, inv *models.SkillInvocation) error
+	ListSkillInvocations(ctx context.Context, agentID, skillName string, limit int) ([]models.SkillInvocation, error)
+
 	// Metrics / policy denials
 	AppendPolicyDenial(ctx context.Context, d *models.PolicyDenial) error
 	ListPolicyDenials(ctx context.Context, limit int) ([]models.PolicyDenial, error)
@@ -91,6 +95,7 @@ type MemoryStore struct {
 	usageRecords    []models.UsageRecord
 	delegations     map[string]*models.Delegation
 	delegationList  []models.Delegation
+	skillInvocations []models.SkillInvocation
 	policyDenials   []models.PolicyDenial
 	roleBindings    map[string]*models.RoleBinding
 }
@@ -459,6 +464,35 @@ func (m *MemoryStore) UpdateDelegation(_ context.Context, d *models.Delegation) 
 	}
 	m.delegations[d.ID] = d
 	return nil
+}
+
+// ── SkillsPlex Invocations ──
+
+func (m *MemoryStore) AppendSkillInvocation(_ context.Context, inv *models.SkillInvocation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.skillInvocations = append(m.skillInvocations, *inv)
+	return nil
+}
+
+func (m *MemoryStore) ListSkillInvocations(_ context.Context, agentID, skillName string, limit int) ([]models.SkillInvocation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []models.SkillInvocation
+	for i := len(m.skillInvocations) - 1; i >= 0; i-- {
+		inv := m.skillInvocations[i]
+		if agentID != "" && inv.AgentID != agentID {
+			continue
+		}
+		if skillName != "" && inv.SkillName != skillName {
+			continue
+		}
+		out = append(out, inv)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
 
 // ── Policy Denials ──
