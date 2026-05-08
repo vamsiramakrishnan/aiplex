@@ -125,7 +125,14 @@ func main() {
 	r.Use(api.Recover)
 	r.Use(api.RequestID)
 	r.Use(api.Logger)
-	r.Use(api.CORS("*")) // TODO: restrict to Console origin in production
+	corsOrigins := cfg.AllowedOrigins
+	if len(corsOrigins) == 0 {
+		log.Warn().Msg("CONSOLE_ORIGINS unset — allowing all origins (dev only)")
+		corsOrigins = []string{"*"}
+	} else {
+		log.Info().Strs("origins", corsOrigins).Msg("CORS restricted to configured origins")
+	}
+	r.Use(api.CORS(corsOrigins...))
 	r.Use(api.MaxBody(1 << 20))          // 1MB max request body
 	r.Use(api.WIFAuth(wifValidator))     // Extract WIF identity + sync Dimension B
 	r.Use(api.AuditLog)                  // Log all mutations
