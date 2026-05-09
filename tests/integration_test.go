@@ -15,9 +15,20 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/catalog"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
+	"github.com/vamsiramakrishnan/aiplex/internal/memplex"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
+
+// mustFetchTemplates fetches templates from a catalog source, panicking on
+// error so test setup stays terse.
+func mustFetchTemplates(s catalog.Source, ctx context.Context) []models.Template {
+	templates, err := s.Fetch(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return templates
+}
 
 // setupFullRouter builds the complete AIPlex API router — same wiring as main.go.
 func setupFullRouter() *httptest.Server {
@@ -72,6 +83,11 @@ func setupFullRouter() *httptest.Server {
 		Verified: true,
 	})
 
+	// Seed built-in memory templates into the store (same flow as cmd/aiplex-api/main.go).
+	for _, t := range mustFetchTemplates(catalog.NewBuiltInMemory(), ctx) {
+		store.PutTemplate(ctx, &t)
+	}
+
 	store.SetUserCaps(ctx, "admin@school.edu", capability.CapSet{
 		{URI: "cap://tool/search_curriculum@v1", Actions: []string{"call"}},
 		{URI: "cap://tool/get_document@v1", Actions: []string{"call"}},
@@ -85,10 +101,14 @@ func setupFullRouter() *httptest.Server {
 		catalog.NewLocalSource(store, capability.KindTask),
 		catalog.NewLocalSource(store, capability.KindModel),
 		catalog.NewLocalSource(store, capability.KindSkill),
+		catalog.NewLocalSource(store, capability.KindMemory),
 		catalog.NewBuiltInProviders(),
+		catalog.NewBuiltInMemory(),
 	}
 	agg := catalog.NewAggregator(sources)
 	engine := deploy.NewEngine(store, "test.local")
+	memBroker := memplex.NewBroker(memplex.NewLocalBackend())
+	engine.RegisterKindHook(capability.KindMemory, memBroker)
 	hydraClient := auth.NewHydraClient("http://localhost:0")
 
 	catalogH := api.NewCatalogHandler(agg, store)
@@ -131,6 +151,9 @@ func setupFullRouter() *httptest.Server {
 		r.Get("/users/{userId}/caps", authH.GetUserCaps)
 		r.Put("/users/{userId}/caps", authH.SetUserCaps)
 	})
+
+	// Memory plane: broker handles every cap://memory/* call.
+	r.Mount("/cap/memory/", http.StripPrefix("", memBroker))
 
 	return httptest.NewServer(r)
 }
@@ -492,5 +515,99 @@ func TestE2E_SkillsKindLifecycle(t *testing.T) {
 	}
 	if stats.PolicyDenials != 1 {
 		t.Errorf("PolicyDenials = %d, want 1", stats.PolicyDenials)
+	}
+}
+
+// TestE2E_MemoryKindLifecycle exercises a full memory namespace:
+// catalog → deploy → write/read/search/list/delete via the broker.
+func TestE2E_MemoryKindLifecycle(t *testing.T) {
+	srv := setupFullRouter()
+	defer srv.Close()
+	client := srv.Client()
+
+	// 1. Catalog includes the built-in memory templates.
+	resp, _ := client.Get(srv.URL + "/api/v1/catalog?kind=memory")
+	var catalogPage models.CatalogPage
+	json.NewDecoder(resp.Body).Decode(&catalogPage)
+	resp.Body.Close()
+	if catalogPage.Total < 1 {
+		t.Fatalf("expected at least 1 memory template, got %d", catalogPage.Total)
+	}
+
+	// 2. Deploy a memory namespace from the built-in scratch template.
+	body := `{"kind":"memory","template_id":"scratch","display_name":"Scratch"}`
+	resp, _ = client.Post(srv.URL+"/api/v1/instances", "application/json", strings.NewReader(body))
+	if resp.StatusCode != 201 {
+		buf := make([]byte, 1024)
+		n, _ := resp.Body.Read(buf)
+		t.Fatalf("deploy memory: %d %s", resp.StatusCode, string(buf[:n]))
+	}
+	var inst models.Instance
+	json.NewDecoder(resp.Body).Decode(&inst)
+	resp.Body.Close()
+	if inst.Kind != capability.KindMemory {
+		t.Errorf("Kind = %q, want memory", inst.Kind)
+	}
+	if len(inst.Capabilities) != 1 {
+		t.Fatalf("expected 1 capability, got %d", len(inst.Capabilities))
+	}
+
+	uri := inst.Capabilities[0].URI
+
+	// 3. Write a value.
+	pathBase := "/cap/memory/" + strings.TrimPrefix(uri, "cap://memory/")
+	writeBody := `{"data":{"x":42,"note":"hello"}}`
+	req, _ := http.NewRequest("PUT", srv.URL+pathBase+"/k1", strings.NewReader(writeBody))
+	req.Header.Set("Content-Type", "application/json")
+	resp, _ = client.Do(req)
+	if resp.StatusCode != 204 {
+		t.Fatalf("write: status=%d", resp.StatusCode)
+	}
+
+	// 4. Read it back.
+	resp, _ = client.Get(srv.URL + pathBase + "/k1")
+	if resp.StatusCode != 200 {
+		t.Fatalf("read: status=%d", resp.StatusCode)
+	}
+	var got map[string]any
+	json.NewDecoder(resp.Body).Decode(&got)
+	resp.Body.Close()
+	data := got["data"].(map[string]any)
+	if data["note"] != "hello" {
+		t.Errorf("data.note = %v, want hello", data["note"])
+	}
+
+	// 5. Write a second key, then list with prefix.
+	req, _ = http.NewRequest("PUT", srv.URL+pathBase+"/k2",
+		strings.NewReader(`{"data":{"x":100}}`))
+	req.Header.Set("Content-Type", "application/json")
+	client.Do(req)
+
+	resp, _ = client.Get(srv.URL + pathBase + "/?prefix=k")
+	var listing map[string]any
+	json.NewDecoder(resp.Body).Decode(&listing)
+	resp.Body.Close()
+	keys := listing["keys"].([]any)
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d", len(keys))
+	}
+
+	// 6. Search with a vector.
+	searchBody := `{"embedding":[1,0,0],"top_k":5}`
+	resp, _ = client.Post(srv.URL+pathBase+"/_search", "application/json",
+		strings.NewReader(searchBody))
+	if resp.StatusCode != 200 {
+		t.Fatalf("search: status=%d", resp.StatusCode)
+	}
+
+	// 7. Delete and verify 404.
+	req, _ = http.NewRequest("DELETE", srv.URL+pathBase+"/k1", nil)
+	resp, _ = client.Do(req)
+	if resp.StatusCode != 204 {
+		t.Errorf("delete: status=%d", resp.StatusCode)
+	}
+	resp, _ = client.Get(srv.URL + pathBase + "/k1")
+	if resp.StatusCode != 404 {
+		t.Errorf("post-delete read: status=%d, want 404", resp.StatusCode)
 	}
 }

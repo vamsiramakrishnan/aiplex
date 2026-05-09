@@ -681,6 +681,139 @@ func (c *Client) RecordPolicyDenial(ctx context.Context, d *PolicyDenial) (*Poli
 	return &out, err
 }
 
+// --- Memory (kind=memory) ---
+
+// MemoryValue is the on-the-wire shape of a stored memory entry.
+type MemoryValue struct {
+	Data      map[string]any `json:"data"`
+	CreatedAt time.Time      `json:"created_at,omitempty"`
+	UpdatedAt time.Time      `json:"updated_at,omitempty"`
+	Embedding []float32      `json:"embedding,omitempty"`
+}
+
+// MemoryHit is a single search result.
+type MemoryHit struct {
+	Key   string      `json:"key"`
+	Value MemoryValue `json:"value"`
+	Score float32     `json:"score,omitempty"`
+}
+
+// MemoryListing pages keys by prefix.
+type MemoryListing struct {
+	Keys     []string `json:"keys"`
+	NextPage string   `json:"next_page,omitempty"`
+}
+
+// MemoryQuery selects entries for search.
+type MemoryQuery struct {
+	Embedding []float32      `json:"embedding,omitempty"`
+	Text      string         `json:"text,omitempty"`
+	TopK      int            `json:"top_k,omitempty"`
+	Filter    map[string]any `json:"filter,omitempty"`
+}
+
+// MemoryNamespace is a typed handle for a single cap://memory/... URI.
+// Callers receive one via Client.Memory(uri) and use it like:
+//
+//	mem := client.Memory("cap://memory/students/alice/profile@v1")
+//	mem.Write(ctx, "lesson-42", aiplex.MemoryValue{Data: map[string]any{"score": 88}})
+//	hits, _ := mem.Search(ctx, aiplex.MemoryQuery{Embedding: emb, TopK: 5})
+type MemoryNamespace struct {
+	c   *Client
+	uri string
+}
+
+// Memory returns a typed namespace handle. uri must be a cap://memory/... URI;
+// callers can substitute path templates ahead of time (e.g. swap "{user}").
+func (c *Client) Memory(uri string) *MemoryNamespace {
+	return &MemoryNamespace{c: c, uri: uri}
+}
+
+// pathBase returns the request path prefix derived from the namespace URI.
+// e.g. cap://memory/students/alice/profile@v1 → /cap/memory/students/alice/profile@v1
+func (m *MemoryNamespace) pathBase() string {
+	rest := strings.TrimPrefix(m.uri, "cap://memory/")
+	return "/cap/memory/" + rest
+}
+
+// Read fetches a value by key. Returns *aiplex.Error with StatusCode=404 if absent.
+func (m *MemoryNamespace) Read(ctx context.Context, key string) (*MemoryValue, error) {
+	var v MemoryValue
+	err := m.c.do(ctx, "GET", m.pathBase()+"/"+url.PathEscape(key), nil, &v)
+	return &v, err
+}
+
+// Write stores a value at key. Set ifNoneMatch=true for create-only semantics
+// (returns 409 if the key already exists).
+func (m *MemoryNamespace) Write(ctx context.Context, key string, v MemoryValue, ifNoneMatch bool) error {
+	path := m.pathBase() + "/" + url.PathEscape(key)
+	body, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("aiplex: marshal value: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "PUT", m.c.BaseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", m.c.userAgent)
+	if m.c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+m.c.token)
+	}
+	if ifNoneMatch {
+		req.Header.Set("If-None-Match", "*")
+	}
+	resp, err := m.c.HTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("aiplex: write memory: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		var apiErr Error
+		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+			return &Error{Code: "unknown", Message: resp.Status, StatusCode: resp.StatusCode}
+		}
+		apiErr.StatusCode = resp.StatusCode
+		return &apiErr
+	}
+	return nil
+}
+
+// Delete removes a key from the namespace.
+func (m *MemoryNamespace) Delete(ctx context.Context, key string) error {
+	return m.c.do(ctx, "DELETE", m.pathBase()+"/"+url.PathEscape(key), nil, nil)
+}
+
+// Search runs a vector / text query against the namespace.
+func (m *MemoryNamespace) Search(ctx context.Context, q MemoryQuery) ([]MemoryHit, error) {
+	var out struct {
+		Hits []MemoryHit `json:"hits"`
+	}
+	err := m.c.do(ctx, "POST", m.pathBase()+"/_search", q, &out)
+	return out.Hits, err
+}
+
+// List enumerates keys, optionally filtered by prefix and paginated.
+func (m *MemoryNamespace) List(ctx context.Context, prefix, cursor string, limit int) (*MemoryListing, error) {
+	q := url.Values{}
+	if prefix != "" {
+		q.Set("prefix", prefix)
+	}
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
+	if limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	path := m.pathBase() + "/"
+	if encoded := q.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var out MemoryListing
+	err := m.c.do(ctx, "GET", path, nil, &out)
+	return &out, err
+}
+
 // --- Auth / User Caps (Dimension B) ---
 
 type UserCaps struct {

@@ -28,8 +28,9 @@ This folder contains detailed design documents for each major subsystem of AIPle
 | 20 | [MemPlex: Memory Plane](20-memplex-memory-plane.md) | **100x rewrite** | First new plane built native to the Capability Mesh — proof the abstraction holds. |
 | 21 | [Runtime Consent & Trust Ledger](21-runtime-consent-and-trust-ledger.md) | **100x rewrite** | Just-in-time step-up consent + cryptographically-signed receipt chain. |
 | 22 | [The 100x Roadmap](22-roadmap-100x.md) | **100x rewrite** | Phased, strict-superset migration that keeps every existing plane working through the cutover. |
+| 23 | [Elegance vs. State of the Art](23-elegance-vs-state-of-art.md) | **Reference** | Concrete wins vs. competitors (Bedrock AgentCore, Solo agentgateway, LiteLLM, Auth0 GenAI, Smithery, Letta, Tetrate). What's shipped, where they're still ahead, and the elegance test. |
 
-> Docs **18–22** describe the proposed next-generation architecture. Read them as a set, in order. They supersede the per-plane design in 02–10 incrementally — see [22 — Roadmap](22-roadmap-100x.md) for the phasing.
+> Docs **18–23** describe the next-generation architecture. Read 18–22 as a set in order, then 23 for positioning. They supersede the per-plane design in 02–10 — see [22 — Roadmap](22-roadmap-100x.md) for the phasing.
 
 ## How to Read These
 

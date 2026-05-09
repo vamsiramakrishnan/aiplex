@@ -69,7 +69,10 @@ var (
 	versionPattern = regexp.MustCompile(`^(?:v\d+(?:\.\d+){0,2}|latest)$`)
 	// Validates a name segment (slashes are allowed inside Name; each segment).
 	// Dots are allowed for model identifiers like "gemini-2.5-flash".
-	segmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_\-\.]*$`)
+	// Curly-brace template variables (e.g. `{tenant}`, `{user}`) are allowed
+	// for parameterised namespaces — the constraint filter substitutes them
+	// against JWT claims at request time. See design/20.
+	segmentPattern = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9_\-\.]*|\{[A-Za-z][A-Za-z0-9_]*\})$`)
 )
 
 // ParseURI parses a capability URI. It returns an error on malformed input.

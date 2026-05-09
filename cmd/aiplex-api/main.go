@@ -19,6 +19,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/catalog"
 	"github.com/vamsiramakrishnan/aiplex/internal/config"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
+	"github.com/vamsiramakrishnan/aiplex/internal/memplex"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
 )
@@ -59,7 +60,7 @@ func main() {
 		log.Warn().Msg("using in-memory store — data will not persist across restarts")
 	}
 
-	// Seed built-in LLM provider + skill templates
+	// Seed built-in LLM provider + skill + memory templates
 	providers := catalog.NewBuiltInProviders()
 	llmTemplates, _ := providers.Fetch(ctx)
 	for i := range llmTemplates {
@@ -69,6 +70,11 @@ func main() {
 	skillTemplates, _ := builtinSkills.Fetch(ctx)
 	for i := range skillTemplates {
 		store.PutTemplate(ctx, &skillTemplates[i])
+	}
+	builtinMemory := catalog.NewBuiltInMemory()
+	memTemplates, _ := builtinMemory.Fetch(ctx)
+	for i := range memTemplates {
+		store.PutTemplate(ctx, &memTemplates[i])
 	}
 
 	// Catalog aggregator — one local source per kind, plus federated registries.
@@ -81,6 +87,7 @@ func main() {
 		catalog.NewLocalSource(store, capability.KindMemory),
 		providers,
 		builtinSkills,
+		builtinMemory,
 	}
 	aggregator := catalog.NewAggregator(sources)
 
@@ -94,6 +101,12 @@ func main() {
 		log.Info().Msg("using no-op K8s client (dev mode)")
 	}
 	engine := deploy.NewEngineWithK8s(store, k8sClient, cfg.TrustDomain, cfg.GatewayName)
+
+	// Memory plane: one broker, one default backend (Local for now). Production
+	// installs will register Firestore/AlloyDB/Vertex backends here too. The
+	// broker also implements deploy.KindHook so namespaces are wired on Deploy.
+	memBroker := memplex.NewBroker(memplex.NewLocalBackend())
+	engine.RegisterKindHook(capability.KindMemory, memBroker)
 
 	// Auth (Ory Hydra)
 	hydraClient := auth.NewHydraClient(cfg.HydraAdminURL)
@@ -244,6 +257,10 @@ func main() {
 
 	// SkillsPlex skills manifest (per-instance)
 	r.Get("/skills/{instanceId}/.well-known/skills.json", skillsH.GetSkillsManifest)
+
+	// Memory plane: broker is mounted under /cap/memory/* and handles every
+	// read/write/search/list/subscribe call after ext_authz approves it.
+	r.Mount("/cap/memory/", http.StripPrefix("", memBroker))
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

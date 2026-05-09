@@ -21,6 +21,16 @@ type Engine struct {
 	k8s         K8sClient
 	trustDomain string
 	gatewayName string
+	hooks       map[capability.Kind]KindHook
+}
+
+// KindHook receives lifecycle events for capabilities of a specific kind. It
+// is the extension point that lets new kinds plug into the engine without
+// branching the engine code. Memory uses it to register namespaces with the
+// broker; future kinds (e.g. cap://meta/*) can use it for self-host.
+type KindHook interface {
+	OnRegister(ctx context.Context, inst *models.Instance, cap capability.Cap, attrs capability.Attrs) error
+	OnUnregister(ctx context.Context, inst *models.Instance, cap capability.Cap) error
 }
 
 // NewEngine creates a deploy engine.
@@ -30,6 +40,7 @@ func NewEngine(store registry.Store, trustDomain string) *Engine {
 		k8s:         NewNoOpK8sClient(),
 		trustDomain: trustDomain,
 		gatewayName: "aiplex-gateway",
+		hooks:       map[capability.Kind]KindHook{},
 	}
 }
 
@@ -40,7 +51,15 @@ func NewEngineWithK8s(store registry.Store, k8s K8sClient, trustDomain, gatewayN
 		k8s:         k8s,
 		trustDomain: trustDomain,
 		gatewayName: gatewayName,
+		hooks:       map[capability.Kind]KindHook{},
 	}
+}
+
+// RegisterKindHook attaches a lifecycle hook for kind k. Hooks fire after the
+// instance is persisted, K8s manifests are applied, and capabilities are
+// discovered — but before Status flips to Running.
+func (e *Engine) RegisterKindHook(k capability.Kind, h KindHook) {
+	e.hooks[k] = h
 }
 
 // Deploy provisions an instance for any capability kind.
@@ -122,13 +141,23 @@ func (e *Engine) Deploy(ctx context.Context, kind capability.Kind, templateID st
 		}
 	}
 
-	// 9. Grant the owner the caps this instance just exposed.
+	// 9. Run the kind-specific lifecycle hook (if registered).
+	if hook, ok := e.hooks[kind]; ok {
+		for _, c := range inst.Capabilities {
+			attrs := lookupAttrs(tmpl, c.URI)
+			if err := hook.OnRegister(ctx, inst, c, attrs); err != nil {
+				logger.Warn().Err(err).Str("uri", c.URI).Msg("kind hook OnRegister failed")
+			}
+		}
+	}
+
+	// 10. Grant the owner the caps this instance just exposed.
 	existing, _ := e.store.GetUserCaps(ctx, owner)
 	if err := e.store.SetUserCaps(ctx, owner, existing.Union(inst.Capabilities)); err != nil {
 		logger.Warn().Err(err).Msg("failed to grant owner caps")
 	}
 
-	// 10. Mark running and record history.
+	// 11. Mark running and record history.
 	e.recordHistory(ctx, inst, "deploy", owner, config, start, true, "")
 	inst.Status = models.StatusRunning
 	e.store.PutInstance(ctx, inst)
@@ -248,6 +277,14 @@ func (e *Engine) Undeploy(ctx context.Context, instanceID, performer string) err
 		}
 	}
 
+	if hook, ok := e.hooks[inst.Kind]; ok {
+		for _, c := range inst.Capabilities {
+			if err := hook.OnUnregister(ctx, inst, c); err != nil {
+				logger.Warn().Err(err).Str("uri", c.URI).Msg("kind hook OnUnregister failed")
+			}
+		}
+	}
+
 	inst.Status = models.StatusTerminated
 	inst.UpdatedAt = time.Now()
 	if err := e.store.PutInstance(ctx, inst); err != nil {
@@ -258,6 +295,20 @@ func (e *Engine) Undeploy(ctx context.Context, instanceID, performer string) err
 
 	logger.Info().Dur("duration", time.Since(start)).Msg("undeploy complete")
 	return nil
+}
+
+// lookupAttrs finds the Attrs for a capability URI on the template, returning
+// a zero Attrs if the template doesn't list the cap (e.g. discovered post-hoc).
+func lookupAttrs(tmpl *models.Template, uri string) capability.Attrs {
+	if tmpl == nil {
+		return capability.Attrs{}
+	}
+	for _, c := range tmpl.Capabilities {
+		if c.URI == uri {
+			return c.Attrs
+		}
+	}
+	return capability.Attrs{}
 }
 
 func (e *Engine) recordHistory(ctx context.Context, inst *models.Instance, action, performer string, config map[string]any, start time.Time, success bool, errMsg string) {
