@@ -23,6 +23,13 @@ This folder contains detailed design documents for each major subsystem of AIPle
 | 15 | [Auth Alternatives](15-auth-alternatives-keycloak-rethink.md) | Auth rethink | Auth stack comparison — Keycloak vs Ory Hydra vs Dex vs Zitadel |
 | 16 | [Delightful Onboarding](16-delightful-onboarding.md) | UX/DX | Zero-jargon onboarding, SDK, progressive disclosure, error messages |
 | 17 | [Seamless Platform Bootstrap](17-seamless-platform-bootstrap.md) | Setup | No kubectl/helm/terraform — single binary, one command, Owner role only |
+| 18 | [Capability Mesh](18-capability-mesh.md) | **100x rewrite** | One primitive that subsumes all four planes. URI grammar + structured `caps` JWT claim. |
+| 19 | [CapabilityRoute CRD](19-capability-route-crd.md) | **100x rewrite** | Single CRD that replaces `MCPRoute` / `HTTPRoute` / `LLMRoute` / skill routes. |
+| 20 | [MemPlex: Memory Plane](20-memplex-memory-plane.md) | **100x rewrite** | First new plane built native to the Capability Mesh — proof the abstraction holds. |
+| 21 | [Runtime Consent & Trust Ledger](21-runtime-consent-and-trust-ledger.md) | **100x rewrite** | Just-in-time step-up consent + cryptographically-signed receipt chain. |
+| 22 | [The 100x Roadmap](22-roadmap-100x.md) | **100x rewrite** | Phased, strict-superset migration that keeps every existing plane working through the cutover. |
+
+> Docs **18–22** describe the proposed next-generation architecture. Read them as a set, in order. They supersede the per-plane design in 02–10 incrementally — see [22 — Roadmap](22-roadmap-100x.md) for the phasing.
 
 ## How to Read These
 
