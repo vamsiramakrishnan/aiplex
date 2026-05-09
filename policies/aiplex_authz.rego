@@ -2,51 +2,52 @@ package aiplex.authz
 
 import rego.v1
 
+# Capability Mesh policy — single rule across all kinds.
+#
+# The capability resolver (Envoy ext_proc filter) inspects the incoming request
+# and writes the matched capability URI + action into filter metadata under
+# `aiplex.cap`. OPA reads that metadata and verifies the JWT carries a `caps`
+# claim entry that grants the action on that URI.
+#
+# Discovery actions (initialize, *_list, ping, health) do not require a cap.
+
 default allow := false
 
-token := io.jwt.decode_verify(
-    input.attributes.request.http.headers.authorization,
-    {"iss": "https://aiplex.example.com/auth/realms/aiplex"}
-)
-claims := token[2]
-scopes := split(claims.scope, " ")
-body := json.unmarshal(input.attributes.request.http.body)
-path := input.attributes.request.http.path
-
-# ── MCPlex: tool calls ──
-allow if {
-    body.method == "tools/call"
-    sprintf("mcp:tools:%s", [body.params.name]) in scopes
+# ── Token verification ──
+token := payload if {
+	[valid, _, payload] := io.jwt.decode_verify(
+		input.attributes.request.http.headers.authorization,
+		{"iss": "https://aiplex.example.com/auth/realms/aiplex"}
+	)
+	valid
 }
 
-# ── A2APlex: agent-to-agent task delegation ──
-allow if {
-    startswith(path, "/a2a/")
-    sprintf("a2a:task:%s", [body.task_type]) in scopes
+# Extract resolver-populated metadata.
+requested_uri := input.attributes.metadata_context.filter_metadata["aiplex.cap"].uri
+requested_action := input.attributes.metadata_context.filter_metadata["aiplex.cap"].action
+
+# A cap claim from the token grants (uri, action).
+cap_grants(c, uri, action) if {
+	c.uri == uri
+	action in c.actions
 }
 
-# ── LLMPlex: model inference ──
-allow if {
-    startswith(path, "/llm/")
-    model := input.attributes.request.http.headers["x-model-id"]
-    sprintf("llm:model:%s", [model]) in scopes
+# Empty actions in the cap claim means "all kind-default actions" — but we
+# require the resolver to have populated metadata, so default actions are
+# enforced upstream by the resolver, not here.
+matching_cap := c if {
+	some c in token.caps
+	cap_grants(c, requested_uri, requested_action)
 }
 
-# ── SkillsPlex: skill invocation (skills/invoke JSON-RPC) ──
 allow if {
-    body.method == "skills/invoke"
-    sprintf("skill:invoke:%s", [body.params.name]) in scopes
+	matching_cap
 }
 
-# ── SkillsPlex: HTTP-style skill calls under /skills/ ──
-allow if {
-    startswith(path, "/skills/")
-    sprintf("skill:invoke:%s", [body.skill_name]) in scopes
-}
+# ── Discovery: no cap required, just authentication ──
+discovery_actions := {"initialize", "discover", "describe", "ping", "health"}
 
-# ── Discovery (all planes) ──
 allow if {
-    body.method in {"initialize", "tools/list", "resources/list",
-                    "tasks/list", "agents/list", "models/list",
-                    "skills/list", "ping"}
+	requested_action in discovery_actions
+	token  # ensure the request was authenticated
 }

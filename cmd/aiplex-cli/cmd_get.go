@@ -38,7 +38,7 @@ func getInstanceCmd() *cobra.Command {
 			}
 
 			fmt.Printf("Instance: %s\n", inst.ID)
-			fmt.Printf("  Plane:       %s\n", inst.Plane)
+			fmt.Printf("  Kind:        %s\n", inst.Kind)
 			fmt.Printf("  Template:    %s\n", inst.TemplateID)
 			fmt.Printf("  Status:      %s\n", inst.Status)
 			fmt.Printf("  Owner:       %s\n", inst.Owner)
@@ -49,10 +49,10 @@ func getInstanceCmd() *cobra.Command {
 			if inst.DisplayName != "" {
 				fmt.Printf("  Name:        %s\n", inst.DisplayName)
 			}
-			if len(inst.Scopes) > 0 {
-				fmt.Printf("  Scopes:\n")
-				for _, s := range inst.Scopes {
-					fmt.Printf("    - %s\n", s)
+			if len(inst.Capabilities) > 0 {
+				fmt.Printf("  Capabilities:\n")
+				for _, c := range inst.Capabilities {
+					fmt.Printf("    - %s %v\n", c.URI, c.Actions)
 				}
 			}
 			fmt.Printf("  Deployed:    %s\n", inst.DeployedAt.Format("2006-01-02 15:04:05"))
@@ -88,22 +88,21 @@ func getAgentCmd() *cobra.Command {
 			if agent.SpiffeID != "" {
 				fmt.Printf("  SPIFFE ID:   %s\n", agent.SpiffeID)
 			}
-			if len(agent.AllowedScopes) > 0 {
-				fmt.Printf("  Allowed Scopes (Dimension A):\n")
-				for _, s := range agent.AllowedScopes {
-					fmt.Printf("    - %s\n", s)
+			if len(agent.AllowedCaps) > 0 {
+				fmt.Printf("  Allowed Capabilities (Dimension A):\n")
+				for _, c := range agent.AllowedCaps {
+					fmt.Printf("    - %s %v\n", c.URI, c.Actions)
 				}
 			}
 
-			// Also fetch cross-plane permissions
 			perms, err := c.GetAgentPermissions(ctx, args[0])
 			if err == nil && perms != nil {
 				fmt.Println()
-				fmt.Println("  Cross-Plane Permissions:")
-				for plane, scopes := range perms.Ceiling {
-					fmt.Printf("    %s:\n", plane)
-					for _, s := range scopes {
-						fmt.Printf("      - %s\n", s.Scope)
+				fmt.Println("  Cross-Kind Permissions:")
+				for kind, caps := range perms.Ceiling {
+					fmt.Printf("    %s:\n", kind)
+					for _, c := range caps {
+						fmt.Printf("      - %s\n", c.URI)
 					}
 				}
 			}

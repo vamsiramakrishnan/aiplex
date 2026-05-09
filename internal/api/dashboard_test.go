@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -19,15 +20,14 @@ func setupDashboardRouter() (chi.Router, *registry.MemoryStore) {
 	store := registry.NewMemoryStore()
 	ctx := context.Background()
 
-	// Seed data
 	store.PutInstance(ctx, &models.Instance{
-		ID: "inst-1", Plane: models.PlaneMCPlex, Status: models.StatusRunning,
+		ID: "inst-1", Kind: capability.KindTool, Status: models.StatusRunning,
 	})
 	store.PutInstance(ctx, &models.Instance{
-		ID: "inst-2", Plane: models.PlaneA2APlex, Status: models.StatusRunning,
+		ID: "inst-2", Kind: capability.KindTask, Status: models.StatusRunning,
 	})
 	store.PutInstance(ctx, &models.Instance{
-		ID: "inst-3", Plane: models.PlaneLLMPlex, Status: models.StatusStopped,
+		ID: "inst-3", Kind: capability.KindModel, Status: models.StatusStopped,
 	})
 	store.PutAgent(ctx, &models.Agent{
 		ClientID: "agent-1", DisplayName: "Agent 1", Status: "active",
@@ -37,8 +37,9 @@ func setupDashboardRouter() (chi.Router, *registry.MemoryStore) {
 		TotalTokens: 1500, CostUSD: 0.50, Timestamp: time.Now(),
 	})
 	store.AppendPolicyDenial(ctx, &models.PolicyDenial{
-		ID: "d1", Plane: "mcplex", AgentID: "agent-1", Action: "tools/call:secret_tool",
-		Scope: "mcp:tools:secret_tool", Reason: "scope_missing", Timestamp: time.Now(),
+		ID: "d1", Kind: capability.KindTool, AgentID: "agent-1",
+		CapURI: "cap://tool/secret_tool@v1", Action: "call",
+		Reason: "cap_missing", Timestamp: time.Now(),
 	})
 
 	h := api.NewDashboardHandler(store)
@@ -72,11 +73,11 @@ func TestDashboard_Stats(t *testing.T) {
 	if stats.RegisteredAgents != 1 {
 		t.Errorf("expected 1 agent, got %d", stats.RegisteredAgents)
 	}
-	if stats.ActivePlanes != 3 {
-		t.Errorf("expected 3 planes, got %d", stats.ActivePlanes)
+	if stats.ActiveKinds != 3 {
+		t.Errorf("expected 3 kinds, got %d", stats.ActiveKinds)
 	}
-	if stats.MCPlexInstances != 1 {
-		t.Errorf("expected 1 MCPlex, got %d", stats.MCPlexInstances)
+	if stats.InstancesByKind[capability.KindTool] != 1 {
+		t.Errorf("expected 1 tool instance, got %d", stats.InstancesByKind[capability.KindTool])
 	}
 	if stats.DailyCostUSD != 0.50 {
 		t.Errorf("expected $0.50 daily cost, got %f", stats.DailyCostUSD)
@@ -89,7 +90,6 @@ func TestDashboard_Stats(t *testing.T) {
 func TestDashboard_PolicyDenials(t *testing.T) {
 	r, _ := setupDashboardRouter()
 
-	// List existing
 	req := httptest.NewRequest("GET", "/api/v1/dashboard/denials", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -100,14 +100,13 @@ func TestDashboard_PolicyDenials(t *testing.T) {
 		t.Errorf("expected 1 denial, got %d", len(denials))
 	}
 
-	// Record new denial
 	body := `{
 		"id": "d2",
-		"plane": "llmplex",
+		"kind": "model",
 		"agent_id": "agent-1",
-		"action": "llm:model:gpt-4.1",
-		"scope": "llm:model:gpt-4.1",
-		"reason": "scope_missing"
+		"cap_uri": "cap://model/gpt-4.1@v1",
+		"action": "complete",
+		"reason": "cap_missing"
 	}`
 	req = httptest.NewRequest("POST", "/api/v1/dashboard/denials", strings.NewReader(body))
 	w = httptest.NewRecorder()
@@ -116,7 +115,6 @@ func TestDashboard_PolicyDenials(t *testing.T) {
 		t.Fatalf("record denial: expected 201, got %d", w.Code)
 	}
 
-	// Verify count increased
 	req = httptest.NewRequest("GET", "/api/v1/dashboard/denials", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -23,41 +24,28 @@ func NewDashboardHandler(store registry.Store) *DashboardHandler {
 func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Instance counts
 	allInstances, _ := h.store.ListInstances(ctx, "")
-	mcplex, _ := h.store.ListInstances(ctx, models.PlaneMCPlex)
-	a2aplex, _ := h.store.ListInstances(ctx, models.PlaneA2APlex)
-	llmplex, _ := h.store.ListInstances(ctx, models.PlaneLLMPlex)
-	skillsplex, _ := h.store.ListInstances(ctx, models.PlaneSkillsPlex)
 	agents, _ := h.store.ListAgents(ctx)
 
 	running := 0
-	planes := map[models.Plane]bool{}
+	byKind := make(map[capability.Kind]int)
 	for _, inst := range allInstances {
 		if inst.Status == models.StatusRunning {
 			running++
 		}
-		planes[inst.Plane] = true
+		byKind[inst.Kind]++
 	}
 
-	// LLM usage (last 24h)
 	usage, _ := h.store.GetUsageSummary(ctx, "", "", "day")
-
-	// Delegations count (efficient — no full fetch)
 	delegationCount, _ := h.store.CountDelegations(ctx)
-
-	// Policy denial count (efficient — no full fetch)
 	denialCount, _ := h.store.CountPolicyDenials(ctx)
 
 	stats := models.DashboardStats{
 		TotalInstances:   len(allInstances),
 		RunningInstances: running,
 		RegisteredAgents: len(agents),
-		ActivePlanes:     len(planes),
-		MCPlexInstances:     len(mcplex),
-		A2APlexInstances:    len(a2aplex),
-		LLMPlexInstances:    len(llmplex),
-		SkillsPlexInstances: len(skillsplex),
+		ActiveKinds:      len(byKind),
+		InstancesByKind:  byKind,
 		DailyCostUSD:     usage.TotalCostUSD,
 		DailyTokens:      usage.TotalTokens,
 		DailyRequests:    usage.RequestCount,

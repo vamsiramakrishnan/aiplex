@@ -34,7 +34,7 @@ export default function A2APlex() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<'agents' | 'catalog' | 'delegations'>('agents')
   const [search, setSearch] = useState('')
-  const catalog = useQuery({ queryKey: ['catalog', 'a2aplex'], queryFn: () => getCatalog('a2aplex') })
+  const catalog = useQuery({ queryKey: ['catalog', 'task'], queryFn: () => getCatalog('task') })
   const agentCards = useQuery({ queryKey: ['a2a-agents'], queryFn: getAgentCards })
   const delegations = useQuery({ queryKey: ['a2a-delegations'], queryFn: getDelegations })
 
@@ -48,7 +48,7 @@ export default function A2APlex() {
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-2xl font-bold">A2APlex</h2>
         <button
-          onClick={() => navigate('/deploy?plane=a2aplex')}
+          onClick={() => navigate('/deploy?kind=task')}
           className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
         >
           Deploy A2A Agent
@@ -92,11 +92,10 @@ export default function A2APlex() {
                   </div>
                   <p className="text-xs text-gray-400 mb-2 font-mono">{card.url}</p>
                   <div className="flex gap-1 flex-wrap">
-                    {card.task_types?.map((scope) => {
-                      const label = scope.replace('a2a:task:', '')
+                    {card.task_types?.map((task: string) => {
                       return (
-                        <span key={scope} className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-xs rounded">
-                          {label}
+                        <span key={task} className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-xs rounded">
+                          {task}
                         </span>
                       )
                     })}
@@ -140,7 +139,7 @@ export default function A2APlex() {
               </div>
               <p className="text-sm text-gray-500 mb-3">{t.description}</p>
               <button
-                onClick={() => navigate(`/deploy?plane=a2aplex&template=${t.id}`)}
+                onClick={() => navigate(`/deploy?kind=task&template=${t.id}`)}
                 className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
               >
                 Deploy

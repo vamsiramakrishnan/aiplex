@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
@@ -20,7 +21,7 @@ import (
 //   templates/{id}       — cached catalog templates
 //   agents/{clientId}    — registered OAuth clients
 //   deploy_history/{id}  — append-only audit trail
-//   user_scopes/{userId} — Dimension B (user ceiling)
+//   user_caps/{userId}   — Dimension B (user ceiling, structured caps)
 //   route_configs/{modelID} — LLM routing configs
 //   provider_configs/{provider} — LLM provider settings
 //   usage_records/{id}   — token usage tracking (append-only)
@@ -82,12 +83,12 @@ func (f *FirestoreStore) GetInstance(ctx context.Context, id string) (*models.In
 	return &inst, nil
 }
 
-func (f *FirestoreStore) ListInstances(ctx context.Context, plane models.Plane) ([]models.Instance, error) {
+func (f *FirestoreStore) ListInstances(ctx context.Context, kind capability.Kind) ([]models.Instance, error) {
 	var iter *firestore.DocumentIterator
-	if plane == "" {
+	if kind == "" {
 		iter = f.client.Collection("instances").Documents(ctx)
 	} else {
-		iter = f.client.Collection("instances").Where("plane", "==", string(plane)).Documents(ctx)
+		iter = f.client.Collection("instances").Where("kind", "==", string(kind)).Documents(ctx)
 	}
 
 	var instances []models.Instance
@@ -145,12 +146,12 @@ func (f *FirestoreStore) GetTemplate(ctx context.Context, id string) (*models.Te
 	return &t, nil
 }
 
-func (f *FirestoreStore) ListTemplates(ctx context.Context, plane models.Plane, page, pageSize int) ([]models.Template, int, error) {
+func (f *FirestoreStore) ListTemplates(ctx context.Context, kind capability.Kind, page, pageSize int) ([]models.Template, int, error) {
 	var query firestore.Query
-	if plane == "" {
+	if kind == "" {
 		query = f.client.Collection("templates").OrderBy("name", firestore.Asc)
 	} else {
-		query = f.client.Collection("templates").Where("plane", "==", string(plane)).OrderBy("name", firestore.Asc)
+		query = f.client.Collection("templates").Where("kind", "==", string(kind)).OrderBy("name", firestore.Asc)
 	}
 
 	// Get total count (Firestore doesn't have native count, so we fetch all IDs)
@@ -293,31 +294,31 @@ func (f *FirestoreStore) ListHistory(ctx context.Context, instanceID string, lim
 	return history, nil
 }
 
-// ── User Scopes ──
+// ── User Caps (Dimension B) ──
 
-type userScopesDoc struct {
-	Scopes []string `firestore:"scopes"`
+type userCapsDoc struct {
+	Caps capability.CapSet `firestore:"caps"`
 }
 
-func (f *FirestoreStore) GetUserScopes(ctx context.Context, userID string) ([]string, error) {
-	doc, err := f.client.Collection("user_scopes").Doc(userID).Get(ctx)
+func (f *FirestoreStore) GetUserCaps(ctx context.Context, userID string) (capability.CapSet, error) {
+	doc, err := f.client.Collection("user_caps").Doc(userID).Get(ctx)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("firestore get user scopes: %w", err)
+		return nil, fmt.Errorf("firestore get user caps: %w", err)
 	}
-	var data userScopesDoc
+	var data userCapsDoc
 	if err := doc.DataTo(&data); err != nil {
-		return nil, fmt.Errorf("firestore decode user scopes: %w", err)
+		return nil, fmt.Errorf("firestore decode user caps: %w", err)
 	}
-	return data.Scopes, nil
+	return data.Caps, nil
 }
 
-func (f *FirestoreStore) SetUserScopes(ctx context.Context, userID string, scopes []string) error {
-	_, err := f.client.Collection("user_scopes").Doc(userID).Set(ctx, userScopesDoc{Scopes: scopes})
+func (f *FirestoreStore) SetUserCaps(ctx context.Context, userID string, caps capability.CapSet) error {
+	_, err := f.client.Collection("user_caps").Doc(userID).Set(ctx, userCapsDoc{Caps: caps})
 	if err != nil {
-		return fmt.Errorf("firestore set user scopes: %w", err)
+		return fmt.Errorf("firestore set user caps: %w", err)
 	}
 	return nil
 }

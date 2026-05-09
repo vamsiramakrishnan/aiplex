@@ -5,11 +5,8 @@ interface DashboardStats {
   total_instances: number
   running_instances: number
   registered_agents: number
-  active_planes: number
-  mcplex_instances: number
-  a2aplex_instances: number
-  llmplex_instances: number
-  skillsplex_instances: number
+  active_kinds: number
+  instances_by_kind: Record<string, number>
   daily_cost_usd: number
   daily_tokens: number
   daily_requests: number
@@ -21,35 +18,37 @@ interface DashboardStats {
 interface PolicyDenial {
   id: string
   timestamp: string
-  plane: string
+  kind: string
   agent_id: string
+  cap_uri: string
   action: string
-  scope: string
   reason: string
 }
 
 const getStats = () => fetch('/api/v1/dashboard/stats').then(r => r.json()) as Promise<DashboardStats>
 const getDenials = () => fetch('/api/v1/dashboard/denials').then(r => r.json()) as Promise<PolicyDenial[]>
 
-export default function Dashboard() {
-  // Real-time SSE stats (5s updates)
-  const sseStats = useSSE(true)
+const KIND_COLORS: Record<string, string> = {
+  tool: 'blue',
+  task: 'purple',
+  model: 'amber',
+  skill: 'green',
+  memory: 'pink',
+  meta: 'gray',
+}
 
-  // Fallback polling query (1 minute interval in case SSE disconnects)
+export default function Dashboard() {
+  const sseStats = useSSE(true)
   const statsQuery = useQuery({ queryKey: ['dashboard-stats'], queryFn: getStats, refetchInterval: 60000 })
   const denials = useQuery({ queryKey: ['dashboard-denials'], queryFn: getDenials })
 
-  // Use SSE stats if available, otherwise fall back to query data
-  const s = sseStats ? {
+  const s: DashboardStats | undefined = sseStats ? {
     total_instances: sseStats.total_instances,
     running_instances: sseStats.running,
     registered_agents: sseStats.agents,
-    active_planes: [sseStats.mcplex, sseStats.a2aplex, sseStats.llmplex, sseStats.skillsplex ?? 0].filter(n => n > 0).length,
-    mcplex_instances: sseStats.mcplex,
-    a2aplex_instances: sseStats.a2aplex,
-    llmplex_instances: sseStats.llmplex,
-    skillsplex_instances: sseStats.skillsplex ?? 0,
-    daily_cost_usd: 0, // SSE doesn't include cost data yet
+    active_kinds: Object.values(sseStats.instances_by_kind ?? {}).filter((n: number) => n > 0).length,
+    instances_by_kind: sseStats.instances_by_kind ?? {},
+    daily_cost_usd: 0,
     daily_tokens: 0,
     daily_requests: 0,
     tool_calls_24h: 0,
@@ -57,27 +56,27 @@ export default function Dashboard() {
     policy_denials_24h: sseStats.denials,
   } : statsQuery.data
 
+  const byKind = s?.instances_by_kind ?? {}
+
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">Dashboard</h2>
 
-      {/* Top-level stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         <StatCard label="Total Instances" value={s?.total_instances ?? 0} />
         <StatCard label="Running" value={s?.running_instances ?? 0} color="green" />
         <StatCard label="Registered Agents" value={s?.registered_agents ?? 0} />
-        <StatCard label="Active Planes" value={s?.active_planes ?? 0} />
+        <StatCard label="Active Kinds" value={s?.active_kinds ?? 0} />
       </div>
 
-      {/* Per-plane + costs */}
       <div className="grid grid-cols-3 gap-6 mb-8">
         <div className="bg-white rounded-lg shadow p-4">
-          <h3 className="font-semibold text-lg mb-3">Per Plane</h3>
+          <h3 className="font-semibold text-lg mb-3">Per Kind</h3>
           <div className="space-y-2">
-            <PlaneRow label="MCPlex" count={s?.mcplex_instances ?? 0} color="blue" />
-            <PlaneRow label="A2APlex" count={s?.a2aplex_instances ?? 0} color="purple" />
-            <PlaneRow label="LLMPlex" count={s?.llmplex_instances ?? 0} color="amber" />
-            <PlaneRow label="SkillsPlex" count={s?.skillsplex_instances ?? 0} color="amber" />
+            {Object.entries(byKind).map(([kind, count]) => (
+              <KindRow key={kind} label={kind} count={count} color={KIND_COLORS[kind] ?? 'gray'} />
+            ))}
+            {Object.keys(byKind).length === 0 && <p className="text-sm text-gray-400">No instances yet.</p>}
           </div>
         </div>
 
@@ -118,7 +117,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Policy denials */}
       <h3 className="font-semibold text-lg mb-3">Recent Policy Denials</h3>
       {denials.data && denials.data.length > 0 ? (
         <div className="bg-white rounded-lg shadow">
@@ -126,8 +124,9 @@ export default function Dashboard() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="text-left px-4 py-3">Time</th>
-                <th className="text-left px-4 py-3">Plane</th>
+                <th className="text-left px-4 py-3">Kind</th>
                 <th className="text-left px-4 py-3">Agent</th>
+                <th className="text-left px-4 py-3">Capability</th>
                 <th className="text-left px-4 py-3">Action</th>
                 <th className="text-left px-4 py-3">Reason</th>
               </tr>
@@ -139,9 +138,10 @@ export default function Dashboard() {
                     {d.timestamp ? new Date(d.timestamp).toLocaleTimeString() : '-'}
                   </td>
                   <td className="px-4 py-3">
-                    <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">{d.plane}</span>
+                    <span className="px-1.5 py-0.5 bg-gray-100 text-gray-700 text-xs rounded">{d.kind}</span>
                   </td>
                   <td className="px-4 py-3 font-mono text-xs">{d.agent_id}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{d.cap_uri}</td>
                   <td className="px-4 py-3 font-mono text-xs">{d.action}</td>
                   <td className="px-4 py-3">
                     <span className="px-1.5 py-0.5 bg-red-50 text-red-700 text-xs rounded">{d.reason}</span>
@@ -167,16 +167,19 @@ function StatCard({ label, value, color }: { label: string; value: number; color
   )
 }
 
-function PlaneRow({ label, count, color }: { label: string; count: number; color: string }) {
+function KindRow({ label, count, color }: { label: string; count: number; color: string }) {
   const colors: Record<string, string> = {
     blue: 'bg-blue-500',
     purple: 'bg-purple-500',
     amber: 'bg-amber-500',
+    green: 'bg-green-500',
+    pink: 'bg-pink-500',
+    gray: 'bg-gray-500',
   }
   return (
     <div className="flex items-center gap-3">
       <span className={`w-3 h-3 rounded-full ${colors[color]}`} />
-      <span className="text-sm flex-1">{label}</span>
+      <span className="text-sm flex-1 capitalize">{label}</span>
       <span className="font-semibold">{count}</span>
     </div>
   )

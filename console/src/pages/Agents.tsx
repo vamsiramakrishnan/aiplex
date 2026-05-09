@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listAgents, registerAgent, deleteAgent } from '../api/client'
+import { listAgents, registerAgent, deleteAgent, type Cap } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import ScopeSelector from '../components/ScopeSelector'
 
@@ -9,6 +9,21 @@ const AUTH_METHODS = [
   { value: 'authorization_code', label: 'Authorization Code + PKCE', desc: 'IDE integrations (Cursor, VS Code)' },
   { value: 'device_code', label: 'Device Grant', desc: 'CLI tools (Claude Code, terminal agents)' },
 ]
+
+const KIND_OF = (uri: string): string => {
+  const m = uri.match(/^cap:\/\/([^/]+)\//)
+  return m ? m[1] : 'other'
+}
+
+const KIND_COLORS: Record<string, string> = {
+  tool: 'bg-blue-100 text-blue-700',
+  task: 'bg-purple-100 text-purple-700',
+  model: 'bg-green-100 text-green-700',
+  skill: 'bg-amber-100 text-amber-700',
+  memory: 'bg-pink-100 text-pink-700',
+  meta: 'bg-gray-100 text-gray-700',
+  other: 'bg-gray-100 text-gray-700',
+}
 
 export default function Agents() {
   const queryClient = useQueryClient()
@@ -32,7 +47,7 @@ export default function Agents() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold">Agents</h2>
-          <p className="text-gray-500">Registered OAuth clients across all planes</p>
+          <p className="text-gray-500">Registered OAuth clients across all capability kinds</p>
         </div>
         <button
           onClick={() => setShowRegister(!showRegister)}
@@ -68,7 +83,7 @@ export default function Agents() {
               <th className="text-left px-4 py-3">Name</th>
               <th className="text-left px-4 py-3">Client ID</th>
               <th className="text-left px-4 py-3">Auth Method</th>
-              <th className="text-left px-4 py-3">Scopes</th>
+              <th className="text-left px-4 py-3">Capabilities</th>
               <th className="text-left px-4 py-3">Status</th>
               <th className="text-left px-4 py-3"></th>
             </tr>
@@ -84,7 +99,7 @@ export default function Agents() {
                   <td className="px-4 py-3 font-medium">{agent.display_name}</td>
                   <td className="px-4 py-3 text-gray-500 font-mono text-xs">{agent.client_id}</td>
                   <td className="px-4 py-3 text-gray-500">{agent.auth_method}</td>
-                  <td className="px-4 py-3 text-gray-500">{agent.allowed_scopes?.length ?? 0} scopes</td>
+                  <td className="px-4 py-3 text-gray-500">{agent.allowed_caps?.length ?? 0} caps</td>
                   <td className="px-4 py-3"><StatusBadge status={agent.status} /></td>
                   <td className="px-4 py-3">
                     <button
@@ -106,21 +121,13 @@ export default function Agents() {
                       {agent.description && (
                         <p className="text-sm text-gray-600 mb-2">{agent.description}</p>
                       )}
-                      <div className="text-xs font-medium text-gray-500 mb-1">Allowed Scopes (Dimension A):</div>
+                      <div className="text-xs font-medium text-gray-500 mb-1">Allowed Capabilities (Dimension A):</div>
                       <div className="flex flex-wrap gap-1">
-                        {agent.allowed_scopes?.map(scope => {
-                          const plane = scope.startsWith('mcp:') ? 'mcp' :
-                                       scope.startsWith('a2a:') ? 'a2a' :
-                                       scope.startsWith('llm:') ? 'llm' : 'other'
-                          const colors: Record<string, string> = {
-                            mcp: 'bg-blue-100 text-blue-700',
-                            a2a: 'bg-purple-100 text-purple-700',
-                            llm: 'bg-green-100 text-green-700',
-                            other: 'bg-gray-100 text-gray-700',
-                          }
+                        {agent.allowed_caps?.map(c => {
+                          const kind = KIND_OF(c.uri)
                           return (
-                            <span key={scope} className={`px-2 py-0.5 rounded text-xs ${colors[plane]}`}>
-                              {scope}
+                            <span key={c.uri} className={`px-2 py-0.5 rounded text-xs ${KIND_COLORS[kind]}`}>
+                              {c.uri}{c.actions ? ` [${c.actions.join(',')}]` : ''}
                             </span>
                           )
                         })}
@@ -155,7 +162,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
   const [displayName, setDisplayName] = useState('')
   const [description, setDescription] = useState('')
   const [authMethod, setAuthMethod] = useState('client_credentials')
-  const [scopes, setScopes] = useState<string[]>([])
+  const [capURIs, setCapURIs] = useState<string[]>([])
   const [error, setError] = useState('')
 
   const register = useMutation({
@@ -168,19 +175,20 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
                      authMethod === 'device_code' ? ['urn:ietf:params:oauth:grant-type:device_code'] :
                      ['authorization_code']
 
+  const allowedCaps: Cap[] = capURIs.map(uri => ({ uri }))
+
   return (
     <div className="bg-white rounded-lg shadow p-6 mb-6">
       <h3 className="text-lg font-bold mb-4">Register New Agent</h3>
 
-      {/* Step indicators */}
       <div className="flex gap-4 mb-6">
-        {['Identity', 'Auth Method', 'Permissions', 'Review'].map((label, i) => (
+        {['Identity', 'Auth Method', 'Capabilities', 'Review'].map((label, i) => (
           <div key={label} className="flex items-center gap-2">
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs
               ${step > i + 1 ? 'bg-green-100 text-green-700' :
                 step === i + 1 ? 'bg-brand-600 text-white' :
                 'bg-gray-100 text-gray-400'}`}>
-              {step > i + 1 ? '\u2713' : i + 1}
+              {step > i + 1 ? '✓' : i + 1}
             </div>
             <span className={`text-sm ${step === i + 1 ? 'font-medium' : 'text-gray-400'}`}>
               {label}
@@ -189,7 +197,6 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
         ))}
       </div>
 
-      {/* Step 1: Identity */}
       {step === 1 && (
         <div className="space-y-3">
           <div>
@@ -231,7 +238,6 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
       )}
 
-      {/* Step 2: Auth Method */}
       {step === 2 && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">How will this agent authenticate?</p>
@@ -257,14 +263,13 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
       )}
 
-      {/* Step 3: Permissions */}
       {step === 3 && (
         <div className="space-y-3">
           <p className="text-sm text-gray-600">
-            Set the maximum scopes this agent can ever request (Dimension A ceiling).
+            Set the maximum capabilities this agent can ever request (Dimension A ceiling).
             Users can further restrict these at consent time.
           </p>
-          <ScopeSelector selected={scopes} onChange={setScopes} />
+          <ScopeSelector selected={capURIs} onChange={setCapURIs} />
           <div className="flex gap-2">
             <button onClick={() => setStep(2)} className="px-4 py-2 border text-sm rounded">Back</button>
             <button onClick={() => setStep(4)} className="px-4 py-2 bg-brand-600 text-white text-sm rounded">
@@ -274,7 +279,6 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
       )}
 
-      {/* Step 4: Review */}
       {step === 4 && (
         <div className="space-y-3">
           <div className="bg-gray-50 rounded p-4 text-sm space-y-2">
@@ -291,17 +295,16 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
               <span>{authMethod}</span>
             </div>
             <div>
-              <span className="text-gray-500">Scopes ({scopes.length}):</span>
+              <span className="text-gray-500">Capabilities ({capURIs.length}):</span>
               <div className="flex flex-wrap gap-1 mt-1">
-                {scopes.map(s => (
+                {capURIs.map(s => (
                   <span key={s} className="px-2 py-0.5 bg-gray-200 rounded text-xs">{s}</span>
                 ))}
-                {scopes.length === 0 && <span className="text-gray-400 text-xs">No scopes selected</span>}
+                {capURIs.length === 0 && <span className="text-gray-400 text-xs">No capabilities selected</span>}
               </div>
             </div>
           </div>
 
-          {/* YAML preview */}
           <details className="text-sm">
             <summary className="cursor-pointer text-gray-500">View as YAML</summary>
             <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded text-xs">
@@ -310,8 +313,8 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
     display_name: ${displayName}${description ? `\n    description: ${description}` : ''}
     auth_method: ${authMethod}
     grant_types: [${grantTypes.join(', ')}]
-    allowed_scopes:
-${scopes.map(s => `      - ${s}`).join('\n') || '      # none selected'}`}
+    allowed_caps:
+${capURIs.map(s => `      - {uri: ${s}}`).join('\n') || '      # none selected'}`}
             </pre>
           </details>
 
@@ -326,7 +329,7 @@ ${scopes.map(s => `      - ${s}`).join('\n') || '      # none selected'}`}
                 description: description || undefined,
                 auth_method: authMethod,
                 grant_types: grantTypes,
-                allowed_scopes: scopes,
+                allowed_caps: allowedCaps,
               })}
               disabled={register.isPending}
               className="px-4 py-2 bg-brand-600 text-white text-sm rounded disabled:opacity-50"

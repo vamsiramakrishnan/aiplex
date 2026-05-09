@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { deployInstance, getCatalog, type Template, type Manifest, applyManifest } from '../api/client'
 
-type Step = 'plane' | 'template' | 'config' | 'review'
+type Step = 'kind' | 'template' | 'config' | 'review'
+
+const ALL_KINDS = ['tool', 'task', 'model', 'skill', 'memory'] as const
 
 export default function Deploy() {
   const [mode, setMode] = useState<'wizard' | 'yaml'>('wizard')
@@ -36,32 +38,29 @@ export default function Deploy() {
 function DeployWizard() {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
-  const [step, setStep] = useState<Step>('plane')
-  const [plane, setPlane] = useState('mcplex')
+  const [step, setStep] = useState<Step>('kind')
+  const [kind, setKind] = useState('tool')
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [config, setConfig] = useState<Record<string, string>>({})
 
   const { data: catalog, isLoading } = useQuery({
-    queryKey: ['catalog', plane],
-    queryFn: () => getCatalog(plane),
+    queryKey: ['catalog', kind],
+    queryFn: () => getCatalog(kind),
   })
 
-  // Pre-populate from URL params
   useEffect(() => {
-    const urlPlane = searchParams.get('plane')
+    const urlKind = searchParams.get('kind')
     const urlTemplate = searchParams.get('template')
 
-    if (urlPlane && ['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].includes(urlPlane)) {
-      setPlane(urlPlane)
+    if (urlKind && (ALL_KINDS as readonly string[]).includes(urlKind)) {
+      setKind(urlKind)
       if (urlTemplate) {
-        // Move to template step and wait for catalog to load
         setStep('template')
       }
     }
   }, [searchParams])
 
-  // Auto-select template when catalog loads if template param is present
   useEffect(() => {
     const urlTemplate = searchParams.get('template')
     if (urlTemplate && catalog?.templates && !selectedTemplate) {
@@ -77,7 +76,7 @@ function DeployWizard() {
     mutationFn: deployInstance,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['instances'] })
-      setStep('plane')
+      setStep('kind')
       setSelectedTemplate(null)
       setDisplayName('')
       setConfig({})
@@ -85,22 +84,30 @@ function DeployWizard() {
   })
 
   const steps: { key: Step; label: string }[] = [
-    { key: 'plane', label: 'Choose Plane' },
+    { key: 'kind', label: 'Choose Kind' },
     { key: 'template', label: 'Pick Template' },
     { key: 'config', label: 'Configure' },
     { key: 'review', label: 'Review & Deploy' },
   ]
 
-  const planeDescriptions: Record<string, string> = {
-    mcplex: 'Deploy MCP servers that expose tools to AI agents (search, database, APIs)',
-    a2aplex: 'Deploy A2A agents that other agents can delegate tasks to',
-    llmplex: 'Configure LLM model routing, failover, and cost budgets',
-    skillsplex: 'Deploy skill servers that host invokable skill bundles for agents',
+  const kindDescriptions: Record<string, string> = {
+    tool: 'Deploy MCP servers that expose tools to AI agents (search, database, APIs)',
+    task: 'Deploy A2A agents that other agents can delegate tasks to',
+    model: 'Configure LLM model routing, failover, and cost budgets',
+    skill: 'Deploy skill servers that host invokable skill bundles for agents',
+    memory: 'Provision memory namespaces with PII redaction and retention policy',
+  }
+
+  const kindLabels: Record<string, string> = {
+    tool: 'Tool — MCP server',
+    task: 'Task — A2A agent',
+    model: 'Model — LLM provider',
+    skill: 'Skill — Skill server',
+    memory: 'Memory — Memory namespace',
   }
 
   return (
     <div>
-      {/* Step indicator */}
       <div className="flex gap-2 mb-6">
         {steps.map((s, i) => (
           <div key={s.key} className="flex items-center gap-2">
@@ -108,7 +115,7 @@ function DeployWizard() {
               ${step === s.key ? 'bg-brand-600 text-white' :
                 steps.findIndex(x => x.key === step) > i ? 'bg-green-100 text-green-700' :
                 'bg-gray-100 text-gray-400'}`}>
-              {steps.findIndex(x => x.key === step) > i ? '\u2713' : i + 1}
+              {steps.findIndex(x => x.key === step) > i ? '✓' : i + 1}
             </div>
             <span className={`text-sm ${step === s.key ? 'font-medium' : 'text-gray-400'}`}>
               {s.label}
@@ -118,39 +125,32 @@ function DeployWizard() {
         ))}
       </div>
 
-      {/* Step 1: Plane */}
-      {step === 'plane' && (
+      {step === 'kind' && (
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">What do you want to deploy?</p>
+          <p className="text-sm text-gray-600">What kind of capability do you want to deploy?</p>
           <div className="grid gap-3">
-            {['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].map(p => (
+            {ALL_KINDS.map(k => (
               <button
-                key={p}
-                onClick={() => { setPlane(p); setStep('template') }}
+                key={k}
+                onClick={() => { setKind(k); setStep('template') }}
                 className={`text-left p-4 border-2 rounded-lg transition-colors
-                  ${plane === p ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}
+                  ${kind === k ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}
               >
-                <div className="font-medium">
-                  {p === 'mcplex' ? 'MCPlex \u2014 Tools' :
-                   p === 'a2aplex' ? 'A2APlex \u2014 Agents' :
-                   p === 'llmplex' ? 'LLMPlex \u2014 Models' :
-                   'SkillsPlex \u2014 Skills'}
-                </div>
-                <div className="text-sm text-gray-500 mt-1">{planeDescriptions[p]}</div>
+                <div className="font-medium">{kindLabels[k]}</div>
+                <div className="text-sm text-gray-500 mt-1">{kindDescriptions[k]}</div>
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Step 2: Template */}
       {step === 'template' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-600">
-              Choose a template from the {plane} catalog
+              Choose a template from the {kind} catalog
             </p>
-            <button onClick={() => setStep('plane')} className="text-sm text-brand-600 hover:underline">
+            <button onClick={() => setStep('kind')} className="text-sm text-brand-600 hover:underline">
               Back
             </button>
           </div>
@@ -179,14 +179,13 @@ function DeployWizard() {
                 </button>
               ))}
               {(catalog?.templates ?? []).length === 0 && (
-                <p className="text-sm text-gray-400">No templates found for {plane}.</p>
+                <p className="text-sm text-gray-400">No templates found for {kind}.</p>
               )}
             </div>
           )}
         </div>
       )}
 
-      {/* Step 3: Configure */}
       {step === 'config' && selectedTemplate && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -225,7 +224,6 @@ function DeployWizard() {
         </div>
       )}
 
-      {/* Step 4: Review & Deploy */}
       {step === 'review' && selectedTemplate && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -237,8 +235,8 @@ function DeployWizard() {
 
           <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2">
             <div className="flex justify-between">
-              <span className="text-gray-500">Plane</span>
-              <span className="font-medium">{plane}</span>
+              <span className="text-gray-500">Kind</span>
+              <span className="font-medium">{kind}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Template</span>
@@ -258,7 +256,6 @@ function DeployWizard() {
             )}
           </div>
 
-          {/* Show equivalent YAML */}
           <details className="text-sm">
             <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
               View as YAML
@@ -267,7 +264,7 @@ function DeployWizard() {
 {`version: v1
 instances:
   - name: ${displayName || selectedTemplate.name}
-    plane: ${plane}
+    kind: ${kind}
     template: ${selectedTemplate.id}`}
             </pre>
           </details>
@@ -278,7 +275,7 @@ instances:
 
           <button
             onClick={() => deploy.mutate({
-              plane,
+              kind,
               template_id: selectedTemplate.id,
               display_name: displayName || undefined,
               config: Object.keys(config).length > 0 ? config : undefined,
@@ -311,7 +308,7 @@ function ManifestApply() {
       try {
         manifest = JSON.parse(yamlInput) as Manifest
       } catch {
-        throw new Error('Invalid JSON. Paste a valid manifest (use the examples below as a starting point).')
+        throw new Error('Invalid JSON. Paste a valid manifest.')
       }
       return applyManifest(manifest)
     },
@@ -323,7 +320,7 @@ function ManifestApply() {
 
   const examples: { name: string; description: string; file: string }[] = [
     { name: 'Quickstart', description: 'Tools + agents + models', file: 'quickstart' },
-    { name: 'MCPlex Only', description: 'Just MCP servers', file: 'mcplex-only' },
+    { name: 'Tools Only', description: 'Just MCP servers', file: 'tools-only' },
     { name: 'LLM Routing', description: 'Model failover + budgets', file: 'llm-routing' },
     { name: 'Multi-Agent', description: 'Full agent ecosystem', file: 'multi-agent' },
   ]
@@ -340,8 +337,6 @@ function ManifestApply() {
             key={ex.file}
             className="px-3 py-1 text-xs border rounded hover:bg-gray-50"
             onClick={() => {
-              // In production, fetch from /examples/${ex.file}.json
-              // For now, show a helpful message
               setYamlInput(`{\n  "version": "v1",\n  "instances": [],\n  "agents": [],\n  "routes": []\n}`)
             }}
           >
@@ -360,7 +355,7 @@ function ManifestApply() {
 {
   "version": "v1",
   "instances": [
-    { "name": "Knowledge Base", "plane": "mcplex", "template": "kb-search-server" }
+    { "name": "Knowledge Base", "kind": "tool", "template": "kb-search-server" }
   ],
   "agents": [
     {
@@ -368,7 +363,10 @@ function ManifestApply() {
       "display_name": "Tutor Agent",
       "auth_method": "client_credentials",
       "grant_types": ["client_credentials"],
-      "allowed_scopes": ["mcp:tools:search_curriculum", "llm:model:gemini-2.5-flash"]
+      "allowed_caps": [
+        {"uri": "cap://tool/search_curriculum@v1", "actions": ["call"]},
+        {"uri": "cap://model/gemini-2.5-flash@v1", "actions": ["complete"]}
+      ]
     }
   ]
 }`}

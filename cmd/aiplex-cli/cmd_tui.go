@@ -90,7 +90,7 @@ func newTUIModel(c *aiplex.Client) tuiModel {
 	// Instance table
 	instCols := []table.Column{
 		{Title: "Name", Width: 25},
-		{Title: "Plane", Width: 10},
+		{Title: "Kind", Width: 10},
 		{Title: "Template", Width: 20},
 		{Title: "Status", Width: 10},
 		{Title: "Owner", Width: 20},
@@ -106,7 +106,7 @@ func newTUIModel(c *aiplex.Client) tuiModel {
 		{Title: "Client ID", Width: 25},
 		{Title: "Display Name", Width: 25},
 		{Title: "Auth Method", Width: 18},
-		{Title: "Scopes", Width: 8},
+		{Title: "Caps", Width: 8},
 	}
 	agentTable := table.New(table.WithColumns(agentCols), table.WithHeight(15))
 	agentTable.SetStyles(s)
@@ -114,7 +114,7 @@ func newTUIModel(c *aiplex.Client) tuiModel {
 	// Catalog table
 	catalogCols := []table.Column{
 		{Title: "Name", Width: 30},
-		{Title: "Plane", Width: 10},
+		{Title: "Kind", Width: 10},
 		{Title: "Source", Width: 20},
 		{Title: "Description", Width: 50},
 	}
@@ -233,7 +233,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				rows[i] = table.Row{
 					displayName,
-					inst.Plane,
+					inst.Kind,
 					inst.TemplateID,
 					inst.Status,
 					inst.Owner,
@@ -252,7 +252,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.ClientID,
 					a.DisplayName,
 					a.AuthMethod,
-					fmt.Sprintf("%d", len(a.AllowedScopes)),
+					fmt.Sprintf("%d", len(a.AllowedCaps)),
 				}
 			}
 			m.agentTable.SetRows(rows)
@@ -270,7 +270,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				rows[i] = table.Row{
 					t.Name,
-					t.Plane,
+					t.Kind,
 					t.Source,
 					desc,
 				}
@@ -385,17 +385,16 @@ func (m tuiModel) renderDashboard() string {
 	row1 := lipgloss.JoinHorizontal(lipgloss.Top,
 		statStyle.Render(fmt.Sprintf("Instances\n%s", lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%d running / %d total", s.RunningInstances, s.TotalInstances)))),
 		statStyle.Render(fmt.Sprintf("Agents\n%s", lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%d registered", s.RegisteredAgents)))),
-		statStyle.Render(fmt.Sprintf("Planes\n%s", lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%d active", s.ActivePlanes)))),
+		statStyle.Render(fmt.Sprintf("Kinds\n%s", lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%d active", s.ActiveKinds)))),
 	)
 	b.WriteString(row1)
 	b.WriteString("\n\n")
 
-	// Per-plane breakdown
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render("  Per Plane"))
+	b.WriteString(lipgloss.NewStyle().Bold(true).Render("  Per Kind"))
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  MCPlex:   %d instances\n", s.MCPlexInstances))
-	b.WriteString(fmt.Sprintf("  A2APlex:  %d instances\n", s.A2APlexInstances))
-	b.WriteString(fmt.Sprintf("  LLMPlex:  %d instances\n", s.LLMPlexInstances))
+	for kind, count := range s.InstancesByKind {
+		b.WriteString(fmt.Sprintf("  %-9s %d instances\n", kind+":", count))
+	}
 	b.WriteString("\n")
 
 	// 24h metrics
@@ -430,7 +429,7 @@ func (m tuiModel) deployAction() tea.Cmd {
 			huh.NewGroup(
 				huh.NewInput().
 					Title("Instance name").
-					Description(fmt.Sprintf("Deploying %s (%s)", template.Name, template.Plane)).
+					Description(fmt.Sprintf("Deploying %s (%s)", template.Name, template.Kind)).
 					Value(&displayName).
 					Validate(func(s string) error {
 						if s == "" {
@@ -447,7 +446,7 @@ func (m tuiModel) deployAction() tea.Cmd {
 		}
 
 		req := &aiplex.DeployRequest{
-			Plane:       template.Plane,
+			Kind:        template.Kind,
 			TemplateID:  template.ID,
 			DisplayName: displayName,
 		}
@@ -480,7 +479,7 @@ func (m tuiModel) undeployAction() tea.Cmd {
 			huh.NewGroup(
 				huh.NewConfirm().
 					Title(fmt.Sprintf("Undeploy %s?", displayName)).
-					Description(fmt.Sprintf("Plane: %s, Template: %s", inst.Plane, inst.TemplateID)).
+					Description(fmt.Sprintf("Kind: %s, Template: %s", inst.Kind, inst.TemplateID)).
 					Value(&confirm),
 			),
 		)

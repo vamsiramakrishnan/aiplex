@@ -129,7 +129,7 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 }
 
 // ResolveAccess takes a WIF identity, looks up role bindings for the
-// identity's groups, and returns the merged roles and Dimension B scopes.
+// identity's groups, and returns the merged roles and Dimension B caps.
 func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFIdentity) (*models.ResolvedAccess, error) {
 	bindings, err := v.store.ListRoleBindings(ctx)
 	if err != nil {
@@ -142,7 +142,6 @@ func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFId
 	}
 
 	roleSet := make(map[models.IAMRole]bool)
-	scopeSet := make(map[string]bool)
 	access := &models.ResolvedAccess{Identity: *identity}
 
 	for _, binding := range bindings {
@@ -150,55 +149,42 @@ func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFId
 			continue
 		}
 		roleSet[binding.Role] = true
-
-		// Use binding-specific scopes if provided, otherwise use role defaults
-		scopes := binding.Scopes
-		if len(scopes) == 0 {
-			scopes = models.DefaultRoleScopes[binding.Role]
-		}
-		for _, s := range scopes {
-			scopeSet[s] = true
-		}
+		access.Caps = access.Caps.Union(binding.Caps)
 	}
 
 	for role := range roleSet {
 		access.Roles = append(access.Roles, role)
 	}
-	for scope := range scopeSet {
-		access.Scopes = append(access.Scopes, scope)
-	}
 
 	return access, nil
 }
 
-// SyncUserScopes resolves a WIF identity's access and updates Dimension B
+// SyncUserCaps resolves a WIF identity's access and updates Dimension B
 // in the store. This is called on each authenticated request so that
 // Dimension B stays in sync with group membership changes in the IdP.
-func (v *WIFValidator) SyncUserScopes(ctx context.Context, identity *models.WIFIdentity) (*models.ResolvedAccess, error) {
+func (v *WIFValidator) SyncUserCaps(ctx context.Context, identity *models.WIFIdentity) (*models.ResolvedAccess, error) {
 	access, err := v.ResolveAccess(ctx, identity)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(access.Scopes) == 0 {
+	if len(access.Caps) == 0 {
 		return access, nil
 	}
 
-	// Use email as user ID, falling back to subject
 	userID := identity.Email
 	if userID == "" {
 		userID = identity.Subject
 	}
 
-	// Merge with any manually-assigned scopes (don't overwrite manual grants)
-	existing, _ := v.store.GetUserScopes(ctx, userID)
-	merged := mergeScopes(existing, access.Scopes)
+	existing, _ := v.store.GetUserCaps(ctx, userID)
+	merged := existing.Union(access.Caps)
 
-	if err := v.store.SetUserScopes(ctx, userID, merged); err != nil {
-		return nil, fmt.Errorf("failed to sync user scopes: %w", err)
+	if err := v.store.SetUserCaps(ctx, userID, merged); err != nil {
+		return nil, fmt.Errorf("failed to sync user caps: %w", err)
 	}
 
-	access.Scopes = merged
+	access.Caps = merged
 	return access, nil
 }
 
@@ -243,20 +229,3 @@ func decodeJWTClaims(token string) (map[string]any, error) {
 	return claims, nil
 }
 
-// mergeScopes combines two scope lists, deduplicating entries.
-// Wildcard scopes (e.g. mcp:tools:*) subsume specific scopes in the same
-// namespace, but we keep both for explicit auditability.
-func mergeScopes(existing, additional []string) []string {
-	set := make(map[string]bool, len(existing)+len(additional))
-	for _, s := range existing {
-		set[s] = true
-	}
-	for _, s := range additional {
-		set[s] = true
-	}
-	merged := make([]string, 0, len(set))
-	for s := range set {
-		merged = append(merged, s)
-	}
-	return merged
-}

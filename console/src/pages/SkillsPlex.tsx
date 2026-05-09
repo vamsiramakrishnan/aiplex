@@ -35,7 +35,7 @@ export default function SkillsPlex() {
   const [tab, setTab] = useState<'servers' | 'catalog' | 'invocations'>('servers')
   const [search, setSearch] = useState('')
 
-  const catalog = useQuery({ queryKey: ['catalog', 'skillsplex'], queryFn: () => getCatalog('skillsplex') })
+  const catalog = useQuery({ queryKey: ['catalog', 'skill'], queryFn: () => getCatalog('skill') })
   const servers = useQuery({ queryKey: ['skill-servers'], queryFn: getServers })
   const invocations = useQuery({ queryKey: ['skill-invocations'], queryFn: getInvocations })
 
@@ -51,7 +51,7 @@ export default function SkillsPlex() {
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-2xl font-bold">SkillsPlex</h2>
         <button
-          onClick={() => navigate('/deploy?plane=skillsplex')}
+          onClick={() => navigate('/deploy?kind=skill')}
           className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
         >
           Deploy Skill Server
@@ -104,17 +104,14 @@ export default function SkillsPlex() {
                     </p>
                   )}
                   <div className="flex gap-1 flex-wrap">
-                    {s.skills?.map((scope) => {
-                      const label = scope.replace('skill:invoke:', '')
-                      return (
-                        <span
-                          key={scope}
-                          className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-xs rounded"
-                        >
-                          {label}
-                        </span>
-                      )
-                    })}
+                    {s.skills?.map((skill: string) => (
+                      <span
+                        key={skill}
+                        className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-xs rounded"
+                      >
+                        {skill}
+                      </span>
+                    ))}
                   </div>
                   <a
                     href={`${s.url}/.well-known/skills.json`}
@@ -155,7 +152,7 @@ export default function SkillsPlex() {
               </div>
               <p className="text-sm text-gray-500 mb-3">{t.description}</p>
               <button
-                onClick={() => navigate(`/deploy?plane=skillsplex&template=${t.id}`)}
+                onClick={() => navigate(`/deploy?kind=skill&template=${t.id}`)}
                 className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
               >
                 Deploy

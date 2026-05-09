@@ -29,12 +29,12 @@ func statusCmd() *cobra.Command {
 			fmt.Println("════════════════════════════════════════")
 			fmt.Printf("  Instances: %d total, %d running\n", stats.TotalInstances, stats.RunningInstances)
 			fmt.Printf("  Agents:    %d registered\n", stats.RegisteredAgents)
-			fmt.Printf("  Planes:    %d active\n", stats.ActivePlanes)
+			fmt.Printf("  Kinds:     %d active\n", stats.ActiveKinds)
 			fmt.Println()
-			fmt.Println("Per Plane:")
-			fmt.Printf("  MCPlex:    %d instances\n", stats.MCPlexInstances)
-			fmt.Printf("  A2APlex:   %d instances\n", stats.A2APlexInstances)
-			fmt.Printf("  LLMPlex:   %d instances\n", stats.LLMPlexInstances)
+			fmt.Println("Per Kind:")
+			for kind, count := range stats.InstancesByKind {
+				fmt.Printf("  %-9s %d instances\n", kind+":", count)
+			}
 			fmt.Println()
 			fmt.Println("Last 24h:")
 			fmt.Printf("  LLM Cost:       $%.2f\n", stats.DailyCostUSD)

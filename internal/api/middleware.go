@@ -165,8 +165,8 @@ func WIFAuth(wif *auth.WIFValidator) func(http.Handler) http.Handler {
 
 			ctx := context.WithValue(r.Context(), keyWIFIdentity, identity)
 
-			// Resolve roles and sync Dimension B scopes
-			access, err := wif.SyncUserScopes(r.Context(), identity)
+			// Resolve roles and sync Dimension B caps
+			access, err := wif.SyncUserCaps(r.Context(), identity)
 			if err != nil {
 				zerolog.Ctx(r.Context()).Warn().Err(err).Msg("failed to resolve WIF access")
 			} else {

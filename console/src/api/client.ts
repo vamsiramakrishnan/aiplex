@@ -26,15 +26,39 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
-// Types matching Go models
+// --- Capability primitive ---
+
+export interface Cap {
+  uri: string                              // cap://kind/name@version
+  actions?: string[]
+  constraints?: Record<string, unknown>
+  nbf?: number
+  exp?: number
+}
+
+export interface Capability {
+  uri: string
+  kind: string
+  name: string
+  version: string
+  provider?: string
+  actions?: string[]
+  description?: string
+  tags?: string[]
+  repository?: string
+  image?: string
+}
+
+// --- Resources ---
+
 export interface Instance {
   id: string
-  plane: string
+  kind: string
   template_id: string
   owner: string
   namespace: string
   spiffe_id?: string
-  scopes: string[]
+  capabilities: Cap[]
   config?: Record<string, unknown>
   status: string
   replicas: number
@@ -48,13 +72,15 @@ export interface Instance {
 export interface Template {
   id: string
   source: string
-  plane: string
+  kind: string
   name: string
   description: string
   image?: string
+  version?: string
+  capabilities?: Capability[]
   model_id?: string
   provider?: string
-  capabilities?: string[]
+  model_tags?: string[]
   category: string
   verified: boolean
   tags?: string[]
@@ -67,7 +93,7 @@ export interface Agent {
   description?: string
   auth_method: string
   grant_types: string[]
-  allowed_scopes: string[]
+  allowed_caps: Cap[]
   status: string
   registered_at: string
 }
@@ -81,21 +107,21 @@ export interface CatalogPage {
 }
 
 // Catalog
-export const getCatalog = (plane?: string, page = 0) =>
-  request<CatalogPage>(`/catalog?plane=${plane ?? ''}&page=${page}`)
+export const getCatalog = (kind?: string, page = 0) =>
+  request<CatalogPage>(`/catalog?kind=${kind ?? ''}&page=${page}`)
 
 export const getTemplate = (id: string) =>
   request<Template>(`/catalog/${id}`)
 
 // Instances
-export const listInstances = (plane?: string) =>
-  request<Instance[]>(`/instances?plane=${plane ?? ''}`)
+export const listInstances = (kind?: string) =>
+  request<Instance[]>(`/instances?kind=${kind ?? ''}`)
 
 export const getInstance = (id: string) =>
   request<Instance>(`/instances/${id}`)
 
 export const deployInstance = (body: {
-  plane: string
+  kind: string
   template_id: string
   config?: Record<string, unknown>
   display_name?: string
@@ -113,12 +139,12 @@ export const registerAgent = (body: {
   description?: string
   auth_method: string
   grant_types: string[]
-  allowed_scopes: string[]
+  allowed_caps: Cap[]
 }) => request<Agent>('/agents', { method: 'POST', body: JSON.stringify(body) })
 export const deleteAgent = (id: string) =>
   request<void>(`/agents/${id}`, { method: 'DELETE' })
 
-// LLM Routes
+// LLM Routes (kind=model administrative endpoints)
 export interface LLMBackend {
   provider: string
   model_id: string
@@ -153,10 +179,10 @@ export const deleteLLMRoute = (modelId: string) =>
 // Manifest (apply YAML/JSON from UI)
 export interface Manifest {
   version: string
-  instances?: Array<{ name: string; plane: string; template: string; config?: Record<string, unknown> }>
+  instances?: Array<{ name: string; kind: string; template: string; config?: Record<string, unknown> }>
   agents?: Array<{
     client_id: string; display_name: string; description?: string
-    auth_method: string; grant_types: string[]; allowed_scopes: string[]
+    auth_method: string; grant_types: string[]; allowed_caps: Cap[]
   }>
   routes?: Array<{
     model_id: string; backends: LLMBackend[]; fallbacks?: string[]
@@ -164,7 +190,6 @@ export interface Manifest {
   }>
 }
 
-// Apply manifest (applies each resource sequentially)
 export async function applyManifest(manifest: Manifest): Promise<{
   applied: number; failed: string[]
 }> {
@@ -173,7 +198,7 @@ export async function applyManifest(manifest: Manifest): Promise<{
 
   for (const inst of manifest.instances ?? []) {
     try {
-      await deployInstance({ plane: inst.plane, template_id: inst.template, display_name: inst.name, config: inst.config })
+      await deployInstance({ kind: inst.kind, template_id: inst.template, display_name: inst.name, config: inst.config })
       applied++
     } catch (e) {
       failed.push(`instance ${inst.name}: ${(e as Error).message}`)
@@ -215,13 +240,17 @@ export const getInstanceHistory = (id: string) =>
 // Dashboard stats
 export interface DashboardStats {
   total_instances: number
-  instances_by_plane: Record<string, number>
-  total_agents: number
+  running_instances: number
+  registered_agents: number
+  active_kinds: number
+  instances_by_kind: Record<string, number>
   total_tool_calls: number
   total_a2a_delegations: number
   total_llm_requests: number
   policy_denials: number
-  cost_usd: number
+  daily_cost_usd: number
+  daily_tokens: number
+  daily_requests: number
 }
 
 export const getDashboardStats = () =>
@@ -230,23 +259,28 @@ export const getDashboardStats = () =>
 // Role bindings
 export interface RoleBinding {
   id: string
-  subject: string
-  subject_type: 'user' | 'agent'
-  scopes: string[]
-  granted_at: string
-  granted_by: string
+  group: string
+  role: 'admin' | 'deployer' | 'viewer' | 'agent'
+  caps: Cap[]
+  description?: string
+  created_at: string
+  created_by: string
 }
 
 export const listRoleBindings = () =>
-  request<RoleBinding[]>('/access/bindings')
+  request<RoleBinding[]>('/iam/role-bindings')
 
 // Whoami
 export interface WhoamiResponse {
-  sub: string
-  email: string
-  scopes: string[]
-  agents: string[]
+  identity: {
+    subject: string
+    email: string
+    display_name: string
+    groups: string[]
+  }
+  roles: string[]
+  caps: Cap[]
 }
 
 export const getWhoami = () =>
-  request<WhoamiResponse>('/auth/whoami')
+  request<WhoamiResponse>('/iam/whoami')

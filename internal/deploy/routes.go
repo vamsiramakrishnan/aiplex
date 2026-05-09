@@ -4,168 +4,127 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
-// GenerateRoute produces the appropriate route CRD for the given plane.
-// MCPlex → MCPRoute, A2APlex → HTTPRoute, LLMPlex → LLMRoute + AIServiceBackend,
-// SkillsPlex → HTTPRoute on /skills/{instance}.
+// GenerateRoute produces the unified CapabilityRoute CRD for an instance.
+// One CRD per capability the instance provides — all instances and all kinds
+// flow through the same route shape, with a small per-kind override block for
+// kind=model (LLM provider failover, semantic cache).
 func GenerateRoute(inst *models.Instance, tmpl *models.Template, gatewayName string) []Manifest {
-	switch inst.Plane {
-	case models.PlaneMCPlex:
-		return []Manifest{mcpRoute(inst, gatewayName)}
-	case models.PlaneA2APlex:
-		return []Manifest{httpRoute(inst, gatewayName)}
-	case models.PlaneLLMPlex:
-		return llmRoute(inst, tmpl, gatewayName)
-	case models.PlaneSkillsPlex:
-		return []Manifest{skillRoute(inst, gatewayName)}
-	default:
+	caps := inst.Capabilities
+	if len(caps) == 0 && tmpl != nil {
+		caps = tmpl.CapSet()
+	}
+	if len(caps) == 0 {
 		return nil
 	}
-}
 
-func mcpRoute(inst *models.Instance, gatewayName string) Manifest {
-	return Manifest{
-		APIVersion: "aigateway.envoyproxy.io/v1alpha1",
-		Kind:       "MCPRoute",
-		Name:       "mcp-" + inst.ID,
-		Namespace:  inst.Namespace,
-		YAML: fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
-kind: MCPRoute
-metadata:
-  name: mcp-%s
-  namespace: %s
-  labels:
-    app.kubernetes.io/managed-by: aiplex
-    aiplex.io/instance-id: %s
-spec:
-  parentRefs:
-  - name: %s
-    namespace: aiplex-system
-  path: "/mcp/%s"
-  backendRefs:
-  - name: %s
-    namespace: %s
-    path: "/mcp"
-  securityPolicy:
-    oauth:
-      issuer: "https://aiplex.example.com/auth/realms/aiplex"
-`, inst.ID, inst.Namespace, inst.ID, gatewayName, inst.ID, inst.ID, inst.Namespace),
+	out := make([]Manifest, 0, len(caps))
+	for _, c := range caps {
+		out = append(out, capabilityRoute(inst, tmpl, c, gatewayName))
 	}
-}
 
-func httpRoute(inst *models.Instance, gatewayName string) Manifest {
-	return Manifest{
-		APIVersion: "gateway.networking.k8s.io/v1",
-		Kind:       "HTTPRoute",
-		Name:       "a2a-" + inst.ID,
-		Namespace:  inst.Namespace,
-		YAML: fmt.Sprintf(`apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: a2a-%s
-  namespace: %s
-  labels:
-    app.kubernetes.io/managed-by: aiplex
-    aiplex.io/instance-id: %s
-spec:
-  parentRefs:
-  - name: %s
-    namespace: aiplex-system
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /a2a/%s
-    backendRefs:
-    - name: %s
-      namespace: %s
-      port: 8080
-`, inst.ID, inst.Namespace, inst.ID, gatewayName, inst.ID, inst.ID, inst.Namespace),
+	// Model kind needs an additional AIServiceBackend (Envoy AI Gateway primitive)
+	// alongside the CapabilityRoute, until we replace LLMRoute end-to-end.
+	if inst.Kind == capability.KindModel && tmpl != nil {
+		out = append(out, modelBackend(inst, tmpl))
 	}
+
+	return out
 }
 
-func skillRoute(inst *models.Instance, gatewayName string) Manifest {
-	return Manifest{
-		APIVersion: "gateway.networking.k8s.io/v1",
-		Kind:       "HTTPRoute",
-		Name:       "skill-" + inst.ID,
-		Namespace:  inst.Namespace,
-		YAML: fmt.Sprintf(`apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: skill-%s
-  namespace: %s
-  labels:
-    app.kubernetes.io/managed-by: aiplex
-    aiplex.io/instance-id: %s
-    aiplex.io/plane: skillsplex
-spec:
-  parentRefs:
-  - name: %s
-    namespace: aiplex-system
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /skills/%s
-    backendRefs:
-    - name: %s
-      namespace: %s
-      port: 8080
-`, inst.ID, inst.Namespace, inst.ID, gatewayName, inst.ID, inst.ID, inst.Namespace),
+// capabilityRoute renders one cap → one CapabilityRoute manifest.
+func capabilityRoute(inst *models.Instance, tmpl *models.Template, c capability.Cap, gatewayName string) Manifest {
+	uri, _ := capability.ParseURI(c.URI)
+	name := fmt.Sprintf("cap-%s-%s", inst.ID, sanitize(uri.PathSegment()))
+	if len(name) > 63 {
+		name = name[:63]
 	}
-}
 
-func llmRoute(inst *models.Instance, tmpl *models.Template, gatewayName string) []Manifest {
-	provider := tmpl.Provider
+	actions := c.Actions
+	if len(actions) == 0 {
+		actions = capability.MustSpec(uri.Kind).Actions
+	}
+	actionsList := strings.Join(actions, ", ")
+
+	pathTmpl := fmt.Sprintf("/cap/%s", uri.PathSegment())
+
+	provider := inst.SpiffeID
 	if provider == "" {
-		provider = "google"
+		provider = fmt.Sprintf("spiffe://aiplex/ns/%s/sa/%s", inst.Namespace, inst.ID)
 	}
-	modelID := tmpl.ModelID
-	backendName := inst.ID + "-backend"
 
-	// Default to provider-based secret name
-	secretName := provider + "-api-key"
+	overrides := ""
+	if uri.Kind == capability.KindModel && tmpl != nil {
+		overrides = fmt.Sprintf(`
+  kindOverrides:
+    model:
+      modelId: %q
+      provider: %q
+      backendRef:
+        name: %s-backend
+`, tmpl.ModelID, tmpl.Provider, inst.ID)
+	}
 
-	return []Manifest{
-		{
-			APIVersion: "aigateway.envoyproxy.io/v1alpha1",
-			Kind:       "LLMRoute",
-			Name:       "llm-" + inst.ID,
-			Namespace:  "aiplex-system",
-			YAML: fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
-kind: LLMRoute
+	return Manifest{
+		APIVersion: "aiplex.dev/v1alpha1",
+		Kind:       "CapabilityRoute",
+		Name:       name,
+		Namespace:  "aiplex-system",
+		YAML: fmt.Sprintf(`apiVersion: aiplex.dev/v1alpha1
+kind: CapabilityRoute
 metadata:
-  name: llm-%s
+  name: %s
   namespace: aiplex-system
   labels:
     app.kubernetes.io/managed-by: aiplex
     aiplex.io/instance-id: %s
+    aiplex.io/cap-kind: %s
 spec:
-  parentRefs:
-  - name: %s
-    namespace: aiplex-system
-  rules:
-  - matches:
-    - headers:
-      - name: x-model-id
-        value: %s
-    backendRefs:
-    - name: %s
-      weight: 100
-`, inst.ID, inst.ID, gatewayName, modelID, backendName),
-		},
-		{
-			APIVersion: "aigateway.envoyproxy.io/v1alpha1",
-			Kind:       "AIServiceBackend",
-			Name:       backendName,
-			Namespace:  "aiplex-system",
-			YAML: fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
+  capability:
+    uri: %s
+    kind: %s
+    name: %s
+    version: %s
+    provider:
+      spiffeId: %q
+      kind: KubernetesService
+      name: %s
+      namespace: %s
+      port: 8080
+    auth:
+      requiredActions: [%s]
+  routing:
+    parentRefs:
+      - name: %s
+        namespace: aiplex-system
+    pathTemplate: %q
+    timeout: 30s%s
+`, name, inst.ID, uri.Kind, c.URI, uri.Kind, uri.Name, uri.Version,
+			provider, inst.ID, inst.Namespace, actionsList,
+			gatewayName, pathTmpl, overrides),
+	}
+}
+
+// modelBackend emits the Envoy AIServiceBackend that the model CapabilityRoute
+// references. Kept as a separate manifest so it can be GC-ed independently.
+func modelBackend(inst *models.Instance, tmpl *models.Template) Manifest {
+	provider := tmpl.Provider
+	if provider == "" {
+		provider = "google"
+	}
+	secret := provider + "-api-key"
+	return Manifest{
+		APIVersion: "aigateway.envoyproxy.io/v1alpha1",
+		Kind:       "AIServiceBackend",
+		Name:       inst.ID + "-backend",
+		Namespace:  "aiplex-system",
+		YAML: fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
 kind: AIServiceBackend
 metadata:
-  name: %s
+  name: %s-backend
   namespace: aiplex-system
   labels:
     app.kubernetes.io/managed-by: aiplex
@@ -176,29 +135,36 @@ spec:
   apiKey:
     secretRef:
       name: %s
-`, backendName, inst.ID, provider, modelID, secretName),
-		},
+`, inst.ID, inst.ID, provider, tmpl.ModelID, secret),
 	}
 }
 
-// GenerateRoutesFromConfig creates Envoy LLMRoute + AIServiceBackend manifests
-// from a route configuration with weighted backends and fallbacks.
+// GenerateRoutesFromConfig produces failover-aware model routes from an
+// LLMRouteConfig. Used by the LLM admin endpoints.
 func GenerateRoutesFromConfig(config *models.LLMRouteConfig, gatewayName string) []Manifest {
-	var manifests []Manifest
-	var backendRefs []string
+	uri := capability.New(capability.KindModel, config.ModelID, "v1")
+	name := "cap-llm-" + sanitize(config.ModelID)
+	if len(name) > 63 {
+		name = name[:63]
+	}
 
-	for _, backend := range config.Backends {
-		if !backend.Enabled {
+	var backends []Manifest
+	var weights []string
+	for _, b := range config.Backends {
+		if !b.Enabled {
 			continue
 		}
-		backendName := fmt.Sprintf("%s-%s-backend", config.ModelID, backend.Provider)
-
-		secretName := backend.SecretRef
-		if secretName == "" {
-			secretName = backend.Provider + "-api-key"
+		backendName := fmt.Sprintf("%s-%s-backend", sanitize(config.ModelID), b.Provider)
+		secret := b.SecretRef
+		if secret == "" {
+			secret = b.Provider + "-api-key"
 		}
-
-		backendYAML := fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
+		backends = append(backends, Manifest{
+			APIVersion: "aigateway.envoyproxy.io/v1alpha1",
+			Kind:       "AIServiceBackend",
+			Name:       backendName,
+			Namespace:  "aiplex-system",
+			YAML: fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
 kind: AIServiceBackend
 metadata:
   name: %s
@@ -208,50 +174,70 @@ spec:
   model: %s
   apiKey:
     secretRef:
-      name: %s`, backendName, backend.Provider, backend.ModelID, secretName)
-
-		manifests = append(manifests, Manifest{
-			APIVersion: "aigateway.envoyproxy.io/v1alpha1",
-			Kind:       "AIServiceBackend",
-			Name:       backendName,
-			Namespace:  "aiplex-system",
-			YAML:       backendYAML,
+      name: %s
+`, backendName, b.Provider, b.ModelID, secret),
 		})
-
-		backendRefs = append(backendRefs, fmt.Sprintf("    - name: %s\n      weight: %d", backendName, backend.Weight))
+		weights = append(weights, fmt.Sprintf("        - {name: %s, weight: %d}", backendName, b.Weight))
 	}
 
-	routeYAML := fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
-kind: LLMRoute
+	var fallbacks []string
+	for _, fb := range config.Fallbacks {
+		fallbacks = append(fallbacks, fmt.Sprintf("        - %s-backend", sanitize(fb)))
+	}
+
+	overrides := fmt.Sprintf(`
+  kindOverrides:
+    model:
+      modelId: %q
+      backends:
+%s`, config.ModelID, strings.Join(weights, "\n"))
+	if len(fallbacks) > 0 {
+		overrides += fmt.Sprintf("\n      fallback:\n%s", strings.Join(fallbacks, "\n"))
+	}
+
+	route := Manifest{
+		APIVersion: "aiplex.dev/v1alpha1",
+		Kind:       "CapabilityRoute",
+		Name:       name,
+		Namespace:  "aiplex-system",
+		YAML: fmt.Sprintf(`apiVersion: aiplex.dev/v1alpha1
+kind: CapabilityRoute
 metadata:
-  name: llm-%s
+  name: %s
   namespace: aiplex-system
 spec:
-  parentRefs:
-    - name: %s
-  rules:
-    - matches:
-        - headers:
-            - name: x-model-id
-              value: %s
-      backendRefs:
-%s`, config.ModelID, gatewayName, config.ModelID, strings.Join(backendRefs, "\n"))
-
-	if len(config.Fallbacks) > 0 {
-		var fallbackLines []string
-		for _, fb := range config.Fallbacks {
-			fallbackLines = append(fallbackLines, fmt.Sprintf("        - name: %s-backend", fb))
-		}
-		routeYAML += fmt.Sprintf("\n      fallback:\n%s", strings.Join(fallbackLines, "\n"))
+  capability:
+    uri: %s
+    kind: model
+    name: %s
+    version: v1
+    auth:
+      requiredActions: [complete]
+  routing:
+    parentRefs:
+      - name: %s
+        namespace: aiplex-system
+    pathTemplate: %q%s
+`, name, uri.String(), config.ModelID, gatewayName,
+			"/cap/"+uri.PathSegment(), overrides),
 	}
 
-	manifests = append([]Manifest{{
-		APIVersion: "aigateway.envoyproxy.io/v1alpha1",
-		Kind:       "LLMRoute",
-		Name:       "llm-" + config.ModelID,
-		Namespace:  "aiplex-system",
-		YAML:       routeYAML,
-	}}, manifests...)
+	return append([]Manifest{route}, backends...)
+}
 
-	return manifests
+// sanitize lowercases and replaces non-RFC1123 chars in s with '-'.
+// Dots are preserved (RFC 1123 subdomain rules) so model IDs like
+// "gemini-2.5-flash" survive intact.
+func sanitize(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return strings.Trim(b.String(), "-.")
 }

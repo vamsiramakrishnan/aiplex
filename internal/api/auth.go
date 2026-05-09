@@ -3,9 +3,9 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
@@ -25,9 +25,10 @@ func NewAuthHandler(hydra *auth.HydraClient, store registry.Store) *AuthHandler 
 	}
 }
 
-// ConsentGet handles the consent challenge redirect from Hydra.
-// Hydra redirects the user here with ?consent_challenge=<challenge>.
-// In production, this renders the consent UI in the Console.
+// ConsentGet handles the consent challenge redirect from Hydra. Returns the
+// agent + user ceilings + the grantable subset (A ∩ B ∩ C) so the Console can
+// render the consent UI.
+//
 // GET /auth/consent
 func (h *AuthHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 	challenge := r.URL.Query().Get("consent_challenge")
@@ -36,40 +37,35 @@ func (h *AuthHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch consent request details from Hydra
 	cr, err := h.hydra.GetConsentRequest(r.Context(), challenge)
 	if err != nil {
 		Error(w, r, http.StatusBadGateway, "HYDRA_ERROR", "failed to fetch consent request: "+err.Error())
 		return
 	}
 
-	// Look up agent ceiling (Dimension A) and user ceiling (Dimension B)
 	agent, err := h.store.GetAgent(r.Context(), cr.Client.ClientID)
 	if err != nil {
 		Error(w, r, http.StatusNotFound, "NOT_FOUND", "agent not registered: "+cr.Client.ClientID)
 		return
 	}
 
-	userScopes, _ := h.store.GetUserScopes(r.Context(), cr.Subject)
+	userCaps, _ := h.store.GetUserCaps(r.Context(), cr.Subject)
 
-	// Compute grantable scopes = A ∩ B ∩ requested
-	agentSet := toSet(agent.AllowedScopes)
-	userSet := toSet(userScopes)
-	var grantable []string
-	for _, s := range cr.RequestedScope {
-		if agentSet[s] && userSet[s] {
-			grantable = append(grantable, s)
-		}
+	// Hydra's `requested_scope` carries cap URIs.
+	requested := make(capability.CapSet, 0, len(cr.RequestedScope))
+	for _, uri := range cr.RequestedScope {
+		requested = append(requested, capability.Cap{URI: uri})
 	}
 
-	// Return consent details for the Console to render
+	grantable := agent.AllowedCaps.Intersect(userCaps).Intersect(requested)
+
 	JSON(w, http.StatusOK, map[string]any{
-		"challenge":        challenge,
-		"subject":          cr.Subject,
-		"client_id":        cr.Client.ClientID,
-		"client_name":      agent.DisplayName,
-		"requested_scopes": cr.RequestedScope,
-		"grantable_scopes": grantable,
+		"challenge":       challenge,
+		"subject":         cr.Subject,
+		"client_id":       cr.Client.ClientID,
+		"client_name":     agent.DisplayName,
+		"requested_caps":  requested,
+		"grantable_caps":  grantable,
 	})
 }
 
@@ -77,9 +73,8 @@ func (h *AuthHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 // POST /auth/consent
 func (h *AuthHandler) ConsentAccept(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Challenge     string   `json:"challenge"`
-		GrantedScopes []string `json:"granted_scopes"`
-		Deny          bool     `json:"deny"`
+		Challenge string `json:"challenge"`
+		Deny      bool   `json:"deny"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
@@ -124,15 +119,12 @@ func (h *AuthHandler) TokenHook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up the agent to get its SPIFFE ID
 	agent, err := h.store.GetAgent(r.Context(), hookReq.Client.ClientID)
 	if err != nil {
-		// Agent not registered — still issue token but without act claim
 		JSON(w, http.StatusOK, map[string]any{"session": hookReq.Session})
 		return
 	}
 
-	// Inject act claim (RFC 8693)
 	session := hookReq.Session
 	if session.AccessToken == nil {
 		session.AccessToken = make(map[string]any)
@@ -149,7 +141,6 @@ func (h *AuthHandler) TokenHook(w http.ResponseWriter, r *http.Request) {
 }
 
 // LoginRedirect handles the Kratos login challenge.
-// Hydra redirects here when authentication is needed.
 // GET /auth/login
 func (h *AuthHandler) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	challenge := r.URL.Query().Get("login_challenge")
@@ -157,56 +148,49 @@ func (h *AuthHandler) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "missing login_challenge")
 		return
 	}
-
-	// In production, redirect to Kratos self-service login UI
-	// For now, return the challenge so the Console can handle it
 	JSON(w, http.StatusOK, map[string]string{
-		"challenge":  challenge,
-		"login_url":  "/ui/login?login_challenge=" + challenge,
+		"challenge": challenge,
+		"login_url": "/ui/login?login_challenge=" + challenge,
 	})
 }
 
-// UserScopes manages Dimension B (user ceiling).
-// GET /auth/users/{userId}/scopes
-func (h *AuthHandler) GetUserScopes(w http.ResponseWriter, r *http.Request) {
+// GetUserCaps returns Dimension B (user ceiling) for a user.
+// GET /auth/users/{userId}/caps
+func (h *AuthHandler) GetUserCaps(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("userId")
-	scopes, err := h.store.GetUserScopes(r.Context(), userID)
+	caps, err := h.store.GetUserCaps(r.Context(), userID)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
 
-	// Group by plane for easier display
-	grouped := auth.ScopesByPlane(scopes)
+	byKind := map[capability.Kind]capability.CapSet{}
+	for _, c := range caps {
+		if u, err := capability.ParseURI(c.URI); err == nil {
+			byKind[u.Kind] = append(byKind[u.Kind], c)
+		}
+	}
 	JSON(w, http.StatusOK, map[string]any{
 		"user_id": userID,
-		"scopes":  scopes,
-		"by_plane": grouped,
+		"caps":    caps,
+		"by_kind": byKind,
 	})
 }
 
-// SetUserScopes updates Dimension B for a user.
-// PUT /auth/users/{userId}/scopes
-func (h *AuthHandler) SetUserScopes(w http.ResponseWriter, r *http.Request) {
+// SetUserCaps updates Dimension B for a user.
+// PUT /auth/users/{userId}/caps
+func (h *AuthHandler) SetUserCaps(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("userId")
 	var req struct {
-		Scopes []string `json:"scopes"`
+		Caps capability.CapSet `json:"caps"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
-	if err := h.store.SetUserScopes(r.Context(), userID, req.Scopes); err != nil {
+	if err := h.store.SetUserCaps(r.Context(), userID, req.Caps); err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func toSet(items []string) map[string]bool {
-	s := make(map[string]bool, len(items))
-	for _, item := range items {
-		s[strings.TrimSpace(item)] = true
-	}
-	return s
 }

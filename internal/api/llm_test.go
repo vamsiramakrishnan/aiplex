@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
@@ -19,9 +20,9 @@ func setupLLMRouter() (chi.Router, *registry.MemoryStore) {
 	store := registry.NewMemoryStore()
 	store.PutTemplate(context.Background(), &models.Template{
 		ID:      "gemini-2.5-flash",
-		Plane:   models.PlaneLLMPlex,
+		Kind:    capability.KindModel,
 		ModelID: "gemini-2.5-flash",
-		Pricing: &models.Pricing{Input: 0.15, Output: 0.60},
+		Pricing: &capability.Pricing{Input: 0.15, Output: 0.60},
 	})
 
 	k8s := deploy.NewNoOpK8sClient()

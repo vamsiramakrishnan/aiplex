@@ -16,8 +16,43 @@ func agentsCmd() *cobra.Command {
 		Short: "Manage registered agents",
 	}
 
-	cmd.AddCommand(registerAgentCmd(), deleteAgentCmd(), grantScopesCmd(), userScopesCmd())
+	cmd.AddCommand(registerAgentCmd(), deleteAgentCmd(), agentPermissionsCmd(), userCapsCmd())
 	return cmd
+}
+
+// parseCapsFlag converts strings like "cap://tool/foo@v1:call,read" into Cap entries.
+// "cap://tool/foo@v1" alone defaults actions to nil (kind defaults).
+func parseCapsFlag(specs []string) []aiplex.Cap {
+	out := make([]aiplex.Cap, 0, len(specs))
+	for _, s := range specs {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		uri, actions, _ := splitCapSpec(s)
+		out = append(out, aiplex.Cap{URI: uri, Actions: actions})
+	}
+	return out
+}
+
+func splitCapSpec(s string) (uri string, actions []string, ok bool) {
+	// "cap://tool/foo@v1" or "cap://tool/foo@v1:call,read"
+	at := strings.LastIndex(s, "@")
+	if at < 0 {
+		return s, nil, false
+	}
+	colon := strings.IndexByte(s[at:], ':')
+	if colon < 0 {
+		return s, nil, true
+	}
+	uri = s[:at+colon]
+	rest := s[at+colon+1:]
+	for _, a := range strings.Split(rest, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			actions = append(actions, a)
+		}
+	}
+	return uri, actions, true
 }
 
 func registerAgentCmd() *cobra.Command {
@@ -26,7 +61,7 @@ func registerAgentCmd() *cobra.Command {
 		description string
 		authMethod  string
 		grantTypes  []string
-		scopes      []string
+		caps        []string
 	)
 
 	cmd := &cobra.Command{
@@ -34,20 +69,22 @@ func registerAgentCmd() *cobra.Command {
 		Short: "Register a new agent",
 		Long: `Register an AI agent as an OAuth client.
 
+Cap entries use the form  cap://kind/name@version[:action1,action2]
+
 Examples:
   aiplex agents register tutor-agent --name "Tutor Agent" --auth client_credentials \
-    --scopes mcp:tools:search,a2a:task:research,llm:model:gemini-2.5-flash`,
+    --caps cap://tool/search@v1:call,cap://task/research@v1:invoke,cap://model/gemini-2.5-flash@v1:complete`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
 
 			agent, err := c.RegisterAgent(context.Background(), &aiplex.RegisterAgentRequest{
-				ClientID:      args[0],
-				DisplayName:   displayName,
-				Description:   description,
-				AuthMethod:    authMethod,
-				GrantTypes:    grantTypes,
-				AllowedScopes: scopes,
+				ClientID:    args[0],
+				DisplayName: displayName,
+				Description: description,
+				AuthMethod:  authMethod,
+				GrantTypes:  grantTypes,
+				AllowedCaps: parseCapsFlag(caps),
 			})
 			if err != nil {
 				return fmt.Errorf("register agent: %w", err)
@@ -62,8 +99,11 @@ Examples:
 			fmt.Printf("  Name:   %s\n", agent.DisplayName)
 			fmt.Printf("  Auth:   %s\n", agent.AuthMethod)
 			fmt.Printf("  Status: %s\n", agent.Status)
-			if len(agent.AllowedScopes) > 0 {
-				fmt.Printf("  Scopes: %s\n", strings.Join(agent.AllowedScopes, ", "))
+			if len(agent.AllowedCaps) > 0 {
+				fmt.Println("  Caps:")
+				for _, c := range agent.AllowedCaps {
+					fmt.Printf("    - %s %v\n", c.URI, c.Actions)
+				}
 			}
 			return nil
 		},
@@ -73,7 +113,7 @@ Examples:
 	cmd.Flags().StringVar(&description, "description", "", "Description")
 	cmd.Flags().StringVar(&authMethod, "auth", "client_credentials", "Auth method: client_credentials, authorization_code, device_code")
 	cmd.Flags().StringSliceVar(&grantTypes, "grants", []string{"client_credentials"}, "Grant types")
-	cmd.Flags().StringSliceVar(&scopes, "scopes", nil, "Allowed scopes (Dimension A)")
+	cmd.Flags().StringSliceVar(&caps, "caps", nil, "Allowed capabilities (Dimension A) — cap://kind/name@v[:actions,...]")
 	return cmd
 }
 
@@ -93,10 +133,10 @@ func deleteAgentCmd() *cobra.Command {
 	}
 }
 
-func grantScopesCmd() *cobra.Command {
+func agentPermissionsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "permissions <client-id>",
-		Short: "Show agent permissions across all planes",
+		Short: "Show agent capabilities across all kinds",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
@@ -110,16 +150,15 @@ func grantScopesCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("Agent: %s\n", perms.AgentID)
-			fmt.Println()
-			for plane, scopes := range perms.Ceiling {
-				fmt.Printf("  %s:\n", plane)
-				for _, s := range scopes {
+			fmt.Printf("Agent: %s\n\n", perms.AgentID)
+			for kind, caps := range perms.Ceiling {
+				fmt.Printf("  %s:\n", kind)
+				for _, c := range caps {
 					desc := ""
-					if s.Description != "" {
-						desc = " — " + s.Description
+					if c.Description != "" {
+						desc = " — " + c.Description
 					}
-					fmt.Printf("    %s%s\n", s.Scope, desc)
+					fmt.Printf("    %s %v%s\n", c.URI, c.Actions, desc)
 				}
 			}
 			return nil
@@ -127,62 +166,55 @@ func grantScopesCmd() *cobra.Command {
 	}
 }
 
-func userScopesCmd() *cobra.Command {
+func userCapsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "user-scopes",
-		Short: "Manage user scopes (Dimension B)",
+		Use:   "user-caps",
+		Short: "Manage user capabilities (Dimension B)",
 	}
 
 	getCmd := &cobra.Command{
 		Use:   "get <user-id>",
-		Short: "Get user scopes",
+		Short: "Get user capabilities",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			us, err := c.GetUserScopes(context.Background(), args[0])
+			uc, err := c.GetUserCaps(context.Background(), args[0])
 			if err != nil {
-				return fmt.Errorf("get user scopes: %w", err)
+				return fmt.Errorf("get user caps: %w", err)
 			}
 
 			if output == "json" {
-				printJSON(us)
+				printJSON(uc)
 				return nil
 			}
 
-			fmt.Printf("User: %s\n", us.UserID)
-			for plane, scopes := range us.Scopes {
-				fmt.Printf("  %s:\n", plane)
-				for _, s := range scopes {
-					fmt.Printf("    - %s\n", s)
+			fmt.Printf("User: %s\n", uc.UserID)
+			for kind, caps := range uc.ByKind {
+				fmt.Printf("  %s:\n", kind)
+				for _, c := range caps {
+					fmt.Printf("    - %s %v\n", c.URI, c.Actions)
 				}
 			}
 			return nil
 		},
 	}
 
-	var scopes []string
+	var caps []string
 	setCmd := &cobra.Command{
 		Use:   "set <user-id>",
-		Short: "Set user scopes",
+		Short: "Set user capabilities",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			us, err := c.SetUserScopes(context.Background(), args[0], scopes)
-			if err != nil {
-				return fmt.Errorf("set user scopes: %w", err)
+			if err := c.SetUserCaps(context.Background(), args[0], parseCapsFlag(caps)); err != nil {
+				return fmt.Errorf("set user caps: %w", err)
 			}
-
-			if output == "json" {
-				printJSON(us)
-				return nil
-			}
-
-			fmt.Printf("Updated scopes for %s\n", us.UserID)
+			fmt.Printf("Updated caps for %s\n", args[0])
 			return nil
 		},
 	}
-	setCmd.Flags().StringSliceVar(&scopes, "scopes", nil, "Scopes to set")
-	setCmd.MarkFlagRequired("scopes")
+	setCmd.Flags().StringSliceVar(&caps, "caps", nil, "Capabilities to set — cap://kind/name@v[:actions,...]")
+	setCmd.MarkFlagRequired("caps")
 
 	cmd.AddCommand(getCmd, setCmd)
 	return cmd

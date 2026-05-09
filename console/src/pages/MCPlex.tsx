@@ -8,8 +8,8 @@ export default function MCPlex() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<'catalog' | 'instances'>('instances')
   const [search, setSearch] = useState('')
-  const catalog = useQuery({ queryKey: ['catalog', 'mcplex'], queryFn: () => getCatalog('mcplex') })
-  const instances = useQuery({ queryKey: ['instances', 'mcplex'], queryFn: () => listInstances('mcplex') })
+  const catalog = useQuery({ queryKey: ['catalog', 'tool'], queryFn: () => getCatalog('tool') })
+  const instances = useQuery({ queryKey: ['instances', 'tool'], queryFn: () => listInstances('tool') })
 
   const filteredInstances = instances.data?.filter(i =>
     i.display_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -64,7 +64,7 @@ export default function MCPlex() {
                     <td className="px-4 py-3 font-medium">{inst.display_name || inst.id}</td>
                     <td className="px-4 py-3 text-gray-500">{inst.template_id}</td>
                     <td className="px-4 py-3"><StatusBadge status={inst.status} /></td>
-                    <td className="px-4 py-3 text-gray-500">{inst.scopes?.length ?? 0} tools</td>
+                    <td className="px-4 py-3 text-gray-500">{inst.capabilities?.length ?? 0} tools</td>
                   </tr>
                 ))}
               </tbody>
@@ -83,7 +83,7 @@ export default function MCPlex() {
               </div>
               <p className="text-sm text-gray-500 mb-3">{t.description}</p>
               <button
-                onClick={() => navigate(`/deploy?plane=mcplex&template=${t.id}`)}
+                onClick={() => navigate(`/deploy?kind=tool&template=${t.id}`)}
                 className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
               >
                 Deploy

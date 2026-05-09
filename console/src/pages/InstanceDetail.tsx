@@ -81,7 +81,7 @@ export default function InstanceDetail() {
       {/* Info grid */}
       <div className="grid grid-cols-2 gap-6">
         <Section title="Instance Info">
-          <InfoRow label="Plane" value={inst.plane} />
+          <InfoRow label="Kind" value={inst.kind} />
           <InfoRow label="Template" value={inst.template_id} />
           <InfoRow label="Namespace" value={inst.namespace} />
           <InfoRow label="Owner" value={inst.owner} />
@@ -105,21 +105,20 @@ export default function InstanceDetail() {
         </Section>
       </div>
 
-      {/* Scopes */}
-      <Section title="Scopes">
-        {inst.scopes.length > 0 ? (
+      <Section title="Capabilities">
+        {inst.capabilities.length > 0 ? (
           <div className="flex flex-wrap gap-2">
-            {inst.scopes.map((scope) => (
+            {inst.capabilities.map((c) => (
               <span
-                key={scope}
+                key={c.uri}
                 className="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded font-mono"
               >
-                {scope}
+                {c.uri}{c.actions ? ` [${c.actions.join(',')}]` : ''}
               </span>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-400 dark:text-gray-500">No scopes registered.</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">No capabilities registered.</p>
         )}
       </Section>
 

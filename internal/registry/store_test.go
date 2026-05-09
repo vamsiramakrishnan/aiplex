@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -12,31 +13,30 @@ func TestMemoryStore_InstanceCRUD(t *testing.T) {
 	ctx := context.Background()
 	store := registry.NewMemoryStore()
 
-	// Put
 	inst := &models.Instance{
 		ID:         "test-123",
-		Plane:      models.PlaneMCPlex,
+		Kind:       capability.KindTool,
 		TemplateID: "kb-search",
 		Owner:      "admin@test.com",
 		Namespace:  "mcplex",
 		Status:     models.StatusRunning,
-		Scopes:     []string{"mcp:tools:search"},
+		Capabilities: capability.CapSet{
+			{URI: "cap://tool/search@v1", Actions: []string{"call"}},
+		},
 	}
 	if err := store.PutInstance(ctx, inst); err != nil {
 		t.Fatalf("PutInstance: %v", err)
 	}
 
-	// Get
 	got, err := store.GetInstance(ctx, "test-123")
 	if err != nil {
 		t.Fatalf("GetInstance: %v", err)
 	}
-	if got.ID != "test-123" || got.Plane != models.PlaneMCPlex {
+	if got.ID != "test-123" || got.Kind != capability.KindTool {
 		t.Errorf("GetInstance: got %+v", got)
 	}
 
-	// List by plane
-	list, err := store.ListInstances(ctx, models.PlaneMCPlex)
+	list, err := store.ListInstances(ctx, capability.KindTool)
 	if err != nil {
 		t.Fatalf("ListInstances: %v", err)
 	}
@@ -44,7 +44,6 @@ func TestMemoryStore_InstanceCRUD(t *testing.T) {
 		t.Errorf("ListInstances: expected 1, got %d", len(list))
 	}
 
-	// List all
 	list, err = store.ListInstances(ctx, "")
 	if err != nil {
 		t.Fatalf("ListInstances all: %v", err)
@@ -53,16 +52,14 @@ func TestMemoryStore_InstanceCRUD(t *testing.T) {
 		t.Errorf("ListInstances all: expected 1, got %d", len(list))
 	}
 
-	// List wrong plane
-	list, err = store.ListInstances(ctx, models.PlaneA2APlex)
+	list, err = store.ListInstances(ctx, capability.KindTask)
 	if err != nil {
-		t.Fatalf("ListInstances a2aplex: %v", err)
+		t.Fatalf("ListInstances task: %v", err)
 	}
 	if len(list) != 0 {
-		t.Errorf("ListInstances a2aplex: expected 0, got %d", len(list))
+		t.Errorf("ListInstances task: expected 0, got %d", len(list))
 	}
 
-	// Delete
 	if err := store.DeleteInstance(ctx, "test-123"); err != nil {
 		t.Fatalf("DeleteInstance: %v", err)
 	}
@@ -78,13 +75,13 @@ func TestMemoryStore_TemplatePagination(t *testing.T) {
 
 	for i := 0; i < 25; i++ {
 		store.PutTemplate(ctx, &models.Template{
-			ID:    "tmpl-" + string(rune('a'+i)),
-			Plane: models.PlaneMCPlex,
-			Name:  "Template " + string(rune('A'+i)),
+			ID:   "tmpl-" + string(rune('a'+i)),
+			Kind: capability.KindTool,
+			Name: "Template " + string(rune('A'+i)),
 		})
 	}
 
-	page, total, err := store.ListTemplates(ctx, models.PlaneMCPlex, 0, 10)
+	page, total, err := store.ListTemplates(ctx, capability.KindTool, 0, 10)
 	if err != nil {
 		t.Fatalf("ListTemplates: %v", err)
 	}
@@ -95,8 +92,7 @@ func TestMemoryStore_TemplatePagination(t *testing.T) {
 		t.Errorf("expected page size 10, got %d", len(page))
 	}
 
-	// Page beyond end
-	page, _, err = store.ListTemplates(ctx, models.PlaneMCPlex, 3, 10)
+	page, _, err = store.ListTemplates(ctx, capability.KindTool, 3, 10)
 	if err != nil {
 		t.Fatalf("ListTemplates page 3: %v", err)
 	}
@@ -110,11 +106,14 @@ func TestMemoryStore_AgentCRUD(t *testing.T) {
 	store := registry.NewMemoryStore()
 
 	agent := &models.Agent{
-		ClientID:      "tutor-agent",
-		DisplayName:   "Tutor Agent",
-		AuthMethod:    "client_credentials",
-		AllowedScopes: []string{"mcp:tools:search", "llm:model:gemini-2.5-flash"},
-		Status:        "active",
+		ClientID:    "tutor-agent",
+		DisplayName: "Tutor Agent",
+		AuthMethod:  "client_credentials",
+		AllowedCaps: capability.CapSet{
+			{URI: "cap://tool/search@v1", Actions: []string{"call"}},
+			{URI: "cap://model/gemini-2.5-flash@v1", Actions: []string{"complete"}},
+		},
+		Status: "active",
 	}
 	if err := store.PutAgent(ctx, agent); err != nil {
 		t.Fatalf("PutAgent: %v", err)
@@ -164,33 +163,34 @@ func TestMemoryStore_History(t *testing.T) {
 	if len(history) != 3 {
 		t.Errorf("expected 3 history entries, got %d", len(history))
 	}
-	// Most recent first
 	if history[0].ID != "h4" {
 		t.Errorf("expected most recent first, got %s", history[0].ID)
 	}
 }
 
-func TestMemoryStore_UserScopes(t *testing.T) {
+func TestMemoryStore_UserCaps(t *testing.T) {
 	ctx := context.Background()
 	store := registry.NewMemoryStore()
 
-	scopes := []string{"mcp:tools:search", "llm:model:gemini-2.5-flash"}
-	if err := store.SetUserScopes(ctx, "user@test.com", scopes); err != nil {
-		t.Fatalf("SetUserScopes: %v", err)
+	caps := capability.CapSet{
+		{URI: "cap://tool/search@v1", Actions: []string{"call"}},
+		{URI: "cap://model/gemini-2.5-flash@v1", Actions: []string{"complete"}},
+	}
+	if err := store.SetUserCaps(ctx, "user@test.com", caps); err != nil {
+		t.Fatalf("SetUserCaps: %v", err)
 	}
 
-	got, err := store.GetUserScopes(ctx, "user@test.com")
+	got, err := store.GetUserCaps(ctx, "user@test.com")
 	if err != nil {
-		t.Fatalf("GetUserScopes: %v", err)
+		t.Fatalf("GetUserCaps: %v", err)
 	}
 	if len(got) != 2 {
-		t.Errorf("expected 2 scopes, got %d", len(got))
+		t.Errorf("expected 2 caps, got %d", len(got))
 	}
 
-	// Non-existent user returns nil
-	got, err = store.GetUserScopes(ctx, "nobody@test.com")
+	got, err = store.GetUserCaps(ctx, "nobody@test.com")
 	if err != nil {
-		t.Fatalf("GetUserScopes nonexistent: %v", err)
+		t.Fatalf("GetUserCaps nonexistent: %v", err)
 	}
 	if got != nil {
 		t.Errorf("expected nil for nonexistent user, got %v", got)

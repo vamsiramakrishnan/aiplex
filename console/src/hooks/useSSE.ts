@@ -1,12 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 
-interface SSEStats {
+export interface SSEStats {
   total_instances: number;
   running: number;
-  mcplex: number;
-  a2aplex: number;
-  llmplex: number;
-  skillsplex?: number;
+  instances_by_kind: Record<string, number>;
   agents: number;
   delegations: number;
   denials: number;
@@ -21,8 +18,7 @@ export function useSSE(enabled: boolean = true): SSEStats | null {
     if (!enabled) return;
 
     const token = localStorage.getItem('aiplex_token');
-    // EventSource doesn't support custom headers, so use query param for auth
-    const url = `/api/v1/events/stream${token ? `?token=${token}` : ''}`;
+    const url = `/events/stream${token ? `?token=${token}` : ''}`;
 
     const es = new EventSource(url);
     eventSourceRef.current = es;
@@ -37,7 +33,6 @@ export function useSSE(enabled: boolean = true): SSEStats | null {
     });
 
     es.onerror = () => {
-      // EventSource auto-reconnects, just log
       console.warn('SSE connection error, reconnecting...');
     };
 

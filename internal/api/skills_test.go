@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -28,7 +29,7 @@ func setupSkillsRouter() (chi.Router, *registry.MemoryStore) {
 	return r, store
 }
 
-func TestSkillsHandler_RecordInvocation_RecordsDenialOnScopeMissing(t *testing.T) {
+func TestSkillsHandler_RecordInvocation_RecordsDenialOnCapMissing(t *testing.T) {
 	r, store := setupSkillsRouter()
 
 	body := `{
@@ -37,7 +38,7 @@ func TestSkillsHandler_RecordInvocation_RecordsDenialOnScopeMissing(t *testing.T
 		"skill_name": "review_pr",
 		"user_id": "alice@example.com",
 		"status": "failed",
-		"error": "missing scope: skill:invoke:review_pr"
+		"error": "missing cap: cap://skill/review_pr@v1"
 	}`
 	req := httptest.NewRequest("POST", "/api/v1/skills/invocations", strings.NewReader(body))
 	w := httptest.NewRecorder()
@@ -54,20 +55,20 @@ func TestSkillsHandler_RecordInvocation_RecordsDenialOnScopeMissing(t *testing.T
 		t.Fatalf("expected 1 denial recorded, got %d", len(denials))
 	}
 	d := denials[0]
-	if d.Plane != string(models.PlaneSkillsPlex) {
-		t.Errorf("Plane = %q, want skillsplex", d.Plane)
+	if d.Kind != capability.KindSkill {
+		t.Errorf("Kind = %q, want skill", d.Kind)
 	}
-	if d.Scope != "skill:invoke:review_pr" {
-		t.Errorf("Scope = %q, want skill:invoke:review_pr", d.Scope)
+	if d.CapURI != "cap://skill/review_pr@v1" {
+		t.Errorf("CapURI = %q", d.CapURI)
 	}
 	if d.AgentID != "tutor-agent" {
 		t.Errorf("AgentID = %q, want tutor-agent", d.AgentID)
 	}
-	if d.Reason != "scope_missing" {
-		t.Errorf("Reason = %q, want scope_missing", d.Reason)
+	if d.Reason != "cap_missing" {
+		t.Errorf("Reason = %q, want cap_missing", d.Reason)
 	}
-	if d.Action != "skills/invoke:review_pr" {
-		t.Errorf("Action = %q, want skills/invoke:review_pr", d.Action)
+	if d.Action != "invoke" {
+		t.Errorf("Action = %q, want invoke", d.Action)
 	}
 }
 
@@ -111,7 +112,7 @@ func TestSkillsHandler_RecordInvocation_NoDenialOnGenericFailure(t *testing.T) {
 
 	denials, _ := store.ListPolicyDenials(context.Background(), 10)
 	if len(denials) != 0 {
-		t.Errorf("expected 0 denials for non-scope failures, got %d", len(denials))
+		t.Errorf("expected 0 denials for non-cap failures, got %d", len(denials))
 	}
 }
 
@@ -121,22 +122,25 @@ func TestSkillsHandler_GetSkillsManifest(t *testing.T) {
 
 	store.PutTemplate(ctx, &models.Template{
 		ID:          "code-review",
-		Plane:       models.PlaneSkillsPlex,
+		Kind:        capability.KindSkill,
 		Name:        "Code Review",
 		Description: "Pull request review",
-		Version:     "1.0.0",
+		Version:     "v1",
 		SkillBundle: "code-review",
-		Skills: []models.SkillInfo{
-			{Name: "review_pr", Description: "Review a PR diff"},
-			{Name: "suggest_tests", Description: "Suggest tests"},
+		Capabilities: []capability.Capability{
+			{URI: "cap://skill/code-review/review_pr@v1", Kind: capability.KindSkill, Name: "code-review/review_pr", Version: "v1", Description: "Review a PR diff"},
+			{URI: "cap://skill/code-review/suggest_tests@v1", Kind: capability.KindSkill, Name: "code-review/suggest_tests", Version: "v1", Description: "Suggest tests"},
 		},
 	})
 	store.PutInstance(ctx, &models.Instance{
 		ID:         "code-review-abc",
-		Plane:      models.PlaneSkillsPlex,
+		Kind:       capability.KindSkill,
 		TemplateID: "code-review",
 		Status:     models.StatusRunning,
-		Scopes:     []string{"skill:invoke:review_pr", "skill:invoke:suggest_tests"},
+		Capabilities: capability.CapSet{
+			{URI: "cap://skill/code-review/review_pr@v1", Actions: []string{"invoke"}},
+			{URI: "cap://skill/code-review/suggest_tests@v1", Actions: []string{"invoke"}},
+		},
 	})
 
 	req := httptest.NewRequest("GET", "/skills/code-review-abc/.well-known/skills.json", nil)

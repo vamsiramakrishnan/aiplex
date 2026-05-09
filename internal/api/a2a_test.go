@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -18,20 +19,25 @@ func setupA2ARouter() (chi.Router, *registry.MemoryStore) {
 	store := registry.NewMemoryStore()
 	ctx := context.Background()
 
-	// Seed A2A template and instance
 	store.PutTemplate(ctx, &models.Template{
-		ID:        "research-agent",
-		Plane:     models.PlaneA2APlex,
-		Name:      "Research Agent",
-		Version:   "1.0.0",
-		TaskTypes: []string{"research", "summarize"},
+		ID:      "research-agent",
+		Kind:    capability.KindTask,
+		Name:    "Research Agent",
+		Version: "1.0.0",
+		Capabilities: []capability.Capability{
+			{URI: "cap://task/research@v1", Kind: capability.KindTask, Name: "research", Version: "v1"},
+			{URI: "cap://task/summarize@v1", Kind: capability.KindTask, Name: "summarize", Version: "v1"},
+		},
 	})
 	store.PutInstance(ctx, &models.Instance{
 		ID:         "research-abc123",
-		Plane:      models.PlaneA2APlex,
+		Kind:       capability.KindTask,
 		TemplateID: "research-agent",
 		Status:     models.StatusRunning,
-		Scopes:     []string{"a2a:task:research", "a2a:task:summarize"},
+		Capabilities: capability.CapSet{
+			{URI: "cap://task/research@v1", Actions: []string{"invoke"}},
+			{URI: "cap://task/summarize@v1", Actions: []string{"invoke"}},
+		},
 	})
 
 	h := api.NewA2AHandler(store)

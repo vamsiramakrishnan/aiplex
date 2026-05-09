@@ -96,7 +96,7 @@ Checks:
 				fmt.Println("Platform Status:")
 				fmt.Printf("  Instances: %d (%d running)\n", stats.TotalInstances, stats.RunningInstances)
 				fmt.Printf("  Agents:    %d\n", stats.RegisteredAgents)
-				fmt.Printf("  Planes:    %d active\n", stats.ActivePlanes)
+				fmt.Printf("  Kinds:     %d active\n", stats.ActiveKinds)
 				if stats.PolicyDenials > 0 {
 					fmt.Printf("  Denials:   %d (last 24h)\n", stats.PolicyDenials)
 				}

@@ -7,11 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 )
 
 func TestOfficialMCPSource_Fetch(t *testing.T) {
-	// Mock registry server
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/servers" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
@@ -34,8 +33,8 @@ func TestOfficialMCPSource_Fetch(t *testing.T) {
 	if templates[0].Name != "github-mcp" {
 		t.Errorf("templates[0].Name = %q, want github-mcp", templates[0].Name)
 	}
-	if templates[0].Plane != models.PlaneMCPlex {
-		t.Errorf("templates[0].Plane = %q, want %q", templates[0].Plane, models.PlaneMCPlex)
+	if templates[0].Kind != capability.KindTool {
+		t.Errorf("templates[0].Kind = %q, want %q", templates[0].Kind, capability.KindTool)
 	}
 	if templates[0].Source != "official-mcp-registry" {
 		t.Errorf("templates[0].Source = %q, want official-mcp-registry", templates[0].Source)
@@ -45,6 +44,9 @@ func TestOfficialMCPSource_Fetch(t *testing.T) {
 	}
 	if templates[0].Repository != "ghcr.io/github/mcp-server" {
 		t.Errorf("templates[0].Repository = %q, want ghcr.io/github/mcp-server", templates[0].Repository)
+	}
+	if len(templates[0].Capabilities) != 1 || templates[0].Capabilities[0].URI != "cap://tool/github-mcp@v1" {
+		t.Errorf("templates[0].Capabilities = %+v", templates[0].Capabilities)
 	}
 }
 
@@ -83,9 +85,9 @@ func TestOfficialMCPSource_Name(t *testing.T) {
 	}
 }
 
-func TestOfficialMCPSource_Plane(t *testing.T) {
+func TestOfficialMCPSource_Kind(t *testing.T) {
 	source := NewOfficialMCPSource("")
-	if source.Plane() != models.PlaneMCPlex {
-		t.Errorf("Plane() = %q, want %q", source.Plane(), models.PlaneMCPlex)
+	if source.Kind() != capability.KindTool {
+		t.Errorf("Kind() = %q, want %q", source.Kind(), capability.KindTool)
 	}
 }

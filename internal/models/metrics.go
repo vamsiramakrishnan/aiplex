@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
+)
 
 // MetricPoint is a single data point for dashboard charts.
 type MetricPoint struct {
@@ -11,37 +15,32 @@ type MetricPoint struct {
 // DashboardStats provides the unified overview for the Console dashboard.
 type DashboardStats struct {
 	// Counts
-	TotalInstances    int `json:"total_instances"`
-	RunningInstances  int `json:"running_instances"`
-	RegisteredAgents  int `json:"registered_agents"`
-	ActivePlanes      int `json:"active_planes"`
-
-	// Per-plane
-	MCPlexInstances     int `json:"mcplex_instances"`
-	A2APlexInstances    int `json:"a2aplex_instances"`
-	LLMPlexInstances    int `json:"llmplex_instances"`
-	SkillsPlexInstances int `json:"skillsplex_instances"`
+	TotalInstances   int                     `json:"total_instances"`
+	RunningInstances int                     `json:"running_instances"`
+	RegisteredAgents int                     `json:"registered_agents"`
+	ActiveKinds      int                     `json:"active_kinds"`
+	InstancesByKind  map[capability.Kind]int `json:"instances_by_kind"`
 
 	// LLM costs (last 24h)
-	DailyCostUSD     float64 `json:"daily_cost_usd"`
-	DailyTokens      int64   `json:"daily_tokens"`
-	DailyRequests    int64   `json:"daily_requests"`
+	DailyCostUSD  float64 `json:"daily_cost_usd"`
+	DailyTokens   int64   `json:"daily_tokens"`
+	DailyRequests int64   `json:"daily_requests"`
 
-	// Activity (last 24h)
-	ToolCalls        int64 `json:"tool_calls_24h"`
-	A2ADelegations   int64 `json:"a2a_delegations_24h"`
-	PolicyDenials    int64 `json:"policy_denials_24h"`
+	// Activity (last 24h) — kind-specific roll-ups.
+	ToolCalls      int64 `json:"tool_calls_24h"`
+	A2ADelegations int64 `json:"a2a_delegations_24h"`
+	PolicyDenials  int64 `json:"policy_denials_24h"`
 }
 
 // PolicyDenial records a single OPA/authz denial event.
 type PolicyDenial struct {
-	ID        string    `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
-	Plane     string    `json:"plane"`
-	AgentID   string    `json:"agent_id"`
-	UserID    string    `json:"user_id"`
-	Action    string    `json:"action"`    // e.g. "tools/call:search" or "llm:model:gpt-4.1"
-	Scope     string    `json:"scope"`     // the scope that was missing
-	Reason    string    `json:"reason"`    // "scope_missing", "budget_exceeded", "rate_limited"
-	RequestID string    `json:"request_id"`
+	ID        string          `json:"id"`
+	Timestamp time.Time       `json:"timestamp"`
+	Kind      capability.Kind `json:"kind"`
+	AgentID   string          `json:"agent_id"`
+	UserID    string          `json:"user_id"`
+	CapURI    string          `json:"cap_uri"` // the capability that was requested
+	Action    string          `json:"action"`  // requested action
+	Reason    string          `json:"reason"`  // "cap_missing", "budget_exceeded", "rate_limited"
+	RequestID string          `json:"request_id"`
 }

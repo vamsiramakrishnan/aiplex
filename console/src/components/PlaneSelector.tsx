@@ -1,30 +1,31 @@
-interface PlaneSelectorProps {
+interface KindSelectorProps {
   value: string
-  onChange: (plane: string) => void
+  onChange: (kind: string) => void
 }
 
-const planes = [
-  { id: '', label: 'All Planes' },
-  { id: 'mcplex', label: 'MCPlex' },
-  { id: 'a2aplex', label: 'A2APlex' },
-  { id: 'llmplex', label: 'LLMPlex' },
-  { id: 'skillsplex', label: 'SkillsPlex' },
+const kinds = [
+  { id: '', label: 'All Kinds' },
+  { id: 'tool', label: 'Tool' },
+  { id: 'task', label: 'Task' },
+  { id: 'model', label: 'Model' },
+  { id: 'skill', label: 'Skill' },
+  { id: 'memory', label: 'Memory' },
 ]
 
-export default function PlaneSelector({ value, onChange }: PlaneSelectorProps) {
+export default function KindSelector({ value, onChange }: KindSelectorProps) {
   return (
     <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-      {planes.map((plane) => (
+      {kinds.map((kind) => (
         <button
-          key={plane.id}
-          onClick={() => onChange(plane.id)}
+          key={kind.id}
+          onClick={() => onChange(kind.id)}
           className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-            value === plane.id
+            value === kind.id
               ? 'bg-white text-gray-900 shadow-sm'
               : 'text-gray-600 hover:text-gray-900'
           }`}
         >
-          {plane.label}
+          {kind.label}
         </button>
       ))}
     </div>

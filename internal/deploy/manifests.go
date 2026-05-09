@@ -3,6 +3,7 @@ package deploy
 import (
 	"fmt"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
@@ -16,11 +17,12 @@ type Manifest struct {
 }
 
 // GenerateManifests produces all K8s resources needed for a deployment.
-// For MCPlex/A2APlex: ServiceAccount, Deployment, Service, NetworkPolicy.
-// For LLMPlex: no K8s workloads (Envoy handles model routing directly).
+// kinds tool/task/skill/memory: ServiceAccount, Deployment, Service, NetworkPolicy.
+// kind=model: no K8s workloads (Envoy handles model routing directly).
+// kind=meta: no workloads (AIPlex API serves these itself).
 func GenerateManifests(inst *models.Instance, tmpl *models.Template, trustDomain string) []Manifest {
-	if inst.Plane == models.PlaneLLMPlex {
-		return nil // Envoy AI Gateway handles LLM routing — no pods needed
+	if inst.Kind == capability.KindModel || inst.Kind == capability.KindMeta {
+		return nil
 	}
 
 	ns := inst.Namespace

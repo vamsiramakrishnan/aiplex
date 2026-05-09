@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
@@ -27,8 +28,8 @@ func NewOfficialMCPSource(registryURL string) *OfficialMCPSource {
 	}
 }
 
-func (o *OfficialMCPSource) Name() string          { return "official-mcp-registry" }
-func (o *OfficialMCPSource) Plane() models.Plane   { return models.PlaneMCPlex }
+func (o *OfficialMCPSource) Name() string             { return "official-mcp-registry" }
+func (o *OfficialMCPSource) Kind() capability.Kind    { return capability.KindTool }
 
 // registryEntry represents a single server from the MCP registry API.
 type registryEntry struct {
@@ -63,18 +64,34 @@ func (o *OfficialMCPSource) Fetch(ctx context.Context) ([]models.Template, error
 
 	templates := make([]models.Template, 0, len(entries))
 	for _, entry := range entries {
+		// Tools are discovered post-deploy via tools/list. Until then the
+		// template just references the server itself as a single capability
+		// (the deploy engine populates per-tool capabilities later).
+		uri := capability.New(capability.KindTool, entry.Name, "v1")
 		tmpl := models.Template{
 			ID:          entry.Name,
 			Name:        entry.Name,
 			Description: entry.Description,
-			Plane:       models.PlaneMCPlex,
+			Kind:        capability.KindTool,
 			Source:      "official-mcp-registry",
 			Category:    "mcp-server",
-			Verified:    true, // Official registry entries are verified
+			Verified:    true,
+			Capabilities: []capability.Capability{
+				{
+					URI:         uri.String(),
+					Kind:        capability.KindTool,
+					Name:        entry.Name,
+					Version:     "v1",
+					Description: entry.Description,
+					Repository:  entry.Repository,
+					Image:       entry.Repository,
+					Tags:        entry.Tags,
+				},
+			},
 		}
 		if entry.Repository != "" {
 			tmpl.Repository = entry.Repository
-			tmpl.Image = entry.Repository // Use repository as image for now
+			tmpl.Image = entry.Repository
 		}
 		if len(entry.Tags) > 0 {
 			tmpl.Tags = entry.Tags

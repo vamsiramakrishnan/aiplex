@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/catalog"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
@@ -20,17 +21,17 @@ func NewCatalogHandler(agg *catalog.Aggregator, store registry.Store) *CatalogHa
 	return &CatalogHandler{aggregator: agg, store: store}
 }
 
-// List returns paginated catalog templates, optionally filtered by plane.
-// GET /api/v1/catalog?plane=mcplex&page=0&page_size=20
+// List returns paginated catalog templates, optionally filtered by capability kind.
+// GET /api/v1/catalog?kind=tool&page=0&page_size=20
 func (h *CatalogHandler) List(w http.ResponseWriter, r *http.Request) {
-	plane := models.Plane(r.URL.Query().Get("plane"))
+	kind := capability.Kind(r.URL.Query().Get("kind"))
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
 	if pageSize <= 0 || pageSize > 100 {
 		pageSize = 20
 	}
 
-	result := h.aggregator.Fetch(r.Context(), plane)
+	result := h.aggregator.Fetch(r.Context(), kind)
 
 	total := len(result.Templates)
 	start := page * pageSize

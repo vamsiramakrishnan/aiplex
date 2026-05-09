@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 )
 
 // HydraClient wraps the Ory Hydra Admin API.
@@ -149,13 +151,17 @@ func (h *HydraClient) GetConsentRequest(ctx context.Context, challenge string) (
 	return &cr, nil
 }
 
-// AcceptConsent accepts a consent request with the granted scopes.
-func (h *HydraClient) AcceptConsent(ctx context.Context, challenge string, grantedScopes []string, actClaim map[string]string) (string, error) {
+// AcceptConsent accepts a consent request, granting the given capability set.
+// The granted caps are emitted in the JWT under both `grant_scope` (URIs only,
+// for Hydra's audience-binding) and a structured `caps` claim that policy reads.
+func (h *HydraClient) AcceptConsent(ctx context.Context, challenge string, granted capability.CapSet, actClaim map[string]string) (string, error) {
+	uris := granted.URIs()
 	payload := map[string]any{
-		"grant_scope": grantedScopes,
+		"grant_scope": uris,
 		"session": map[string]any{
 			"access_token": map[string]any{
-				"act": actClaim,
+				"act":  actClaim,
+				"caps": granted,
 			},
 		},
 	}

@@ -1,15 +1,9 @@
 package models
 
-import "time"
+import (
+	"time"
 
-// Plane represents one of the three AIPlex planes.
-type Plane string
-
-const (
-	PlaneMCPlex     Plane = "mcplex"
-	PlaneA2APlex    Plane = "a2aplex"
-	PlaneLLMPlex    Plane = "llmplex"
-	PlaneSkillsPlex Plane = "skillsplex"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 )
 
 // InstanceStatus tracks the lifecycle state of a deployed instance.
@@ -24,25 +18,27 @@ const (
 	StatusTerminated   InstanceStatus = "terminated"
 )
 
-// Instance represents a deployed MCP server, A2A agent, or LLM provider.
+// Instance represents a deployed capability provider — the workload behind one
+// or more capability URIs. Tools, A2A agents, skill servers, model proxies and
+// memory namespaces are all instances.
 type Instance struct {
-	ID              string            `json:"id"`
-	Plane           Plane             `json:"plane"`
-	TemplateID      string            `json:"template_id"`
-	Owner           string            `json:"owner"`
-	Namespace       string            `json:"namespace"`
-	SpiffeID        string            `json:"spiffe_id,omitempty"`
-	Scopes          []string          `json:"scopes"`
-	Config          map[string]any    `json:"config,omitempty"`
-	Labels          map[string]string `json:"labels,omitempty"`
-	Status          InstanceStatus    `json:"status"`
-	Replicas        int               `json:"replicas"`
-	DisplayName     string            `json:"display_name,omitempty"`
-	ResourceVersion int64             `json:"resource_version"`
-	DeployedAt      time.Time         `json:"deployed_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
-	DeployedBy      string            `json:"deployed_by"`
-	Health          *HealthStatus     `json:"health,omitempty"`
+	ID              string             `json:"id"`
+	Kind            capability.Kind    `json:"kind"`
+	TemplateID      string             `json:"template_id"`
+	Owner           string             `json:"owner"`
+	Namespace       string             `json:"namespace"`
+	SpiffeID        string             `json:"spiffe_id,omitempty"`
+	Capabilities    capability.CapSet  `json:"capabilities"`
+	Config          map[string]any     `json:"config,omitempty"`
+	Labels          map[string]string  `json:"labels,omitempty"`
+	Status          InstanceStatus     `json:"status"`
+	Replicas        int                `json:"replicas"`
+	DisplayName     string             `json:"display_name,omitempty"`
+	ResourceVersion int64              `json:"resource_version"`
+	DeployedAt      time.Time          `json:"deployed_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+	DeployedBy      string             `json:"deployed_by"`
+	Health          *HealthStatus      `json:"health,omitempty"`
 }
 
 // HealthStatus captures the last health check result.

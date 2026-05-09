@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
@@ -42,7 +43,7 @@ func (h *A2AHandler) GetAgentCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if inst.Plane != models.PlaneA2APlex {
+	if inst.Kind != capability.KindTask {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "instance is not an A2A agent")
 		return
 	}
@@ -53,28 +54,33 @@ func (h *A2AHandler) GetAgentCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build Agent Card from template + instance
+	// Build Agent Card from instance capabilities (kind=task) and template metadata.
+	taskNames := make([]string, 0, len(inst.Capabilities))
+	for _, c := range inst.Capabilities {
+		if u, err := capability.ParseURI(c.URI); err == nil {
+			taskNames = append(taskNames, u.Name)
+		}
+	}
+
 	card := models.AgentCard{
-		Name:        tmpl.Name,
-		Description: tmpl.Description,
-		URL:         fmt.Sprintf("/a2a/%s", instanceID),
-		Version:     tmpl.Version,
-		Capabilities: tmpl.TaskTypes,
+		Name:         tmpl.Name,
+		Description:  tmpl.Description,
+		URL:          fmt.Sprintf("/a2a/%s", instanceID),
+		Version:      tmpl.Version,
+		Capabilities: taskNames,
 		AuthSchemes: []models.AuthSchemeInfo{
 			{Scheme: "bearer", Config: map[string]any{"issuer": "https://aiplex.example.com/auth/realms/aiplex"}},
 			{Scheme: "spiffe"},
 		},
 	}
 
-	// Build task type info from template
-	for _, tt := range tmpl.TaskTypes {
+	for _, tt := range taskNames {
 		card.TaskTypes = append(card.TaskTypes, models.TaskTypeInfo{
 			Type:        tt,
 			Description: fmt.Sprintf("Task type: %s", tt),
 		})
 	}
 
-	// Merge any custom agent card data from template
 	if tmpl.AgentCard != nil {
 		card.Metadata = tmpl.AgentCard
 	}
@@ -90,7 +96,7 @@ func (h *A2AHandler) GetAgentCard(w http.ResponseWriter, r *http.Request) {
 // ListAgentCards returns Agent Cards for all deployed A2A agents.
 // GET /api/v1/a2a/agents
 func (h *A2AHandler) ListAgentCards(w http.ResponseWriter, r *http.Request) {
-	instances, err := h.store.ListInstances(r.Context(), models.PlaneA2APlex)
+	instances, err := h.store.ListInstances(r.Context(), capability.KindTask)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
@@ -106,11 +112,17 @@ func (h *A2AHandler) ListAgentCards(w http.ResponseWriter, r *http.Request) {
 		if name == "" && tmpl != nil {
 			name = tmpl.Name
 		}
+		taskTypes := make([]string, 0, len(inst.Capabilities))
+		for _, c := range inst.Capabilities {
+			if u, err := capability.ParseURI(c.URI); err == nil {
+				taskTypes = append(taskTypes, u.Name)
+			}
+		}
 		cards = append(cards, map[string]any{
 			"instance_id": inst.ID,
 			"name":        name,
 			"url":         fmt.Sprintf("/a2a/%s", inst.ID),
-			"task_types":  inst.Scopes,
+			"task_types":  taskTypes,
 			"status":      inst.Status,
 		})
 	}

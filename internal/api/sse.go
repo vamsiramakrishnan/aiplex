@@ -1,10 +1,12 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
@@ -20,9 +22,7 @@ func NewSSEHandler(store registry.Store) *SSEHandler {
 
 // Stream sends periodic dashboard updates via Server-Sent Events.
 // Clients connect to GET /events/stream and receive JSON payloads every 5 seconds.
-// This replaces polling for the Console dashboard.
 func (h *SSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
-	// Accept token from query param (EventSource can't set headers)
 	if token := r.URL.Query().Get("token"); token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -41,7 +41,6 @@ func (h *SSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	// Send initial state immediately
 	h.sendStats(w, flusher, r)
 
 	for {
@@ -57,34 +56,31 @@ func (h *SSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
 func (h *SSEHandler) sendStats(w http.ResponseWriter, flusher http.Flusher, r *http.Request) {
 	ctx := r.Context()
 
-	// Gather stats (same as dashboard handler)
 	instances, _ := h.store.ListInstances(ctx, "")
 	agents, _ := h.store.ListAgents(ctx)
 	delegations, _ := h.store.CountDelegations(ctx)
 	denials, _ := h.store.CountPolicyDenials(ctx)
 
-	var running, mcplex, a2aplex, llmplex, skillsplex int
+	running := 0
+	byKind := make(map[capability.Kind]int)
 	for _, inst := range instances {
 		if inst.Status == "running" {
 			running++
 		}
-		switch inst.Plane {
-		case "mcplex":
-			mcplex++
-		case "a2aplex":
-			a2aplex++
-		case "llmplex":
-			llmplex++
-		case "skillsplex":
-			skillsplex++
-		}
+		byKind[inst.Kind]++
 	}
 
-	data := fmt.Sprintf(`{"total_instances":%d,"running":%d,"mcplex":%d,"a2aplex":%d,"llmplex":%d,"skillsplex":%d,"agents":%d,"delegations":%d,"denials":%d,"timestamp":"%s"}`,
-		len(instances), running, mcplex, a2aplex, llmplex, skillsplex,
-		len(agents), delegations, denials,
-		time.Now().Format(time.RFC3339))
+	payload := map[string]any{
+		"total_instances":   len(instances),
+		"running":           running,
+		"instances_by_kind": byKind,
+		"agents":            len(agents),
+		"delegations":       delegations,
+		"denials":           denials,
+		"timestamp":         time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(payload)
 
-	fmt.Fprintf(w, "event: stats\ndata: %s\n\n", data)
+	fmt.Fprintf(w, "event: stats\ndata: %s\n\n", string(data))
 	flusher.Flush()
 }

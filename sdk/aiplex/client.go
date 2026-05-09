@@ -5,7 +5,7 @@
 //	c := aiplex.NewClient("https://aiplex.example.com")
 //	c.SetToken("eyJhbGci...")
 //
-//	instances, err := c.ListInstances(ctx, &aiplex.ListInstancesOpts{Plane: "mcplex"})
+//	instances, err := c.ListInstances(ctx, &aiplex.ListInstancesOpts{Kind: "tool"})
 package aiplex
 
 import (
@@ -102,9 +102,34 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 	return nil
 }
 
+// --- Capability primitive ---
+
+// Cap is one entry in a JWT's caps claim. It grants the bearer permission to
+// perform a subset of actions on a single capability URI.
+type Cap struct {
+	URI         string         `json:"uri"`
+	Actions     []string       `json:"actions,omitempty"`
+	Constraints map[string]any `json:"constraints,omitempty"`
+	NotBefore   int64          `json:"nbf,omitempty"`
+	NotAfter    int64          `json:"exp,omitempty"`
+}
+
+// Capability is a typed, addressable, governable unit of agent action.
+type Capability struct {
+	URI          string         `json:"uri"`
+	Kind         string         `json:"kind"`
+	Name         string         `json:"name"`
+	Version      string         `json:"version"`
+	Provider     string         `json:"provider,omitempty"`
+	Actions      []string       `json:"actions,omitempty"`
+	Description  string         `json:"description,omitempty"`
+	Tags         []string       `json:"tags,omitempty"`
+	Repository   string         `json:"repository,omitempty"`
+	Image        string         `json:"image,omitempty"`
+}
+
 // --- Catalog ---
 
-// CatalogPage is a paginated catalog response.
 type CatalogPage struct {
 	Templates     []Template    `json:"templates"`
 	Total         int           `json:"total"`
@@ -119,27 +144,21 @@ type SourceError struct {
 }
 
 type Template struct {
-	ID           string            `json:"id"`
-	Source       string            `json:"source"`
-	Plane        string            `json:"plane"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	Image        string            `json:"image,omitempty"`
-	Version      string            `json:"version,omitempty"`
-	Tools        []ToolInfo        `json:"tools,omitempty"`
-	TaskTypes    []string          `json:"task_types,omitempty"`
-	ModelID      string            `json:"model_id,omitempty"`
-	Provider     string            `json:"provider,omitempty"`
-	Capabilities []string          `json:"capabilities,omitempty"`
-	Category     string            `json:"category"`
-	Verified     bool              `json:"verified"`
-	Tags         []string          `json:"tags,omitempty"`
-	Pricing      *Pricing          `json:"pricing,omitempty"`
-}
-
-type ToolInfo struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID           string       `json:"id"`
+	Source       string       `json:"source"`
+	Kind         string       `json:"kind"`
+	Name         string       `json:"name"`
+	Description  string       `json:"description"`
+	Image        string       `json:"image,omitempty"`
+	Version      string       `json:"version,omitempty"`
+	Capabilities []Capability `json:"capabilities,omitempty"`
+	ModelID      string       `json:"model_id,omitempty"`
+	Provider     string       `json:"provider,omitempty"`
+	ModelTags    []string     `json:"model_tags,omitempty"`
+	Category     string       `json:"category"`
+	Verified     bool         `json:"verified"`
+	Tags         []string     `json:"tags,omitempty"`
+	Pricing      *Pricing     `json:"pricing,omitempty"`
 }
 
 type Pricing struct {
@@ -149,16 +168,16 @@ type Pricing struct {
 
 // ListCatalogOpts are options for listing catalog templates.
 type ListCatalogOpts struct {
-	Plane string
-	Page  int
+	Kind string
+	Page int
 }
 
 // ListCatalog returns a paginated catalog listing.
 func (c *Client) ListCatalog(ctx context.Context, opts *ListCatalogOpts) (*CatalogPage, error) {
 	q := url.Values{}
 	if opts != nil {
-		if opts.Plane != "" {
-			q.Set("plane", opts.Plane)
+		if opts.Kind != "" {
+			q.Set("kind", opts.Kind)
 		}
 		if opts.Page > 0 {
 			q.Set("page", fmt.Sprintf("%d", opts.Page))
@@ -183,24 +202,24 @@ func (c *Client) GetTemplate(ctx context.Context, id string) (*Template, error) 
 // --- Instances ---
 
 type Instance struct {
-	ID          string         `json:"id"`
-	Plane       string         `json:"plane"`
-	TemplateID  string         `json:"template_id"`
-	Owner       string         `json:"owner"`
-	Namespace   string         `json:"namespace"`
-	SpiffeID    string         `json:"spiffe_id,omitempty"`
-	Scopes      []string       `json:"scopes"`
-	Config      map[string]any `json:"config,omitempty"`
-	Status      string         `json:"status"`
-	Replicas    int            `json:"replicas"`
-	DisplayName string         `json:"display_name,omitempty"`
-	DeployedAt  time.Time      `json:"deployed_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	DeployedBy  string         `json:"deployed_by"`
+	ID           string         `json:"id"`
+	Kind         string         `json:"kind"`
+	TemplateID   string         `json:"template_id"`
+	Owner        string         `json:"owner"`
+	Namespace    string         `json:"namespace"`
+	SpiffeID     string         `json:"spiffe_id,omitempty"`
+	Capabilities []Cap          `json:"capabilities"`
+	Config       map[string]any `json:"config,omitempty"`
+	Status       string         `json:"status"`
+	Replicas     int            `json:"replicas"`
+	DisplayName  string         `json:"display_name,omitempty"`
+	DeployedAt   time.Time      `json:"deployed_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeployedBy   string         `json:"deployed_by"`
 }
 
 type DeployRequest struct {
-	Plane       string         `json:"plane"`
+	Kind        string         `json:"kind"`
 	TemplateID  string         `json:"template_id"`
 	Config      map[string]any `json:"config,omitempty"`
 	DisplayName string         `json:"display_name,omitempty"`
@@ -210,7 +229,7 @@ type DeployHistory struct {
 	ID          string         `json:"id"`
 	InstanceID  string         `json:"instance_id"`
 	Action      string         `json:"action"`
-	Plane       string         `json:"plane"`
+	Kind        string         `json:"kind"`
 	TemplateID  string         `json:"template_id,omitempty"`
 	Owner       string         `json:"owner"`
 	PerformedBy string         `json:"performed_by"`
@@ -223,14 +242,14 @@ type DeployHistory struct {
 
 // ListInstancesOpts filters the instance list.
 type ListInstancesOpts struct {
-	Plane string
+	Kind string
 }
 
-// ListInstances returns all instances, optionally filtered by plane.
+// ListInstances returns all instances, optionally filtered by capability kind.
 func (c *Client) ListInstances(ctx context.Context, opts *ListInstancesOpts) ([]Instance, error) {
 	path := "/api/v1/instances"
-	if opts != nil && opts.Plane != "" {
-		path += "?plane=" + url.QueryEscape(opts.Plane)
+	if opts != nil && opts.Kind != "" {
+		path += "?kind=" + url.QueryEscape(opts.Kind)
 	}
 	var list []Instance
 	err := c.do(ctx, "GET", path, nil, &list)
@@ -266,39 +285,40 @@ func (c *Client) GetHistory(ctx context.Context, instanceID string) ([]DeployHis
 // --- Agents ---
 
 type Agent struct {
-	ClientID      string   `json:"client_id"`
-	DisplayName   string   `json:"display_name"`
-	Description   string   `json:"description,omitempty"`
-	AuthMethod    string   `json:"auth_method"`
-	GrantTypes    []string `json:"grant_types"`
-	AllowedScopes []string `json:"allowed_scopes"`
-	WIFPrincipal  string   `json:"wif_principal,omitempty"`
-	SpiffeID      string   `json:"spiffe_id,omitempty"`
-	RedirectURIs  []string `json:"redirect_uris,omitempty"`
-	RegisteredAt  time.Time `json:"registered_at"`
-	RegisteredBy  string   `json:"registered_by"`
-	Status        string   `json:"status"`
+	ClientID     string    `json:"client_id"`
+	DisplayName  string    `json:"display_name"`
+	Description  string    `json:"description,omitempty"`
+	AuthMethod   string    `json:"auth_method"`
+	GrantTypes   []string  `json:"grant_types"`
+	AllowedCaps  []Cap     `json:"allowed_caps"`
+	WIFPrincipal string    `json:"wif_principal,omitempty"`
+	SpiffeID     string    `json:"spiffe_id,omitempty"`
+	RedirectURIs []string  `json:"redirect_uris,omitempty"`
+	RegisteredAt time.Time `json:"registered_at"`
+	RegisteredBy string    `json:"registered_by"`
+	Status       string    `json:"status"`
+}
+
+type CapabilityInfo struct {
+	URI         string   `json:"uri"`
+	Actions     []string `json:"actions,omitempty"`
+	Description string   `json:"description"`
 }
 
 type AgentPermissions struct {
-	AgentID string                       `json:"agent_id"`
-	Ceiling map[string][]ScopeInfo       `json:"ceiling"`
-}
-
-type ScopeInfo struct {
-	Scope       string `json:"scope"`
-	Description string `json:"description"`
+	AgentID string                      `json:"agent_id"`
+	Ceiling map[string][]CapabilityInfo `json:"ceiling"`
 }
 
 type RegisterAgentRequest struct {
-	ClientID      string   `json:"client_id"`
-	DisplayName   string   `json:"display_name"`
-	Description   string   `json:"description,omitempty"`
-	AuthMethod    string   `json:"auth_method"`
-	GrantTypes    []string `json:"grant_types"`
-	AllowedScopes []string `json:"allowed_scopes"`
-	WIFPrincipal  string   `json:"wif_principal,omitempty"`
-	RedirectURIs  []string `json:"redirect_uris,omitempty"`
+	ClientID     string   `json:"client_id"`
+	DisplayName  string   `json:"display_name"`
+	Description  string   `json:"description,omitempty"`
+	AuthMethod   string   `json:"auth_method"`
+	GrantTypes   []string `json:"grant_types"`
+	AllowedCaps  []Cap    `json:"allowed_caps"`
+	WIFPrincipal string   `json:"wif_principal,omitempty"`
+	RedirectURIs []string `json:"redirect_uris,omitempty"`
 }
 
 // ListAgents returns all registered agents.
@@ -327,14 +347,14 @@ func (c *Client) DeleteAgent(ctx context.Context, clientID string) error {
 	return c.do(ctx, "DELETE", "/api/v1/agents/"+url.PathEscape(clientID), nil, nil)
 }
 
-// GetAgentPermissions returns the cross-plane permission view for an agent.
+// GetAgentPermissions returns the cross-kind permission view for an agent.
 func (c *Client) GetAgentPermissions(ctx context.Context, clientID string) (*AgentPermissions, error) {
 	var p AgentPermissions
 	err := c.do(ctx, "GET", "/api/v1/agents/"+url.PathEscape(clientID)+"/permissions", nil, &p)
 	return &p, err
 }
 
-// --- LLMPlex ---
+// --- LLM (kind=model) ---
 
 type LLMRouteConfig struct {
 	ID        string       `json:"id"`
@@ -400,61 +420,53 @@ type ProviderConfig struct {
 	ProjectID   string `json:"project_id,omitempty"`
 }
 
-// ListLLMRoutes returns all LLM routing configurations.
 func (c *Client) ListLLMRoutes(ctx context.Context) ([]LLMRouteConfig, error) {
 	var list []LLMRouteConfig
 	err := c.do(ctx, "GET", "/api/v1/llm/routes", nil, &list)
 	return list, err
 }
 
-// GetLLMRoute returns a single route config.
 func (c *Client) GetLLMRoute(ctx context.Context, modelID string) (*LLMRouteConfig, error) {
 	var rc LLMRouteConfig
 	err := c.do(ctx, "GET", "/api/v1/llm/routes/"+url.PathEscape(modelID), nil, &rc)
 	return &rc, err
 }
 
-// PutLLMRoute creates or updates a route config.
 func (c *Client) PutLLMRoute(ctx context.Context, modelID string, rc *LLMRouteConfig) (*LLMRouteConfig, error) {
 	var out LLMRouteConfig
 	err := c.do(ctx, "PUT", "/api/v1/llm/routes/"+url.PathEscape(modelID), rc, &out)
 	return &out, err
 }
 
-// DeleteLLMRoute deletes a route config.
 func (c *Client) DeleteLLMRoute(ctx context.Context, modelID string) error {
 	return c.do(ctx, "DELETE", "/api/v1/llm/routes/"+url.PathEscape(modelID), nil, nil)
 }
 
-// ListProviders returns all LLM provider configurations.
 func (c *Client) ListProviders(ctx context.Context) ([]ProviderConfig, error) {
 	var list []ProviderConfig
 	err := c.do(ctx, "GET", "/api/v1/llm/providers", nil, &list)
 	return list, err
 }
 
-// PutProvider creates or updates a provider config.
 func (c *Client) PutProvider(ctx context.Context, provider string, cfg *ProviderConfig) (*ProviderConfig, error) {
 	var out ProviderConfig
 	err := c.do(ctx, "PUT", "/api/v1/llm/providers/"+url.PathEscape(provider), cfg, &out)
 	return &out, err
 }
 
-// RecordUsage records a single LLM usage event.
 func (c *Client) RecordUsage(ctx context.Context, rec *UsageRecord) (*UsageRecord, error) {
 	var out UsageRecord
 	err := c.do(ctx, "POST", "/api/v1/llm/usage", rec, &out)
 	return &out, err
 }
 
-// GetUsageSummary returns aggregated usage for a time period.
 func (c *Client) GetUsageSummary(ctx context.Context, period string) (*UsageSummary, error) {
 	var s UsageSummary
 	err := c.do(ctx, "GET", "/api/v1/llm/usage/summary?period="+url.QueryEscape(period), nil, &s)
 	return &s, err
 }
 
-// --- A2APlex ---
+// --- A2A (kind=task) ---
 
 type AgentCard struct {
 	Name        string           `json:"name"`
@@ -515,58 +527,50 @@ type UpdateDelegationRequest struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// GetAgentCard returns the A2A Agent Card for a deployed instance.
 func (c *Client) GetAgentCard(ctx context.Context, instanceID string) (*AgentCard, error) {
 	var card AgentCard
 	err := c.do(ctx, "GET", "/a2a/"+url.PathEscape(instanceID)+"/.well-known/agent.json", nil, &card)
 	return &card, err
 }
 
-// ListAgentCards returns summary cards for all running A2A agents.
 func (c *Client) ListAgentCards(ctx context.Context) ([]map[string]any, error) {
 	var list []map[string]any
 	err := c.do(ctx, "GET", "/api/v1/a2a/agents", nil, &list)
 	return list, err
 }
 
-// RecordDelegation records a new agent-to-agent delegation.
 func (c *Client) RecordDelegation(ctx context.Context, req *RecordDelegationRequest) (*Delegation, error) {
 	var d Delegation
 	err := c.do(ctx, "POST", "/api/v1/a2a/delegations", req, &d)
 	return &d, err
 }
 
-// ListDelegations returns all recorded delegations.
 func (c *Client) ListDelegations(ctx context.Context) ([]Delegation, error) {
 	var list []Delegation
 	err := c.do(ctx, "GET", "/api/v1/a2a/delegations", nil, &list)
 	return list, err
 }
 
-// GetDelegation returns a single delegation.
 func (c *Client) GetDelegation(ctx context.Context, id string) (*Delegation, error) {
 	var d Delegation
 	err := c.do(ctx, "GET", "/api/v1/a2a/delegations/"+url.PathEscape(id), nil, &d)
 	return &d, err
 }
 
-// UpdateDelegation updates the status of a delegation.
 func (c *Client) UpdateDelegation(ctx context.Context, id string, req *UpdateDelegationRequest) (*Delegation, error) {
 	var d Delegation
 	err := c.do(ctx, "PATCH", "/api/v1/a2a/delegations/"+url.PathEscape(id), req, &d)
 	return &d, err
 }
 
-// GetDelegationChain returns the full call chain for a delegation.
 func (c *Client) GetDelegationChain(ctx context.Context, id string) (*DelegationChain, error) {
 	var chain DelegationChain
 	err := c.do(ctx, "GET", "/api/v1/a2a/delegations/"+url.PathEscape(id)+"/chain", nil, &chain)
 	return &chain, err
 }
 
-// --- SkillsPlex ---
+// --- Skills (kind=skill) ---
 
-// SkillServerSummary describes a running SkillsPlex instance.
 type SkillServerSummary struct {
 	InstanceID  string   `json:"instance_id"`
 	Name        string   `json:"name"`
@@ -576,7 +580,6 @@ type SkillServerSummary struct {
 	Status      string   `json:"status"`
 }
 
-// SkillInvocation mirrors models.SkillInvocation for SDK consumers.
 type SkillInvocation struct {
 	ID           string    `json:"id"`
 	AgentID      string    `json:"agent_id"`
@@ -592,7 +595,6 @@ type SkillInvocation struct {
 	ParentSpanID string    `json:"parent_span_id,omitempty"`
 }
 
-// RecordSkillInvocationRequest is the body sent to POST /api/v1/skills/invocations.
 type RecordSkillInvocationRequest struct {
 	AgentID    string `json:"agent_id"`
 	InstanceID string `json:"instance_id"`
@@ -604,21 +606,18 @@ type RecordSkillInvocationRequest struct {
 	TraceID    string `json:"trace_id,omitempty"`
 }
 
-// ListSkillServers returns running SkillsPlex instances.
 func (c *Client) ListSkillServers(ctx context.Context) ([]SkillServerSummary, error) {
 	var list []SkillServerSummary
 	err := c.do(ctx, "GET", "/api/v1/skills/servers", nil, &list)
 	return list, err
 }
 
-// RecordSkillInvocation appends a skill invocation audit record.
 func (c *Client) RecordSkillInvocation(ctx context.Context, req *RecordSkillInvocationRequest) (*SkillInvocation, error) {
 	var inv SkillInvocation
 	err := c.do(ctx, "POST", "/api/v1/skills/invocations", req, &inv)
 	return &inv, err
 }
 
-// ListSkillInvocations returns recent invocations, optionally filtered.
 func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName string) ([]SkillInvocation, error) {
 	q := url.Values{}
 	if agentID != "" {
@@ -639,74 +638,66 @@ func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName st
 // --- Dashboard ---
 
 type DashboardStats struct {
-	TotalInstances   int     `json:"total_instances"`
-	RunningInstances int     `json:"running_instances"`
-	RegisteredAgents int     `json:"registered_agents"`
-	ActivePlanes     int     `json:"active_planes"`
-	MCPlexInstances  int     `json:"mcplex_instances"`
-	A2APlexInstances int     `json:"a2aplex_instances"`
-	LLMPlexInstances int     `json:"llmplex_instances"`
-	DailyCostUSD     float64 `json:"daily_cost_usd"`
-	DailyTokens      int64   `json:"daily_tokens"`
-	DailyRequests    int64   `json:"daily_requests"`
-	ToolCalls        int64   `json:"tool_calls_24h"`
-	A2ADelegations   int64   `json:"a2a_delegations_24h"`
-	PolicyDenials    int64   `json:"policy_denials_24h"`
+	TotalInstances   int            `json:"total_instances"`
+	RunningInstances int            `json:"running_instances"`
+	RegisteredAgents int            `json:"registered_agents"`
+	ActiveKinds      int            `json:"active_kinds"`
+	InstancesByKind  map[string]int `json:"instances_by_kind"`
+	DailyCostUSD     float64        `json:"daily_cost_usd"`
+	DailyTokens      int64          `json:"daily_tokens"`
+	DailyRequests    int64          `json:"daily_requests"`
+	ToolCalls        int64          `json:"tool_calls_24h"`
+	A2ADelegations   int64          `json:"a2a_delegations_24h"`
+	PolicyDenials    int64          `json:"policy_denials_24h"`
 }
 
 type PolicyDenial struct {
 	ID        string    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
-	Plane     string    `json:"plane"`
+	Kind      string    `json:"kind"`
 	AgentID   string    `json:"agent_id"`
 	UserID    string    `json:"user_id"`
+	CapURI    string    `json:"cap_uri"`
 	Action    string    `json:"action"`
-	Scope     string    `json:"scope"`
 	Reason    string    `json:"reason"`
 	RequestID string    `json:"request_id"`
 }
 
-// GetDashboardStats returns the unified dashboard overview.
 func (c *Client) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
 	var s DashboardStats
 	err := c.do(ctx, "GET", "/api/v1/dashboard/stats", nil, &s)
 	return &s, err
 }
 
-// ListPolicyDenials returns recent policy denial events.
 func (c *Client) ListPolicyDenials(ctx context.Context) ([]PolicyDenial, error) {
 	var list []PolicyDenial
 	err := c.do(ctx, "GET", "/api/v1/dashboard/denials", nil, &list)
 	return list, err
 }
 
-// RecordPolicyDenial records a new policy denial.
 func (c *Client) RecordPolicyDenial(ctx context.Context, d *PolicyDenial) (*PolicyDenial, error) {
 	var out PolicyDenial
 	err := c.do(ctx, "POST", "/api/v1/dashboard/denials", d, &out)
 	return &out, err
 }
 
-// --- Auth / User Scopes ---
+// --- Auth / User Caps (Dimension B) ---
 
-type UserScopes struct {
-	UserID string              `json:"user_id"`
-	Scopes map[string][]string `json:"scopes"` // plane → scopes
+type UserCaps struct {
+	UserID string           `json:"user_id"`
+	Caps   []Cap            `json:"caps"`
+	ByKind map[string][]Cap `json:"by_kind"`
 }
 
-// GetUserScopes returns the Dimension B scopes for a user.
-func (c *Client) GetUserScopes(ctx context.Context, userID string) (*UserScopes, error) {
-	var s UserScopes
-	err := c.do(ctx, "GET", "/auth/users/"+url.PathEscape(userID)+"/scopes", nil, &s)
+func (c *Client) GetUserCaps(ctx context.Context, userID string) (*UserCaps, error) {
+	var s UserCaps
+	err := c.do(ctx, "GET", "/auth/users/"+url.PathEscape(userID)+"/caps", nil, &s)
 	return &s, err
 }
 
-// SetUserScopes sets the Dimension B scopes for a user.
-func (c *Client) SetUserScopes(ctx context.Context, userID string, scopes []string) (*UserScopes, error) {
-	body := map[string][]string{"scopes": scopes}
-	var s UserScopes
-	err := c.do(ctx, "PUT", "/auth/users/"+url.PathEscape(userID)+"/scopes", body, &s)
-	return &s, err
+func (c *Client) SetUserCaps(ctx context.Context, userID string, caps []Cap) error {
+	body := map[string]any{"caps": caps}
+	return c.do(ctx, "PUT", "/auth/users/"+url.PathEscape(userID)+"/caps", body, nil)
 }
 
 // Health checks the server health.

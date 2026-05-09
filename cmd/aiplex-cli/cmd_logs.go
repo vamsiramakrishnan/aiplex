@@ -37,7 +37,7 @@ Examples:
 
 			ns := inst.Namespace
 			if ns == "" {
-				ns = inst.Plane // fallback to plane as namespace
+				ns = inst.Kind // fallback: kind doubles as namespace label
 			}
 
 			fmt.Printf("Logs for %s (namespace: %s)\n", instanceID, ns)

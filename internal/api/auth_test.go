@@ -17,14 +17,13 @@ import (
 
 func setupAuthRouter() (chi.Router, *registry.MemoryStore) {
 	store := registry.NewMemoryStore()
-	// Hydra client pointing to a non-existent server (tests won't call Hydra directly)
 	hydraClient := auth.NewHydraClient("http://localhost:0")
 	authH := api.NewAuthHandler(hydraClient, store)
 
 	r := chi.NewRouter()
 	r.Post("/auth/token-hook", authH.TokenHook)
-	r.Get("/auth/users/{userId}/scopes", authH.GetUserScopes)
-	r.Put("/auth/users/{userId}/scopes", authH.SetUserScopes)
+	r.Get("/auth/users/{userId}/caps", authH.GetUserCaps)
+	r.Put("/auth/users/{userId}/caps", authH.SetUserCaps)
 
 	return r, store
 }
@@ -32,7 +31,6 @@ func setupAuthRouter() (chi.Router, *registry.MemoryStore) {
 func TestTokenHook_InjectsActClaim(t *testing.T) {
 	r, store := setupAuthRouter()
 
-	// Register an agent with SPIFFE ID
 	store.PutAgent(context.Background(), &models.Agent{
 		ClientID:    "tutor-agent",
 		DisplayName: "Tutor",
@@ -43,7 +41,7 @@ func TestTokenHook_InjectsActClaim(t *testing.T) {
 	body := `{
 		"subject": "student@school.edu",
 		"client": {"client_id": "tutor-agent"},
-		"granted_scopes": ["mcp:tools:search"],
+		"granted_scopes": ["cap://tool/search@v1"],
 		"session": {"access_token": {}}
 	}`
 	req := httptest.NewRequest("POST", "/auth/token-hook", strings.NewReader(body))
@@ -79,50 +77,51 @@ func TestTokenHook_UnknownAgent(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	// Should still succeed — just without act claim
 	if w.Code != 200 {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
 
-func TestUserScopes_SetAndGet(t *testing.T) {
+func TestUserCaps_SetAndGet(t *testing.T) {
 	r, _ := setupAuthRouter()
 
-	// Set scopes
-	body := `{"scopes": ["mcp:tools:search", "llm:model:gemini-2.5-flash", "a2a:task:research"]}`
-	req := httptest.NewRequest("PUT", "/auth/users/admin@test.com/scopes", strings.NewReader(body))
+	body := `{"caps": [
+		{"uri": "cap://tool/search@v1", "actions": ["call"]},
+		{"uri": "cap://model/gemini-2.5-flash@v1", "actions": ["complete"]},
+		{"uri": "cap://task/research@v1", "actions": ["invoke"]}
+	]}`
+	req := httptest.NewRequest("PUT", "/auth/users/admin@test.com/caps", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != 204 {
-		t.Fatalf("set scopes: expected 204, got %d", w.Code)
+		t.Fatalf("set caps: expected 204, got %d", w.Code)
 	}
 
-	// Get scopes
-	req = httptest.NewRequest("GET", "/auth/users/admin@test.com/scopes", nil)
+	req = httptest.NewRequest("GET", "/auth/users/admin@test.com/caps", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != 200 {
-		t.Fatalf("get scopes: expected 200, got %d", w.Code)
+		t.Fatalf("get caps: expected 200, got %d", w.Code)
 	}
 
 	var result map[string]any
 	json.NewDecoder(w.Body).Decode(&result)
 
-	scopes := result["scopes"].([]any)
-	if len(scopes) != 3 {
-		t.Errorf("expected 3 scopes, got %d", len(scopes))
+	caps := result["caps"].([]any)
+	if len(caps) != 3 {
+		t.Errorf("expected 3 caps, got %d", len(caps))
 	}
 
-	byPlane := result["by_plane"].(map[string]any)
-	if _, ok := byPlane["mcplex"]; !ok {
-		t.Error("expected mcplex in by_plane grouping")
+	byKind := result["by_kind"].(map[string]any)
+	if _, ok := byKind["tool"]; !ok {
+		t.Error("expected tool in by_kind grouping")
 	}
-	if _, ok := byPlane["llmplex"]; !ok {
-		t.Error("expected llmplex in by_plane grouping")
+	if _, ok := byKind["model"]; !ok {
+		t.Error("expected model in by_kind grouping")
 	}
-	if _, ok := byPlane["a2aplex"]; !ok {
-		t.Error("expected a2aplex in by_plane grouping")
+	if _, ok := byKind["task"]; !ok {
+		t.Error("expected task in by_kind grouping")
 	}
 }

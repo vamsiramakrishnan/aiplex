@@ -3,67 +3,82 @@ package catalog
 import (
 	"context"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
 // BuiltInSkills returns a small set of curated skill bundles that ship with
-// AIPlex out of the box. Mirrors BuiltInProviders for the SkillsPlex plane.
+// AIPlex out of the box.
 type BuiltInSkills struct{}
 
 func NewBuiltInSkills() *BuiltInSkills { return &BuiltInSkills{} }
 
-func (b *BuiltInSkills) Name() string        { return "builtin-skills" }
-func (b *BuiltInSkills) Plane() models.Plane { return models.PlaneSkillsPlex }
+func (b *BuiltInSkills) Name() string             { return "builtin-skills" }
+func (b *BuiltInSkills) Kind() capability.Kind    { return capability.KindSkill }
+
+type skillDef struct {
+	Bundle, Name, Description string
+	Triggers                  []string
+}
 
 func (b *BuiltInSkills) Fetch(_ context.Context) ([]models.Template, error) {
-	return []models.Template{
+	bundles := []struct {
+		ID, Name, Desc, Bundle string
+		Skills                 []skillDef
+	}{
 		{
-			ID:          "code-review",
-			Source:      "builtin",
-			Plane:       models.PlaneSkillsPlex,
-			Name:        "Code Review",
-			Description: "Review pull requests for correctness, style, and security",
-			Image:       "ghcr.io/aiplex/skills-server:latest",
-			Version:     "1.0.0",
-			Category:    "skill",
-			Verified:    true,
-			SkillBundle: "code-review",
-			Skills: []models.SkillInfo{
-				{Name: "review_pr", Description: "Review a pull request diff", Triggers: []string{"review", "pr"}},
-				{Name: "suggest_tests", Description: "Suggest unit tests for a diff", Triggers: []string{"tests", "coverage"}},
+			"code-review", "Code Review",
+			"Review pull requests for correctness, style, and security", "code-review",
+			[]skillDef{
+				{"code-review", "review_pr", "Review a pull request diff", []string{"review", "pr"}},
+				{"code-review", "suggest_tests", "Suggest unit tests for a diff", []string{"tests", "coverage"}},
 			},
 		},
 		{
-			ID:          "research",
-			Source:      "builtin",
-			Plane:       models.PlaneSkillsPlex,
-			Name:        "Research",
-			Description: "Source-cited research and synthesis",
-			Image:       "ghcr.io/aiplex/skills-server:latest",
-			Version:     "1.0.0",
-			Category:    "skill",
-			Verified:    true,
-			SkillBundle: "research",
-			Skills: []models.SkillInfo{
-				{Name: "search", Description: "Run web search and rank results", Triggers: []string{"search"}},
-				{Name: "synthesize", Description: "Synthesize a brief from sources", Triggers: []string{"summary", "synthesize"}},
+			"research", "Research",
+			"Source-cited research and synthesis", "research",
+			[]skillDef{
+				{"research", "search", "Run web search and rank results", []string{"search"}},
+				{"research", "synthesize", "Synthesize a brief from sources", []string{"summary", "synthesize"}},
 			},
 		},
 		{
-			ID:          "writing",
-			Source:      "builtin",
-			Plane:       models.PlaneSkillsPlex,
-			Name:        "Writing",
-			Description: "Drafting, editing, and polishing prose",
-			Image:       "ghcr.io/aiplex/skills-server:latest",
-			Version:     "1.0.0",
-			Category:    "skill",
-			Verified:    true,
-			SkillBundle: "writing",
-			Skills: []models.SkillInfo{
-				{Name: "draft", Description: "Draft a document from an outline", Triggers: []string{"draft"}},
-				{Name: "edit", Description: "Edit prose for clarity and tone", Triggers: []string{"edit", "polish"}},
+			"writing", "Writing",
+			"Drafting, editing, and polishing prose", "writing",
+			[]skillDef{
+				{"writing", "draft", "Draft a document from an outline", []string{"draft"}},
+				{"writing", "edit", "Edit prose for clarity and tone", []string{"edit", "polish"}},
 			},
 		},
-	}, nil
+	}
+
+	out := make([]models.Template, 0, len(bundles))
+	for _, b := range bundles {
+		caps := make([]capability.Capability, 0, len(b.Skills))
+		for _, s := range b.Skills {
+			uri := capability.New(capability.KindSkill, b.Bundle+"/"+s.Name, "v1")
+			caps = append(caps, capability.Capability{
+				URI:         uri.String(),
+				Kind:        capability.KindSkill,
+				Name:        b.Bundle + "/" + s.Name,
+				Version:     "v1",
+				Description: s.Description,
+				Tags:        s.Triggers,
+			})
+		}
+		out = append(out, models.Template{
+			ID:           b.ID,
+			Source:       "builtin",
+			Kind:         capability.KindSkill,
+			Name:         b.Name,
+			Description:  b.Desc,
+			Image:        "ghcr.io/aiplex/skills-server:latest",
+			Version:      "v1",
+			Category:     "skill",
+			Verified:     true,
+			SkillBundle:  b.Bundle,
+			Capabilities: caps,
+		})
+	}
+	return out, nil
 }

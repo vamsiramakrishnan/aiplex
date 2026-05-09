@@ -15,10 +15,10 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/catalog"
 	"github.com/vamsiramakrishnan/aiplex/internal/config"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
-	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
 )
@@ -71,13 +71,14 @@ func main() {
 		store.PutTemplate(ctx, &skillTemplates[i])
 	}
 
-	// Catalog aggregator
+	// Catalog aggregator — one local source per kind, plus federated registries.
 	sources := []catalog.Source{
-		catalog.NewOfficialMCPSource(""), // Official MCP registry
-		catalog.NewLocalSource(store, models.PlaneMCPlex),
-		catalog.NewLocalSource(store, models.PlaneA2APlex),
-		catalog.NewLocalSource(store, models.PlaneLLMPlex),
-		catalog.NewLocalSource(store, models.PlaneSkillsPlex),
+		catalog.NewOfficialMCPSource(""),
+		catalog.NewLocalSource(store, capability.KindTool),
+		catalog.NewLocalSource(store, capability.KindTask),
+		catalog.NewLocalSource(store, capability.KindModel),
+		catalog.NewLocalSource(store, capability.KindSkill),
+		catalog.NewLocalSource(store, capability.KindMemory),
 		providers,
 		builtinSkills,
 	}
@@ -228,8 +229,8 @@ func main() {
 		r.Post("/consent", authH.ConsentAccept)
 		r.Post("/token-hook", authH.TokenHook)
 		r.Get("/login", authH.LoginRedirect)
-		r.Get("/users/{userId}/scopes", authH.GetUserScopes)
-		r.Put("/users/{userId}/scopes", authH.SetUserScopes)
+		r.Get("/users/{userId}/caps", authH.GetUserCaps)
+		r.Put("/users/{userId}/caps", authH.SetUserCaps)
 	})
 
 	// Server-Sent Events for live dashboard

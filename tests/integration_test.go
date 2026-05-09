@@ -12,6 +12,7 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/catalog"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
@@ -22,63 +23,68 @@ import (
 func setupFullRouter() *httptest.Server {
 	store := registry.NewMemoryStore()
 
-	// Seed templates for all three planes
 	ctx := context.Background()
 	store.PutTemplate(ctx, &models.Template{
-		ID:    "kb-search",
-		Plane: models.PlaneMCPlex,
-		Name:  "Knowledge Base Search",
-		Tools: []models.ToolInfo{
-			{Name: "search_curriculum", Description: "Search the curriculum"},
-			{Name: "get_document", Description: "Get a document"},
+		ID:   "kb-search",
+		Kind: capability.KindTool,
+		Name: "Knowledge Base Search",
+		Capabilities: []capability.Capability{
+			{URI: "cap://tool/search_curriculum@v1", Kind: capability.KindTool, Name: "search_curriculum", Version: "v1", Description: "Search the curriculum"},
+			{URI: "cap://tool/get_document@v1", Kind: capability.KindTool, Name: "get_document", Version: "v1", Description: "Get a document"},
 		},
 		Category: "tools",
 		Verified: true,
 	})
 	store.PutTemplate(ctx, &models.Template{
-		ID:        "research-agent",
-		Plane:     models.PlaneA2APlex,
-		Name:      "Research Agent",
-		TaskTypes: []string{"research", "summarize"},
-		Category:  "agents",
-		Verified:  true,
+		ID:   "research-agent",
+		Kind: capability.KindTask,
+		Name: "Research Agent",
+		Capabilities: []capability.Capability{
+			{URI: "cap://task/research@v1", Kind: capability.KindTask, Name: "research", Version: "v1"},
+			{URI: "cap://task/summarize@v1", Kind: capability.KindTask, Name: "summarize", Version: "v1"},
+		},
+		Category: "agents",
+		Verified: true,
 	})
 	store.PutTemplate(ctx, &models.Template{
-		ID:           "gemini-2.5-flash",
-		Plane:        models.PlaneLLMPlex,
-		Name:         "Gemini 2.5 Flash",
-		ModelID:      "gemini-2.5-flash",
-		Provider:     "google",
-		Capabilities: []string{"text", "vision"},
-		Category:     "llm",
-		Verified:     true,
+		ID:       "gemini-2.5-flash",
+		Kind:     capability.KindModel,
+		Name:     "Gemini 2.5 Flash",
+		ModelID:  "gemini-2.5-flash",
+		Provider: "google",
+		Capabilities: []capability.Capability{
+			{URI: "cap://model/gemini-2.5-flash@v1", Kind: capability.KindModel, Name: "gemini-2.5-flash", Version: "v1"},
+		},
+		Category: "llm",
+		Verified: true,
 	})
 	store.PutTemplate(ctx, &models.Template{
 		ID:          "code-review",
-		Plane:       models.PlaneSkillsPlex,
+		Kind:        capability.KindSkill,
 		Name:        "Code Review",
 		Description: "Review pull requests",
 		SkillBundle: "code-review",
-		Skills: []models.SkillInfo{
-			{Name: "review_pr", Description: "Review a PR diff"},
-			{Name: "suggest_tests", Description: "Suggest unit tests"},
+		Capabilities: []capability.Capability{
+			{URI: "cap://skill/code-review/review_pr@v1", Kind: capability.KindSkill, Name: "code-review/review_pr", Version: "v1", Description: "Review a PR diff"},
+			{URI: "cap://skill/code-review/suggest_tests@v1", Kind: capability.KindSkill, Name: "code-review/suggest_tests", Version: "v1", Description: "Suggest unit tests"},
 		},
 		Category: "skill",
 		Verified: true,
 	})
 
-	// Set up user scopes (Dimension B)
-	store.SetUserScopes(ctx, "admin@school.edu", []string{
-		"mcp:tools:search_curriculum", "mcp:tools:get_document",
-		"a2a:task:research", "a2a:task:summarize",
-		"llm:model:gemini-2.5-flash",
+	store.SetUserCaps(ctx, "admin@school.edu", capability.CapSet{
+		{URI: "cap://tool/search_curriculum@v1", Actions: []string{"call"}},
+		{URI: "cap://tool/get_document@v1", Actions: []string{"call"}},
+		{URI: "cap://task/research@v1", Actions: []string{"invoke"}},
+		{URI: "cap://task/summarize@v1", Actions: []string{"invoke"}},
+		{URI: "cap://model/gemini-2.5-flash@v1", Actions: []string{"complete"}},
 	})
 
 	sources := []catalog.Source{
-		catalog.NewLocalSource(store, models.PlaneMCPlex),
-		catalog.NewLocalSource(store, models.PlaneA2APlex),
-		catalog.NewLocalSource(store, models.PlaneLLMPlex),
-		catalog.NewLocalSource(store, models.PlaneSkillsPlex),
+		catalog.NewLocalSource(store, capability.KindTool),
+		catalog.NewLocalSource(store, capability.KindTask),
+		catalog.NewLocalSource(store, capability.KindModel),
+		catalog.NewLocalSource(store, capability.KindSkill),
 		catalog.NewBuiltInProviders(),
 	}
 	agg := catalog.NewAggregator(sources)
@@ -122,8 +128,8 @@ func setupFullRouter() *httptest.Server {
 	r.Get("/skills/{instanceId}/.well-known/skills.json", skillsH.GetSkillsManifest)
 	r.Route("/auth", func(r chi.Router) {
 		r.Post("/token-hook", authH.TokenHook)
-		r.Get("/users/{userId}/scopes", authH.GetUserScopes)
-		r.Put("/users/{userId}/scopes", authH.SetUserScopes)
+		r.Get("/users/{userId}/caps", authH.GetUserCaps)
+		r.Put("/users/{userId}/caps", authH.SetUserCaps)
 	})
 
 	return httptest.NewServer(r)
@@ -134,78 +140,69 @@ func TestE2E_FullDeployLifecycle(t *testing.T) {
 	defer srv.Close()
 	client := srv.Client()
 
-	// 1. Health check
 	resp, _ := client.Get(srv.URL + "/healthz")
 	if resp.StatusCode != 200 {
 		t.Fatalf("healthz: %d", resp.StatusCode)
 	}
 
-	// 2. Browse MCPlex catalog
-	resp, _ = client.Get(srv.URL + "/api/v1/catalog?plane=mcplex")
+	resp, _ = client.Get(srv.URL + "/api/v1/catalog?kind=tool")
 	var catalogPage models.CatalogPage
 	json.NewDecoder(resp.Body).Decode(&catalogPage)
 	resp.Body.Close()
 	if catalogPage.Total < 1 {
-		t.Fatalf("expected at least 1 MCPlex template, got %d", catalogPage.Total)
+		t.Fatalf("expected at least 1 tool template, got %d", catalogPage.Total)
 	}
 
-	// 3. Browse LLMPlex catalog (should include built-in providers)
-	resp, _ = client.Get(srv.URL + "/api/v1/catalog?plane=llmplex")
+	resp, _ = client.Get(srv.URL + "/api/v1/catalog?kind=model")
 	json.NewDecoder(resp.Body).Decode(&catalogPage)
 	resp.Body.Close()
 	if catalogPage.Total < 6 {
-		t.Fatalf("expected at least 6 LLM providers, got %d", catalogPage.Total)
+		t.Fatalf("expected at least 6 model templates, got %d", catalogPage.Total)
 	}
 
-	// 4. Deploy an MCP server
-	body := `{"plane":"mcplex","template_id":"kb-search","display_name":"Knowledge Base"}`
+	body := `{"kind":"tool","template_id":"kb-search","display_name":"Knowledge Base"}`
 	resp, _ = client.Post(srv.URL+"/api/v1/instances", "application/json", strings.NewReader(body))
 	if resp.StatusCode != 201 {
-		t.Fatalf("deploy MCPlex: %d", resp.StatusCode)
+		t.Fatalf("deploy tool: %d", resp.StatusCode)
 	}
-	var mcpInst models.Instance
-	json.NewDecoder(resp.Body).Decode(&mcpInst)
+	var toolInst models.Instance
+	json.NewDecoder(resp.Body).Decode(&toolInst)
 	resp.Body.Close()
 
-	if mcpInst.Status != models.StatusRunning {
-		t.Errorf("MCPlex instance status: %s", mcpInst.Status)
+	if toolInst.Status != models.StatusRunning {
+		t.Errorf("tool instance status: %s", toolInst.Status)
 	}
-	if len(mcpInst.Scopes) != 2 {
-		t.Errorf("expected 2 MCP scopes, got %d: %v", len(mcpInst.Scopes), mcpInst.Scopes)
+	if len(toolInst.Capabilities) != 2 {
+		t.Errorf("expected 2 caps, got %d: %v", len(toolInst.Capabilities), toolInst.Capabilities)
 	}
-	if mcpInst.SpiffeID == "" {
-		t.Error("MCPlex instance missing SPIFFE ID")
+	if toolInst.SpiffeID == "" {
+		t.Error("tool instance missing SPIFFE ID")
 	}
 
-	// 5. Deploy an A2A agent
-	body = `{"plane":"a2aplex","template_id":"research-agent","display_name":"Research"}`
+	body = `{"kind":"task","template_id":"research-agent","display_name":"Research"}`
 	resp, _ = client.Post(srv.URL+"/api/v1/instances", "application/json", strings.NewReader(body))
 	if resp.StatusCode != 201 {
-		t.Fatalf("deploy A2APlex: %d", resp.StatusCode)
+		t.Fatalf("deploy task: %d", resp.StatusCode)
 	}
-	var a2aInst models.Instance
-	json.NewDecoder(resp.Body).Decode(&a2aInst)
+	var taskInst models.Instance
+	json.NewDecoder(resp.Body).Decode(&taskInst)
 	resp.Body.Close()
-
-	if len(a2aInst.Scopes) != 2 {
-		t.Errorf("expected 2 A2A scopes, got %d", len(a2aInst.Scopes))
+	if len(taskInst.Capabilities) != 2 {
+		t.Errorf("expected 2 task caps, got %d", len(taskInst.Capabilities))
 	}
 
-	// 6. Deploy an LLM provider
-	body = `{"plane":"llmplex","template_id":"gemini-2.5-flash","display_name":"Gemini Flash"}`
+	body = `{"kind":"model","template_id":"gemini-2.5-flash","display_name":"Gemini Flash"}`
 	resp, _ = client.Post(srv.URL+"/api/v1/instances", "application/json", strings.NewReader(body))
 	if resp.StatusCode != 201 {
-		t.Fatalf("deploy LLMPlex: %d", resp.StatusCode)
+		t.Fatalf("deploy model: %d", resp.StatusCode)
 	}
-	var llmInst models.Instance
-	json.NewDecoder(resp.Body).Decode(&llmInst)
+	var modelInst models.Instance
+	json.NewDecoder(resp.Body).Decode(&modelInst)
 	resp.Body.Close()
-
-	if llmInst.SpiffeID != "" {
-		t.Error("LLMPlex should not have SPIFFE ID")
+	if modelInst.SpiffeID != "" {
+		t.Error("model kind should not have SPIFFE ID")
 	}
 
-	// 7. List all instances
 	resp, _ = client.Get(srv.URL + "/api/v1/instances")
 	var allInstances []models.Instance
 	json.NewDecoder(resp.Body).Decode(&allInstances)
@@ -214,17 +211,15 @@ func TestE2E_FullDeployLifecycle(t *testing.T) {
 		t.Errorf("expected 3 instances, got %d", len(allInstances))
 	}
 
-	// 8. List by plane
-	resp, _ = client.Get(srv.URL + "/api/v1/instances?plane=mcplex")
-	var mcpInstances []models.Instance
-	json.NewDecoder(resp.Body).Decode(&mcpInstances)
+	resp, _ = client.Get(srv.URL + "/api/v1/instances?kind=tool")
+	var toolInstances []models.Instance
+	json.NewDecoder(resp.Body).Decode(&toolInstances)
 	resp.Body.Close()
-	if len(mcpInstances) != 1 {
-		t.Errorf("expected 1 MCPlex instance, got %d", len(mcpInstances))
+	if len(toolInstances) != 1 {
+		t.Errorf("expected 1 tool instance, got %d", len(toolInstances))
 	}
 
-	// 9. Check deploy history
-	resp, _ = client.Get(srv.URL + "/api/v1/instances/" + mcpInst.ID + "/history")
+	resp, _ = client.Get(srv.URL + "/api/v1/instances/" + toolInst.ID + "/history")
 	var history []models.DeployHistory
 	json.NewDecoder(resp.Body).Decode(&history)
 	resp.Body.Close()
@@ -232,15 +227,13 @@ func TestE2E_FullDeployLifecycle(t *testing.T) {
 		t.Errorf("expected 1 deploy history, got %+v", history)
 	}
 
-	// 10. Undeploy the MCP server
-	req, _ := http.NewRequest("DELETE", srv.URL+"/api/v1/instances/"+mcpInst.ID, nil)
+	req, _ := http.NewRequest("DELETE", srv.URL+"/api/v1/instances/"+toolInst.ID, nil)
 	resp, _ = client.Do(req)
 	if resp.StatusCode != 204 {
 		t.Fatalf("undeploy: %d", resp.StatusCode)
 	}
 
-	// 11. Verify terminated status
-	resp, _ = client.Get(srv.URL + "/api/v1/instances/" + mcpInst.ID)
+	resp, _ = client.Get(srv.URL + "/api/v1/instances/" + toolInst.ID)
 	var terminated models.Instance
 	json.NewDecoder(resp.Body).Decode(&terminated)
 	resp.Body.Close()
@@ -248,8 +241,7 @@ func TestE2E_FullDeployLifecycle(t *testing.T) {
 		t.Errorf("expected terminated, got %s", terminated.Status)
 	}
 
-	// 12. Verify undeploy history
-	resp, _ = client.Get(srv.URL + "/api/v1/instances/" + mcpInst.ID + "/history")
+	resp, _ = client.Get(srv.URL + "/api/v1/instances/" + toolInst.ID + "/history")
 	json.NewDecoder(resp.Body).Decode(&history)
 	resp.Body.Close()
 	if len(history) != 2 {
@@ -262,14 +254,18 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 	defer srv.Close()
 	client := srv.Client()
 
-	// 1. Register an agent
 	body := `{
 		"client_id": "tutor-agent",
 		"display_name": "Tutor Agent",
 		"description": "Aristocratic tutoring agent",
 		"auth_method": "client_credentials",
 		"grant_types": ["client_credentials"],
-		"allowed_scopes": ["mcp:tools:search_curriculum", "mcp:tools:get_document", "a2a:task:research", "llm:model:gemini-2.5-flash"],
+		"allowed_caps": [
+			{"uri": "cap://tool/search_curriculum@v1", "actions": ["call"]},
+			{"uri": "cap://tool/get_document@v1", "actions": ["call"]},
+			{"uri": "cap://task/research@v1", "actions": ["invoke"]},
+			{"uri": "cap://model/gemini-2.5-flash@v1", "actions": ["complete"]}
+		],
 		"spiffe_id": "spiffe://test.local/ns/a2aplex/sa/tutor-agent"
 	}`
 	resp, _ := client.Post(srv.URL+"/api/v1/agents", "application/json", strings.NewReader(body))
@@ -277,7 +273,6 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 		t.Fatalf("register: %d", resp.StatusCode)
 	}
 
-	// 2. Get agent
 	resp, _ = client.Get(srv.URL + "/api/v1/agents/tutor-agent")
 	var agent models.Agent
 	json.NewDecoder(resp.Body).Decode(&agent)
@@ -286,27 +281,25 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 		t.Errorf("agent status: %s", agent.Status)
 	}
 
-	// 3. Get cross-plane permissions
 	resp, _ = client.Get(srv.URL + "/api/v1/agents/tutor-agent/permissions")
 	var perms models.AgentPermissions
 	json.NewDecoder(resp.Body).Decode(&perms)
 	resp.Body.Close()
 
-	if len(perms.Ceiling[models.PlaneMCPlex]) != 2 {
-		t.Errorf("expected 2 MCPlex scopes, got %d", len(perms.Ceiling[models.PlaneMCPlex]))
+	if len(perms.Ceiling[capability.KindTool]) != 2 {
+		t.Errorf("expected 2 tool caps, got %d", len(perms.Ceiling[capability.KindTool]))
 	}
-	if len(perms.Ceiling[models.PlaneA2APlex]) != 1 {
-		t.Errorf("expected 1 A2APlex scope, got %d", len(perms.Ceiling[models.PlaneA2APlex]))
+	if len(perms.Ceiling[capability.KindTask]) != 1 {
+		t.Errorf("expected 1 task cap, got %d", len(perms.Ceiling[capability.KindTask]))
 	}
-	if len(perms.Ceiling[models.PlaneLLMPlex]) != 1 {
-		t.Errorf("expected 1 LLMPlex scope, got %d", len(perms.Ceiling[models.PlaneLLMPlex]))
+	if len(perms.Ceiling[capability.KindModel]) != 1 {
+		t.Errorf("expected 1 model cap, got %d", len(perms.Ceiling[capability.KindModel]))
 	}
 
-	// 4. Token hook should inject act claim
 	hookBody := `{
 		"subject": "student@school.edu",
 		"client": {"client_id": "tutor-agent"},
-		"granted_scopes": ["mcp:tools:search_curriculum"],
+		"granted_scopes": ["cap://tool/search_curriculum@v1"],
 		"session": {"access_token": {}}
 	}`
 	resp, _ = client.Post(srv.URL+"/auth/token-hook", "application/json", strings.NewReader(hookBody))
@@ -321,18 +314,16 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 		t.Errorf("act claim: %v", act)
 	}
 
-	// 5. User scopes (Dimension B)
-	resp, _ = client.Get(srv.URL + "/auth/users/admin@school.edu/scopes")
-	var scopeResult map[string]any
-	json.NewDecoder(resp.Body).Decode(&scopeResult)
+	resp, _ = client.Get(srv.URL + "/auth/users/admin@school.edu/caps")
+	var capsResult map[string]any
+	json.NewDecoder(resp.Body).Decode(&capsResult)
 	resp.Body.Close()
 
-	scopes := scopeResult["scopes"].([]any)
-	if len(scopes) != 5 {
-		t.Errorf("expected 5 user scopes, got %d", len(scopes))
+	caps := capsResult["caps"].([]any)
+	if len(caps) != 5 {
+		t.Errorf("expected 5 user caps, got %d", len(caps))
 	}
 
-	// 6. List all agents
 	resp, _ = client.Get(srv.URL + "/api/v1/agents")
 	var agents []models.Agent
 	json.NewDecoder(resp.Body).Decode(&agents)
@@ -341,7 +332,6 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 		t.Errorf("expected 1 agent, got %d", len(agents))
 	}
 
-	// 7. Delete agent
 	req, _ := http.NewRequest("DELETE", srv.URL+"/api/v1/agents/tutor-agent", nil)
 	resp, _ = client.Do(req)
 	if resp.StatusCode != 204 {
@@ -349,21 +339,20 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 	}
 }
 
-// TestE2E_SkillsPlexDeployAndInvocation exercises the full SkillsPlex flow:
+// TestE2E_SkillsKindLifecycle exercises the full skill kind flow:
 // browse catalog → deploy skill server → fetch manifest → record successful
 // invocation → record denied invocation → verify denial appears in dashboard.
-func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
+func TestE2E_SkillsKindLifecycle(t *testing.T) {
 	srv := setupFullRouter()
 	defer srv.Close()
 	client := srv.Client()
 
-	// 1. Browse SkillsPlex catalog — built-in skill template should appear.
-	resp, _ := client.Get(srv.URL + "/api/v1/catalog?plane=skillsplex")
+	resp, _ := client.Get(srv.URL + "/api/v1/catalog?kind=skill")
 	var catalogPage models.CatalogPage
 	json.NewDecoder(resp.Body).Decode(&catalogPage)
 	resp.Body.Close()
 	if catalogPage.Total < 1 {
-		t.Fatalf("expected at least 1 SkillsPlex template, got %d", catalogPage.Total)
+		t.Fatalf("expected at least 1 skill template, got %d", catalogPage.Total)
 	}
 	foundCodeReview := false
 	for _, tmpl := range catalogPage.Templates {
@@ -373,34 +362,31 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 		}
 	}
 	if !foundCodeReview {
-		t.Fatalf("expected 'code-review' in skillsplex catalog, got %+v", catalogPage.Templates)
+		t.Fatalf("expected 'code-review' in skill catalog, got %+v", catalogPage.Templates)
 	}
 
-	// 2. Deploy the skill server.
-	body := `{"plane":"skillsplex","template_id":"code-review","display_name":"Code Review"}`
+	body := `{"kind":"skill","template_id":"code-review","display_name":"Code Review"}`
 	resp, _ = client.Post(srv.URL+"/api/v1/instances", "application/json", strings.NewReader(body))
 	if resp.StatusCode != 201 {
-		t.Fatalf("deploy SkillsPlex: %d", resp.StatusCode)
+		t.Fatalf("deploy skill: %d", resp.StatusCode)
 	}
 	var inst models.Instance
 	json.NewDecoder(resp.Body).Decode(&inst)
 	resp.Body.Close()
 
-	if inst.Plane != models.PlaneSkillsPlex {
-		t.Errorf("Plane = %q, want skillsplex", inst.Plane)
+	if inst.Kind != capability.KindSkill {
+		t.Errorf("Kind = %q, want skill", inst.Kind)
 	}
 	if inst.Status != models.StatusRunning {
 		t.Errorf("Status = %q, want running", inst.Status)
 	}
-	// Two skills + bundle = 3 scopes from the template.
-	if len(inst.Scopes) != 3 {
-		t.Errorf("expected 3 scopes from template, got %d: %v", len(inst.Scopes), inst.Scopes)
+	if len(inst.Capabilities) != 2 {
+		t.Errorf("expected 2 caps from template, got %d: %v", len(inst.Capabilities), inst.Capabilities)
 	}
 	if inst.SpiffeID == "" {
-		t.Error("SkillsPlex instance missing SPIFFE ID")
+		t.Error("skill instance missing SPIFFE ID")
 	}
 
-	// 3. Fetch the well-known skills manifest.
 	resp, _ = client.Get(srv.URL + "/skills/" + inst.ID + "/.well-known/skills.json")
 	if resp.StatusCode != 200 {
 		t.Fatalf("manifest: %d", resp.StatusCode)
@@ -419,7 +405,6 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 		t.Errorf("manifest expected 2 skills, got %d", len(skills))
 	}
 
-	// 4. Record a successful invocation.
 	invBody := `{
 		"agent_id": "tutor-agent",
 		"instance_id": "` + inst.ID + `",
@@ -441,14 +426,13 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 		t.Errorf("expected trace fields populated, got TraceID=%q SpanID=%q", ok.TraceID, ok.SpanID)
 	}
 
-	// 5. Record a denied invocation (scope missing).
 	deniedBody := `{
 		"agent_id": "tutor-agent",
 		"instance_id": "` + inst.ID + `",
 		"skill_name": "suggest_tests",
 		"user_id": "alice@example.com",
 		"status": "failed",
-		"error": "missing scope: skill:invoke:suggest_tests"
+		"error": "missing cap: cap://skill/code-review/suggest_tests@v1"
 	}`
 	resp, _ = client.Post(srv.URL+"/api/v1/skills/invocations", "application/json", strings.NewReader(deniedBody))
 	if resp.StatusCode != 201 {
@@ -456,7 +440,6 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// 6. List invocations — both should be present, newest first.
 	resp, _ = client.Get(srv.URL + "/api/v1/skills/invocations")
 	var invs []models.SkillInvocation
 	json.NewDecoder(resp.Body).Decode(&invs)
@@ -465,7 +448,6 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 		t.Fatalf("expected 2 invocations, got %d", len(invs))
 	}
 
-	// 7. Filter invocations by skill.
 	resp, _ = client.Get(srv.URL + "/api/v1/skills/invocations?skill=review_pr")
 	json.NewDecoder(resp.Body).Decode(&invs)
 	resp.Body.Close()
@@ -473,7 +455,6 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 		t.Errorf("filter by skill: got %+v", invs)
 	}
 
-	// 8. Verify the denied invocation produced a PolicyDenial.
 	resp, _ = client.Get(srv.URL + "/api/v1/dashboard/denials")
 	var denials []models.PolicyDenial
 	json.NewDecoder(resp.Body).Decode(&denials)
@@ -481,17 +462,16 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 	if len(denials) != 1 {
 		t.Fatalf("expected 1 PolicyDenial, got %d", len(denials))
 	}
-	if denials[0].Plane != string(models.PlaneSkillsPlex) {
-		t.Errorf("denial Plane = %q, want skillsplex", denials[0].Plane)
+	if denials[0].Kind != capability.KindSkill {
+		t.Errorf("denial Kind = %q, want skill", denials[0].Kind)
 	}
-	if denials[0].Scope != "skill:invoke:suggest_tests" {
-		t.Errorf("denial Scope = %q, want skill:invoke:suggest_tests", denials[0].Scope)
+	if denials[0].CapURI != "cap://skill/code-review/suggest_tests@v1" {
+		t.Errorf("denial CapURI = %q", denials[0].CapURI)
 	}
-	if denials[0].Reason != "scope_missing" {
-		t.Errorf("denial Reason = %q, want scope_missing", denials[0].Reason)
+	if denials[0].Reason != "cap_missing" {
+		t.Errorf("denial Reason = %q, want cap_missing", denials[0].Reason)
 	}
 
-	// 9. Skill-server listing surfaces the running instance with its scopes.
 	resp, _ = client.Get(srv.URL + "/api/v1/skills/servers")
 	var servers []map[string]any
 	json.NewDecoder(resp.Body).Decode(&servers)
@@ -503,13 +483,12 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 		t.Errorf("server instance_id = %v, want %s", servers[0]["instance_id"], inst.ID)
 	}
 
-	// 10. Dashboard stats reflect the running SkillsPlex instance and the denial.
 	resp, _ = client.Get(srv.URL + "/api/v1/dashboard/stats")
 	var stats models.DashboardStats
 	json.NewDecoder(resp.Body).Decode(&stats)
 	resp.Body.Close()
-	if stats.SkillsPlexInstances != 1 {
-		t.Errorf("SkillsPlexInstances = %d, want 1", stats.SkillsPlexInstances)
+	if stats.InstancesByKind[capability.KindSkill] != 1 {
+		t.Errorf("InstancesByKind[skill] = %d, want 1", stats.InstancesByKind[capability.KindSkill])
 	}
 	if stats.PolicyDenials != 1 {
 		t.Errorf("PolicyDenials = %d, want 1", stats.PolicyDenials)

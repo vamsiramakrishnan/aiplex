@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -21,7 +20,7 @@ func catalogCmd() *cobra.Command {
 }
 
 func catalogListCmd() *cobra.Command {
-	var plane string
+	var kind string
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -29,8 +28,8 @@ func catalogListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
 			opts := &aiplex.ListCatalogOpts{}
-			if plane != "" {
-				opts.Plane = plane
+			if kind != "" {
+				opts.Kind = kind
 			}
 			page, err := c.ListCatalog(context.Background(), opts)
 			if err != nil {
@@ -42,7 +41,7 @@ func catalogListCmd() *cobra.Command {
 				return nil
 			}
 
-			headers := []string{"ID", "PLANE", "NAME", "PROVIDER", "VERIFIED"}
+			headers := []string{"ID", "KIND", "NAME", "PROVIDER", "VERIFIED"}
 			var rows [][]string
 			for _, t := range page.Templates {
 				verified := ""
@@ -50,7 +49,7 @@ func catalogListCmd() *cobra.Command {
 					verified = "yes"
 				}
 				rows = append(rows, []string{
-					t.ID, t.Plane, t.Name, t.Provider, verified,
+					t.ID, t.Kind, t.Name, t.Provider, verified,
 				})
 			}
 			printTable(headers, rows)
@@ -59,7 +58,7 @@ func catalogListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&plane, "plane", "p", "", "Filter by plane: mcplex, a2aplex, llmplex")
+	cmd.Flags().StringVarP(&kind, "kind", "k", "", "Filter by capability kind: tool, task, model, skill, memory")
 	return cmd
 }
 
@@ -82,7 +81,7 @@ func catalogGetCmd() *cobra.Command {
 
 			fmt.Printf("Template: %s\n", t.ID)
 			fmt.Printf("  Name:        %s\n", t.Name)
-			fmt.Printf("  Plane:       %s\n", t.Plane)
+			fmt.Printf("  Kind:        %s\n", t.Kind)
 			fmt.Printf("  Description: %s\n", t.Description)
 			if t.Provider != "" {
 				fmt.Printf("  Provider:    %s\n", t.Provider)
@@ -97,16 +96,10 @@ func catalogGetCmd() *cobra.Command {
 				fmt.Printf("  Version:     %s\n", t.Version)
 			}
 			if len(t.Capabilities) > 0 {
-				fmt.Printf("  Capabilities: %s\n", strings.Join(t.Capabilities, ", "))
-			}
-			if len(t.Tools) > 0 {
-				fmt.Println("  Tools:")
-				for _, tool := range t.Tools {
-					fmt.Printf("    - %s: %s\n", tool.Name, tool.Description)
+				fmt.Println("  Capabilities:")
+				for _, c := range t.Capabilities {
+					fmt.Printf("    - %s: %s\n", c.URI, c.Description)
 				}
-			}
-			if len(t.TaskTypes) > 0 {
-				fmt.Printf("  Task Types: %s\n", strings.Join(t.TaskTypes, ", "))
 			}
 			if t.Pricing != nil {
 				fmt.Printf("  Pricing:     $%.2f/M input, $%.2f/M output\n", t.Pricing.Input, t.Pricing.Output)

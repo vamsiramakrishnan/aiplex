@@ -23,7 +23,7 @@ func listCmd() *cobra.Command {
 }
 
 func listInstancesCmd() *cobra.Command {
-	var plane string
+	var kind string
 	var sortBy string
 	var watch bool
 
@@ -35,8 +35,8 @@ func listInstancesCmd() *cobra.Command {
 			for {
 				c := newClient()
 				var opts *aiplex.ListInstancesOpts
-				if plane != "" {
-					opts = &aiplex.ListInstancesOpts{Plane: plane}
+				if kind != "" {
+					opts = &aiplex.ListInstancesOpts{Kind: kind}
 				}
 				list, err := c.ListInstances(context.Background(), opts)
 				if err != nil {
@@ -52,11 +52,11 @@ func listInstancesCmd() *cobra.Command {
 				} else if output == "yaml" {
 					printYAML(list)
 				} else {
-					headers := []string{"ID", "PLANE", "TEMPLATE", "STATUS", "OWNER"}
+					headers := []string{"ID", "KIND", "TEMPLATE", "STATUS", "OWNER"}
 					var rows [][]string
 					for _, inst := range list {
 						rows = append(rows, []string{
-							inst.ID, inst.Plane, inst.TemplateID, inst.Status, inst.Owner,
+							inst.ID, inst.Kind, inst.TemplateID, inst.Status, inst.Owner,
 						})
 					}
 					printTable(headers, rows)
@@ -68,12 +68,12 @@ func listInstancesCmd() *cobra.Command {
 				}
 				fmt.Println("\n--- refreshing in 5s (ctrl-c to stop) ---")
 				time.Sleep(5 * time.Second)
-				fmt.Print("\033[H\033[2J") // clear terminal
+				fmt.Print("\033[H\033[2J")
 			}
 		},
 	}
-	cmd.Flags().StringVarP(&plane, "plane", "p", "", "Filter by plane")
-	cmd.Flags().StringVar(&sortBy, "sort-by", "", "Sort results by field (id, plane, status, owner)")
+	cmd.Flags().StringVarP(&kind, "kind", "k", "", "Filter by capability kind")
+	cmd.Flags().StringVar(&sortBy, "sort-by", "", "Sort results by field (id, kind, status, owner)")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Watch for changes (refresh every 5s)")
 	return cmd
 }
@@ -81,13 +81,13 @@ func listInstancesCmd() *cobra.Command {
 func sortInstances(list []aiplex.Instance, field string) {
 	sort.Slice(list, func(i, j int) bool {
 		switch strings.ToLower(field) {
-		case "plane":
-			return list[i].Plane < list[j].Plane
+		case "kind":
+			return list[i].Kind < list[j].Kind
 		case "status":
 			return list[i].Status < list[j].Status
 		case "owner":
 			return list[i].Owner < list[j].Owner
-		default: // "id" or unknown
+		default:
 			return list[i].ID < list[j].ID
 		}
 	})
@@ -118,15 +118,19 @@ func listAgentsCmd() *cobra.Command {
 				} else if output == "yaml" {
 					printYAML(list)
 				} else {
-					headers := []string{"CLIENT_ID", "NAME", "AUTH", "STATUS", "SCOPES"}
+					headers := []string{"CLIENT_ID", "NAME", "AUTH", "STATUS", "CAPS"}
 					var rows [][]string
 					for _, a := range list {
-						scopes := strings.Join(a.AllowedScopes, ", ")
-						if len(scopes) > 60 {
-							scopes = scopes[:57] + "..."
+						uris := make([]string, 0, len(a.AllowedCaps))
+						for _, c := range a.AllowedCaps {
+							uris = append(uris, c.URI)
+						}
+						caps := strings.Join(uris, ", ")
+						if len(caps) > 60 {
+							caps = caps[:57] + "..."
 						}
 						rows = append(rows, []string{
-							a.ClientID, a.DisplayName, a.AuthMethod, a.Status, scopes,
+							a.ClientID, a.DisplayName, a.AuthMethod, a.Status, caps,
 						})
 					}
 					printTable(headers, rows)
@@ -256,12 +260,12 @@ func listDenialsCmd() *cobra.Command {
 				} else if output == "yaml" {
 					printYAML(list)
 				} else {
-					headers := []string{"ID", "PLANE", "AGENT", "ACTION", "REASON", "TIME"}
+					headers := []string{"ID", "KIND", "AGENT", "CAP", "ACTION", "REASON", "TIME"}
 					var rows [][]string
 					for _, d := range list {
 						ts := d.Timestamp.Format("15:04:05")
 						rows = append(rows, []string{
-							d.ID, d.Plane, d.AgentID, d.Action, d.Reason, ts,
+							d.ID, d.Kind, d.AgentID, d.CapURI, d.Action, d.Reason, ts,
 						})
 					}
 					printTable(headers, rows)
@@ -277,7 +281,7 @@ func listDenialsCmd() *cobra.Command {
 			}
 		},
 	}
-	cmd.Flags().StringVar(&sortBy, "sort-by", "", "Sort results by field (id, plane, agent, action, time)")
+	cmd.Flags().StringVar(&sortBy, "sort-by", "", "Sort results by field (id, kind, agent, action, time)")
 	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "Watch for changes (refresh every 5s)")
 	return cmd
 }
@@ -285,15 +289,15 @@ func listDenialsCmd() *cobra.Command {
 func sortDenials(list []aiplex.PolicyDenial, field string) {
 	sort.Slice(list, func(i, j int) bool {
 		switch strings.ToLower(field) {
-		case "plane":
-			return list[i].Plane < list[j].Plane
+		case "kind":
+			return list[i].Kind < list[j].Kind
 		case "agent":
 			return list[i].AgentID < list[j].AgentID
 		case "action":
 			return list[i].Action < list[j].Action
 		case "time":
 			return list[i].Timestamp.Before(list[j].Timestamp)
-		default: // "id" or unknown
+		default:
 			return list[i].ID < list[j].ID
 		}
 	})

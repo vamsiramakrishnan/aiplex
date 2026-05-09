@@ -8,14 +8,15 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
 // IAMHandler serves IAM role binding and WIF identity resolution endpoints.
 type IAMHandler struct {
-	store    registry.Store
-	wif      *auth.WIFValidator
+	store registry.Store
+	wif   *auth.WIFValidator
 }
 
 // NewIAMHandler creates an IAM handler.
@@ -23,8 +24,31 @@ func NewIAMHandler(store registry.Store, wif *auth.WIFValidator) *IAMHandler {
 	return &IAMHandler{store: store, wif: wif}
 }
 
+// defaultRoleCaps returns the built-in cap ceiling for each role. Admin gets
+// every kind; deployer can act on tools/tasks/models/skills; viewer is empty;
+// agent caps come from per-agent registration.
+func defaultRoleCaps(role models.IAMRole) capability.CapSet {
+	switch role {
+	case models.RoleAdmin:
+		var out capability.CapSet
+		for _, k := range capability.AllKinds() {
+			out = append(out, capability.Cap{URI: fmt.Sprintf("cap://%s/*@v1", k)})
+		}
+		return out
+	case models.RoleDeployer:
+		return capability.CapSet{
+			{URI: "cap://tool/*@v1"},
+			{URI: "cap://task/*@v1"},
+			{URI: "cap://model/*@v1"},
+			{URI: "cap://skill/*@v1"},
+			{URI: "cap://memory/*@v1"},
+			{URI: "cap://meta/deploy@v1", Actions: []string{"create", "delete"}},
+		}
+	}
+	return nil
+}
+
 // ListRoleBindings returns all group→role mappings.
-// GET /api/v1/iam/role-bindings
 func (h *IAMHandler) ListRoleBindings(w http.ResponseWriter, r *http.Request) {
 	group := r.URL.Query().Get("group")
 
@@ -42,8 +66,6 @@ func (h *IAMHandler) ListRoleBindings(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, bindings)
 }
 
-// GetRoleBinding returns a single role binding.
-// GET /api/v1/iam/role-bindings/{id}
 func (h *IAMHandler) GetRoleBinding(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	rb, err := h.store.GetRoleBinding(r.Context(), id)
@@ -58,8 +80,6 @@ func (h *IAMHandler) GetRoleBinding(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, rb)
 }
 
-// CreateRoleBinding creates a new group→role mapping.
-// POST /api/v1/iam/role-bindings
 func (h *IAMHandler) CreateRoleBinding(w http.ResponseWriter, r *http.Request) {
 	var rb models.RoleBinding
 	if err := json.NewDecoder(r.Body).Decode(&rb); err != nil {
@@ -71,27 +91,22 @@ func (h *IAMHandler) CreateRoleBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate role
 	switch rb.Role {
 	case models.RoleAdmin, models.RoleDeployer, models.RoleViewer, models.RoleAgent:
-		// valid
 	default:
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST",
 			fmt.Sprintf("invalid role %q; must be one of: admin, deployer, viewer, agent", rb.Role))
 		return
 	}
 
-	// Generate ID if not provided
 	if rb.ID == "" {
 		rb.ID = fmt.Sprintf("rb-%s-%s", rb.Group, rb.Role)
 	}
-
 	rb.CreatedAt = time.Now()
 	rb.CreatedBy = extractOwner(r)
 
-	// If no explicit scopes provided, populate from role defaults
-	if len(rb.Scopes) == 0 {
-		rb.Scopes = models.DefaultRoleScopes[rb.Role]
+	if len(rb.Caps) == 0 {
+		rb.Caps = defaultRoleCaps(rb.Role)
 	}
 
 	if err := h.store.PutRoleBinding(r.Context(), &rb); err != nil {
@@ -101,8 +116,6 @@ func (h *IAMHandler) CreateRoleBinding(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, rb)
 }
 
-// UpdateRoleBinding updates an existing role binding.
-// PUT /api/v1/iam/role-bindings/{id}
 func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -122,11 +135,9 @@ func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Preserve immutable fields
 	update.ID = existing.ID
 	update.CreatedAt = existing.CreatedAt
 	update.CreatedBy = existing.CreatedBy
-
 	if update.Group == "" {
 		update.Group = existing.Group
 	}
@@ -141,8 +152,6 @@ func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, update)
 }
 
-// DeleteRoleBinding removes a group→role mapping.
-// DELETE /api/v1/iam/role-bindings/{id}
 func (h *IAMHandler) DeleteRoleBinding(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := h.store.DeleteRoleBinding(r.Context(), id); err != nil {
@@ -157,8 +166,7 @@ func (h *IAMHandler) DeleteRoleBinding(w http.ResponseWriter, r *http.Request) {
 }
 
 // ResolveIdentity extracts the caller's WIF identity from the request token,
-// resolves group→role mappings, syncs Dimension B scopes, and returns the result.
-// GET /api/v1/iam/whoami
+// resolves group→role mappings, syncs Dimension B caps, and returns the result.
 func (h *IAMHandler) ResolveIdentity(w http.ResponseWriter, r *http.Request) {
 	identity, err := h.wif.ExtractIdentity(r)
 	if err != nil {
@@ -166,7 +174,7 @@ func (h *IAMHandler) ResolveIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	access, err := h.wif.SyncUserScopes(r.Context(), identity)
+	access, err := h.wif.SyncUserCaps(r.Context(), identity)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "RESOLVE_ERROR",
 			"failed to resolve access: "+err.Error())
@@ -176,25 +184,22 @@ func (h *IAMHandler) ResolveIdentity(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, access)
 }
 
-// ListRoles returns the available AIPlex roles and their default scopes.
-// GET /api/v1/iam/roles
+// ListRoles returns the available AIPlex roles and their default cap ceilings.
 func (h *IAMHandler) ListRoles(w http.ResponseWriter, r *http.Request) {
 	type roleInfo struct {
-		Role          models.IAMRole `json:"role"`
-		DefaultScopes []string       `json:"default_scopes"`
+		Role        models.IAMRole    `json:"role"`
+		DefaultCaps capability.CapSet `json:"default_caps"`
 	}
 
 	roles := []roleInfo{
-		{Role: models.RoleAdmin, DefaultScopes: models.DefaultRoleScopes[models.RoleAdmin]},
-		{Role: models.RoleDeployer, DefaultScopes: models.DefaultRoleScopes[models.RoleDeployer]},
-		{Role: models.RoleViewer, DefaultScopes: models.DefaultRoleScopes[models.RoleViewer]},
-		{Role: models.RoleAgent, DefaultScopes: models.DefaultRoleScopes[models.RoleAgent]},
+		{Role: models.RoleAdmin, DefaultCaps: defaultRoleCaps(models.RoleAdmin)},
+		{Role: models.RoleDeployer, DefaultCaps: defaultRoleCaps(models.RoleDeployer)},
+		{Role: models.RoleViewer, DefaultCaps: defaultRoleCaps(models.RoleViewer)},
+		{Role: models.RoleAgent, DefaultCaps: defaultRoleCaps(models.RoleAgent)},
 	}
 	JSON(w, http.StatusOK, roles)
 }
 
-// ValidateWIFPrincipal validates a WIF principal string without creating any resources.
-// POST /api/v1/iam/validate-principal
 func (h *IAMHandler) ValidateWIFPrincipal(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Principal string `json:"principal"`
@@ -206,8 +211,8 @@ func (h *IAMHandler) ValidateWIFPrincipal(w http.ResponseWriter, r *http.Request
 
 	if err := auth.ValidateWIFPrincipal(req.Principal); err != nil {
 		JSON(w, http.StatusOK, map[string]any{
-			"valid":   false,
-			"error":   err.Error(),
+			"valid": false,
+			"error": err.Error(),
 		})
 		return
 	}

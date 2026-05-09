@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
@@ -70,7 +71,6 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate auth method
 	validAuthMethods := map[string]bool{
 		"client_credentials": true,
 		"authorization_code": true,
@@ -82,19 +82,13 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate scope format
-	for _, scope := range agent.AllowedScopes {
-		if !strings.HasPrefix(scope, "mcp:") &&
-			!strings.HasPrefix(scope, "a2a:") &&
-			!strings.HasPrefix(scope, "llm:") &&
-			!strings.HasPrefix(scope, "skill:") {
-			Error(w, r, http.StatusBadRequest, "INVALID_SCOPE",
-				fmt.Sprintf("scope %q must start with mcp:, a2a:, llm:, or skill:", scope))
+	for _, c := range agent.AllowedCaps {
+		if _, err := capability.ParseURI(c.URI); err != nil {
+			Error(w, r, http.StatusBadRequest, "INVALID_CAPABILITY", err.Error())
 			return
 		}
 	}
 
-	// Validate redirect URIs for authorization_code flow
 	if agent.AuthMethod == "authorization_code" {
 		if len(agent.RedirectURIs) == 0 {
 			Error(w, r, http.StatusBadRequest, "MISSING_REDIRECT_URIS",
@@ -110,13 +104,11 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check if agent already exists
 	if _, err := h.store.GetAgent(r.Context(), agent.ClientID); err == nil {
 		Error(w, r, http.StatusConflict, "CONFLICT", "agent already exists")
 		return
 	}
 
-	// Validate WIF principal if provided
 	if agent.WIFPrincipal != "" {
 		if err := auth.ValidateWIFPrincipal(agent.WIFPrincipal); err != nil {
 			Error(w, r, http.StatusBadRequest, "INVALID_WIF_PRINCIPAL", err.Error())
@@ -128,7 +120,6 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 	agent.Status = "active"
 	agent.ResourceVersion = 1
 
-	// Create OAuth client in Hydra (non-fatal — agent is registered locally even if Hydra is unavailable)
 	if h.hydra != nil {
 		grantTypes := agent.GrantTypes
 		if len(grantTypes) == 0 {
@@ -138,13 +129,12 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 			ClientID:                agent.ClientID,
 			ClientName:              agent.DisplayName,
 			GrantTypes:              grantTypes,
-			Scope:                   strings.Join(agent.AllowedScopes, " "),
+			Scope:                   strings.Join(agent.AllowedCaps.URIs(), " "),
 			RedirectURIs:            agent.RedirectURIs,
 			TokenEndpointAuthMethod: "client_secret_basic",
 		}
 		resp, err := h.hydra.CreateClient(r.Context(), oauthClient)
 		if err != nil {
-			// Log but don't fail — Hydra may not be available in dev mode
 			zerolog.Ctx(r.Context()).Warn().Err(err).
 				Str("client_id", agent.ClientID).
 				Msg("failed to create Hydra OAuth client")
@@ -165,7 +155,6 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *AgentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	clientID := r.PathValue("clientId")
 
-	// Delete OAuth client from Hydra
 	if h.hydra != nil {
 		if err := h.hydra.DeleteClient(r.Context(), clientID); err != nil {
 			zerolog.Ctx(r.Context()).Warn().Err(err).
@@ -185,7 +174,7 @@ func (h *AgentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// GetPermissions returns a cross-plane view of an agent's effective permissions.
+// GetPermissions returns a cross-kind view of an agent's effective ceiling.
 // GET /api/v1/agents/{clientId}/permissions
 func (h *AgentHandler) GetPermissions(w http.ResponseWriter, r *http.Request) {
 	clientID := r.PathValue("clientId")
@@ -199,30 +188,21 @@ func (h *AgentHandler) GetPermissions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	descs := h.scopeDescriptions(r.Context())
+	descs := h.capDescriptions(r.Context())
 
-	// Group scopes by plane
-	ceiling := make(map[models.Plane][]models.ScopeInfo)
-	for _, scope := range agent.AllowedScopes {
-		var plane models.Plane
-		switch {
-		case strings.HasPrefix(scope, "mcp:"):
-			plane = models.PlaneMCPlex
-		case strings.HasPrefix(scope, "a2a:"):
-			plane = models.PlaneA2APlex
-		case strings.HasPrefix(scope, "llm:"):
-			plane = models.PlaneLLMPlex
-		case strings.HasPrefix(scope, "skill:"):
-			plane = models.PlaneSkillsPlex
-		default:
+	ceiling := make(map[capability.Kind][]models.CapabilityInfo)
+	for _, c := range agent.AllowedCaps {
+		uri, err := capability.ParseURI(c.URI)
+		if err != nil {
 			continue
 		}
-		desc := descs[scope]
+		desc := descs[c.URI]
 		if desc == "" {
-			desc = humanizeScope(scope)
+			desc = humanizeCap(uri)
 		}
-		ceiling[plane] = append(ceiling[plane], models.ScopeInfo{
-			Scope:       scope,
+		ceiling[uri.Kind] = append(ceiling[uri.Kind], models.CapabilityInfo{
+			URI:         c.URI,
+			Actions:     c.Actions,
 			Description: desc,
 		})
 	}
@@ -233,72 +213,28 @@ func (h *AgentHandler) GetPermissions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// scopeDescriptions builds a scope→description map from all known templates.
-// Tools, task types, models, and capabilities all become entries; scopes
-// without template metadata fall back to humanizeScope.
-func (h *AgentHandler) scopeDescriptions(ctx context.Context) map[string]string {
+// capDescriptions builds a URI→description map from all known templates.
+func (h *AgentHandler) capDescriptions(ctx context.Context) map[string]string {
 	out := map[string]string{}
-	planes := []models.Plane{models.PlaneMCPlex, models.PlaneA2APlex, models.PlaneLLMPlex, models.PlaneSkillsPlex}
-	for _, plane := range planes {
-		templates, _, err := h.store.ListTemplates(ctx, plane, 1, 1000)
+	for _, kind := range capability.AllKinds() {
+		templates, _, err := h.store.ListTemplates(ctx, kind, 0, 1000)
 		if err != nil {
 			continue
 		}
 		for _, t := range templates {
-			for _, tool := range t.Tools {
-				if tool.Description != "" {
-					out["mcp:tools:"+tool.Name] = tool.Description
+			for _, c := range t.Capabilities {
+				if c.Description != "" {
+					out[c.URI] = c.Description
+				} else {
+					out[c.URI] = fmt.Sprintf("%s — %s", t.Name, c.Name)
 				}
-			}
-			for _, task := range t.TaskTypes {
-				if _, exists := out["a2a:task:"+task]; !exists {
-					out["a2a:task:"+task] = fmt.Sprintf("%s — task type %q", t.Name, task)
-				}
-			}
-			if t.ModelID != "" {
-				label := t.Name
-				if t.Provider != "" {
-					label = fmt.Sprintf("%s (%s)", t.Name, t.Provider)
-				}
-				out["llm:model:"+t.ModelID] = label
-			}
-			for _, cap := range t.Capabilities {
-				out["llm:capability:"+cap] = "Capability: " + cap
-			}
-			for _, skill := range t.Skills {
-				key := "skill:invoke:" + skill.Name
-				if skill.Description != "" {
-					out[key] = skill.Description
-				} else if _, exists := out[key]; !exists {
-					out[key] = fmt.Sprintf("%s — skill %q", t.Name, skill.Name)
-				}
-			}
-			if t.SkillBundle != "" {
-				out["skill:bundle:"+t.SkillBundle] = fmt.Sprintf("%s bundle", t.Name)
 			}
 		}
 	}
 	return out
 }
 
-// humanizeScope renders a scope string into a fallback description when no
-// template metadata is available (e.g. "mcp:tools:search_curriculum" →
-// "MCP tool: search_curriculum").
-func humanizeScope(scope string) string {
-	parts := strings.SplitN(scope, ":", 3)
-	if len(parts) < 3 {
-		return scope
-	}
-	plane, kind, name := parts[0], parts[1], parts[2]
-	switch plane {
-	case "mcp":
-		return fmt.Sprintf("MCP %s: %s", strings.TrimSuffix(kind, "s"), name)
-	case "a2a":
-		return fmt.Sprintf("A2A %s: %s", kind, name)
-	case "llm":
-		return fmt.Sprintf("LLM %s: %s", kind, name)
-	case "skill":
-		return fmt.Sprintf("Skill %s: %s", kind, name)
-	}
-	return scope
+// humanizeCap renders a capability URI as a fallback description.
+func humanizeCap(u capability.URI) string {
+	return fmt.Sprintf("%s: %s@%s", u.Kind, u.Name, u.Version)
 }

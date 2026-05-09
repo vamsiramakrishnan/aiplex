@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/catalog"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
@@ -19,18 +20,19 @@ import (
 func setupRouter() (chi.Router, *registry.MemoryStore) {
 	store := registry.NewMemoryStore()
 
-	// Seed a template
 	store.PutTemplate(context.Background(), &models.Template{
-		ID:    "kb-search",
-		Plane: models.PlaneMCPlex,
-		Name:  "Knowledge Base Search",
-		Tools: []models.ToolInfo{{Name: "search", Description: "Search docs"}},
+		ID:   "kb-search",
+		Kind: capability.KindTool,
+		Name: "Knowledge Base Search",
+		Capabilities: []capability.Capability{
+			{URI: "cap://tool/search@v1", Kind: capability.KindTool, Name: "search", Version: "v1", Description: "Search docs"},
+		},
 	})
 
 	sources := []catalog.Source{
-		catalog.NewLocalSource(store, models.PlaneMCPlex),
-		catalog.NewLocalSource(store, models.PlaneA2APlex),
-		catalog.NewLocalSource(store, models.PlaneLLMPlex),
+		catalog.NewLocalSource(store, capability.KindTool),
+		catalog.NewLocalSource(store, capability.KindTask),
+		catalog.NewLocalSource(store, capability.KindModel),
 		catalog.NewBuiltInProviders(),
 	}
 	agg := catalog.NewAggregator(sources)
@@ -69,7 +71,7 @@ func TestHealth(t *testing.T) {
 
 func TestCatalogList(t *testing.T) {
 	r, _ := setupRouter()
-	req := httptest.NewRequest("GET", "/api/v1/catalog?plane=mcplex", nil)
+	req := httptest.NewRequest("GET", "/api/v1/catalog?kind=tool", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -80,29 +82,27 @@ func TestCatalogList(t *testing.T) {
 	var page models.CatalogPage
 	json.NewDecoder(w.Body).Decode(&page)
 	if page.Total != 1 {
-		t.Errorf("expected 1 MCPlex template, got %d", page.Total)
+		t.Errorf("expected 1 tool template, got %d", page.Total)
 	}
 }
 
-func TestCatalogListLLM(t *testing.T) {
+func TestCatalogListModel(t *testing.T) {
 	r, _ := setupRouter()
-	req := httptest.NewRequest("GET", "/api/v1/catalog?plane=llmplex", nil)
+	req := httptest.NewRequest("GET", "/api/v1/catalog?kind=model", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	var page models.CatalogPage
 	json.NewDecoder(w.Body).Decode(&page)
-	// Built-in providers + local source (no LLM templates in local)
 	if page.Total < 6 {
-		t.Errorf("expected at least 6 LLM providers, got %d", page.Total)
+		t.Errorf("expected at least 6 model templates, got %d", page.Total)
 	}
 }
 
 func TestDeployAndGet(t *testing.T) {
 	r, _ := setupRouter()
 
-	// Deploy
-	body := `{"plane":"mcplex","template_id":"kb-search","display_name":"My KB"}`
+	body := `{"kind":"tool","template_id":"kb-search","display_name":"My KB"}`
 	req := httptest.NewRequest("POST", "/api/v1/instances", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -114,17 +114,16 @@ func TestDeployAndGet(t *testing.T) {
 
 	var inst models.Instance
 	json.NewDecoder(w.Body).Decode(&inst)
-	if inst.Plane != models.PlaneMCPlex {
-		t.Errorf("expected plane mcplex, got %s", inst.Plane)
+	if inst.Kind != capability.KindTool {
+		t.Errorf("expected kind tool, got %s", inst.Kind)
 	}
 	if inst.Status != models.StatusRunning {
 		t.Errorf("expected status running, got %s", inst.Status)
 	}
-	if len(inst.Scopes) != 1 || inst.Scopes[0] != "mcp:tools:search" {
-		t.Errorf("expected scope mcp:tools:search, got %v", inst.Scopes)
+	if len(inst.Capabilities) != 1 || inst.Capabilities[0].URI != "cap://tool/search@v1" {
+		t.Errorf("expected cap cap://tool/search@v1, got %v", inst.Capabilities)
 	}
 
-	// Get the instance
 	req = httptest.NewRequest("GET", "/api/v1/instances/"+inst.ID, nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -133,8 +132,7 @@ func TestDeployAndGet(t *testing.T) {
 		t.Fatalf("get instance: expected 200, got %d", w.Code)
 	}
 
-	// List instances
-	req = httptest.NewRequest("GET", "/api/v1/instances?plane=mcplex", nil)
+	req = httptest.NewRequest("GET", "/api/v1/instances?kind=tool", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -148,8 +146,7 @@ func TestDeployAndGet(t *testing.T) {
 func TestDeployBadRequest(t *testing.T) {
 	r, _ := setupRouter()
 
-	// Missing plane
-	body := `{"template_id":"kb-search"}`
+	body := `{"kind":"tool"}` // missing template_id
 	req := httptest.NewRequest("POST", "/api/v1/instances", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -174,8 +171,7 @@ func TestUndeployNotFound(t *testing.T) {
 func TestAgentRegisterAndGet(t *testing.T) {
 	r, _ := setupRouter()
 
-	// Register
-	body := `{"client_id":"tutor-agent","display_name":"Tutor","auth_method":"client_credentials","allowed_scopes":["mcp:tools:search"]}`
+	body := `{"client_id":"tutor-agent","display_name":"Tutor","auth_method":"client_credentials","allowed_caps":[{"uri":"cap://tool/search@v1","actions":["call"]}]}`
 	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -185,7 +181,6 @@ func TestAgentRegisterAndGet(t *testing.T) {
 		t.Fatalf("register: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Get
 	req = httptest.NewRequest("GET", "/api/v1/agents/tutor-agent", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -200,7 +195,6 @@ func TestAgentRegisterAndGet(t *testing.T) {
 		t.Errorf("expected active status, got %s", agent.Status)
 	}
 
-	// Duplicate registration
 	req = httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -208,7 +202,6 @@ func TestAgentRegisterAndGet(t *testing.T) {
 		t.Errorf("expected 409 for duplicate, got %d", w.Code)
 	}
 
-	// Delete
 	req = httptest.NewRequest("DELETE", "/api/v1/agents/tutor-agent", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -219,7 +212,7 @@ func TestAgentRegisterAndGet(t *testing.T) {
 
 func TestAgentRegister_InvalidAuthMethod(t *testing.T) {
 	r, _ := setupRouter()
-	body := `{"client_id":"bad","display_name":"Bad","auth_method":"invalid","allowed_scopes":["mcp:tools:x"]}`
+	body := `{"client_id":"bad","display_name":"Bad","auth_method":"invalid","allowed_caps":[{"uri":"cap://tool/x@v1","actions":["call"]}]}`
 	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -236,9 +229,9 @@ func TestAgentRegister_InvalidAuthMethod(t *testing.T) {
 	}
 }
 
-func TestAgentRegister_InvalidScope(t *testing.T) {
+func TestAgentRegister_InvalidCap(t *testing.T) {
 	r, _ := setupRouter()
-	body := `{"client_id":"bad2","display_name":"Bad","auth_method":"client_credentials","allowed_scopes":["invalid:scope"]}`
+	body := `{"client_id":"bad2","display_name":"Bad","auth_method":"client_credentials","allowed_caps":[{"uri":"invalid","actions":["call"]}]}`
 	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -250,14 +243,14 @@ func TestAgentRegister_InvalidScope(t *testing.T) {
 
 	var errResp map[string]any
 	json.NewDecoder(w.Body).Decode(&errResp)
-	if errResp["code"] != "INVALID_SCOPE" {
-		t.Errorf("expected error code INVALID_SCOPE, got %v", errResp["code"])
+	if errResp["code"] != "INVALID_CAPABILITY" {
+		t.Errorf("expected error code INVALID_CAPABILITY, got %v", errResp["code"])
 	}
 }
 
 func TestAgentRegister_MissingRedirectURIs(t *testing.T) {
 	r, _ := setupRouter()
-	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_scopes":["mcp:tools:x"]}`
+	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_caps":[{"uri":"cap://tool/x@v1","actions":["call"]}]}`
 	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -276,7 +269,7 @@ func TestAgentRegister_MissingRedirectURIs(t *testing.T) {
 
 func TestAgentRegister_InvalidRedirectURI(t *testing.T) {
 	r, _ := setupRouter()
-	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_scopes":["mcp:tools:x"],"redirect_uris":["http://example.com/callback"]}`
+	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_caps":[{"uri":"cap://tool/x@v1","actions":["call"]}],"redirect_uris":["http://example.com/callback"]}`
 	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -295,7 +288,7 @@ func TestAgentRegister_InvalidRedirectURI(t *testing.T) {
 
 func TestAgentRegister_ValidRedirectURI(t *testing.T) {
 	r, _ := setupRouter()
-	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_scopes":["mcp:tools:x"],"redirect_uris":["https://example.com/callback","http://localhost:3000/callback"]}`
+	body := `{"client_id":"auth-agent","display_name":"Auth","auth_method":"authorization_code","allowed_caps":[{"uri":"cap://tool/x@v1","actions":["call"]}],"redirect_uris":["https://example.com/callback","http://localhost:3000/callback"]}`
 	req := httptest.NewRequest("POST", "/api/v1/agents", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

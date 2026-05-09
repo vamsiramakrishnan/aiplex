@@ -23,19 +23,19 @@ type AiplexManifest struct {
 }
 
 type ManifestInstance struct {
-	Name       string         `json:"name" yaml:"name"`
-	Plane      string         `json:"plane" yaml:"plane"`
-	Template   string         `json:"template" yaml:"template"`
-	Config     map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
+	Name     string         `json:"name" yaml:"name"`
+	Kind     string         `json:"kind" yaml:"kind"`
+	Template string         `json:"template" yaml:"template"`
+	Config   map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
 }
 
 type ManifestAgent struct {
-	ClientID      string   `json:"client_id" yaml:"client_id"`
-	DisplayName   string   `json:"display_name" yaml:"display_name"`
-	Description   string   `json:"description,omitempty" yaml:"description,omitempty"`
-	AuthMethod    string   `json:"auth_method" yaml:"auth_method"`
-	GrantTypes    []string `json:"grant_types" yaml:"grant_types"`
-	AllowedScopes []string `json:"allowed_scopes" yaml:"allowed_scopes"`
+	ClientID    string       `json:"client_id" yaml:"client_id"`
+	DisplayName string       `json:"display_name" yaml:"display_name"`
+	Description string       `json:"description,omitempty" yaml:"description,omitempty"`
+	AuthMethod  string       `json:"auth_method" yaml:"auth_method"`
+	GrantTypes  []string     `json:"grant_types" yaml:"grant_types"`
+	AllowedCaps []aiplex.Cap `json:"allowed_caps" yaml:"allowed_caps"`
 }
 
 type ManifestRoute struct {
@@ -55,20 +55,20 @@ Example aiplex.yaml:
   version: v1
   instances:
     - name: knowledge-base
-      plane: mcplex
+      kind: tool
       template: kb-search-server
     - name: research-agent
-      plane: a2aplex
+      kind: task
       template: research-agent
   agents:
     - client_id: tutor-agent
       display_name: Tutor Agent
       auth_method: client_credentials
       grant_types: [client_credentials]
-      allowed_scopes:
-        - mcp:tools:search_curriculum
-        - a2a:task:research
-        - llm:model:gemini-2.5-flash
+      allowed_caps:
+        - {uri: cap://tool/search_curriculum@v1, actions: [call]}
+        - {uri: cap://task/research@v1, actions: [invoke]}
+        - {uri: cap://model/gemini-2.5-flash@v1, actions: [complete]}
   routes:
     - model_id: gemini-2.5-flash
       backends:
@@ -103,9 +103,9 @@ Usage:
 
 			// Apply instances
 			for _, inst := range manifest.Instances {
-				fmt.Printf("Deploying %s (%s/%s)... ", inst.Name, inst.Plane, inst.Template)
+				fmt.Printf("Deploying %s (%s/%s)... ", inst.Name, inst.Kind, inst.Template)
 				result, err := c.Deploy(ctx, &aiplex.DeployRequest{
-					Plane:       inst.Plane,
+					Kind:        inst.Kind,
 					TemplateID:  inst.Template,
 					DisplayName: inst.Name,
 					Config:      inst.Config,
@@ -122,12 +122,12 @@ Usage:
 			for _, agent := range manifest.Agents {
 				fmt.Printf("Registering agent %s... ", agent.ClientID)
 				_, err := c.RegisterAgent(ctx, &aiplex.RegisterAgentRequest{
-					ClientID:      agent.ClientID,
-					DisplayName:   agent.DisplayName,
-					Description:   agent.Description,
-					AuthMethod:    agent.AuthMethod,
-					GrantTypes:    agent.GrantTypes,
-					AllowedScopes: agent.AllowedScopes,
+					ClientID:    agent.ClientID,
+					DisplayName: agent.DisplayName,
+					Description: agent.Description,
+					AuthMethod:  agent.AuthMethod,
+					GrantTypes:  agent.GrantTypes,
+					AllowedCaps: agent.AllowedCaps,
 				})
 				if err != nil {
 					fmt.Printf("FAILED: %v\n", err)

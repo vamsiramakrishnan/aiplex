@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
@@ -14,13 +15,13 @@ import (
 type Store interface {
 	// Instances
 	GetInstance(ctx context.Context, id string) (*models.Instance, error)
-	ListInstances(ctx context.Context, plane models.Plane) ([]models.Instance, error)
+	ListInstances(ctx context.Context, kind capability.Kind) ([]models.Instance, error)
 	PutInstance(ctx context.Context, inst *models.Instance) error
 	DeleteInstance(ctx context.Context, id string) error
 
 	// Templates (cached catalog entries)
 	GetTemplate(ctx context.Context, id string) (*models.Template, error)
-	ListTemplates(ctx context.Context, plane models.Plane, page, pageSize int) ([]models.Template, int, error)
+	ListTemplates(ctx context.Context, kind capability.Kind, page, pageSize int) ([]models.Template, int, error)
 	PutTemplate(ctx context.Context, t *models.Template) error
 
 	// Agents
@@ -33,9 +34,9 @@ type Store interface {
 	AppendHistory(ctx context.Context, h *models.DeployHistory) error
 	ListHistory(ctx context.Context, instanceID string, limit int) ([]models.DeployHistory, error)
 
-	// User permissions (Dimension B)
-	GetUserScopes(ctx context.Context, userID string) ([]string, error)
-	SetUserScopes(ctx context.Context, userID string, scopes []string) error
+	// User capability ceilings (Dimension B)
+	GetUserCaps(ctx context.Context, userID string) (capability.CapSet, error)
+	SetUserCaps(ctx context.Context, userID string, caps capability.CapSet) error
 
 	// LLM route configs
 	GetRouteConfig(ctx context.Context, modelID string) (*models.LLMRouteConfig, error)
@@ -71,7 +72,7 @@ type Store interface {
 	CountDelegations(ctx context.Context) (int64, error)
 	CountPolicyDenials(ctx context.Context) (int64, error)
 
-	// IAM role bindings (group → role + scopes)
+	// IAM role bindings (group → role + caps)
 	GetRoleBinding(ctx context.Context, id string) (*models.RoleBinding, error)
 	ListRoleBindings(ctx context.Context) ([]models.RoleBinding, error)
 	ListRoleBindingsByGroup(ctx context.Context, group string) ([]models.RoleBinding, error)
@@ -84,20 +85,20 @@ var ErrNotFound = fmt.Errorf("not found")
 
 // MemoryStore is an in-memory Store implementation for development and testing.
 type MemoryStore struct {
-	mu              sync.RWMutex
-	instances       map[string]*models.Instance
-	templates       map[string]*models.Template
-	agents          map[string]*models.Agent
-	history         []models.DeployHistory
-	userScopes      map[string][]string
-	routeConfigs    map[string]*models.LLMRouteConfig
-	providerConfigs map[string]*models.ProviderConfig
-	usageRecords    []models.UsageRecord
-	delegations     map[string]*models.Delegation
-	delegationList  []models.Delegation
+	mu               sync.RWMutex
+	instances        map[string]*models.Instance
+	templates        map[string]*models.Template
+	agents           map[string]*models.Agent
+	history          []models.DeployHistory
+	userCaps         map[string]capability.CapSet
+	routeConfigs     map[string]*models.LLMRouteConfig
+	providerConfigs  map[string]*models.ProviderConfig
+	usageRecords     []models.UsageRecord
+	delegations      map[string]*models.Delegation
+	delegationList   []models.Delegation
 	skillInvocations []models.SkillInvocation
-	policyDenials   []models.PolicyDenial
-	roleBindings    map[string]*models.RoleBinding
+	policyDenials    []models.PolicyDenial
+	roleBindings     map[string]*models.RoleBinding
 }
 
 // NewMemoryStore creates an empty in-memory store.
@@ -106,7 +107,7 @@ func NewMemoryStore() *MemoryStore {
 		instances:       make(map[string]*models.Instance),
 		templates:       make(map[string]*models.Template),
 		agents:          make(map[string]*models.Agent),
-		userScopes:      make(map[string][]string),
+		userCaps:        make(map[string]capability.CapSet),
 		routeConfigs:    make(map[string]*models.LLMRouteConfig),
 		providerConfigs: make(map[string]*models.ProviderConfig),
 		delegations:     make(map[string]*models.Delegation),
@@ -124,12 +125,12 @@ func (m *MemoryStore) GetInstance(_ context.Context, id string) (*models.Instanc
 	return inst, nil
 }
 
-func (m *MemoryStore) ListInstances(_ context.Context, plane models.Plane) ([]models.Instance, error) {
+func (m *MemoryStore) ListInstances(_ context.Context, kind capability.Kind) ([]models.Instance, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var out []models.Instance
 	for _, inst := range m.instances {
-		if plane == "" || inst.Plane == plane {
+		if kind == "" || inst.Kind == kind {
 			out = append(out, *inst)
 		}
 	}
@@ -164,12 +165,12 @@ func (m *MemoryStore) GetTemplate(_ context.Context, id string) (*models.Templat
 	return t, nil
 }
 
-func (m *MemoryStore) ListTemplates(_ context.Context, plane models.Plane, page, pageSize int) ([]models.Template, int, error) {
+func (m *MemoryStore) ListTemplates(_ context.Context, kind capability.Kind, page, pageSize int) ([]models.Template, int, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var filtered []models.Template
 	for _, t := range m.templates {
-		if plane == "" || t.Plane == plane {
+		if kind == "" || t.Kind == kind {
 			filtered = append(filtered, *t)
 		}
 	}
@@ -240,7 +241,6 @@ func (m *MemoryStore) ListHistory(_ context.Context, instanceID string, limit in
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var out []models.DeployHistory
-	// Walk backwards for most-recent-first
 	for i := len(m.history) - 1; i >= 0; i-- {
 		if m.history[i].InstanceID == instanceID {
 			out = append(out, m.history[i])
@@ -252,20 +252,20 @@ func (m *MemoryStore) ListHistory(_ context.Context, instanceID string, limit in
 	return out, nil
 }
 
-func (m *MemoryStore) GetUserScopes(_ context.Context, userID string) ([]string, error) {
+func (m *MemoryStore) GetUserCaps(_ context.Context, userID string) (capability.CapSet, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	scopes, ok := m.userScopes[userID]
+	caps, ok := m.userCaps[userID]
 	if !ok {
 		return nil, nil
 	}
-	return scopes, nil
+	return caps, nil
 }
 
-func (m *MemoryStore) SetUserScopes(_ context.Context, userID string, scopes []string) error {
+func (m *MemoryStore) SetUserCaps(_ context.Context, userID string, caps capability.CapSet) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.userScopes[userID] = scopes
+	m.userCaps[userID] = caps
 	return nil
 }
 

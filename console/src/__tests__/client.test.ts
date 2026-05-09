@@ -22,8 +22,8 @@ describe('API Client', () => {
       ok: true,
       json: () => Promise.resolve({
         total_instances: 5,
-        instances_by_plane: { mcplex: 3, a2aplex: 2 },
-        total_agents: 2,
+        instances_by_kind: { tool: 3, task: 2 },
+        registered_agents: 2,
         total_tool_calls: 100,
         total_a2a_delegations: 50,
         total_llm_requests: 200,
@@ -106,7 +106,7 @@ describe('API Client', () => {
       ok: true,
       json: () => Promise.resolve({
         id: 'test-instance',
-        plane: 'mcplex',
+        kind: 'tool',
         template_id: 'test-template',
         owner: 'user@example.com',
         namespace: 'mcplex',
@@ -121,7 +121,7 @@ describe('API Client', () => {
 
     const { deployInstance } = await import('../api/client');
     await deployInstance({
-      plane: 'mcplex',
+      kind: 'tool',
       template_id: 'test-template',
       display_name: 'Test Instance',
       config: { key: 'value' },
@@ -132,7 +132,7 @@ describe('API Client', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          plane: 'mcplex',
+          kind: 'tool',
           template_id: 'test-template',
           display_name: 'Test Instance',
           config: { key: 'value' },
@@ -141,7 +141,7 @@ describe('API Client', () => {
     );
   });
 
-  it('fetches catalog with plane filter', async () => {
+  it('fetches catalog with kind filter', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({
@@ -153,10 +153,10 @@ describe('API Client', () => {
     });
 
     const { getCatalog } = await import('../api/client');
-    await getCatalog('mcplex', 0);
+    await getCatalog('tool', 0);
 
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/catalog?plane=mcplex&page=0'),
+      expect.stringContaining('/catalog?kind=tool&page=0'),
       expect.anything()
     );
   });
@@ -169,7 +169,7 @@ describe('API Client', () => {
         display_name: 'Test Agent',
         auth_method: 'client_credentials',
         grant_types: ['client_credentials'],
-        allowed_scopes: ['mcp:tools:test'],
+        allowed_caps: [{ uri: 'cap://tool/test@v1' }],
         status: 'active',
         registered_at: '2026-04-06T10:00:00Z',
       }),
@@ -182,7 +182,7 @@ describe('API Client', () => {
       description: 'A test agent',
       auth_method: 'client_credentials',
       grant_types: ['client_credentials'],
-      allowed_scopes: ['mcp:tools:test'],
+      allowed_caps: [{ uri: 'cap://tool/test@v1' }],
     });
 
     expect(mockFetch).toHaveBeenCalledWith(
@@ -199,7 +199,7 @@ describe('API Client', () => {
       ok: true,
       json: () => Promise.resolve({
         id: 'inst-1',
-        plane: 'mcplex',
+        kind: 'tool',
         template_id: 'tpl-1',
         owner: 'user@example.com',
         namespace: 'mcplex',
@@ -221,7 +221,7 @@ describe('API Client', () => {
           display_name: 'Agent 1',
           auth_method: 'client_credentials',
           grant_types: ['client_credentials'],
-          allowed_scopes: [],
+          allowed_caps: [],
           status: 'active',
           registered_at: '2026-04-06T10:00:00Z',
         }),
@@ -232,7 +232,7 @@ describe('API Client', () => {
       version: '1',
       instances: [{
         name: 'test-instance',
-        plane: 'mcplex',
+        kind: 'tool',
         template: 'test-template',
       }],
       agents: [{
@@ -240,7 +240,7 @@ describe('API Client', () => {
         display_name: 'Test Agent',
         auth_method: 'client_credentials',
         grant_types: ['client_credentials'],
-        allowed_scopes: [],
+        allowed_caps: [],
       }],
     });
 
@@ -263,7 +263,7 @@ describe('API Client', () => {
           display_name: 'Agent 1',
           auth_method: 'client_credentials',
           grant_types: ['client_credentials'],
-          allowed_scopes: [],
+          allowed_caps: [],
           status: 'active',
           registered_at: '2026-04-06T10:00:00Z',
         }),
@@ -274,7 +274,7 @@ describe('API Client', () => {
       version: '1',
       instances: [{
         name: 'bad-instance',
-        plane: 'mcplex',
+        kind: 'tool',
         template: 'bad-template',
       }],
       agents: [{
@@ -282,7 +282,7 @@ describe('API Client', () => {
         display_name: 'Test Agent',
         auth_method: 'client_credentials',
         grant_types: ['client_credentials'],
-        allowed_scopes: [],
+        allowed_caps: [],
       }],
     });
 

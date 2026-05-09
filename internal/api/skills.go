@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
 // SkillsHandler serves SkillsPlex catalog, instance discovery, and invocation
-// audit endpoints. It mirrors A2AHandler in shape and naming so the Console
-// and CLI can reuse the same patterns.
+// audit endpoints.
 type SkillsHandler struct {
 	store registry.Store
 }
@@ -25,10 +25,10 @@ func NewSkillsHandler(store registry.Store) *SkillsHandler {
 	return &SkillsHandler{store: store}
 }
 
-// ListSkillServers returns a summary of every running SkillsPlex instance with
-// the skills it advertises. GET /api/v1/skills/servers
+// ListSkillServers returns a summary of every running skill instance.
+// GET /api/v1/skills/servers
 func (h *SkillsHandler) ListSkillServers(w http.ResponseWriter, r *http.Request) {
-	instances, err := h.store.ListInstances(r.Context(), models.PlaneSkillsPlex)
+	instances, err := h.store.ListInstances(r.Context(), capability.KindSkill)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
@@ -57,21 +57,26 @@ func (h *SkillsHandler) ListSkillServers(w http.ResponseWriter, r *http.Request)
 			}
 			bundle = tmpl.SkillBundle
 		}
+		skills := make([]string, 0, len(inst.Capabilities))
+		for _, c := range inst.Capabilities {
+			if u, err := capability.ParseURI(c.URI); err == nil {
+				skills = append(skills, u.Name)
+			}
+		}
 		out = append(out, serverSummary{
 			InstanceID:  inst.ID,
 			Name:        name,
 			URL:         "/skills/" + inst.ID,
 			SkillBundle: bundle,
-			Skills:      inst.Scopes,
+			Skills:      skills,
 			Status:      string(inst.Status),
 		})
 	}
 	JSON(w, http.StatusOK, out)
 }
 
-// GetSkillsManifest returns the merged Skill catalog for a deployed skill server.
-// Combines template-declared skills with the latest discovered scopes on the
-// running instance. GET /skills/{instanceId}/.well-known/skills.json
+// GetSkillsManifest returns the merged skill catalog for a deployed skill server.
+// GET /skills/{instanceId}/.well-known/skills.json
 func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.PathValue("instanceId")
 
@@ -84,8 +89,8 @@ func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
-	if inst.Plane != models.PlaneSkillsPlex {
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "instance is not a SkillsPlex server")
+	if inst.Kind != capability.KindSkill {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "instance is not a skill server")
 		return
 	}
 
@@ -95,26 +100,30 @@ func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	skills := make([]models.SkillInfo, 0, len(tmpl.Skills))
-	skills = append(skills, tmpl.Skills...)
+	skills := make([]models.SkillInfo, 0, len(tmpl.Capabilities))
+	for _, c := range tmpl.Capabilities {
+		skills = append(skills, models.SkillInfo{
+			Name:        c.Name,
+			Description: c.Description,
+			Version:     c.Version,
+			Triggers:    c.Tags,
+		})
+	}
 
 	manifest := map[string]any{
-		"instance_id":   instanceID,
-		"name":          tmpl.Name,
-		"description":   tmpl.Description,
-		"version":       tmpl.Version,
-		"url":           "/skills/" + instanceID,
-		"skill_bundle":  tmpl.SkillBundle,
-		"skills":        skills,
-		"scopes":        inst.Scopes,
+		"instance_id":  instanceID,
+		"name":         tmpl.Name,
+		"description":  tmpl.Description,
+		"version":      tmpl.Version,
+		"url":          "/skills/" + instanceID,
+		"skill_bundle": tmpl.SkillBundle,
+		"skills":       skills,
+		"capabilities": inst.Capabilities,
 	}
 	JSON(w, http.StatusOK, manifest)
 }
 
-// RecordInvocation appends a skill invocation audit record. If the invocation
-// failed with a "missing scope:" error (the form returned by aiplex-authz),
-// a matching PolicyDenial is also appended so the unified dashboard surfaces
-// authz-time failures alongside other denials.
+// RecordInvocation appends a skill invocation audit record.
 // POST /api/v1/skills/invocations
 func (h *SkillsHandler) RecordInvocation(w http.ResponseWriter, r *http.Request) {
 	var inv models.SkillInvocation
@@ -148,19 +157,18 @@ func (h *SkillsHandler) RecordInvocation(w http.ResponseWriter, r *http.Request)
 	}
 
 	if inv.Status == "failed" {
-		if scope := extractMissingScope(inv.Error); scope != "" {
+		if uri := extractMissingCap(inv.Error); uri != "" {
 			denial := &models.PolicyDenial{
 				ID:        "den-" + randHex(8),
 				Timestamp: time.Now(),
-				Plane:     string(models.PlaneSkillsPlex),
+				Kind:      capability.KindSkill,
 				AgentID:   inv.AgentID,
 				UserID:    inv.UserID,
-				Action:    "skills/invoke:" + inv.SkillName,
-				Scope:     scope,
-				Reason:    "scope_missing",
+				CapURI:    uri,
+				Action:    "invoke",
+				Reason:    "cap_missing",
 				RequestID: GetRequestID(r.Context()),
 			}
-			// Best-effort — do not fail the audit write if denial recording fails.
 			_ = h.store.AppendPolicyDenial(r.Context(), denial)
 		}
 	}
@@ -168,20 +176,15 @@ func (h *SkillsHandler) RecordInvocation(w http.ResponseWriter, r *http.Request)
 	JSON(w, http.StatusCreated, inv)
 }
 
-// extractMissingScope parses the "missing scope: <scope>" form returned by
-// aiplex-authz and the OPA policy for scope-missing denials. Returns an empty
-// string when the error is not a scope-missing failure.
-func extractMissingScope(errMsg string) string {
-	const prefix = "missing scope:"
+// extractMissingCap parses error messages of the form "missing cap: cap://…"
+// returned by aiplex-authz / the OPA policy. Empty string for non-matching errors.
+func extractMissingCap(errMsg string) string {
+	const prefix = "missing cap:"
 	idx := strings.Index(errMsg, prefix)
 	if idx < 0 {
 		return ""
 	}
 	rest := strings.TrimSpace(errMsg[idx+len(prefix):])
-	if rest == "" {
-		return ""
-	}
-	// Stop at first whitespace or punctuation so callers can append context.
 	for i, c := range rest {
 		if c == ' ' || c == '\n' || c == ',' || c == ';' {
 			return rest[:i]
@@ -190,8 +193,8 @@ func extractMissingScope(errMsg string) string {
 	return rest
 }
 
-// ListInvocations returns recent skill invocations, optionally filtered by
-// agent_id or skill_name. GET /api/v1/skills/invocations?agent_id=X&skill=Y
+// ListInvocations returns recent skill invocations.
+// GET /api/v1/skills/invocations?agent_id=X&skill=Y
 func (h *SkillsHandler) ListInvocations(w http.ResponseWriter, r *http.Request) {
 	agentID := r.URL.Query().Get("agent_id")
 	skillName := r.URL.Query().Get("skill")

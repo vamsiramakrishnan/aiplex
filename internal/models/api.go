@@ -1,29 +1,33 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
+)
 
 // DeployRequest is the input for a deploy operation.
 type DeployRequest struct {
-	Plane       Plane          `json:"plane"`
-	TemplateID  string         `json:"template_id"`
-	Config      map[string]any `json:"config,omitempty"`
-	DisplayName string         `json:"display_name,omitempty"`
+	Kind        capability.Kind `json:"kind"`
+	TemplateID  string          `json:"template_id"`
+	Config      map[string]any  `json:"config,omitempty"`
+	DisplayName string          `json:"display_name,omitempty"`
 }
 
 // DeployHistory records a single deploy/undeploy/config change event.
 type DeployHistory struct {
-	ID          string         `json:"id"`
-	InstanceID  string         `json:"instance_id"`
-	Action      string         `json:"action"` // deploy, undeploy, config_update, scale, restart
-	Plane       Plane          `json:"plane"`
-	TemplateID  string         `json:"template_id,omitempty"`
-	Owner       string         `json:"owner"`
-	PerformedBy string         `json:"performed_by"`
-	Config      map[string]any `json:"config,omitempty"`
-	Timestamp   time.Time      `json:"timestamp"`
-	DurationMs  int64          `json:"duration_ms,omitempty"`
-	Success     bool           `json:"success"`
-	Error       string         `json:"error,omitempty"`
+	ID          string          `json:"id"`
+	InstanceID  string          `json:"instance_id"`
+	Action      string          `json:"action"` // deploy, undeploy, config_update, scale, restart
+	Kind        capability.Kind `json:"kind"`
+	TemplateID  string          `json:"template_id,omitempty"`
+	Owner       string          `json:"owner"`
+	PerformedBy string          `json:"performed_by"`
+	Config      map[string]any  `json:"config,omitempty"`
+	Timestamp   time.Time       `json:"timestamp"`
+	DurationMs  int64           `json:"duration_ms,omitempty"`
+	Success     bool            `json:"success"`
+	Error       string          `json:"error,omitempty"`
 }
 
 // CatalogPage is a paginated catalog response.

@@ -48,19 +48,19 @@ func TestClient_ListInstances(t *testing.T) {
 		if r.URL.Path != "/api/v1/instances" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		plane := r.URL.Query().Get("plane")
-		if plane != "mcplex" {
-			t.Errorf("expected plane=mcplex, got %s", plane)
+		kind := r.URL.Query().Get("kind")
+		if kind != "tool" {
+			t.Errorf("expected kind=tool, got %s", kind)
 		}
 		json.NewEncoder(w).Encode([]aiplex.Instance{
-			{ID: "inst-1", Plane: "mcplex", Status: "running"},
-			{ID: "inst-2", Plane: "mcplex", Status: "stopped"},
+			{ID: "inst-1", Kind: "tool", Status: "running"},
+			{ID: "inst-2", Kind: "tool", Status: "stopped"},
 		})
 	}))
 	defer srv.Close()
 
 	c := aiplex.NewClient(srv.URL)
-	list, err := c.ListInstances(context.Background(), &aiplex.ListInstancesOpts{Plane: "mcplex"})
+	list, err := c.ListInstances(context.Background(), &aiplex.ListInstancesOpts{Kind: "tool"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,19 +79,19 @@ func TestClient_Deploy(t *testing.T) {
 		}
 		var req aiplex.DeployRequest
 		json.NewDecoder(r.Body).Decode(&req)
-		if req.Plane != "mcplex" {
-			t.Errorf("expected mcplex, got %s", req.Plane)
+		if req.Kind != "tool" {
+			t.Errorf("expected tool, got %s", req.Kind)
 		}
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(aiplex.Instance{
-			ID: "kb-xyz", Plane: "mcplex", Status: "running",
+			ID: "kb-xyz", Kind: "tool", Status: "running",
 		})
 	}))
 	defer srv.Close()
 
 	c := aiplex.NewClient(srv.URL)
 	inst, err := c.Deploy(context.Background(), &aiplex.DeployRequest{
-		Plane:      "mcplex",
+		Kind:       "tool",
 		TemplateID: "kb-search",
 	})
 	if err != nil {

@@ -2,14 +2,14 @@ package auth
 
 import (
 	"context"
-	"strings"
 
-	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/internal/capability"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
 // ConsentHandler implements Hydra's consent webhook.
-// It computes effective permissions as A ∩ B ∩ C (agent ceiling ∩ user ceiling ∩ requested scopes).
+// It computes effective permissions as A ∩ B ∩ C
+// (agent ceiling ∩ user ceiling ∩ requested caps).
 type ConsentHandler struct {
 	hydra *HydraClient
 	store registry.Store
@@ -21,70 +21,40 @@ func NewConsentHandler(hydra *HydraClient, store registry.Store) *ConsentHandler
 }
 
 // HandleConsent processes a consent challenge:
-// 1. Fetches the consent request from Hydra
-// 2. Looks up Dimension A (agent ceiling) and Dimension B (user ceiling)
-// 3. Computes A ∩ B ∩ C (requested scopes)
-// 4. Accepts the consent with the intersection
+//  1. Fetches the consent request from Hydra
+//  2. Looks up Dimension A (agent ceiling) and Dimension B (user ceiling)
+//  3. Computes A ∩ B ∩ C (requested caps)
+//  4. Accepts the consent with the intersection in the `caps` claim
 func (ch *ConsentHandler) HandleConsent(ctx context.Context, challenge string) (redirectURL string, err error) {
-	// Fetch consent request from Hydra
 	cr, err := ch.hydra.GetConsentRequest(ctx, challenge)
 	if err != nil {
 		return "", err
 	}
 
-	// Dimension A: agent ceiling (from store/Hydra client)
+	// Dimension A: agent ceiling
 	agent, err := ch.store.GetAgent(ctx, cr.Client.ClientID)
 	if err != nil {
 		return "", err
 	}
-	agentScopes := toSet(agent.AllowedScopes)
 
-	// Dimension B: user ceiling (from store)
-	userScopes, err := ch.store.GetUserScopes(ctx, cr.Subject)
+	// Dimension B: user ceiling
+	userCaps, err := ch.store.GetUserCaps(ctx, cr.Subject)
 	if err != nil {
 		return "", err
 	}
-	userSet := toSet(userScopes)
 
-	// Dimension C: requested scopes
-	requestedSet := toSet(cr.RequestedScope)
-
-	// Effective = A ∩ B ∩ C
-	var granted []string
-	for scope := range requestedSet {
-		if agentScopes[scope] && userSet[scope] {
-			granted = append(granted, scope)
-		}
+	// Dimension C: requested caps (Hydra's `requested_scope` carries cap URIs).
+	requested := make(capability.CapSet, 0, len(cr.RequestedScope))
+	for _, uri := range cr.RequestedScope {
+		requested = append(requested, capability.Cap{URI: uri})
 	}
 
-	// Build act claim with agent's SPIFFE ID
+	// Effective = A ∩ B ∩ C
+	granted := agent.AllowedCaps.Intersect(userCaps).Intersect(requested)
+
 	actClaim := map[string]string{
 		"sub": agent.SpiffeID,
 	}
 
 	return ch.hydra.AcceptConsent(ctx, challenge, granted, actClaim)
-}
-
-// ScopesByPlane groups scopes by their plane prefix.
-func ScopesByPlane(scopes []string) map[models.Plane][]string {
-	result := make(map[models.Plane][]string)
-	for _, s := range scopes {
-		switch {
-		case strings.HasPrefix(s, "mcp:"):
-			result[models.PlaneMCPlex] = append(result[models.PlaneMCPlex], s)
-		case strings.HasPrefix(s, "a2a:"):
-			result[models.PlaneA2APlex] = append(result[models.PlaneA2APlex], s)
-		case strings.HasPrefix(s, "llm:"):
-			result[models.PlaneLLMPlex] = append(result[models.PlaneLLMPlex], s)
-		}
-	}
-	return result
-}
-
-func toSet(items []string) map[string]bool {
-	s := make(map[string]bool, len(items))
-	for _, item := range items {
-		s[item] = true
-	}
-	return s
 }

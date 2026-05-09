@@ -85,15 +85,15 @@ Example:
 							errors = append(errors, fmt.Sprintf("instances[%d]: must be a mapping", i))
 							continue
 						}
-						for _, required := range []string{"id", "plane"} {
+						for _, required := range []string{"id", "kind"} {
 							if _, ok := m[required]; !ok {
 								errors = append(errors, fmt.Sprintf("instances[%d]: missing required field '%s'", i, required))
 							}
 						}
-						if plane, ok := m["plane"].(string); ok {
-							validPlanes := map[string]bool{"mcplex": true, "a2aplex": true, "llmplex": true, "skillsplex": true}
-							if !validPlanes[plane] {
-								errors = append(errors, fmt.Sprintf("instances[%d]: invalid plane %q (expected mcplex, a2aplex, llmplex, or skillsplex)", i, plane))
+						if kind, ok := m["kind"].(string); ok {
+							validKinds := map[string]bool{"tool": true, "task": true, "model": true, "skill": true, "memory": true, "meta": true}
+							if !validKinds[kind] {
+								errors = append(errors, fmt.Sprintf("instances[%d]: invalid kind %q (expected tool, task, model, skill, memory, or meta)", i, kind))
 							}
 						}
 					}

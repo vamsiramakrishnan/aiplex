@@ -11,26 +11,27 @@ import (
 
 func deployCmd() *cobra.Command {
 	var (
-		plane       string
+		kind        string
 		displayName string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "deploy <template-id>",
 		Short: "Deploy an instance from a catalog template",
-		Long: `Deploy an MCP server, A2A agent, or LLM provider from the catalog.
+		Long: `Deploy a tool, task agent, model proxy, skill server, or memory namespace
+from the catalog. The kind defaults from the template if not provided.
 
 Examples:
-  aiplex deploy kb-search --plane mcplex
-  aiplex deploy research-agent --plane a2aplex --name "My Research Agent"
-  aiplex deploy gemini-2.5-flash --plane llmplex`,
+  aiplex deploy kb-search --kind tool
+  aiplex deploy research-agent --kind task --name "My Research Agent"
+  aiplex deploy gemini-2.5-flash --kind model`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
 			ctx := context.Background()
 
 			inst, err := c.Deploy(ctx, &aiplex.DeployRequest{
-				Plane:       plane,
+				Kind:        kind,
 				TemplateID:  args[0],
 				DisplayName: displayName,
 			})
@@ -44,19 +45,21 @@ Examples:
 			}
 
 			fmt.Printf("Deployed %s\n", inst.ID)
-			fmt.Printf("  Plane:    %s\n", inst.Plane)
-			fmt.Printf("  Template: %s\n", inst.TemplateID)
-			fmt.Printf("  Status:   %s\n", inst.Status)
-			if len(inst.Scopes) > 0 {
-				fmt.Printf("  Scopes:   %v\n", inst.Scopes)
+			fmt.Printf("  Kind:         %s\n", inst.Kind)
+			fmt.Printf("  Template:     %s\n", inst.TemplateID)
+			fmt.Printf("  Status:       %s\n", inst.Status)
+			if len(inst.Capabilities) > 0 {
+				fmt.Printf("  Capabilities:\n")
+				for _, c := range inst.Capabilities {
+					fmt.Printf("    - %s %v\n", c.URI, c.Actions)
+				}
 			}
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&plane, "plane", "p", "", "Target plane: mcplex, a2aplex, llmplex (required)")
+	cmd.Flags().StringVarP(&kind, "kind", "k", "", "Capability kind: tool, task, model, skill, memory (defaults to template's kind)")
 	cmd.Flags().StringVarP(&displayName, "name", "n", "", "Display name for the instance")
-	cmd.MarkFlagRequired("plane")
 
 	return cmd
 }

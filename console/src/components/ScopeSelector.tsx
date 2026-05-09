@@ -1,105 +1,102 @@
 import { useState } from 'react'
 
-interface ScopeSelectorProps {
+interface CapSelectorProps {
   available?: string[]
   selected: string[]
-  onChange: (scopes: string[]) => void
+  onChange: (caps: string[]) => void
 }
 
-// Common scopes for quick selection
-const COMMON_SCOPES: Record<string, { label: string; scopes: string[] }> = {
-  MCPlex: {
+// Common capability URIs for quick selection.
+const COMMON_CAPS: Record<string, { label: string; caps: string[] }> = {
+  Tools: {
     label: 'Tools',
-    scopes: [
-      'mcp:tools:search_curriculum',
-      'mcp:tools:get_document',
-      'mcp:tools:generate_quiz',
-      'mcp:tools:read_mastery',
-      'mcp:tools:update_mastery',
-      'mcp:tools:github_search',
-      'mcp:tools:github_read_file',
-      'mcp:tools:pg_query',
+    caps: [
+      'cap://tool/search_curriculum@v1',
+      'cap://tool/get_document@v1',
+      'cap://tool/generate_quiz@v1',
+      'cap://tool/read_mastery@v1',
+      'cap://tool/update_mastery@v1',
+      'cap://tool/github_search@v1',
+      'cap://tool/github_read_file@v1',
+      'cap://tool/pg_query@v1',
     ],
   },
-  A2APlex: {
+  Tasks: {
     label: 'Tasks',
-    scopes: [
-      'a2a:task:research',
-      'a2a:task:visualize',
-      'a2a:task:summarize',
+    caps: [
+      'cap://task/research@v1',
+      'cap://task/visualize@v1',
+      'cap://task/summarize@v1',
     ],
   },
-  LLMPlex: {
+  Models: {
     label: 'Models',
-    scopes: [
-      'llm:model:gemini-2.5-flash',
-      'llm:model:gemini-2.5-pro',
-      'llm:model:claude-sonnet-4-20250514',
-      'llm:model:gpt-4.1',
-      'llm:model:gpt-4.1-mini',
+    caps: [
+      'cap://model/gemini-2.5-flash@v1',
+      'cap://model/gemini-2.5-pro@v1',
+      'cap://model/claude-sonnet-4@v1',
+      'cap://model/gpt-4.1@v1',
+      'cap://model/gpt-4.1-mini@v1',
     ],
   },
 }
 
-function groupByPlane(scopes: string[]): Record<string, string[]> {
+function groupByKind(uris: string[]): Record<string, string[]> {
   const groups: Record<string, string[]> = {}
-  for (const scope of scopes) {
-    const plane = scope.startsWith('mcp:') ? 'MCPlex'
-      : scope.startsWith('a2a:') ? 'A2APlex'
-      : scope.startsWith('llm:') ? 'LLMPlex'
-      : 'Other'
-    if (!groups[plane]) groups[plane] = []
-    groups[plane].push(scope)
+  for (const uri of uris) {
+    const m = uri.match(/^cap:\/\/([^/]+)\//)
+    const kind = m ? m[1] : 'Other'
+    const label = kind.charAt(0).toUpperCase() + kind.slice(1)
+    if (!groups[label]) groups[label] = []
+    groups[label].push(uri)
   }
   return groups
 }
 
-function scopeLabel(scope: string): string {
-  const parts = scope.split(':')
-  return parts[parts.length - 1]
+function capLabel(uri: string): string {
+  const m = uri.match(/^cap:\/\/[^/]+\/([^@]+)@/)
+  return m ? m[1] : uri
 }
 
-export default function ScopeSelector({ available, selected, onChange }: ScopeSelectorProps) {
+export default function ScopeSelector({ available, selected, onChange }: CapSelectorProps) {
   const [search, setSearch] = useState('')
-  const [customScope, setCustomScope] = useState('')
+  const [customCap, setCustomCap] = useState('')
 
-  // Use available scopes if provided, otherwise use common scopes
-  const allScopes = available ?? Object.values(COMMON_SCOPES).flatMap(g => g.scopes)
-  // Include any selected scopes that aren't in the available list
-  const merged = [...new Set([...allScopes, ...selected])]
-  const groups = groupByPlane(merged)
+  const allCaps = available ?? Object.values(COMMON_CAPS).flatMap(g => g.caps)
+  const merged = [...new Set([...allCaps, ...selected])]
+  const groups = groupByKind(merged)
 
-  const toggle = (scope: string) => {
-    if (selected.includes(scope)) {
-      onChange(selected.filter((s) => s !== scope))
+  const toggle = (cap: string) => {
+    if (selected.includes(cap)) {
+      onChange(selected.filter((s) => s !== cap))
     } else {
-      onChange([...selected, scope])
+      onChange([...selected, cap])
     }
   }
 
-  const toggleAll = (scopes: string[]) => {
-    const allSelected = scopes.every((s) => selected.includes(s))
+  const toggleAll = (caps: string[]) => {
+    const allSelected = caps.every((s) => selected.includes(s))
     if (allSelected) {
-      onChange(selected.filter((s) => !scopes.includes(s)))
+      onChange(selected.filter((s) => !caps.includes(s)))
     } else {
-      onChange([...new Set([...selected, ...scopes])])
+      onChange([...new Set([...selected, ...caps])])
     }
   }
 
   const addCustom = () => {
-    const scope = customScope.trim()
-    if (scope && !selected.includes(scope)) {
-      onChange([...selected, scope])
-      setCustomScope('')
+    const uri = customCap.trim()
+    if (uri && !selected.includes(uri)) {
+      onChange([...selected, uri])
+      setCustomCap('')
     }
   }
 
   const filtered = search
     ? Object.fromEntries(
-        Object.entries(groups).map(([plane, scopes]) => [
-          plane,
-          scopes.filter((s) => s.toLowerCase().includes(search.toLowerCase())),
-        ]).filter(([, scopes]) => (scopes as string[]).length > 0)
+        Object.entries(groups).map(([kind, caps]) => [
+          kind,
+          caps.filter((c) => c.toLowerCase().includes(search.toLowerCase())),
+        ]).filter(([, caps]) => (caps as string[]).length > 0)
       )
     : groups
 
@@ -107,53 +104,52 @@ export default function ScopeSelector({ available, selected, onChange }: ScopeSe
     <div className="space-y-4">
       <input
         type="text"
-        placeholder="Filter scopes..."
+        placeholder="Filter capabilities..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="w-full border rounded px-3 py-2 text-sm"
       />
 
-      {Object.entries(filtered).map(([plane, scopes]) => (
-        <div key={plane} className="border rounded-lg p-3">
+      {Object.entries(filtered).map(([kind, caps]) => (
+        <div key={kind} className="border rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
-            <h4 className="font-semibold text-sm">{plane}</h4>
+            <h4 className="font-semibold text-sm">{kind}</h4>
             <button
-              onClick={() => toggleAll(scopes as string[])}
+              onClick={() => toggleAll(caps as string[])}
               className="text-xs text-brand-600 hover:underline"
             >
-              {(scopes as string[]).every((s) => selected.includes(s)) ? 'Deselect all' : 'Select all'}
+              {(caps as string[]).every((s) => selected.includes(s)) ? 'Deselect all' : 'Select all'}
             </button>
           </div>
           <div className="space-y-1">
-            {(scopes as string[]).map((scope) => (
-              <label key={scope} className="flex items-center gap-2 text-sm cursor-pointer">
+            {(caps as string[]).map((uri) => (
+              <label key={uri} className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={selected.includes(scope)}
-                  onChange={() => toggle(scope)}
+                  checked={selected.includes(uri)}
+                  onChange={() => toggle(uri)}
                   className="rounded"
                 />
-                <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">{scopeLabel(scope)}</code>
-                <span className="text-gray-400 text-xs">{scope}</span>
+                <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">{capLabel(uri)}</code>
+                <span className="text-gray-400 text-xs">{uri}</span>
               </label>
             ))}
           </div>
         </div>
       ))}
 
-      {/* Custom scope entry */}
       <div className="flex gap-2">
         <input
           type="text"
-          placeholder="Add custom scope (e.g. mcp:tools:my_tool)"
-          value={customScope}
-          onChange={(e) => setCustomScope(e.target.value)}
+          placeholder="Add custom capability (e.g. cap://tool/my_tool@v1)"
+          value={customCap}
+          onChange={(e) => setCustomCap(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && addCustom()}
           className="flex-1 border rounded px-3 py-2 text-sm font-mono"
         />
         <button
           onClick={addCustom}
-          disabled={!customScope.trim()}
+          disabled={!customCap.trim()}
           className="px-3 py-2 border rounded text-sm hover:bg-gray-50 disabled:opacity-50"
         >
           Add
@@ -161,7 +157,7 @@ export default function ScopeSelector({ available, selected, onChange }: ScopeSe
       </div>
 
       <div className="text-xs text-gray-500">
-        {selected.length} scope{selected.length !== 1 ? 's' : ''} selected
+        {selected.length} capabilit{selected.length !== 1 ? 'ies' : 'y'} selected
       </div>
     </div>
   )
