@@ -75,10 +75,13 @@ var (
 	versionPattern = regexp.MustCompile(`^(?:v\d+(?:\.\d+){0,2}|latest)$`)
 	// Validates a name segment (slashes are allowed inside Name; each segment).
 	// Dots are allowed for model identifiers like "gemini-2.5-flash".
-	// Curly-brace template variables (e.g. `{tenant}`, `{user}`) are allowed
-	// for parameterised namespaces — the constraint filter substitutes them
+	// Curly-brace template variables (`{tenant}`, `{user}`) are allowed for
+	// parameterised namespaces — the constraint filter substitutes them
 	// against JWT claims at request time. See design/20.
-	segmentPattern = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9_\-\.]*|\{[A-Za-z][A-Za-z0-9_]*\})$`)
+	// A bare `*` is the wildcard segment, used in role-binding / Dimension B
+	// caps like `cap://tool/*@v1` (grant any tool). Matched with prefix
+	// semantics in the OPA policy.
+	segmentPattern = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9_\-\.]*|\{[A-Za-z][A-Za-z0-9_]*\}|\*)$`)
 )
 
 // ParseURI parses a capability URI. It returns an error on malformed input.

@@ -121,6 +121,9 @@ Get started:
 		versionCmd(),
 
 		// Onboarding
+		upCmd(),
+		demoCmd(),
+		tokenCmd(),
 		quickstartCmd(),
 		initCmd(),
 		loginCmd(),
