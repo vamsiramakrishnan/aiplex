@@ -48,6 +48,20 @@ var kinds = map[Kind]KindSpec{
 		ConstraintKeys: []string{"key_prefix", "max_value_bytes", "ttl_seconds_max", "tenant", "read_only"},
 		Discovery:      "memory/describe",
 	},
+	KindAgent: {
+		Kind:           KindAgent,
+		Actions:        []string{"invoke", "cancel", "stream"},
+		DefaultAction:  "invoke",
+		ConstraintKeys: []string{"max_concurrent", "max_steps", "monthly_token_budget"},
+		Discovery:      "agent/describe",
+	},
+	KindWorkflow: {
+		Kind:           KindWorkflow,
+		Actions:        []string{"run", "cancel", "describe"},
+		DefaultAction:  "run",
+		ConstraintKeys: []string{"max_concurrent_runs", "max_steps_per_run"},
+		Discovery:      "workflow/describe",
+	},
 	KindMeta: {
 		Kind:           KindMeta,
 		Actions:        []string{"create", "read", "update", "delete", "list"},

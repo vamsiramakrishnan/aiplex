@@ -101,12 +101,14 @@ func TestCapSetUnionDedup(t *testing.T) {
 
 func TestKindNamespace(t *testing.T) {
 	cases := map[Kind]string{
-		KindTool:   "mcplex",
-		KindTask:   "a2aplex",
-		KindModel:  "aiplex-system",
-		KindSkill:  "skillsplex",
-		KindMemory: "memplex",
-		KindMeta:   "aiplex-system",
+		KindTool:     "mcplex",
+		KindTask:     "a2aplex",
+		KindModel:    "aiplex-system",
+		KindSkill:    "skillsplex",
+		KindMemory:   "memplex",
+		KindAgent:    "agentplex",
+		KindWorkflow: "aiplex-system",
+		KindMeta:     "aiplex-system",
 	}
 	for k, ns := range cases {
 		if got := k.Namespace(); got != ns {

@@ -43,6 +43,10 @@ type Template struct {
 	// Common.
 	Category       string                     `json:"category"`
 	ConfigSchema   map[string]any             `json:"config_schema,omitempty"`
+	// Config carries default config that the deploy engine forwards to the
+	// instance verbatim. Workflow templates use this to ship inline `spec`
+	// JSON; tool/skill templates use it for default env vars.
+	Config         map[string]any             `json:"config,omitempty"`
 	ResourceLimits *capability.ResourceLimits `json:"resource_limits,omitempty"`
 	Verified       bool                       `json:"verified"`
 	Tags           []string                   `json:"tags,omitempty"`

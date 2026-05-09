@@ -2,18 +2,22 @@
 
 ## What This Is
 
-AIPlex is a unified control plane for AI agent interactions, governed by **one primitive**: a **Capability**.
+**AIPlex is the capability OS for delegated AI.**
 
-A Capability is a typed, addressable, governable unit of agent action. Tools, A2A tasks, LLM models, skills, and memory namespaces are all Capabilities, distinguished only by their `kind` tag. One gateway, one auth stack, one OPA rule, one CRD, one Console graph governs every interaction.
+Every action an agent can take — calling a tool, invoking another agent, querying a model, running a workflow, reading or writing memory — is a typed, addressable, governable, revocable **Capability** bound to the human who delegated it. One primitive across every kind. Vendor-portable. Locally hostable. Verifiable.
 
-| Kind     | What it governs                  | Provider           | Default namespace |
-|----------|----------------------------------|--------------------|--------------------|
-| `tool`   | MCP tool call                    | MCP server         | `mcplex`           |
-| `task`   | A2A agent task delegation        | A2A agent          | `a2aplex`          |
-| `model`  | LLM inference                    | Envoy LLMRoute     | `aiplex-system`    |
-| `skill`  | Skill bundle execution           | Skill server       | `skillsplex`       |
-| `memory` | Memory namespace operation       | Memory broker      | `memplex`          |
-| `meta`   | AIPlex itself (deploy, govern)   | AIPlex API         | `aiplex-system`    |
+This is what makes AIPlex categorically different from AWS Bedrock AgentCore (AWS-native, multiple subsystems) and Google Vertex AI Agent Engine (GCP-native, runtime-coupled). They are *vendor* managed agent stacks. AIPlex is the *user-owned* substrate beneath whatever runtime the agent uses. See [design/24](design/24-agent-and-workflow-as-cap.md) for the agent-as-cap architecture and concrete scenarios.
+
+| Kind       | What it governs                              | Provider                  | Default namespace |
+|------------|----------------------------------------------|---------------------------|--------------------|
+| `tool`     | MCP tool call                                | MCP server                | `mcplex`           |
+| `task`     | A2A task delegation                          | A2A agent                 | `a2aplex`          |
+| `model`    | LLM inference                                | Envoy LLMRoute            | `aiplex-system`    |
+| `skill`    | Skill bundle execution                       | Skill server              | `skillsplex`       |
+| `memory`   | Memory namespace operation                   | Memory broker (in-process)| `memplex`          |
+| `agent`    | Hosted agent runtime (ADK, LangGraph, Letta) | External HTTP endpoint    | `agentplex`        |
+| `workflow` | Declarative cap chain                        | Workflow executor (in-process) | `aiplex-system`    |
+| `meta`     | AIPlex itself (deploy, govern)               | AIPlex API                | `aiplex-system`    |
 
 Adding the next kind costs ~200 LOC, not 2,000. The plane proliferation tax is gone.
 
@@ -435,8 +439,8 @@ Dashboard surfaces a unified view: cap invocations + denials + cost tracking, br
 
 The four-plane phasing has been replaced by the [Capability Mesh roadmap](design/22-roadmap-100x.md). Today's working slice:
 
-- **Done:** Capability primitive, single CapabilityRoute generator, single OPA rule, capability-aware deploy engine, Hydra `caps` token hook, per-kind catalog sources, structured user-caps Dimension B, console & CLI capability-aware
-- **Next:** capability resolver (Rust ext_proc), MemPlex (`kind=memory`), JIT step-up consent, signed-receipt trust ledger, unified Capability Graph in Console — see design/22.
+- **Done:** Capability primitive · single CapabilityRoute generator · single OPA rule · capability-aware deploy engine · `KindHook` extension point · Hydra `caps` token hook · per-kind catalog sources · structured user-caps Dimension B · MemPlex (`kind=memory`) with PII redaction and pluggable backends · agent-as-cap (`kind=agent`) wrapping external runtimes · workflow-as-cap (`kind=workflow`) chaining caps with token threading · console & CLI capability-aware
+- **Next:** `aiplex up` single-binary local stack · personal cap vault (`aiplex vault export/import`) · live receipt streams in the Console · code interpreter as built-in cap · capability resolver (Rust ext_proc) · JIT step-up consent · signed-receipt trust ledger · unified Capability Graph in Console — see design/22 + design/24.
 
 -----
 

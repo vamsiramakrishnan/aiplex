@@ -102,6 +102,8 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case action == "invoke":
+		b.handleInvoke(w, r, ns, backend)
 	case action == "search":
 		b.handleSearch(w, r, ns, backend)
 	case action == "subscribe":
@@ -121,6 +123,120 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		writeErr(w, http.StatusBadRequest, "BAD_ACTION", "missing key or special action")
+	}
+}
+
+// handleInvoke is the universal cap-call endpoint. Every kind exposes
+// POST /cap/<kind>/<name>@<v>/_invoke with body `{"action": "...", "input": {...}}`.
+// For memory, the action field selects between read/write/delete/search/list
+// and the input carries the operation-specific arguments. This is what the
+// workflow executor (and any uniform CapInvoker) calls — kind-specific REST
+// verbs are still available for direct human/SDK use.
+func (b *Broker) handleInvoke(w http.ResponseWriter, r *http.Request, ns Namespace, backend MemoryBackend) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", r.Method)
+		return
+	}
+	var body struct {
+		Action string         `json:"action"`
+		Input  map[string]any `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "BAD_BODY", err.Error())
+		return
+	}
+	if body.Input == nil {
+		body.Input = map[string]any{}
+	}
+
+	switch body.Action {
+	case "read":
+		key, _ := body.Input["key"].(string)
+		if key == "" {
+			writeErr(w, http.StatusBadRequest, "BAD_INPUT", "input.key required for read")
+			return
+		}
+		v, err := backend.Read(r.Context(), ns, key)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeErr(w, http.StatusNotFound, "NOT_FOUND", "key not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, "BACKEND_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, v)
+
+	case "write", "":
+		key, _ := body.Input["key"].(string)
+		if key == "" {
+			writeErr(w, http.StatusBadRequest, "BAD_INPUT", "input.key required for write")
+			return
+		}
+		data, _ := body.Input["data"].(map[string]any)
+		if data == nil {
+			data = map[string]any{}
+		}
+		cleaned, err := applyPII(data, ns.PII)
+		if errors.Is(err, ErrPIIRejected) {
+			writeErr(w, http.StatusForbidden, "PII_REJECTED", err.Error())
+			return
+		}
+		val := Value{Data: cleaned}
+		if err := backend.Write(r.Context(), ns, key, val, WriteOpts{}); err != nil {
+			writeErr(w, http.StatusInternalServerError, "BACKEND_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"key": key})
+
+	case "delete":
+		key, _ := body.Input["key"].(string)
+		if err := backend.Delete(r.Context(), ns, key); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				writeErr(w, http.StatusNotFound, "NOT_FOUND", "key not found")
+				return
+			}
+			writeErr(w, http.StatusInternalServerError, "BACKEND_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": key})
+
+	case "search":
+		q := Query{}
+		if emb, ok := body.Input["embedding"].([]any); ok {
+			vec := make([]float32, len(emb))
+			for i, e := range emb {
+				if f, ok := e.(float64); ok {
+					vec[i] = float32(f)
+				}
+			}
+			q.Embedding = vec
+		}
+		if t, ok := body.Input["text"].(string); ok {
+			q.Text = t
+		}
+		if n, ok := body.Input["top_k"].(float64); ok {
+			q.TopK = int(n)
+		}
+		hits, err := backend.Search(r.Context(), ns, q)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "BACKEND_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"hits": hits})
+
+	case "list":
+		prefix, _ := body.Input["prefix"].(string)
+		out, err := backend.List(r.Context(), ns, prefix, Page{})
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "BACKEND_ERROR", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, out)
+
+	default:
+		writeErr(w, http.StatusBadRequest, "BAD_ACTION",
+			fmt.Sprintf("unknown action %q for kind=memory", body.Action))
 	}
 }
 
@@ -294,6 +410,8 @@ func parsePath(path string) (capability.URI, string, string, error) {
 	}
 
 	switch {
+	case tail == "_invoke":
+		return u, "invoke", "", nil
 	case tail == "_search":
 		return u, "search", "", nil
 	case tail == "_subscribe":

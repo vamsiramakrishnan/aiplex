@@ -22,6 +22,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/memplex"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
+	"github.com/vamsiramakrishnan/aiplex/internal/workflow"
 )
 
 func main() {
@@ -76,6 +77,16 @@ func main() {
 	for i := range memTemplates {
 		store.PutTemplate(ctx, &memTemplates[i])
 	}
+	builtinAgents := catalog.NewBuiltInAgents()
+	agentTemplates, _ := builtinAgents.Fetch(ctx)
+	for i := range agentTemplates {
+		store.PutTemplate(ctx, &agentTemplates[i])
+	}
+	builtinWorkflows := catalog.NewBuiltInWorkflows()
+	wfTemplates, _ := builtinWorkflows.Fetch(ctx)
+	for i := range wfTemplates {
+		store.PutTemplate(ctx, &wfTemplates[i])
+	}
 
 	// Catalog aggregator — one local source per kind, plus federated registries.
 	sources := []catalog.Source{
@@ -85,9 +96,13 @@ func main() {
 		catalog.NewLocalSource(store, capability.KindModel),
 		catalog.NewLocalSource(store, capability.KindSkill),
 		catalog.NewLocalSource(store, capability.KindMemory),
+		catalog.NewLocalSource(store, capability.KindAgent),
+		catalog.NewLocalSource(store, capability.KindWorkflow),
 		providers,
 		builtinSkills,
 		builtinMemory,
+		builtinAgents,
+		builtinWorkflows,
 	}
 	aggregator := catalog.NewAggregator(sources)
 
@@ -107,6 +122,14 @@ func main() {
 	// broker also implements deploy.KindHook so namespaces are wired on Deploy.
 	memBroker := memplex.NewBroker(memplex.NewLocalBackend())
 	engine.RegisterKindHook(capability.KindMemory, memBroker)
+
+	// Workflow plane: declarative cap chains. The executor calls back through
+	// the gateway to invoke downstream caps, threading the original token so
+	// every step shares one delegation chain and one receipt sequence.
+	gatewayURL := "http://localhost:" + fmt.Sprintf("%d", cfg.Port) // self
+	wfExec := workflow.NewExecutor(workflow.NewHTTPInvoker(gatewayURL), 50)
+	engine.RegisterKindHook(capability.KindWorkflow, wfExec)
+	wfServer := workflow.NewServer(wfExec)
 
 	// Auth (Ory Hydra)
 	hydraClient := auth.NewHydraClient(cfg.HydraAdminURL)
@@ -261,6 +284,10 @@ func main() {
 	// Memory plane: broker is mounted under /cap/memory/* and handles every
 	// read/write/search/list/subscribe call after ext_authz approves it.
 	r.Mount("/cap/memory/", http.StripPrefix("", memBroker))
+
+	// Workflow plane: server is mounted under /cap/workflow/* and runs
+	// declarative cap chains.
+	r.Mount("/cap/workflow/", http.StripPrefix("", wfServer))
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)

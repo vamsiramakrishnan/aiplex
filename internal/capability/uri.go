@@ -15,23 +15,25 @@ import (
 type Kind string
 
 const (
-	KindTool   Kind = "tool"   // MCP tool
-	KindTask   Kind = "task"   // A2A task
-	KindModel  Kind = "model"  // LLM model
-	KindSkill  Kind = "skill"  // Skill bundle
-	KindMemory Kind = "memory" // Memory namespace
-	KindMeta   Kind = "meta"   // AIPlex itself (deploy, register, govern)
+	KindTool     Kind = "tool"     // MCP tool
+	KindTask     Kind = "task"     // A2A task
+	KindModel    Kind = "model"    // LLM model
+	KindSkill    Kind = "skill"    // Skill bundle
+	KindMemory   Kind = "memory"   // Memory namespace
+	KindAgent    Kind = "agent"    // Hosted agent runtime (ADK, LangGraph, custom)
+	KindWorkflow Kind = "workflow" // Declarative cap chain executed by AIPlex
+	KindMeta     Kind = "meta"     // AIPlex itself (deploy, register, govern)
 )
 
 // AllKinds returns every registered kind.
 func AllKinds() []Kind {
-	return []Kind{KindTool, KindTask, KindModel, KindSkill, KindMemory, KindMeta}
+	return []Kind{KindTool, KindTask, KindModel, KindSkill, KindMemory, KindAgent, KindWorkflow, KindMeta}
 }
 
 // Valid reports whether k is a known kind.
 func (k Kind) Valid() bool {
 	switch k {
-	case KindTool, KindTask, KindModel, KindSkill, KindMemory, KindMeta:
+	case KindTool, KindTask, KindModel, KindSkill, KindMemory, KindAgent, KindWorkflow, KindMeta:
 		return true
 	}
 	return false
@@ -50,6 +52,10 @@ func (k Kind) Namespace() string {
 		return "skillsplex"
 	case KindMemory:
 		return "memplex"
+	case KindAgent:
+		return "agentplex"
+	case KindWorkflow:
+		return "aiplex-system" // workflows execute inside AIPlex itself
 	case KindModel, KindMeta:
 		return "aiplex-system"
 	}

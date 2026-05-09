@@ -92,6 +92,12 @@ func (e *Engine) Deploy(ctx context.Context, kind capability.Kind, templateID st
 	// 4. Seed capabilities from the template; discovery may refine them later.
 	caps := tmpl.CapSet()
 
+	// Merge template defaults under the operator-supplied config. Operator
+	// values win on conflict — defaults are just defaults. Workflow specs
+	// arrive this way: BuiltInWorkflows ships `spec` in tmpl.Config and the
+	// workflow hook reads it back off inst.Config.
+	mergedConfig := mergeConfig(tmpl.Config, config)
+
 	// 5. Persist instance (provisioning state)
 	inst := &models.Instance{
 		ID:           instanceID,
@@ -101,7 +107,7 @@ func (e *Engine) Deploy(ctx context.Context, kind capability.Kind, templateID st
 		Namespace:    namespace,
 		SpiffeID:     spiffeID,
 		Capabilities: caps,
-		Config:       config,
+		Config:       mergedConfig,
 		Status:       models.StatusProvisioning,
 		Replicas:     1,
 		DisplayName:  displayName,
@@ -295,6 +301,22 @@ func (e *Engine) Undeploy(ctx context.Context, instanceID, performer string) err
 
 	logger.Info().Dur("duration", time.Since(start)).Msg("undeploy complete")
 	return nil
+}
+
+// mergeConfig overlays operator config on template defaults. Operator wins.
+// nil maps are treated as empty.
+func mergeConfig(defaults, overlay map[string]any) map[string]any {
+	if len(defaults) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(defaults)+len(overlay))
+	for k, v := range defaults {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		out[k] = v
+	}
+	return out
 }
 
 // lookupAttrs finds the Attrs for a capability URI on the template, returning

@@ -17,11 +17,16 @@ type Manifest struct {
 }
 
 // GenerateManifests produces all K8s resources needed for a deployment.
-// kinds tool/task/skill/memory: ServiceAccount, Deployment, Service, NetworkPolicy.
-// kind=model: no K8s workloads (Envoy handles model routing directly).
-// kind=meta: no workloads (AIPlex API serves these itself).
+// kinds tool/task/skill: ServiceAccount, Deployment, Service, NetworkPolicy.
+// kind=memory: nothing (the broker is part of aiplex-api, not a per-namespace pod).
+// kind=model: nothing (Envoy handles model routing directly).
+// kind=agent: nothing (the agent runtime is external; we just route to it).
+// kind=workflow: nothing (the executor is in-process inside aiplex-api).
+// kind=meta: nothing (AIPlex API serves these itself).
 func GenerateManifests(inst *models.Instance, tmpl *models.Template, trustDomain string) []Manifest {
-	if inst.Kind == capability.KindModel || inst.Kind == capability.KindMeta {
+	switch inst.Kind {
+	case capability.KindModel, capability.KindMeta,
+		capability.KindMemory, capability.KindAgent, capability.KindWorkflow:
 		return nil
 	}
 

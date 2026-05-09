@@ -814,6 +814,102 @@ func (m *MemoryNamespace) List(ctx context.Context, prefix, cursor string, limit
 	return &out, err
 }
 
+// --- Workflow (kind=workflow) ---
+
+// WorkflowRun mirrors the Run struct emitted by the workflow executor.
+type WorkflowRun struct {
+	ID          string                  `json:"id"`
+	WorkflowURI string                  `json:"workflow_uri"`
+	Caller      string                  `json:"caller"`
+	StartedAt   time.Time               `json:"started_at"`
+	FinishedAt  time.Time               `json:"finished_at,omitempty"`
+	Status      string                  `json:"status"`
+	Inputs      map[string]any          `json:"inputs,omitempty"`
+	Steps       []WorkflowStepResult    `json:"steps,omitempty"`
+	Outputs     map[string]any          `json:"outputs,omitempty"`
+	Error       string                  `json:"error,omitempty"`
+}
+
+// WorkflowStepResult records one step of a workflow run.
+type WorkflowStepResult struct {
+	StepID     string         `json:"step_id"`
+	Cap        string         `json:"cap"`
+	Action     string         `json:"action"`
+	StartedAt  time.Time      `json:"started_at"`
+	DurationMs int64          `json:"duration_ms"`
+	Status     string         `json:"status"`
+	Output     map[string]any `json:"output,omitempty"`
+	Error      string         `json:"error,omitempty"`
+}
+
+// WorkflowHandle is a typed reference to a deployed workflow capability.
+// Callers obtain one via Client.Workflow(uri).
+type WorkflowHandle struct {
+	c   *Client
+	uri string
+}
+
+// Workflow returns a typed handle for a cap://workflow/... URI.
+func (c *Client) Workflow(uri string) *WorkflowHandle {
+	return &WorkflowHandle{c: c, uri: uri}
+}
+
+// Run executes the workflow with the given inputs and returns the recorded
+// WorkflowRun. The token attached to the client is forwarded to each step
+// the workflow invokes — every cap call shares one delegation chain.
+func (w *WorkflowHandle) Run(ctx context.Context, inputs map[string]any) (*WorkflowRun, error) {
+	rest := strings.TrimPrefix(w.uri, "cap://workflow/")
+	path := "/cap/workflow/" + rest + "/_invoke"
+	body := map[string]any{"input": inputs}
+	var run WorkflowRun
+	err := w.c.do(ctx, "POST", path, body, &run)
+	return &run, err
+}
+
+// Describe returns the workflow's spec (without running it).
+func (w *WorkflowHandle) Describe(ctx context.Context) (map[string]any, error) {
+	rest := strings.TrimPrefix(w.uri, "cap://workflow/")
+	path := "/cap/workflow/" + rest + "/_describe"
+	var spec map[string]any
+	err := w.c.do(ctx, "GET", path, nil, &spec)
+	return spec, err
+}
+
+// GetRun fetches a previously-recorded run by ID. Useful for polling
+// long-running workflows the caller didn't await synchronously.
+func (c *Client) GetRun(ctx context.Context, runID string) (*WorkflowRun, error) {
+	var run WorkflowRun
+	err := c.do(ctx, "GET", "/cap/workflow/runs/"+url.PathEscape(runID), nil, &run)
+	return &run, err
+}
+
+// --- Agent (kind=agent) ---
+
+// AgentHandle is a typed reference to a hosted agent runtime exposed as a cap.
+type AgentHandle struct {
+	c   *Client
+	uri string
+}
+
+// Agent returns a typed handle for a cap://agent/... URI. The agent runtime
+// itself (ADK, LangGraph, Letta, custom HTTP) is fronted by AIPlex; calling
+// .Invoke() routes through the same gateway as every other cap, so the
+// caller's delegation, audit, and revocation properties apply uniformly.
+func (c *Client) Agent(uri string) *AgentHandle {
+	return &AgentHandle{c: c, uri: uri}
+}
+
+// Invoke calls the agent. The shape of input/output is defined by the agent
+// runtime; AIPlex passes them through verbatim.
+func (a *AgentHandle) Invoke(ctx context.Context, input map[string]any) (map[string]any, error) {
+	rest := strings.TrimPrefix(a.uri, "cap://agent/")
+	path := "/cap/agent/" + rest + "/_invoke"
+	body := map[string]any{"input": input}
+	var out map[string]any
+	err := a.c.do(ctx, "POST", path, body, &out)
+	return out, err
+}
+
 // --- Auth / User Caps (Dimension B) ---
 
 type UserCaps struct {

@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,6 +19,8 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/memplex"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
+	"github.com/vamsiramakrishnan/aiplex/internal/workflow"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 // mustFetchTemplates fetches templates from a catalog source, panicking on
@@ -609,5 +612,153 @@ func TestE2E_MemoryKindLifecycle(t *testing.T) {
 	resp, _ = client.Get(srv.URL + pathBase + "/k1")
 	if resp.StatusCode != 404 {
 		t.Errorf("post-delete read: status=%d, want 404", resp.StatusCode)
+	}
+}
+
+// TestE2E_WorkflowAsCapability proves the agent-as-cap insight end-to-end:
+// deploy a workflow capability, invoke it, and verify it chains three
+// downstream cap calls (a stub tool, a stub model, and a real memory write)
+// while threading the original token through every step. The receipt for
+// the workflow run lists each step and its outcome — one connected audit
+// trail rather than a forest of orphan invocations.
+func TestE2E_WorkflowAsCapability(t *testing.T) {
+	store := registry.NewMemoryStore()
+	ctx := context.Background()
+
+	// Seed two stub backends as fake "downstream caps" the workflow will
+	// call: a tool that returns canned content and a model that echoes it.
+	stubMux := chi.NewRouter()
+	stubMux.Post("/cap/tool/get_quiz@v1/_invoke", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"content": "What is 2+2?",
+			"id":      "q-1",
+		})
+	})
+	stubMux.Post("/cap/model/echo@v1/_invoke", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Input map[string]any `json:"input"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		json.NewEncoder(w).Encode(map[string]any{
+			"text": "GRADED: " + fmt.Sprintf("%v", body.Input["prompt"]),
+		})
+	})
+
+	// Real memory broker — the workflow's third step writes to it.
+	memBroker := memplex.NewBroker(memplex.NewLocalBackend())
+	memURI := capability.New(capability.KindMemory, "students/{student}/grades", "v1")
+	memBroker.Register(memplex.Namespace{URI: memURI, Backend: "local"}, nil)
+	stubMux.Mount("/cap/memory/", http.StripPrefix("", memBroker))
+
+	// Workflow executor pointing back at the same test server.
+	wfSpec := workflow.Spec{
+		Inputs: workflow.InputSchema{Required: []string{"quiz_id", "student"}},
+		Steps: []workflow.Step{
+			{
+				ID:     "fetch",
+				Cap:    "cap://tool/get_quiz@v1",
+				Action: "call",
+				Input:  map[string]any{"id": "{{ inputs.quiz_id }}"},
+			},
+			{
+				ID:     "grade",
+				Cap:    "cap://model/echo@v1",
+				Action: "complete",
+				Input: map[string]any{
+					"prompt": "Grade: {{ steps.fetch.output.content }}",
+				},
+			},
+			{
+				ID:     "store",
+				Cap:    "cap://memory/students/{{ inputs.student }}/grades@v1",
+				Action: "write",
+				Input: map[string]any{
+					"key": "quiz-{{ inputs.quiz_id }}",
+					"data": map[string]any{
+						"quiz":  "{{ inputs.quiz_id }}",
+						"grade": "{{ steps.grade.output.text }}",
+					},
+				},
+			},
+		},
+		Outputs: workflow.OutputSchema{
+			"grade": "{{ steps.grade.output.text }}",
+		},
+	}
+
+	// Deploy the workflow as a capability. The deploy engine forwards
+	// tmpl.Config["spec"] into inst.Config and the workflow KindHook reads
+	// it back out — so the spec lives inside the capability, not next to it.
+	specJSON, _ := json.Marshal(wfSpec)
+	store.PutTemplate(ctx, &models.Template{
+		ID:   "grade-quiz",
+		Kind: capability.KindWorkflow,
+		Name: "Grade Quiz",
+		Capabilities: []capability.Capability{{
+			URI: "cap://workflow/grade-quiz@v1", Kind: capability.KindWorkflow,
+			Name: "grade-quiz", Version: "v1",
+		}},
+		Config: map[string]any{"spec": json.RawMessage(specJSON)},
+	})
+
+	engine := deploy.NewEngine(store, "test.local")
+	srv := httptest.NewServer(stubMux)
+	defer srv.Close()
+
+	wfExec := workflow.NewExecutor(workflow.NewHTTPInvoker(srv.URL), 50)
+	engine.RegisterKindHook(capability.KindWorkflow, wfExec)
+	wfServer := workflow.NewServer(wfExec)
+	stubMux.Mount("/cap/workflow/", http.StripPrefix("", wfServer))
+
+	inst, err := engine.Deploy(ctx, capability.KindWorkflow, "grade-quiz",
+		nil, "alice@school.edu", "Grade Quiz Workflow")
+	if err != nil {
+		t.Fatalf("deploy workflow: %v", err)
+	}
+	if inst.Kind != capability.KindWorkflow {
+		t.Fatalf("kind = %s, want workflow", inst.Kind)
+	}
+	if !wfExec.HasSpec("cap://workflow/grade-quiz@v1") {
+		t.Fatalf("workflow spec was not registered with the executor")
+	}
+
+	// Invoke the workflow via the SDK.
+	c := aiplex.NewClient(srv.URL)
+	c.SetToken("test-token-xyz")
+	run, err := c.Workflow("cap://workflow/grade-quiz@v1").Run(ctx, map[string]any{
+		"quiz_id": "q-1",
+		"student": "alice",
+	})
+	if err != nil {
+		t.Fatalf("workflow run: %v", err)
+	}
+
+	if run.Status != "succeeded" {
+		t.Fatalf("Status = %q (error: %s)", run.Status, run.Error)
+	}
+	if len(run.Steps) != 3 {
+		t.Fatalf("steps = %d, want 3", len(run.Steps))
+	}
+	for i, s := range run.Steps {
+		if s.Status != "succeeded" {
+			t.Errorf("step %d (%s) Status = %q, error = %s", i, s.StepID, s.Status, s.Error)
+		}
+	}
+
+	// The third step's templated URI should have substituted {student}=alice.
+	if got := run.Steps[2].Cap; got != "cap://memory/students/alice/grades@v1" {
+		t.Errorf("step 3 Cap = %q, want template substituted", got)
+	}
+
+	// The workflow's declared output should contain the model's response.
+	grade, _ := run.Outputs["grade"].(string)
+	if !strings.Contains(grade, "GRADED:") {
+		t.Errorf("Outputs[grade] = %q, want contains GRADED:", grade)
+	}
+
+	// Verify the memory write actually happened by reading it back.
+	resp, _ := http.Get(srv.URL + "/cap/memory/students/alice/grades@v1/")
+	if resp.StatusCode != 200 {
+		t.Errorf("list memory: status=%d", resp.StatusCode)
 	}
 }
