@@ -31,8 +31,9 @@ This folder contains detailed design documents for each major subsystem of AIPle
 | 23 | [Elegance vs. State of the Art](23-elegance-vs-state-of-art.md) | **Reference** | Concrete wins vs. competitors (Bedrock AgentCore, Solo agentgateway, LiteLLM, Auth0 GenAI, Smithery, Letta, Tetrate). What's shipped, where they're still ahead, and the elegance test. |
 | 24 | [Agent-as-Cap, Workflow-as-Cap](24-agent-and-workflow-as-cap.md) | **Capability OS** | The architectural breakthrough: agents and workflows are first-class capability kinds. Vendor-portable, surgically-revocable, cross-vendor-composable. Specifically vs. AgentCore and Vertex Agent Engine. Shipped. |
 | 25 | [The Problem We Solve](25-the-problem-we-solve.md) | **North star** | Read this first. The single criterion every feature debate reduces to: *does it make the delegation primitive more real to the people who need it?* |
+| 26 | [Sandbox & Snapshots](26-sandbox-and-snapshots.md) | **Capability OS** | Per-cap-invocation isolation (Bwrap on Linux, Direct fallback) + content-hashed Workspace snapshots that make audit cryptographically verifiable instead of "trust the logs." Shipped. |
 
-> Docs **18–25** describe the capability OS architecture. **Start with 25 — the north star.** Then 18–22 as a set in order, 23 for positioning vs. competitors, 24 for the agent-as-cap breakthrough. They supersede the per-plane design in 02–10 — see [22 — Roadmap](22-roadmap-100x.md) for the phasing.
+> Docs **18–26** describe the capability OS architecture. **Start with 25 — the north star.** Then 18–22 as a set in order, 23 for positioning vs. competitors, 24 for the agent-as-cap breakthrough, 26 for the verifiable-isolation substrate. They supersede the per-plane design in 02–10 — see [22 — Roadmap](22-roadmap-100x.md) for the phasing.
 
 ## How to Read These
 

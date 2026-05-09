@@ -150,6 +150,7 @@ Get started:
 		a2aCmd(),
 		skillsCmd(),
 		catalogCmd(),
+		snapshotCmd(),
 
 		// Utilities
 		tuiCmd(),
