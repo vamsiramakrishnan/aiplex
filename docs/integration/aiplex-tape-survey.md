@@ -20,6 +20,12 @@ AIPlex never writes Tape's journal directly. All durable-runtime actions
 flow through Tape's gRPC / admin surface. Tape's outbox events flow back
 into AIPlex audit storage idempotently.
 
+Both projects are pre-users. This integration takes the full target
+shape from day one — no `*RuntimeConfig` pointers to hedge optionality,
+no compatibility wrappers on the `Instance` struct, no "Phase 1 / Phase
+2 / Phase 3" toggles that defer the real decision. Required fields are
+required.
+
 ---
 
 ## 1. Agent deployment / config model
@@ -35,10 +41,15 @@ into AIPlex audit storage idempotently.
   Firestore-backed, expressed as YAML manifests rather than Kubernetes
   CRDs.
 
-PR 4 surface: add a dedicated `Runtime *RuntimeConfig` field on
-`Instance` (do not stash inside `Config map[string]any`; the runtime
-config has validation rules that need their own type). Mirror in the
-YAML schema. New `RuntimeConfig` struct lives next to `Instance`.
+PR 4 surface: add a `Runtime RuntimeConfig` (value, not pointer) on
+`Instance`. The runtime config has validation rules that need their own
+type and an "always-set" position — every durable plane (A2APlex,
+MCPlex with non-idempotent tools) carries a `Runtime` describing how
+its agents execute. For planes that have no durable component the
+field still exists but is set to `RuntimeConfig{Engine: "none"}` —
+explicit absence over nil. Mirror in the YAML schema. New
+`RuntimeConfig` struct lives next to `Instance`. `Config map[string]any`
+keeps its template-specific role; runtime config never leaks into it.
 
 ## 2. Deployment engine / manifest generation
 
@@ -58,10 +69,14 @@ PR 5 surface: when `inst.Runtime.Engine == "tape"`, extend
 `GenerateManifests` to emit `tape-server` Deployment + Service,
 `tape-reactors` Deployment, NetworkPolicy and ServiceAccount, all
 templated from values that point at the existing Helm chart in
-`durable-agents/tape/deploy/gcp/k8s/chart/tape/`. Also inject env vars
-into the agent pod: `TAPE_URL`, `AIPLEX_TENANT_ID`, `AIPLEX_AGENT_ID`,
-`AIPLEX_ACTOR`, `AIPLEX_SUBJECT`, `AIPLEX_ROUTE`, `AIPLEX_SCOPES`.
-Default to one tape-server per environment, not per agent.
+`durable-agents/tape/deploy/gcp/k8s/chart/tape/`. Inject env vars into
+the agent pod: `TAPE_URL`, `AIPLEX_TENANT_ID`, `AIPLEX_AGENT_ID`,
+`AIPLEX_ACTOR`, `AIPLEX_SUBJECT`, `AIPLEX_ROUTE`, `AIPLEX_INSTANCE_ID`,
+`AIPLEX_SCOPES` — all of them, every time. The Tape SDK refuses to
+start without `AIPLEX_TENANT_ID`, `AIPLEX_AGENT_ID` and `AIPLEX_ACTOR`,
+so the deployment engine must populate them, not treat them as
+opt-in. One `tape-server` per environment by default; per-tenant or
+per-agent topologies are explicit overrides on `RuntimeConfig`.
 
 ## 3. API service
 
@@ -157,10 +172,12 @@ AIPlex identity context.
   no per-event key.
 
 PR 6 surface: `/internal/tape/events` adopts the same append pattern
-but uses `(run_id, seq)` as the idempotency key — duplicates become
+with `(run_id, seq)` as the idempotency key — duplicates become
 no-ops, out-of-order events still land and the projection catches up.
 Unknown agents go to a `quarantine_execution_events` collection rather
-than failing the whole batch.
+than failing the whole batch. The ingestion endpoint authenticates the
+caller via mesh identity (SPIFFE SVID) — there is no shared-secret
+fallback to support older callers, because there are no older callers.
 
 ## 9. Docs site
 
@@ -213,10 +230,11 @@ and Gateway API CRDs (`gateway.networking.k8s.io/v1`):
   `SecurityPolicy`.
 
 Instances live in Firestore, not as K8s objects. The Phase 7 proposal
-of an `AgentRuntime` CRD would break that precedent. The Phase 0
-recommendation is to keep `RuntimeConfig` as a field on `Instance` and
-revisit the CRD shape only after the API and console flows have
-stabilised.
+of an `AgentRuntime` CRD changes that — for a greenfield product
+that's a deliberate architectural choice, not a precedent break.
+Decision deferred to its own PR (10) so PRs 4–9 can land on
+`Instance.Runtime` first and the CRD can express the same shape once
+it's been exercised end-to-end.
 
 ## 13. CLAUDE.md conventions
 
