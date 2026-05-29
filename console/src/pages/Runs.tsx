@@ -1,11 +1,20 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ExecutionEvent,
   ExecutionEventKind,
   ExecutionRun,
   ExecutionRunStatus,
-  listRuns,
+  OperatorAudit,
+  getRunsHealth,
+  listOperatorAudit,
   listRunEvents,
+  listRuns,
+  runCancel,
+  runCompensate,
+  runReconcile,
+  runRedrive,
+  runSignal,
 } from '../api/client'
 
 // Visual priority for the run-timeline view. Each entry from Tape's
@@ -90,7 +99,7 @@ export default function Runs() {
           body={String((runs.error as Error)?.message || 'Unknown error')}
         />
       )}
-      {runs.data && runs.data.runs.length === 0 && <EmptyRunsState />}
+      {runs.data && runs.data.runs.length === 0 && <EmptyRunsChecklist />}
 
       {runs.data && runs.data.runs.length > 0 && (
         <div className="grid grid-cols-12 gap-4">
@@ -197,24 +206,103 @@ function RunList({
   )
 }
 
-function RunDetail({ runID }: { runID: string }) {
-  const events = useQuery({
-    queryKey: ['run-events', runID],
+// useRunTimelineSSE prefers Server-Sent Events (PR 11 item 11) and
+// falls back to React Query polling if SSE doesn't work (older
+// browsers, proxies that buffer). Returns the accumulated events
+// in seq order.
+function useRunTimelineSSE(runID: string): { events: ExecutionEvent[]; live: boolean } {
+  const [events, setEvents] = useState<ExecutionEvent[]>([])
+  const [live, setLive] = useState(false)
+  const seqSeen = useRef<Set<number>>(new Set())
+
+  useEffect(() => {
+    setEvents([])
+    seqSeen.current = new Set()
+    setLive(false)
+    if (typeof EventSource === 'undefined') return
+
+    const token = (() => {
+      try { return localStorage.getItem('aiplex_token') ?? '' } catch { return '' }
+    })()
+    const url = `/events/stream?run_id=${encodeURIComponent(runID)}` +
+      (token ? `&token=${encodeURIComponent(token)}` : '')
+    const es = new EventSource(url)
+
+    const onEvent = (msg: MessageEvent) => {
+      try {
+        const ev: ExecutionEvent = JSON.parse(msg.data)
+        if (seqSeen.current.has(ev.seq)) return
+        seqSeen.current.add(ev.seq)
+        setEvents(prev => {
+          const next = [...prev, ev]
+          next.sort((a, b) => a.seq - b.seq)
+          return next
+        })
+      } catch { /* skip malformed */ }
+    }
+    es.addEventListener('run_event', onEvent as EventListener)
+    es.onopen = () => setLive(true)
+    es.onerror = () => setLive(false)
+
+    return () => {
+      es.removeEventListener('run_event', onEvent as EventListener)
+      es.close()
+      setLive(false)
+    }
+  }, [runID])
+
+  // Fallback: poll initial backlog via the read API when SSE hasn't
+  // connected within 800ms. Once SSE lands, the live==true path
+  // takes over (the polling query stays cached but de-prioritised).
+  const pollFallback = useQuery({
+    queryKey: ['run-events-fallback', runID],
     queryFn: () => listRunEvents(runID),
-    refetchInterval: 3_000,
+    refetchInterval: live ? false : 3000,
+    enabled: !live,
   })
+  useEffect(() => {
+    if (pollFallback.data) {
+      setEvents(prev => {
+        if (prev.length >= pollFallback.data.events.length) return prev
+        const next = [...pollFallback.data.events]
+        seqSeen.current = new Set(next.map(e => e.seq))
+        return next
+      })
+    }
+  }, [pollFallback.data])
+
+  return { events, live }
+}
+
+function RunDetail({ runID }: { runID: string }) {
+  const queryClient = useQueryClient()
+  const { events, live } = useRunTimelineSSE(runID)
+
+  const auditQ = useQuery({
+    queryKey: ['run-audit', runID],
+    queryFn: () => listOperatorAudit(runID),
+    refetchInterval: 5_000,
+  })
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['run-audit', runID] })
+    queryClient.invalidateQueries({ queryKey: ['runs'] })
+  }
+
   return (
     <div className="border rounded p-3 sticky top-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold">Timeline</h3>
+        <h3 className="font-semibold">Timeline {live && <span className="text-xs text-green-600 ml-2">● live</span>}</h3>
         <code className="text-xs text-gray-500 font-mono truncate max-w-[18ch]">{runID}</code>
       </div>
-      {events.isLoading && <div className="text-gray-500 text-sm">Loading…</div>}
-      {events.data && events.data.events.length === 0 && (
+
+      <OperatorToolbar runID={runID} onActionTaken={invalidate} />
+
+      {events.length === 0 && (
         <div className="text-gray-400 italic text-sm">No events yet.</div>
       )}
-      <ol className="space-y-1 max-h-[28rem] overflow-y-auto">
-        {events.data?.events.map(ev => {
+      <ol className="space-y-1 max-h-[28rem] overflow-y-auto mt-3">
+        {events.map(ev => {
           const s = KIND_STYLE[ev.kind] ?? { colour: 'bg-gray-100 text-gray-700', glyph: '·', label: ev.kind }
           return (
             <li key={ev.seq} className={`flex items-start gap-2 text-xs p-2 rounded ${s.colour}`}>
@@ -232,25 +320,198 @@ function RunDetail({ runID }: { runID: string }) {
           )
         })}
       </ol>
+
+      {auditQ.data && auditQ.data.audit.length > 0 && (
+        <div className="mt-4 pt-3 border-t">
+          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+            Operator audit
+          </h4>
+          <ol className="space-y-1">
+            {auditQ.data.audit.map(a => <OperatorAuditRow key={a.id} a={a} />)}
+          </ol>
+        </div>
+      )}
     </div>
   )
 }
 
-function EmptyRunsState() {
+function OperatorAuditRow({ a }: { a: OperatorAudit }) {
+  const colour = a.status === 'accepted' ? 'text-gray-600' : 'text-red-700'
   return (
-    <EmptyState
-      title="No runs yet"
-      body={
-        <>
-          Enable the Tape runtime on an Instance — set{' '}
-          <code className="font-mono text-xs">runtime: {'{ engine: tape }'}</code> on its
-          deploy config — to see durable execution timelines here. The{' '}
-          <a className="underline" href="https://github.com/vamsiramakrishnan/aiplex/blob/main/examples/durable-tape-runtime.yaml">
-            example YAML
-          </a>{' '}walks through the contract.
-        </>
-      }
-    />
+    <li className={`text-xs ${colour} flex items-baseline gap-2`}>
+      <span className="font-mono">{new Date(a.at).toLocaleTimeString()}</span>
+      <span className="font-semibold">{a.action}</span>
+      <span>by {a.actor}</span>
+      {a.reason && <span className="italic">({a.reason})</span>}
+      {a.gate_name && <span className="italic">gate={a.gate_name}</span>}
+      {a.status === 'failed' && <span className="text-red-700 font-medium">FAILED: {a.error}</span>}
+    </li>
+  )
+}
+
+// Operator action toolbar (PR 11 item 10). Destructive actions
+// (cancel, compensate) gated behind a confirm dialog.
+function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTaken: () => void }) {
+  const [pending, setPending] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [signalForm, setSignalForm] = useState<{ open: boolean; gate: string; resolution: string }>({
+    open: false, gate: '', resolution: '',
+  })
+
+  const fire = async (label: string, fn: () => Promise<unknown>) => {
+    setError(null)
+    setPending(label)
+    try {
+      await fn()
+      onActionTaken()
+    } catch (ex) {
+      setError(`${label} failed: ${(ex as Error).message}`)
+    } finally {
+      setPending(null)
+    }
+  }
+
+  const confirm = (label: string, fn: () => Promise<unknown>) => {
+    if (!window.confirm(`${label} this run? This action affects the live agent.`)) return
+    void fire(label, fn)
+  }
+
+  const buttons: { label: string; destructive?: boolean; onClick: () => void }[] = [
+    { label: 'Redrive',    onClick: () => fire('Redrive', () => runRedrive(runID)) },
+    { label: 'Reconcile',  onClick: () => fire('Reconcile', () => runReconcile(runID)) },
+    { label: 'Signal',     onClick: () => setSignalForm({ open: true, gate: '', resolution: '' }) },
+    {
+      label: 'Cancel', destructive: true,
+      onClick: () => {
+        const reason = window.prompt('Reason for cancel:')
+        if (reason === null) return
+        void fire('Cancel', () => runCancel(runID, reason))
+      },
+    },
+    {
+      label: 'Compensate', destructive: true,
+      onClick: () => confirm('Compensate', () => runCompensate(runID)),
+    },
+  ]
+
+  return (
+    <div className="space-y-2 mb-3">
+      <div className="flex flex-wrap gap-2">
+        {buttons.map(b => (
+          <button
+            key={b.label}
+            disabled={!!pending}
+            onClick={b.onClick}
+            className={`px-2 py-1 text-xs rounded border ${
+              b.destructive
+                ? 'border-red-300 text-red-700 hover:bg-red-50'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+            } disabled:opacity-50`}
+          >
+            {pending === b.label ? '…' : b.label}
+          </button>
+        ))}
+      </div>
+      {error && <div className="text-xs text-red-700">{error}</div>}
+      {signalForm.open && (
+        <div className="p-2 border rounded bg-indigo-50 space-y-2 text-xs">
+          <input
+            placeholder="gate_name (required)"
+            className="block w-full border rounded px-2 py-1"
+            value={signalForm.gate}
+            onChange={e => setSignalForm({ ...signalForm, gate: e.target.value })}
+          />
+          <input
+            placeholder='resolution_json e.g. {"approved":true}'
+            className="block w-full border rounded px-2 py-1 font-mono"
+            value={signalForm.resolution}
+            onChange={e => setSignalForm({ ...signalForm, resolution: e.target.value })}
+          />
+          <div className="flex gap-2">
+            <button
+              className="px-2 py-1 rounded bg-indigo-600 text-white"
+              disabled={!signalForm.gate}
+              onClick={() => {
+                void fire('Signal', () => runSignal(runID, signalForm.gate, signalForm.resolution))
+                setSignalForm({ open: false, gate: '', resolution: '' })
+              }}
+            >Send signal</button>
+            <button
+              className="px-2 py-1 rounded border"
+              onClick={() => setSignalForm({ open: false, gate: '', resolution: '' })}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// EmptyRunsChecklist (PR 11 item 13) — diagnostic checklist explaining
+// what's missing for runs to appear. Each row links to the doc that
+// fixes it.
+function EmptyRunsChecklist() {
+  const healthQ = useQuery({
+    queryKey: ['runs-health'],
+    queryFn: getRunsHealth,
+    refetchInterval: 30_000,
+  })
+
+  const tapeOK = (healthQ.data?.tape_instances_count ?? 0) > 0
+  const ingestRecent = (() => {
+    if (!healthQ.data?.last_ingest_at) return false
+    const last = new Date(healthQ.data.last_ingest_at).getTime()
+    return Date.now() - last < 5 * 60 * 1000
+  })()
+  const hasRuns = healthQ.data?.has_runs ?? false
+
+  const Row = ({ ok, title, body, href }: { ok: boolean; title: string; body: React.ReactNode; href: string }) => (
+    <li className={`flex items-start gap-3 p-3 border rounded ${ok ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+      <span className={`font-mono text-lg flex-shrink-0 ${ok ? 'text-green-700' : 'text-gray-400'}`}>
+        {ok ? '✓' : '○'}
+      </span>
+      <div className="flex-1">
+        <div className="font-medium">{title}</div>
+        <div className="text-sm text-gray-600">{body}</div>
+        {!ok && (
+          <a href={href} className="text-sm text-brand-600 underline">How to fix</a>
+        )}
+      </div>
+    </li>
+  )
+
+  return (
+    <div className="max-w-2xl mx-auto py-8">
+      <h3 className="font-medium text-gray-700 mb-2">No runs yet</h3>
+      <p className="text-sm text-gray-500 mb-4">
+        Three things must be true for runs to appear. The first row tells you
+        what's missing.
+      </p>
+      <ol className="space-y-2">
+        <Row
+          ok={tapeOK}
+          title="At least one Instance with runtime.engine=tape"
+          body={`${healthQ.data?.tape_instances_count ?? 0} Tape-backed instance(s) deployed.`}
+          href="https://github.com/vamsiramakrishnan/aiplex/blob/main/docs-site/docs/guides/tape-runtime.md"
+        />
+        <Row
+          ok={ingestRecent}
+          title="Tape ingestion seen recently"
+          body={
+            healthQ.data?.last_ingest_at
+              ? `Last event at ${new Date(healthQ.data.last_ingest_at).toLocaleString()}.`
+              : 'No events ingested yet — has the AIPlex outbox sink been wired into Tape?'
+          }
+          href="https://github.com/vamsiramakrishnan/durable-agents/blob/main/tape/docs/integrations/aiplex.md"
+        />
+        <Row
+          ok={hasRuns}
+          title="At least one run has occurred"
+          body="A Tape-backed agent has started at least one durable run."
+          href="https://github.com/vamsiramakrishnan/aiplex/blob/main/examples/aiplex-tape-treasury/README.md"
+        />
+      </ol>
+    </div>
   )
 }
 

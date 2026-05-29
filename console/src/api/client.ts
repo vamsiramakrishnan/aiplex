@@ -338,5 +338,77 @@ export const listRunObligations = (runID: string) =>
 export const listRunBudgets = (runID: string) =>
   request<{ budgets: ExecutionEvent[] }>(`/runs/${encodeURIComponent(runID)}/budgets`)
 
+// ── Operator audit + actions (PR 11 items 8, 10) ──────────────────────────
+
+export interface OperatorAudit {
+  id: string
+  run_id: string
+  action: 'redrive' | 'reconcile' | 'cancel' | 'signal' | 'compensate'
+  actor: string
+  at: string
+  reason?: string
+  gate_name?: string
+  resolution?: string
+  status: 'accepted' | 'failed'
+  error?: string
+}
+
+export const listOperatorAudit = (runID: string) =>
+  request<{ audit: OperatorAudit[] }>(`/runs/${encodeURIComponent(runID)}/operator-audit`)
+
+// Operator actions return 202 Accepted with { accepted, action, run_id }.
+// Wires the Idempotency-Key header so the middleware dedupes double-clicks.
+
+function withIdempotencyKey(runID: string, action: string, body?: object): RequestInit {
+  return {
+    method: 'POST',
+    headers: {
+      'Idempotency-Key': `${runID}|${action}|${Date.now()}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  }
+}
+
+export const runRedrive = (runID: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/redrive`,
+    withIdempotencyKey(runID, 'redrive'),
+  )
+
+export const runReconcile = (runID: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/reconcile`,
+    withIdempotencyKey(runID, 'reconcile'),
+  )
+
+export const runCancel = (runID: string, reason: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/cancel`,
+    withIdempotencyKey(runID, 'cancel', { reason }),
+  )
+
+export const runSignal = (runID: string, gateName: string, resolutionJson: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/signal`,
+    withIdempotencyKey(runID, 'signal', { gate_name: gateName, resolution_json: resolutionJson }),
+  )
+
+export const runCompensate = (runID: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/compensate`,
+    withIdempotencyKey(runID, 'compensate'),
+  )
+
+// Runs health — drives the empty-state checklist (PR 11 item 13).
+
+export interface RunsHealth {
+  last_ingest_at: string
+  has_runs: boolean
+  tape_instances_count: number
+  now: string
+}
+
+export const getRunsHealth = () => request<RunsHealth>('/runs/_health')
+
 export const getWhoami = () =>
   request<WhoamiResponse>('/auth/whoami')
