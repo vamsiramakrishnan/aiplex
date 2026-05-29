@@ -127,6 +127,7 @@ func main() {
 	dashH := api.NewDashboardHandler(store)
 	iamH := api.NewIAMHandler(store, wifValidator)
 	sseH := api.NewSSEHandler(store)
+	runsH := api.NewRunsHandler(store)
 
 	// Router
 	r := chi.NewRouter()
@@ -234,6 +235,12 @@ func main() {
 
 	// Server-Sent Events for live dashboard
 	r.Get("/events/stream", sseH.Stream)
+
+	// AIPlex ↔ Tape audit ingestion. Tape's outbox relay POSTs
+	// here; AIPlex dedupes on (run_id, seq), quarantines unknown
+	// agents, and updates the ExecutionRun projection. See
+	// internal/api/runs.go and docs/guides/tape-runtime.md.
+	r.Post("/internal/tape/events", runsH.Ingest)
 
 	// MCP sub-registry (v0.1 spec)
 	r.Get("/v0.1/servers", catalogH.List)

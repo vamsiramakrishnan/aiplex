@@ -77,6 +77,22 @@ type Store interface {
 	ListRoleBindingsByGroup(ctx context.Context, group string) ([]models.RoleBinding, error)
 	PutRoleBinding(ctx context.Context, rb *models.RoleBinding) error
 	DeleteRoleBinding(ctx context.Context, id string) error
+
+	// AIPlex ↔ Tape audit ingestion (PR 6).
+	//
+	// Tape's outbox relay POSTs events to /internal/tape/events; the
+	// handler dedupes on (RunID, Seq), quarantines events for unknown
+	// agents, and updates the ExecutionRun projection.
+	//
+	// AppendExecutionEvent returns (true, nil) when the row was newly
+	// written, (false, nil) when it was a duplicate (idempotent no-op),
+	// or (false, err) on a real error.
+	AppendExecutionEvent(ctx context.Context, ev *models.ExecutionEvent) (bool, error)
+	QuarantineExecutionEvent(ctx context.Context, q *models.QuarantinedExecutionEvent) error
+	GetExecutionRun(ctx context.Context, runID string) (*models.ExecutionRun, error)
+	UpsertExecutionRun(ctx context.Context, run *models.ExecutionRun) error
+	ListExecutionRuns(ctx context.Context, tenantID, agentID string, limit int) ([]models.ExecutionRun, error)
+	ListExecutionEvents(ctx context.Context, runID string, fromSeq int64, limit int) ([]models.ExecutionEvent, error)
 }
 
 // ErrNotFound is returned when a resource does not exist.
@@ -98,6 +114,11 @@ type MemoryStore struct {
 	skillInvocations []models.SkillInvocation
 	policyDenials   []models.PolicyDenial
 	roleBindings    map[string]*models.RoleBinding
+	// Execution audit (AIPlex ↔ Tape integration PR 6).
+	executionEvents      map[string][]models.ExecutionEvent             // runID → events (append-only)
+	executionEventKeys   map[string]struct{}                            // "<runID>/<seq>" idempotency set
+	executionRuns        map[string]*models.ExecutionRun                // runID → projected summary
+	executionQuarantine  []models.QuarantinedExecutionEvent             // unknown-agent quarantine
 }
 
 // NewMemoryStore creates an empty in-memory store.
@@ -111,6 +132,9 @@ func NewMemoryStore() *MemoryStore {
 		providerConfigs: make(map[string]*models.ProviderConfig),
 		delegations:     make(map[string]*models.Delegation),
 		roleBindings:    make(map[string]*models.RoleBinding),
+		executionEvents:    make(map[string][]models.ExecutionEvent),
+		executionEventKeys: make(map[string]struct{}),
+		executionRuns:      make(map[string]*models.ExecutionRun),
 	}
 }
 
@@ -578,4 +602,113 @@ func (m *MemoryStore) DeleteRoleBinding(_ context.Context, id string) error {
 	}
 	delete(m.roleBindings, id)
 	return nil
+}
+
+// ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────
+
+// AppendExecutionEvent stores one event. Returns wrote=true on a fresh
+// row, wrote=false on a duplicate (idempotent on (RunID, Seq)).
+//
+// Out-of-order events are persisted in the order they arrive and sorted
+// at read time — the projection (UpsertExecutionRun) doesn't depend on
+// ordered ingest because every counter is monotonic-by-kind.
+func (m *MemoryStore) AppendExecutionEvent(_ context.Context, ev *models.ExecutionEvent) (bool, error) {
+	if ev == nil || ev.RunID == "" {
+		return false, fmt.Errorf("execution event: run_id required")
+	}
+	key := fmt.Sprintf("%s/%d", ev.RunID, ev.Seq)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, dup := m.executionEventKeys[key]; dup {
+		return false, nil
+	}
+	m.executionEventKeys[key] = struct{}{}
+	m.executionEvents[ev.RunID] = append(m.executionEvents[ev.RunID], *ev)
+	return true, nil
+}
+
+func (m *MemoryStore) QuarantineExecutionEvent(_ context.Context, q *models.QuarantinedExecutionEvent) error {
+	if q == nil {
+		return fmt.Errorf("quarantine: nil event")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.executionQuarantine = append(m.executionQuarantine, *q)
+	return nil
+}
+
+func (m *MemoryStore) GetExecutionRun(_ context.Context, runID string) (*models.ExecutionRun, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	run, ok := m.executionRuns[runID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	// Defensive copy so callers can't mutate through the pointer.
+	cp := *run
+	return &cp, nil
+}
+
+func (m *MemoryStore) UpsertExecutionRun(_ context.Context, run *models.ExecutionRun) error {
+	if run == nil || run.RunID == "" {
+		return fmt.Errorf("upsert execution run: run_id required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *run
+	m.executionRuns[run.RunID] = &cp
+	return nil
+}
+
+func (m *MemoryStore) ListExecutionRuns(_ context.Context, tenantID, agentID string, limit int) ([]models.ExecutionRun, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]models.ExecutionRun, 0, limit)
+	for _, r := range m.executionRuns {
+		if tenantID != "" && r.TenantID != tenantID {
+			continue
+		}
+		if agentID != "" && r.AgentID != agentID {
+			continue
+		}
+		out = append(out, *r)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) ListExecutionEvents(_ context.Context, runID string, fromSeq int64, limit int) ([]models.ExecutionEvent, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	events := m.executionEvents[runID]
+	out := make([]models.ExecutionEvent, 0, len(events))
+	for _, e := range events {
+		if e.Seq < fromSeq {
+			continue
+		}
+		out = append(out, e)
+		if len(out) >= limit {
+			break
+		}
+	}
+	// Sort by seq so callers see a stable timeline regardless of
+	// ingest order (out-of-order events are allowed at the wire level).
+	sortExecutionEvents(out)
+	return out, nil
+}
+
+func sortExecutionEvents(es []models.ExecutionEvent) {
+	for i := 1; i < len(es); i++ {
+		for j := i; j > 0 && es[j-1].Seq > es[j].Seq; j-- {
+			es[j-1], es[j] = es[j], es[j-1]
+		}
+	}
 }
