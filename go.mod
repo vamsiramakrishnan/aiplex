@@ -14,7 +14,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/sethvargo/go-envconfig v1.1.0
 	github.com/spf13/cobra v1.10.2
-	github.com/vamsiramakrishnan/durable-agents/tape/sdk/go v0.0.0-00010101000000-000000000000
+	github.com/vamsiramakrishnan/durable-agents/tape/sdk/go v0.0.0-20260529231104-401836964fb2
 	golang.org/x/time v0.15.0
 	google.golang.org/api v0.274.0
 	google.golang.org/grpc v1.81.0
@@ -83,5 +83,3 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
-
-replace github.com/vamsiramakrishnan/durable-agents/tape/sdk/go => ../durable-agents/tape/sdk/go

@@ -99,6 +99,25 @@ nothing to check.
 | **10** ✅ | Done    | Operator actions: `POST /api/v1/runs/{id}/{redrive,reconcile,cancel,signal,compensate}` through a `TapeAdmin` interface (real `GRPCTapeAdmin` in PR 11). |
 | **11** ✅ | This PR | Polish round — see the [PR 11 matrix](#pr-11-no-half-measures-cleanup) below. |
 
+## Local development against an unpublished Tape SDK
+
+By default `go.mod` pins the Tape Go SDK to a published pseudo-version. If
+you're working in both repos at once (e.g. testing a Tape change before
+publishing), drop a `go.work` next to `go.mod` to override locally:
+
+```go
+// go.work (DO NOT commit)
+go 1.25
+
+use (
+    .
+    ../durable-agents/tape/sdk/go
+)
+```
+
+`go.work` is gitignored by default and overrides `go.mod`'s require for
+the named module. CI on a clean clone uses the pinned version.
+
 ## PR 11 (no half measures cleanup)
 
 After PR 10 several rough edges surfaced (stubs, missing authn, the
