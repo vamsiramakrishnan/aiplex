@@ -102,17 +102,18 @@ func TestOperator_Redrive_CallsTapeAndAudits(t *testing.T) {
 	if len(admin.redriveCalls) != 1 || admin.redriveCalls[0] != "run-x" {
 		t.Errorf("Tape admin not called: %+v", admin.redriveCalls)
 	}
-	// Synthetic audit event landed on the timeline.
+	// PR 11 item 8: operator action lands in operator_audit, NOT in
+	// execution_events. The Tape journal stays clean of synthetic rows.
 	events, _ := store.ListExecutionEvents(context.Background(), "run-x", 0, 100)
-	found := false
-	for _, ev := range events {
-		if ev.PayloadJSON != "" && containsOperatorAction(ev.PayloadJSON, "redrive") {
-			found = true
-			break
-		}
+	if len(events) != 0 {
+		t.Errorf("operator action leaked into execution_events: %+v", events)
 	}
-	if !found {
-		t.Error("expected synthetic audit event with operator_action=redrive")
+	audit, _ := store.ListOperatorAudit(context.Background(), "run-x", 100)
+	if len(audit) != 1 || audit[0].Action != "redrive" {
+		t.Errorf("expected 1 operator_audit row with action=redrive, got %+v", audit)
+	}
+	if audit[0].Status != "accepted" {
+		t.Errorf("expected status=accepted, got %s", audit[0].Status)
 	}
 }
 
@@ -203,15 +204,16 @@ func TestOperator_AuditCarriesActor(t *testing.T) {
 	admin := &fakeTapeAdmin{}
 	r, store := opSetup(t, admin)
 	opPost(t, r, "/api/v1/runs/run-x/redrive", nil)
-	events, _ := store.ListExecutionEvents(context.Background(), "run-x", 0, 100)
-	if len(events) != 1 {
-		t.Fatalf("expected 1 audit event, got %d", len(events))
+	// PR 11: action lands in operator_audit, not execution_events.
+	audit, _ := store.ListOperatorAudit(context.Background(), "run-x", 100)
+	if len(audit) != 1 {
+		t.Fatalf("expected 1 operator audit row, got %d", len(audit))
 	}
-	if !containsOperatorAction(events[0].PayloadJSON, "redrive") {
-		t.Error("missing operator_action in payload")
+	if audit[0].Action != "redrive" {
+		t.Errorf("expected action=redrive, got %s", audit[0].Action)
 	}
-	if !containsField(events[0].PayloadJSON, "actor", "test@example.com") {
-		t.Errorf("expected actor=test@example.com in audit payload: %s", events[0].PayloadJSON)
+	if audit[0].Actor != "test@example.com" {
+		t.Errorf("expected actor=test@example.com, got %s", audit[0].Actor)
 	}
 }
 

@@ -14,6 +14,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/sethvargo/go-envconfig v1.1.0
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/time v0.15.0
 	google.golang.org/api v0.274.0
 	google.golang.org/grpc v1.79.3
 	gopkg.in/yaml.v3 v3.0.1
@@ -71,7 +72,6 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401001100-f93e5f3e9f0f // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260319201613-d00831a3d3e7 // indirect

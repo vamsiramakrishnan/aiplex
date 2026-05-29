@@ -234,11 +234,32 @@ func applyEventToRun(run *models.ExecutionRun, ev *models.ExecutionEvent) {
 
 // List returns the most recent runs for a tenant / agent.
 //   GET /api/v1/runs?tenant_id=...&agent_id=...&limit=100
+//
+// Multi-tenant enforcement (PR 11 item 6): if the caller carries a
+// tenant claim, the result set is filtered to that tenant unless they
+// also hold `aiplex:runs:read:cross_tenant`. A `tenant_id=` filter
+// from a single-tenant caller for *another* tenant returns empty
+// (not 403) — silently denying cross-tenant visibility.
 func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 	limit := parseIntDefault(q.Get("limit"), 100)
-	runs, err := h.store.ListExecutionRuns(ctx, q.Get("tenant_id"), q.Get("agent_id"), limit)
+	tenantFilter := q.Get("tenant_id")
+
+	callerTenant, crossTenant := TenantFromContext(ctx)
+	if callerTenant != "" && !crossTenant {
+		if tenantFilter == "" {
+			tenantFilter = callerTenant
+		} else if tenantFilter != callerTenant {
+			// Caller has a tenant claim but asked for someone else's
+			// tenant — return empty rather than 403 so we don't leak
+			// the existence of other tenants.
+			writeJSON(w, http.StatusOK, map[string]any{"runs": []models.ExecutionRun{}})
+			return
+		}
+	}
+
+	runs, err := h.store.ListExecutionRuns(ctx, tenantFilter, q.Get("agent_id"), limit)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -450,7 +471,7 @@ func (h *RunsHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	h.operatorAction(w, r, "cancel", func(ctx context.Context, runID string) error {
 		return h.tapeAdmin().Cancel(ctx, runID, body.Reason)
-	}, map[string]any{"reason": body.Reason})
+	}, map[string]string{"reason": body.Reason})
 }
 
 // Signal — POST /api/v1/runs/{id}/signal. Requires aiplex:runs:signal.
@@ -467,7 +488,7 @@ func (h *RunsHandler) Signal(w http.ResponseWriter, r *http.Request) {
 	}
 	h.operatorAction(w, r, "signal", func(ctx context.Context, runID string) error {
 		return h.tapeAdmin().Signal(ctx, runID, body.GateName, body.ResolutionJSON)
-	}, map[string]any{"gate_name": body.GateName})
+	}, map[string]string{"gate_name": body.GateName, "resolution": body.ResolutionJSON})
 }
 
 // Compensate — POST /api/v1/runs/{id}/compensate. Requires aiplex:runs:compensate.
@@ -478,51 +499,50 @@ func (h *RunsHandler) Compensate(w http.ResponseWriter, r *http.Request) {
 }
 
 // operatorAction is the shared body of every PR 10 handler: resolve
-// the run id, call the Tape admin action, and append a synthetic
-// ExecutionEvent so the action surfaces on the timeline (it'll appear
-// in /events with kind=run.* and a payload describing what the
-// operator did — Tape itself is not aware of the AIPlex-side call).
+// the run id, call the Tape admin action, and append an OperatorAudit
+// row (a separate collection from execution_events — see PR 11 item 8).
+// The Console reads the two timelines side by side: Tape's journal and
+// AIPlex's operator trail.
 //
 // Returns 202 Accepted on success: Tape's admin RPCs are themselves
 // async (they enqueue work for a reactor loop), so 200 OK would
 // overpromise.
 func (h *RunsHandler) operatorAction(w http.ResponseWriter, r *http.Request,
 	action string, callTape func(context.Context, string) error,
-	extraPayload map[string]any) {
+	auditFields map[string]string) {
 	ctx := r.Context()
 	runID := pathParam(r, "run_id")
 	if _, err := h.store.GetExecutionRun(ctx, runID); err != nil {
 		writeStoreError(w, err)
 		return
 	}
+	audit := &models.OperatorAudit{
+		RunID:  runID,
+		Action: action,
+		Actor:  operatorFromRequest(r),
+		At:     time.Now().UTC(),
+		Status: "accepted",
+	}
+	if v, ok := auditFields["reason"]; ok {
+		audit.Reason = v
+	}
+	if v, ok := auditFields["gate_name"]; ok {
+		audit.GateName = v
+	}
+	if v, ok := auditFields["resolution"]; ok {
+		audit.Resolution = v
+	}
+
 	if err := callTape(ctx, runID); err != nil {
+		audit.Status = "failed"
+		audit.Error = err.Error()
+		_ = h.store.AppendOperatorAudit(ctx, audit)
 		http.Error(w, "tape admin call failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
-	payload := map[string]any{
-		"operator_action": action,
-		"actor":           operatorFromRequest(r),
-		"at":              time.Now().UTC().Format(time.RFC3339Nano),
-	}
-	for k, v := range extraPayload {
-		payload[k] = v
-	}
-	pb, _ := json.Marshal(payload)
-	// Use a synthetic seq above any real journal entry (1e18) so the
-	// operator action is visibly out-of-band from Tape's own writes.
-	// Idempotency on (run_id, seq) still applies — multiple clicks
-	// produce multiple ordered entries because the timestamp differs
-	// each time, so the seq derivation is timestamp-based.
-	ev := &models.ExecutionEvent{
-		RunID:     runID,
-		Seq:       syntheticSeq(),
-		Kind:      synthKindFor(action),
-		Timestamp: time.Now().UTC(),
-		PayloadJSON: string(pb),
-	}
-	// Best-effort projection: don't fail the action just because we
-	// couldn't write the audit row.
-	_, _ = h.store.AppendExecutionEvent(ctx, ev)
+	// Best-effort audit: don't fail the action just because we couldn't
+	// write the audit row — Tape has already accepted the call.
+	_ = h.store.AppendOperatorAudit(ctx, audit)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"accepted": true,
 		"action":   action,
@@ -530,49 +550,22 @@ func (h *RunsHandler) operatorAction(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-// operatorFromRequest reads the actor from a request header set by
-// WIFAuth middleware. Falls back to "unknown" rather than failing —
-// the operator action is authoritative through Tape's admin call;
-// the audit row is the supporting trail.
+// operatorFromRequest reads the actor from the WIFAuth-populated
+// context, falling back to legacy headers and finally "unknown".
 func operatorFromRequest(r *http.Request) string {
+	if id := GetWIFIdentity(r.Context()); id != nil {
+		if id.Email != "" {
+			return id.Email
+		}
+		return id.Subject
+	}
 	if v := r.Header.Get("X-Aiplex-Actor"); v != "" {
 		return v
 	}
 	if v := r.Header.Get("Authorization"); v != "" {
-		// Best effort: just record that someone authenticated.
 		return "authenticated"
 	}
 	return "unknown"
-}
-
-// syntheticSeq produces a high seq so the operator action sorts after
-// any real journal entry. Nanosecond resolution gives unique values
-// across rapid back-to-back clicks within a single millisecond — good
-// enough for an audit trail, not used for any ordering guarantee.
-func syntheticSeq() int64 {
-	return time.Now().UnixNano()
-}
-
-// synthKindFor maps the action name to a journal kind. The Console
-// renders these with their own glyph/colour (see Runs.tsx KIND_STYLE);
-// we reuse the existing kinds where the semantics overlap (gate.waiting
-// for a signal, run.failed for cancel, etc.) and add a "policy.violation"
-// style "operator." prefix would be nice but would force a Console-side
-// migration. Until then, operator actions land as kind=run.* and the
-// Console differentiates by the payload's `operator_action` key.
-func synthKindFor(action string) models.ExecutionEventKind {
-	switch action {
-	case "redrive", "reconcile":
-		return models.ExecutionEventRunStarted
-	case "cancel":
-		return models.ExecutionEventRunFailed
-	case "signal":
-		return models.ExecutionEventGateWaiting
-	case "compensate":
-		return models.ExecutionEventObligationCreated
-	default:
-		return models.ExecutionEventRunStarted
-	}
 }
 
 func budgetUSDFromPayload(payload string) float64 {
@@ -586,4 +579,81 @@ func budgetUSDFromPayload(payload string) float64 {
 		return 0
 	}
 	return p.USDCharged
+}
+
+// Health returns the last-ingest timestamp + total runs known. The
+// Runs page (PR 11 item 13) uses this to render a "is the pipeline
+// live?" checklist on its empty state.
+//   GET /api/v1/runs/_health
+func (h *RunsHandler) Health(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	lastIngest, _ := h.store.LastIngestAt(ctx)
+	runs, _ := h.store.ListExecutionRuns(ctx, "", "", 1)
+	tapeInstances, _ := h.store.CountInstancesWithRuntime(ctx, models.RuntimeEngineTape)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"last_ingest_at":        lastIngest,
+		"has_runs":              len(runs) > 0,
+		"tape_instances_count":  tapeInstances,
+		"now":                   time.Now().UTC(),
+	})
+}
+
+// ListOperatorAudit returns the operator-action trail for a run —
+// PR 11 item 8's parallel timeline. Distinct from /events (Tape's
+// journal projection).
+//   GET /api/v1/runs/{run_id}/operator-audit
+func (h *RunsHandler) ListOperatorAudit(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := pathParam(r, "run_id")
+	rows, err := h.store.ListOperatorAudit(ctx, runID, parseIntDefault(r.URL.Query().Get("limit"), 100))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"audit": rows})
+}
+
+// RebuildProjection re-reads execution_events for a run and re-runs
+// applyEventToRun from scratch, replacing the cached ExecutionRun.
+// Behind the same auth as ingestion (TAPE_INGEST_TOKEN) — drift fixes
+// shouldn't be reachable from the front door.
+//   POST /internal/projections/rebuild/{run_id}
+func (h *RunsHandler) RebuildProjection(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := pathParam(r, "run_id")
+	events, err := h.store.ListExecutionEvents(ctx, runID, 0, 100000)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if len(events) == 0 {
+		writeStoreError(w, registry.ErrNotFound)
+		return
+	}
+	// Throw away the existing projection and recompute from scratch.
+	_ = h.store.DeleteExecutionRun(ctx, runID)
+	first := events[0]
+	run := &models.ExecutionRun{
+		RunID:            runID,
+		TenantID:         first.TenantID,
+		AgentID:          first.AgentID,
+		Plane:            first.Plane,
+		Actor:            first.Actor,
+		Subject:          first.Subject,
+		AIPlexInstanceID: first.AIPlexInstanceID,
+		Status:           models.ExecutionRunRunnable,
+		StartedAt:        first.Timestamp,
+	}
+	for i := range events {
+		applyEventToRun(run, &events[i])
+	}
+	if err := h.store.UpsertExecutionRun(ctx, run); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"rebuilt":      true,
+		"events_seen":  len(events),
+		"run_status":   string(run.Status),
+	})
 }

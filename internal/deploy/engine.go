@@ -42,6 +42,14 @@ func NewEngineWithK8s(store registry.Store, k8s K8sClient, trustDomain, gatewayN
 }
 
 // Deploy provisions an instance for any plane.
+// ErrRuntimeMutation is returned when a deploy attempts to change the
+// runtime config of an existing instance with the same logical identity.
+// Runtime config is immutable after first deploy because switching the
+// engine or store mid-life would orphan the existing journal — undeploy
+// and redeploy is the supported path. Pass `force_runtime_change=true`
+// in the request config to bypass for ops escape hatches.
+var ErrRuntimeMutation = fmt.Errorf("runtime config is immutable after first deploy; undeploy + redeploy to change")
+
 func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID string, config map[string]any, owner, displayName string) (*models.Instance, error) {
 	start := time.Now()
 	logger := log.Ctx(ctx).With().Str("plane", string(plane)).Str("template", templateID).Logger()
@@ -50,6 +58,15 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 	template, err := e.store.GetTemplate(ctx, templateID)
 	if err != nil {
 		return nil, fmt.Errorf("template %q not found: %w", templateID, err)
+	}
+
+	// PR 11 item 16: refuse to change the runtime config of an existing
+	// logical instance in place. We look up by (plane, template_id,
+	// display_name) — the natural key from the deploy request — and
+	// compare the persisted Runtime to the incoming spec. A `force`
+	// flag bypasses the check for ops use.
+	if err := e.checkRuntimeMutation(ctx, plane, templateID, displayName, config); err != nil {
+		return nil, err
 	}
 
 	// 2. Generate instance ID
@@ -355,4 +372,56 @@ func asBool(v any) bool {
 		return b
 	}
 	return false
+}
+
+// checkRuntimeMutation enforces PR 11 item 16: runtime config is
+// immutable on the natural key (plane, template, display_name). If an
+// existing instance matches and its persisted Runtime differs from the
+// incoming spec, refuse with ErrRuntimeMutation. `force_runtime_change:
+// true` in the config map bypasses for ops escape hatches.
+func (e *Engine) checkRuntimeMutation(ctx context.Context, plane models.Plane, templateID, displayName string, config map[string]any) error {
+	if force, _ := config["force_runtime_change"].(bool); force {
+		return nil
+	}
+	existing, err := e.store.ListInstances(ctx, plane)
+	if err != nil {
+		return nil // store error: don't block the deploy on a fragile check
+	}
+	want := runtimeFromConfig(config)
+	for _, inst := range existing {
+		if inst.TemplateID != templateID {
+			continue
+		}
+		if inst.DisplayName != displayName {
+			continue
+		}
+		if inst.Status == models.StatusTerminated || inst.Status == models.StatusFailed {
+			continue
+		}
+		if runtimeEqual(inst.Runtime, want) {
+			return nil
+		}
+		return fmt.Errorf("%w (instance %q already deployed with engine=%q; want engine=%q)",
+			ErrRuntimeMutation, inst.ID, inst.Runtime.Engine, want.Engine)
+	}
+	return nil
+}
+
+// runtimeEqual compares two RuntimeConfig values for deploy-intent
+// equality. Slice and map fields use the loose definition: same keys
+// and same values, order-independent for reactors / outbox / store.
+func runtimeEqual(a, b models.RuntimeConfig) bool {
+	if a.Engine != b.Engine || a.Durable != b.Durable || a.Replayable != b.Replayable {
+		return false
+	}
+	if a.Store != b.Store {
+		return false
+	}
+	if a.Reactors != b.Reactors {
+		return false
+	}
+	if a.Outbox != b.Outbox {
+		return false
+	}
+	return true
 }

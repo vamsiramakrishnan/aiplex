@@ -66,6 +66,11 @@ func (h *InstanceHandler) Deploy(w http.ResponseWriter, r *http.Request) {
 
 	inst, err := h.engine.Deploy(r.Context(), req.Plane, req.TemplateID, req.Config, owner, req.DisplayName)
 	if err != nil {
+		// PR 11 item 16: runtime mutation rejection surfaces as 409.
+		if errors.Is(err, deploy.ErrRuntimeMutation) {
+			Error(w, r, http.StatusConflict, "RUNTIME_IMMUTABLE", err.Error())
+			return
+		}
 		Error(w, r, http.StatusInternalServerError, "DEPLOY_ERROR", err.Error())
 		return
 	}

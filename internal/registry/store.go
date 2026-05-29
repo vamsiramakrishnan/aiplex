@@ -91,8 +91,22 @@ type Store interface {
 	QuarantineExecutionEvent(ctx context.Context, q *models.QuarantinedExecutionEvent) error
 	GetExecutionRun(ctx context.Context, runID string) (*models.ExecutionRun, error)
 	UpsertExecutionRun(ctx context.Context, run *models.ExecutionRun) error
+	DeleteExecutionRun(ctx context.Context, runID string) error
 	ListExecutionRuns(ctx context.Context, tenantID, agentID string, limit int) ([]models.ExecutionRun, error)
 	ListExecutionEvents(ctx context.Context, runID string, fromSeq int64, limit int) ([]models.ExecutionEvent, error)
+	// Last-ingest timestamp drives the Runs page health checklist
+	// (PR 11 item 13) — "have we received any events recently?"
+	LastIngestAt(ctx context.Context) (time.Time, error)
+
+	// AIPlex ↔ Tape operator audit (PR 11 item 8). Distinct from
+	// ExecutionEvent so projection rebuild from Tape's outbox doesn't
+	// drop operator history.
+	AppendOperatorAudit(ctx context.Context, a *models.OperatorAudit) error
+	ListOperatorAudit(ctx context.Context, runID string, limit int) ([]models.OperatorAudit, error)
+
+	// Count instances whose Runtime.Engine matches — drives the
+	// tape-server lifecycle status endpoint (PR 11 item 17).
+	CountInstancesWithRuntime(ctx context.Context, engine models.RuntimeEngine) (int, error)
 }
 
 // ErrNotFound is returned when a resource does not exist.
@@ -114,11 +128,13 @@ type MemoryStore struct {
 	skillInvocations []models.SkillInvocation
 	policyDenials   []models.PolicyDenial
 	roleBindings    map[string]*models.RoleBinding
-	// Execution audit (AIPlex ↔ Tape integration PR 6).
+	// Execution audit (AIPlex ↔ Tape integration PR 6 + PR 11).
 	executionEvents      map[string][]models.ExecutionEvent             // runID → events (append-only)
 	executionEventKeys   map[string]struct{}                            // "<runID>/<seq>" idempotency set
 	executionRuns        map[string]*models.ExecutionRun                // runID → projected summary
 	executionQuarantine  []models.QuarantinedExecutionEvent             // unknown-agent quarantine
+	lastIngest           time.Time                                       // PR 11 item 13
+	operatorAudit        map[string][]models.OperatorAudit               // runID → audit rows (PR 11 item 8)
 }
 
 // NewMemoryStore creates an empty in-memory store.
@@ -135,6 +151,7 @@ func NewMemoryStore() *MemoryStore {
 		executionEvents:    make(map[string][]models.ExecutionEvent),
 		executionEventKeys: make(map[string]struct{}),
 		executionRuns:      make(map[string]*models.ExecutionRun),
+		operatorAudit:      make(map[string][]models.OperatorAudit),
 	}
 }
 
@@ -624,6 +641,7 @@ func (m *MemoryStore) AppendExecutionEvent(_ context.Context, ev *models.Executi
 	}
 	m.executionEventKeys[key] = struct{}{}
 	m.executionEvents[ev.RunID] = append(m.executionEvents[ev.RunID], *ev)
+	m.lastIngest = time.Now()
 	return true, nil
 }
 
@@ -711,4 +729,57 @@ func sortExecutionEvents(es []models.ExecutionEvent) {
 			es[j-1], es[j] = es[j], es[j-1]
 		}
 	}
+}
+
+// ── PR 11 extensions ──────────────────────────────────────────────────────
+
+func (m *MemoryStore) DeleteExecutionRun(_ context.Context, runID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.executionRuns, runID)
+	return nil
+}
+
+func (m *MemoryStore) LastIngestAt(_ context.Context) (time.Time, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastIngest, nil
+}
+
+func (m *MemoryStore) AppendOperatorAudit(_ context.Context, a *models.OperatorAudit) error {
+	if a == nil || a.RunID == "" {
+		return fmt.Errorf("operator audit: run_id required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *a
+	m.operatorAudit[a.RunID] = append(m.operatorAudit[a.RunID], cp)
+	return nil
+}
+
+func (m *MemoryStore) ListOperatorAudit(_ context.Context, runID string, limit int) ([]models.OperatorAudit, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rows := m.operatorAudit[runID]
+	if len(rows) > limit {
+		rows = rows[len(rows)-limit:]
+	}
+	out := make([]models.OperatorAudit, len(rows))
+	copy(out, rows)
+	return out, nil
+}
+
+func (m *MemoryStore) CountInstancesWithRuntime(_ context.Context, engine models.RuntimeEngine) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := 0
+	for _, inst := range m.instances {
+		if inst.Runtime.Engine == engine {
+			n++
+		}
+	}
+	return n, nil
 }

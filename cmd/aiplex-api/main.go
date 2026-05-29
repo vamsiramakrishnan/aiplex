@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -216,22 +218,32 @@ func main() {
 		// aiplex:runs:read at the gateway authz layer; operator
 		// actions (redrive / reconcile / cancel / signal / compensate)
 		// arrive in PR 10 under aiplex:runs:* scopes.
+		// Multi-tenant enforcement (PR 11 item 6): require a tenant
+		// claim or aiplex:runs:read:cross_tenant before any /runs route.
+		// Opt-in via AIPLEX_REQUIRE_TENANT=1 so existing dev paths
+		// don't break overnight.
 		r.Route("/runs", func(r chi.Router) {
+			r.Use(api.RequireTenant)
 			r.Get("/", runsH.List)
+			r.Get("/_health", runsH.Health)
 			r.Get("/{run_id}", runsH.Get)
 			r.Get("/{run_id}/events", runsH.Events)
 			r.Get("/{run_id}/effects", runsH.Effects)
 			r.Get("/{run_id}/obligations", runsH.Obligations)
 			r.Get("/{run_id}/budgets", runsH.Budgets)
-			// Operator actions (PR 10). Each requires an aiplex:runs:*
-			// scope at the authz layer. The handler returns 202 +
-			// appends a synthetic ExecutionEvent so the action shows
-			// up on the run timeline next to Tape's own journal rows.
-			r.Post("/{run_id}/redrive", runsH.Redrive)
-			r.Post("/{run_id}/reconcile", runsH.Reconcile)
-			r.Post("/{run_id}/cancel", runsH.Cancel)
-			r.Post("/{run_id}/signal", runsH.Signal)
-			r.Post("/{run_id}/compensate", runsH.Compensate)
+			r.Get("/{run_id}/operator-audit", runsH.ListOperatorAudit)
+			// Operator actions (PR 10 + PR 11 item 7 idempotency wrap).
+			// Each requires an aiplex:runs:{action} scope at the gateway
+			// authz layer; the Idempotency middleware dedupes
+			// double-clicks for 5 minutes.
+			r.Group(func(r chi.Router) {
+				r.Use(api.Idempotency(runsActionFromPath))
+				r.Post("/{run_id}/redrive", runsH.Redrive)
+				r.Post("/{run_id}/reconcile", runsH.Reconcile)
+				r.Post("/{run_id}/cancel", runsH.Cancel)
+				r.Post("/{run_id}/signal", runsH.Signal)
+				r.Post("/{run_id}/compensate", runsH.Compensate)
+			})
 		})
 
 		// IAM — role bindings, WIF identity resolution
@@ -264,7 +276,17 @@ func main() {
 	// here; AIPlex dedupes on (run_id, seq), quarantines unknown
 	// agents, and updates the ExecutionRun projection. See
 	// internal/api/runs.go and docs/guides/tape-runtime.md.
-	r.Post("/internal/tape/events", runsH.Ingest)
+	//
+	// PR 11 layers: bearer token (TAPE_INGEST_TOKEN) + per-IP rate
+	// limit (TAPE_INGEST_RPS, default 1000). Defence-in-depth so a
+	// misbehaving outbox can't flood projection storage and an
+	// unauthorized writer can't poison the audit trail.
+	r.Group(func(r chi.Router) {
+		r.Use(api.BearerToken("TAPE_INGEST_TOKEN"))
+		r.Use(api.IPRateLimit(parseFloatEnv("TAPE_INGEST_RPS", 1000), parseIntEnv("TAPE_INGEST_BURST", 1000)))
+		r.Post("/internal/tape/events", runsH.Ingest)
+		r.Post("/internal/projections/rebuild/{run_id}", runsH.RebuildProjection)
+	})
 
 	// MCP sub-registry (v0.1 spec)
 	r.Get("/v0.1/servers", catalogH.List)
@@ -292,4 +314,39 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	srv.Shutdown(shutdownCtx)
+}
+
+// runsActionFromPath extracts the operator action name from a /runs/{id}/{action}
+// path for idempotency caching. Returns "" if the path doesn't match.
+func runsActionFromPath(r *http.Request) string {
+	path := r.URL.Path
+	// Last segment of /api/v1/runs/{id}/{action}
+	if i := strings.LastIndexByte(path, '/'); i >= 0 {
+		return path[i+1:]
+	}
+	return ""
+}
+
+func parseFloatEnv(name string, def float64) float64 {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
+}
+
+func parseIntEnv(name string, def int) int {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
 }

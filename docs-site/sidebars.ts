@@ -67,6 +67,7 @@ const sidebars: SidebarsConfig = {
         'architecture/data-model',
         'architecture/security-model',
         'architecture/performance',
+        'architecture/embedded-tier-decision',
       ],
     },
     'contributing',
