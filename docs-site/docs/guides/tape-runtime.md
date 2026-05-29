@@ -96,7 +96,34 @@ nothing to check.
 | **7** ✅ | Done    | `GET /api/v1/runs[/{id}[/{events,effects,obligations,budgets}]]` read API with tenant / agent / `has_unknown_effects` / `has_obligations` filters. |
 | **8** ✅ | Done    | Console **Runs** tab: filterable run list (tenant / agent / has-UNKNOWN / has-obligations) + per-run timeline with kind-coloured event rows, auto-refresh every 3–5s. |
 | **9** ✅ | Done    | End-to-end treasury demo: `examples/aiplex-tape-treasury/treasury.yaml` deploy manifest + `make e2e-aiplex-tape` smoke test asserting the headline claim (no duplicate wire after a mid-flight crash + reconcile). |
-| **10** ✅ | This PR | Operator actions: `POST /api/v1/runs/{id}/{redrive,reconcile,cancel,signal,compensate}` through a `TapeAdmin` interface (Noop default, real gRPC client pluggable). Each action appends a synthetic ExecutionEvent to the timeline so the audit trail shows what was clicked. |
+| **10** ✅ | Done    | Operator actions: `POST /api/v1/runs/{id}/{redrive,reconcile,cancel,signal,compensate}` through a `TapeAdmin` interface (real `GRPCTapeAdmin` in PR 11). |
+| **11** ✅ | This PR | Polish round — see the [PR 11 matrix](#pr-11-no-half-measures-cleanup) below. |
+
+## PR 11 (no half measures cleanup)
+
+After PR 10 several rough edges surfaced (stubs, missing authn, the
+audit-vs-journal muddle, polling-not-streaming). PR 11 closes them.
+
+| # | Item | Status |
+| --- | --- | :---: |
+| 1  | `AIPlexSink` in `tape/sdk/python/tape/sinks.py` (the missing outbox sink) | ✅ |
+| 2  | Verify Tape admin RPCs cover every operator action | ✅ (all exist, no proto change needed) |
+| 3  | `GRPCTapeAdmin` — real gRPC adapter replacing `NoopTapeAdmin` | ✅ |
+| 4  | Bearer-token auth on `/internal/tape/events` | ✅ |
+| 5  | OPA Rego scope rules for `aiplex:runs:*` | ✅ |
+| 6  | Multi-tenant enforcement (filter ⇒ scope intersection) | ✅ |
+| 7  | `Idempotency-Key` middleware on operator actions | ✅ |
+| 8  | Separate `OperatorAudit` collection (off the Tape journal) | ✅ |
+| 9  | `POST /internal/projections/rebuild/{run_id}` | ✅ |
+| 10 | Console operator-action toolbar + audit timeline panel | ✅ |
+| 11 | SSE streaming for run timelines (with polling fallback) | ✅ |
+| 12 | `aiplex runs` CLI subcommand | ✅ |
+| 13 | Diagnostic empty-state checklist on the Runs page | ✅ |
+| 14 | `make dev-tape` (builds + runs tape-server alongside) | ✅ |
+| 15 | Per-IP token-bucket rate limit on ingestion | ✅ |
+| 16 | Refuse runtime mutation in place (409 Conflict) | ✅ |
+| 17 | `tape-server` reference counting + health endpoint | ✅ |
+| 18 | Design doc: [embedded tier is dev-only](../architecture/embedded-tier-decision.md) | ✅ |
 
 See the architectural survey at
 [`docs/integration/aiplex-tape-survey.md`](https://github.com/vamsiramakrishnan/aiplex/blob/main/docs/integration/aiplex-tape-survey.md)

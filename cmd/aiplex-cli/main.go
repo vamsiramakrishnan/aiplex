@@ -146,6 +146,7 @@ Get started:
 		llmCmd(),
 		a2aCmd(),
 		skillsCmd(),
+		runsCmd(),
 		catalogCmd(),
 
 		// Utilities
