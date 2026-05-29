@@ -106,6 +106,12 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		DeployedAt:  time.Now(),
 		UpdatedAt:   time.Now(),
 		DeployedBy:  owner,
+		// AIPlex integration PR 4: every Instance carries a runtime config.
+		// PR 5 will read this and emit tape-server manifests when
+		// Runtime.Engine == "tape"; for now we default to the
+		// explicit "no durable runtime" value so the field round-trips
+		// cleanly through storage and the API.
+		Runtime: runtimeFromConfig(config),
 	}
 	if err := e.store.PutInstance(ctx, inst); err != nil {
 		return nil, fmt.Errorf("failed to persist instance: %w", err)
@@ -286,4 +292,67 @@ func generateID(prefix string) string {
 	b := make([]byte, 6)
 	rand.Read(b)
 	return prefix + "-" + hex.EncodeToString(b)
+}
+
+// runtimeFromConfig extracts the runtime block from the deploy config map,
+// or returns the explicit "no durable runtime" value. PR 5 wires the
+// generated manifests off of inst.Runtime.Engine; PR 4 only persists it.
+//
+// Config shape:
+//
+//	runtime:
+//	  engine: tape
+//	  durable: true
+//	  store: { type: alloydb, secret_ref: tape-store-url }
+//	  reactors: { recovery: true, reconciler: true, ... }
+//	  outbox: { sink: pubsub, topic: aiplex-tape-events }
+func runtimeFromConfig(config map[string]any) models.RuntimeConfig {
+	raw, ok := config["runtime"].(map[string]any)
+	if !ok {
+		return models.NoneRuntime()
+	}
+	rc := models.RuntimeConfig{
+		Engine:     models.RuntimeEngine(asString(raw["engine"])),
+		Durable:    asBool(raw["durable"]),
+		Replayable: asBool(raw["replayable"]),
+	}
+	if rc.Engine == "" {
+		rc.Engine = models.RuntimeEngineNone
+	}
+	if s, ok := raw["store"].(map[string]any); ok {
+		rc.Store = models.RuntimeStoreConfig{
+			Type:      models.RuntimeStoreType(asString(s["type"])),
+			SecretRef: asString(s["secret_ref"]),
+		}
+	}
+	if r, ok := raw["reactors"].(map[string]any); ok {
+		rc.Reactors = models.RuntimeReactorsConfig{
+			Recovery:     asBool(r["recovery"]),
+			Reconciler:   asBool(r["reconciler"]),
+			Timers:       asBool(r["timers"]),
+			Outbox:       asBool(r["outbox"]),
+			Compensation: asBool(r["compensation"]),
+		}
+	}
+	if o, ok := raw["outbox"].(map[string]any); ok {
+		rc.Outbox = models.RuntimeOutboxConfig{
+			Sink:  models.RuntimeOutboxSink(asString(o["sink"])),
+			Topic: asString(o["topic"]),
+		}
+	}
+	return rc
+}
+
+func asString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func asBool(v any) bool {
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return false
 }

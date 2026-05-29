@@ -1,0 +1,61 @@
+# Durable Tape Runtime — an A2A agent backed by the Tape execution substrate
+#
+# This is the AIPlex side of the integration documented in
+# docs/integration/aiplex-tape-survey.md. The `runtime:` block under
+# config: tells AIPlex's deploy engine (PR 5 — currently round-trips the
+# config but doesn't generate manifests yet) to provision a tape-server
+# alongside this agent and inject AIPLEX_* + TAPE_URL env vars onto the
+# pod. Tape itself handles durability: crash mid-effect, resume from the
+# journal, no duplicate side effects.
+#
+# Usage: aiplex apply -f examples/durable-tape-runtime.yaml
+
+version: v1
+
+instances:
+  - name: Treasury Agent
+    plane: a2aplex
+    template: treasury-agent
+    config:
+      # Standard agent config (template-specific fields).
+      policy_version: aiplex-treasury-2026.05
+
+      # The new bit (PR 4): a runtime block that selects the Tape engine.
+      # Validated by models.RuntimeConfig.Validate at admission time —
+      # see internal/models/runtime_validate.go for the rules.
+      runtime:
+        engine: tape
+        durable: true       # required when engine=tape
+        replayable: true    # surface re-drive in the run timeline
+        store:
+          type: alloydb           # postgres / alloydb / bigtable in prod
+          secret_ref: tape-store-url   # K8s Secret carrying the conn URL
+        reactors:
+          recovery: true
+          reconciler: true
+          timers: true
+          outbox: true
+          compensation: true
+        outbox:
+          sink: pubsub                 # log | webhook | pubsub
+          topic: aiplex-tape-events    # required when sink=pubsub
+
+agents:
+  - client_id: treasury-agent
+    display_name: Treasury Agent
+    description: |
+      AI treasurer that sweeps idle cash to a money-market fund.
+      Runs on the Tape durable runtime — every wire is journaled,
+      every UNKNOWN gets reconciled by asking the bank, every duplicate
+      registers a compensation obligation.
+    auth_method: client_credentials
+    grant_types:
+      - client_credentials
+    allowed_scopes:
+      # The scopes the agent needs. These flow onto every Tape run
+      # (via AIPLEX_SCOPES) and the Tape effect decorator checks
+      # membership before any non-idempotent call lands.
+      - mcp:tools:read_balance
+      - mcp:tools:bank_wire
+      - a2a:task:treasury_sweep
+      - llm:model:gemini-2.5-pro

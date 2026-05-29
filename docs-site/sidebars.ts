@@ -42,6 +42,7 @@ const sidebars: SidebarsConfig = {
         'guides/catalog',
         'guides/observability',
         'guides/declarative-config',
+        'guides/tape-runtime',
       ],
     },
     {
