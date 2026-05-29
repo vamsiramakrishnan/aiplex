@@ -72,6 +72,57 @@ type RuntimeOutboxConfig struct {
 	Topic string            `json:"topic,omitempty"` // required for sink=pubsub
 }
 
+// RuntimeRetention drives the compaction + purge lifecycle for
+// Tape-backed runs (PR 13). Three windows, expressed in days:
+//
+//   HotDays           Full event detail kept on AIPlex's
+//                     execution_events. Below this window the
+//                     Console renders the timeline live.
+//
+//   CompactAfterDays  At this age (>= HotDays) the compactor reactor
+//                     calls Tape's CompactRun(run_id), zeroing the
+//                     bulky JSON payloads on tape_decisions/
+//                     tape_effects while preserving the audit
+//                     envelope. ExecutionRun.Compacted=true; the
+//                     Console renders the run with a "details
+//                     archived" badge.
+//
+//   DeleteAfterDays   Hard purge: execution_events for the run are
+//                     dropped. ExecutionRun summary is RETAINED
+//                     indefinitely by default — it's the immutable
+//                     audit anchor. Set DeleteProjection=true to
+//                     drop the summary too (right-to-be-forgotten).
+//
+// Zero values disable each stage. Sensible defaults are applied by
+// `NormaliseRetention` when the policy is absent.
+type RuntimeRetention struct {
+	HotDays          int  `json:"hot_days"`
+	CompactAfterDays int  `json:"compact_after_days"`
+	DeleteAfterDays  int  `json:"delete_after_days"`
+	// DeleteProjection inverts the safe default: zero-value (false)
+	// keeps the ExecutionRun summary forever; true asks the reactor
+	// to delete the projection row alongside the events. Inverted so
+	// the safe choice is the zero value and JSON omission.
+	DeleteProjection bool `json:"delete_projection"`
+}
+
+// NormaliseRetention applies the canonical defaults — 7-day hot, 30-day
+// compact, 365-day delete. Idempotent: existing non-zero fields are
+// preserved. DeleteProjection is left as-is because its zero value
+// (false → keep) is already the safe default.
+func NormaliseRetention(r RuntimeRetention) RuntimeRetention {
+	if r.HotDays == 0 {
+		r.HotDays = 7
+	}
+	if r.CompactAfterDays == 0 {
+		r.CompactAfterDays = 30
+	}
+	if r.DeleteAfterDays == 0 {
+		r.DeleteAfterDays = 365
+	}
+	return r
+}
+
 // RuntimeConfig describes how an Instance executes — currently a thin
 // envelope over the engine selector + its backing store + which reactors
 // to run + where the outbox goes. RuntimeConfig{Engine: RuntimeEngineNone}
@@ -83,6 +134,7 @@ type RuntimeConfig struct {
 	Store      RuntimeStoreConfig     `json:"store"`
 	Reactors   RuntimeReactorsConfig  `json:"reactors"`
 	Outbox     RuntimeOutboxConfig    `json:"outbox"`
+	Retention  RuntimeRetention       `json:"retention,omitempty"`
 }
 
 // NoneRuntime is the canonical "no durable runtime" config — use this for

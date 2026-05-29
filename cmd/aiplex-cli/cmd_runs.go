@@ -22,6 +22,7 @@ import (
 //	aiplex runs cancel    <run_id> --reason "..."
 //	aiplex runs signal    <run_id> --gate "..." --resolution "..."
 //	aiplex runs compensate <run_id>
+//	aiplex runs compact   <run_id>
 func runsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "runs",
@@ -41,6 +42,7 @@ corresponding aiplex:runs:{action} scope.`,
 		runsCancelCmd(),
 		runsSignalCmd(),
 		runsCompensateCmd(),
+		runsCompactCmd(),
 	)
 	return cmd
 }
@@ -285,6 +287,26 @@ func runsCompensateCmd() *cobra.Command {
 				return fmt.Errorf("compensate: %w", err)
 			}
 			fmt.Printf("✓ compensate accepted for %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func runsCompactCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "compact <run_id>",
+		Short: "Compact this run now — zero bulky payloads, keep the audit envelope",
+		Long: `compact triggers Tape's CompactRun out of band. The retention reactor
+handles the scheduled, policy-driven path; this command is the manual
+override for ops who want to reclaim payload bytes before the window
+expires. Tape will refuse if the run isn't yet settled (open obligations
+or UNKNOWN effects).`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := newClient().CompactRun(context.Background(), args[0]); err != nil {
+				return fmt.Errorf("compact: %w", err)
+			}
+			fmt.Printf("✓ compact accepted for %s\n", args[0])
 			return nil
 		},
 	}

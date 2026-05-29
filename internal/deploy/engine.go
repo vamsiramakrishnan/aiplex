@@ -357,7 +357,39 @@ func runtimeFromConfig(config map[string]any) models.RuntimeConfig {
 			Topic: asString(o["topic"]),
 		}
 	}
+	// PR 13: retention windows for the compactor + purge reactor.
+	// Map int fields tolerantly — YAML decoded via map[string]any
+	// surfaces ints as either int or float64 depending on parser.
+	if rt, ok := raw["retention"].(map[string]any); ok {
+		rc.Retention = models.RuntimeRetention{
+			HotDays:          asInt(rt["hot_days"]),
+			CompactAfterDays: asInt(rt["compact_after_days"]),
+			DeleteAfterDays:  asInt(rt["delete_after_days"]),
+			DeleteProjection: asBool(rt["delete_projection"]),
+		}
+	}
+	if rc.Engine == models.RuntimeEngineTape {
+		rc.Retention = models.NormaliseRetention(rc.Retention)
+	}
 	return rc
+}
+
+func asInt(v any) int {
+	switch t := v.(type) {
+	case int:
+		return t
+	case int32:
+		return int(t)
+	case int64:
+		return int(t)
+	case float64:
+		return int(t)
+	case string:
+		var n int
+		_, _ = fmt.Sscanf(t, "%d", &n)
+		return n
+	}
+	return 0
 }
 
 func asString(v any) string {

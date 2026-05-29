@@ -222,7 +222,29 @@ func applyEventToRun(run *models.ExecutionRun, ev *models.ExecutionEvent) {
 		if amount := budgetUSDFromPayload(ev.PayloadJSON); amount > 0 {
 			run.BudgetUSDCharged += amount
 		}
+	case models.ExecutionEventRunCompacted:
+		// PR 13: Tape's compactor reactor emitted the entry. The Console
+		// renders compacted runs with a "details archived" badge.
+		// Compaction is one-way; we set the flag and remember the
+		// timestamp (defaulting to the event ts if the payload doesn't
+		// carry compacted_at_ms).
+		run.Compacted = true
+		ts := compactedAtFromPayload(ev.PayloadJSON, ev.Timestamp)
+		run.CompactedAt = &ts
 	}
+}
+
+func compactedAtFromPayload(payload string, fallback time.Time) time.Time {
+	if payload == "" {
+		return fallback
+	}
+	var p struct {
+		CompactedAtMs int64 `json:"compacted_at_ms"`
+	}
+	if err := json.Unmarshal([]byte(payload), &p); err != nil || p.CompactedAtMs <= 0 {
+		return fallback
+	}
+	return time.Unix(0, p.CompactedAtMs*int64(time.Millisecond)).UTC()
 }
 
 // ── Read API (AIPlex integration PR 7) ───────────────────────────────────
@@ -411,6 +433,11 @@ type TapeAdmin interface {
 	Cancel(ctx context.Context, runID, reason string) error
 	Signal(ctx context.Context, runID, gateName, resolutionJSON string) error
 	Compensate(ctx context.Context, runID string) error
+	// CompactRun is the operator-triggered equivalent of the retention
+	// reactor's tick: zero the bulky payloads on a settled run on
+	// demand. Returns an error if Tape refuses (e.g. run not yet
+	// settled — open obligations or UNKNOWN effects).
+	CompactRun(ctx context.Context, runID string) (TapeCompactResult, error)
 }
 
 // NoopTapeAdmin is the default — returns nil for every action. Used
@@ -422,6 +449,9 @@ func (NoopTapeAdmin) Reconcile(_ context.Context, _ string) error               
 func (NoopTapeAdmin) Cancel(_ context.Context, _, _ string) error                 { return nil }
 func (NoopTapeAdmin) Signal(_ context.Context, _, _, _ string) error              { return nil }
 func (NoopTapeAdmin) Compensate(_ context.Context, _ string) error                { return nil }
+func (NoopTapeAdmin) CompactRun(_ context.Context, _ string) (TapeCompactResult, error) {
+	return TapeCompactResult{}, nil
+}
 
 // WithTapeAdmin returns a copy of the handler bound to a Tape admin
 // client. Optional — uncalled, the handler falls back to NoopTapeAdmin.
@@ -494,6 +524,25 @@ func (h *RunsHandler) Signal(w http.ResponseWriter, r *http.Request) {
 func (h *RunsHandler) Compensate(w http.ResponseWriter, r *http.Request) {
 	h.operatorAction(w, r, "compensate", func(ctx context.Context, runID string) error {
 		return h.tapeAdmin().Compensate(ctx, runID)
+	}, nil)
+}
+
+// Compact — POST /api/v1/runs/{id}/compact. Requires aiplex:runs:compact.
+// Triggers Tape's CompactRun out of band (the retention reactor handles
+// the scheduled path). On success the projection is stamped
+// Compacted=true so the Console renders the archived badge immediately.
+func (h *RunsHandler) Compact(w http.ResponseWriter, r *http.Request) {
+	h.operatorAction(w, r, "compact", func(ctx context.Context, runID string) error {
+		if _, err := h.tapeAdmin().CompactRun(ctx, runID); err != nil {
+			return err
+		}
+		now := time.Now()
+		if run, err := h.store.GetExecutionRun(ctx, runID); err == nil && run != nil {
+			run.Compacted = true
+			run.CompactedAt = &now
+			_ = h.store.UpsertExecutionRun(ctx, run)
+		}
+		return nil
 	}, nil)
 }
 

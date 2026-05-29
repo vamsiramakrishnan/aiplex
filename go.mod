@@ -14,7 +14,7 @@ require (
 	github.com/rs/zerolog v1.33.0
 	github.com/sethvargo/go-envconfig v1.1.0
 	github.com/spf13/cobra v1.10.2
-	github.com/vamsiramakrishnan/durable-agents/tape/sdk/go v0.0.0-20260529231104-401836964fb2
+	github.com/vamsiramakrishnan/durable-agents/tape/sdk/go v0.0.0-20260529233851-b2817a709ba2
 	golang.org/x/time v0.15.0
 	google.golang.org/api v0.274.0
 	google.golang.org/grpc v1.81.0

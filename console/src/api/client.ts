@@ -260,7 +260,7 @@ export type ExecutionRunStatus =
   | 'failed' | 'compensating' | 'stuck' | 'cancelled'
 
 export type ExecutionEventKind =
-  | 'run.started' | 'run.completed' | 'run.failed'
+  | 'run.started' | 'run.completed' | 'run.failed' | 'run.compacted'
   | 'decision.recorded'
   | 'effect.begin' | 'effect.confirmed' | 'effect.failed'
   | 'effect.unknown' | 'effect.duplicate'
@@ -284,6 +284,9 @@ export interface ExecutionRun {
   obligations: number
   policy_violations: number
   budget_usd_charged: number
+  compacted?: boolean
+  compacted_at?: string
+  retained_until?: string
 }
 
 export interface ExecutionEvent {

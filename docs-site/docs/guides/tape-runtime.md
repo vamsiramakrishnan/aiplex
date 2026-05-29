@@ -97,7 +97,9 @@ nothing to check.
 | **8** ✅ | Done    | Console **Runs** tab: filterable run list (tenant / agent / has-UNKNOWN / has-obligations) + per-run timeline with kind-coloured event rows, auto-refresh every 3–5s. |
 | **9** ✅ | Done    | End-to-end treasury demo: `examples/aiplex-tape-treasury/treasury.yaml` deploy manifest + `make e2e-aiplex-tape` smoke test asserting the headline claim (no duplicate wire after a mid-flight crash + reconcile). |
 | **10** ✅ | Done    | Operator actions: `POST /api/v1/runs/{id}/{redrive,reconcile,cancel,signal,compensate}` through a `TapeAdmin` interface (real `GRPCTapeAdmin` in PR 11). |
-| **11** ✅ | This PR | Polish round — see the [PR 11 matrix](#pr-11-no-half-measures-cleanup) below. |
+| **11** ✅ | Done    | Polish round — see the [PR 11 matrix](#pr-11-no-half-measures-cleanup) below. |
+| **12** ✅ | Done    | Prerequisites for retention: identity validation in the ADK (`AIPLEX_REQUIRE_IDENTITY`), wire-level effect-scope refusal in tape-server's store, Go SDK pinned to real pseudo-version with `go.work` for local override. |
+| **13** ✅ | This PR | Compaction + retention: tape-server gets `CompactRun` + `ListCompactableRuns` RPCs that zero bulky payloads (request_json/response_json/error_json) while preserving the audit envelope; a Tape reactor (`tape-server --compact`) drives the loop with a per-instance `hot/compact/delete` window; AIPlex's `RetentionReactor` mirrors the policy across the projection (`Compacted=true`, `CompactedAt`, `RetainedUntil`), the Console renders an **archived** badge on compacted runs and disables operator actions, and `POST /api/v1/runs/{id}/compact` exposes the manual override (`aiplex runs compact <id>`). |
 
 ## Local development against an unpublished Tape SDK
 

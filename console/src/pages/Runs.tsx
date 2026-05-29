@@ -37,6 +37,7 @@ const KIND_STYLE: Record<ExecutionEventKind, { colour: string; glyph: string; la
   'timer.scheduled':     { colour: 'bg-gray-100   text-gray-600',   glyph: '⏲', label: 'timer' },
   'budget.charged':      { colour: 'bg-blue-50    text-blue-600',   glyph: '$', label: 'budget' },
   'policy.violation':    { colour: 'bg-red-100    text-red-800',    glyph: '✦', label: 'POLICY' },
+  'run.compacted':       { colour: 'bg-gray-100   text-gray-700',   glyph: '▣', label: 'archived' },
 }
 
 const STATUS_STYLE: Record<ExecutionRunStatus, string> = {
@@ -108,7 +109,10 @@ export default function Runs() {
           </div>
           <div className="col-span-5">
             {selected ? (
-              <RunDetail runID={selected} />
+              <RunDetail
+                runID={selected}
+                run={runs.data.runs.find(r => r.run_id === selected) ?? null}
+              />
             ) : (
               <div className="text-gray-400 italic p-6 border rounded">
                 Select a run to see its timeline.
@@ -173,9 +177,19 @@ function RunList({
         >
           <div className="flex items-center justify-between gap-2 mb-1">
             <code className="text-xs font-mono text-gray-600 truncate">{r.run_id}</code>
-            <span className={`px-2 py-0.5 text-xs rounded ${STATUS_STYLE[r.status]}`}>
-              {r.status}
-            </span>
+            <div className="flex items-center gap-1">
+              {r.compacted && (
+                <span
+                  className="px-2 py-0.5 text-xs rounded bg-gray-200 text-gray-700"
+                  title={r.compacted_at ? `Compacted ${r.compacted_at}` : 'Compacted'}
+                >
+                  archived
+                </span>
+              )}
+              <span className={`px-2 py-0.5 text-xs rounded ${STATUS_STYLE[r.status]}`}>
+                {r.status}
+              </span>
+            </div>
           </div>
           <div className="text-sm text-gray-700">
             <span className="font-medium">{r.agent_id || '(no agent)'}</span>
@@ -274,14 +288,20 @@ function useRunTimelineSSE(runID: string): { events: ExecutionEvent[]; live: boo
   return { events, live }
 }
 
-function RunDetail({ runID }: { runID: string }) {
+function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) {
   const queryClient = useQueryClient()
-  const { events, live } = useRunTimelineSSE(runID)
+  const compacted = run?.compacted ?? false
+  // Compacted runs are read-only: Tape has zeroed the bulky payloads,
+  // and operator actions like Redrive / Compensate cannot meaningfully
+  // execute without the original decision/effect bodies. We also skip
+  // the live timeline subscription — the events row is gone.
+  const { events, live } = useRunTimelineSSE(compacted ? '' : runID)
 
   const auditQ = useQuery({
     queryKey: ['run-audit', runID],
     queryFn: () => listOperatorAudit(runID),
     refetchInterval: 5_000,
+    enabled: !compacted,
   })
 
   const invalidate = () => {
@@ -296,9 +316,22 @@ function RunDetail({ runID }: { runID: string }) {
         <code className="text-xs text-gray-500 font-mono truncate max-w-[18ch]">{runID}</code>
       </div>
 
-      <OperatorToolbar runID={runID} onActionTaken={invalidate} />
+      {compacted ? (
+        <div className="text-xs p-3 mb-3 bg-gray-100 text-gray-700 rounded">
+          <div className="font-medium mb-1">Run archived</div>
+          <div>
+            Details were compacted on{' '}
+            <code>{run?.compacted_at ?? 'an earlier date'}</code>. The audit
+            envelope (status, counts, decisions/effects metadata) is preserved,
+            but request and response payloads have been zeroed. Operator
+            actions are disabled.
+          </div>
+        </div>
+      ) : (
+        <OperatorToolbar runID={runID} onActionTaken={invalidate} />
+      )}
 
-      {events.length === 0 && (
+      {events.length === 0 && !compacted && (
         <div className="text-gray-400 italic text-sm">No events yet.</div>
       )}
       <ol className="space-y-1 max-h-[28rem] overflow-y-auto mt-3">

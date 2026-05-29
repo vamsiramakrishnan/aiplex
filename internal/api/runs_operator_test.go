@@ -26,6 +26,7 @@ type fakeTapeAdmin struct {
 	cancelCalls     []struct{ ID, Reason string }
 	signalCalls     []struct{ ID, Gate, Json string }
 	compensateCalls []string
+	compactCalls    []string
 
 	errOn map[string]error // method name → error
 }
@@ -50,6 +51,10 @@ func (f *fakeTapeAdmin) Compensate(_ context.Context, id string) error {
 	f.compensateCalls = append(f.compensateCalls, id)
 	return f.errOn["Compensate"]
 }
+func (f *fakeTapeAdmin) CompactRun(_ context.Context, id string) (api.TapeCompactResult, error) {
+	f.compactCalls = append(f.compactCalls, id)
+	return api.TapeCompactResult{}, f.errOn["CompactRun"]
+}
 
 func opSetup(t *testing.T, admin api.TapeAdmin) (chi.Router, *registry.MemoryStore) {
 	t.Helper()
@@ -70,6 +75,7 @@ func opSetup(t *testing.T, admin api.TapeAdmin) (chi.Router, *registry.MemorySto
 		r.Post("/{run_id}/cancel", h.Cancel)
 		r.Post("/{run_id}/signal", h.Signal)
 		r.Post("/{run_id}/compensate", h.Compensate)
+		r.Post("/{run_id}/compact", h.Compact)
 	})
 	return r, store
 }
@@ -174,6 +180,37 @@ func TestOperator_Compensate_CallsTapeAdmin(t *testing.T) {
 	}
 	if len(admin.compensateCalls) != 1 {
 		t.Errorf("Compensate not called: %+v", admin.compensateCalls)
+	}
+}
+
+func TestOperator_Compact_CallsTapeAndStampsProjection(t *testing.T) {
+	admin := &fakeTapeAdmin{}
+	r, store := opSetup(t, admin)
+	rec := opPost(t, r, "/api/v1/runs/run-x/compact", nil)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(admin.compactCalls) != 1 || admin.compactCalls[0] != "run-x" {
+		t.Errorf("CompactRun not called: %+v", admin.compactCalls)
+	}
+	got, err := store.GetExecutionRun(context.Background(), "run-x")
+	if err != nil {
+		t.Fatalf("get run: %v", err)
+	}
+	if !got.Compacted {
+		t.Errorf("expected projection to be stamped Compacted=true")
+	}
+	if got.CompactedAt == nil {
+		t.Errorf("expected projection to carry CompactedAt timestamp")
+	}
+	// PR 13: the manual compact lands in operator_audit, not events.
+	events, _ := store.ListExecutionEvents(context.Background(), "run-x", 0, 100)
+	if len(events) != 0 {
+		t.Errorf("compact leaked into execution_events: %+v", events)
+	}
+	audit, _ := store.ListOperatorAudit(context.Background(), "run-x", 100)
+	if len(audit) != 1 || audit[0].Action != "compact" {
+		t.Errorf("expected 1 operator_audit row with action=compact, got %+v", audit)
 	}
 }
 

@@ -75,5 +75,17 @@ func (r RuntimeConfig) Validate(env Environment) error {
 		return fmt.Errorf("%w: outbox.sink=pubsub requires outbox.topic",
 			ErrRuntimeInvalid)
 	}
+	// PR 13: retention windows must be monotonic. compact_after_days
+	// >= hot_days, delete_after_days >= compact_after_days. Zero values
+	// disable each stage and are valid in any order.
+	ret := r.Retention
+	if ret.HotDays > 0 && ret.CompactAfterDays > 0 && ret.CompactAfterDays < ret.HotDays {
+		return fmt.Errorf("%w: retention.compact_after_days (%d) < hot_days (%d)",
+			ErrRuntimeInvalid, ret.CompactAfterDays, ret.HotDays)
+	}
+	if ret.CompactAfterDays > 0 && ret.DeleteAfterDays > 0 && ret.DeleteAfterDays < ret.CompactAfterDays {
+		return fmt.Errorf("%w: retention.delete_after_days (%d) < compact_after_days (%d)",
+			ErrRuntimeInvalid, ret.DeleteAfterDays, ret.CompactAfterDays)
+	}
 	return nil
 }

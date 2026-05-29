@@ -861,3 +861,10 @@ func (c *Client) SignalRun(ctx context.Context, runID, gateName, resolutionJSON 
 func (c *Client) CompensateRun(ctx context.Context, runID string) error {
 	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/compensate", struct{}{}, nil)
 }
+
+// CompactRun triggers an out-of-band compaction of a settled run. The
+// scheduled retention reactor handles the policy-driven path; this is
+// the manual override for ops who want to free payload bytes early.
+func (c *Client) CompactRun(ctx context.Context, runID string) error {
+	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/compact", struct{}{}, nil)
+}

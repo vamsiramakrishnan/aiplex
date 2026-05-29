@@ -138,6 +138,19 @@ func main() {
 		defer tapeAdmin.Close()
 		log.Info().Str("tape_url", os.Getenv("TAPE_URL")).
 			Msg("Tape admin client wired (operator actions live)")
+		// PR 13: retention reactor. Ticks every TAPE_RETENTION_INTERVAL
+		// (default 15m). Compacts settled runs older than each
+		// instance's runtime.retention.compact_after_days; surfaces
+		// purge-eligible runs to the projection. Off by default —
+		// AIPLEX_RETENTION_ENABLED=1 turns it on (so existing dev
+		// stacks don't start compacting unexpectedly).
+		if os.Getenv("AIPLEX_RETENTION_ENABLED") == "1" {
+			interval := parseDurationEnv("TAPE_RETENTION_INTERVAL", 15*time.Minute)
+			retention := api.NewRetentionReactor(store, tapeAdmin, interval)
+			retention.Start(ctx)
+			defer retention.Close()
+			log.Info().Dur("interval", interval).Msg("retention reactor started")
+		}
 	} else {
 		log.Warn().Msg("TAPE_URL not set — operator actions are no-ops (NoopTapeAdmin)")
 	}
@@ -254,6 +267,7 @@ func main() {
 				r.Post("/{run_id}/cancel", runsH.Cancel)
 				r.Post("/{run_id}/signal", runsH.Signal)
 				r.Post("/{run_id}/compensate", runsH.Compensate)
+				r.Post("/{run_id}/compact", runsH.Compact)
 			})
 		})
 
@@ -360,4 +374,16 @@ func parseIntEnv(name string, def int) int {
 		return def
 	}
 	return n
+}
+
+func parseDurationEnv(name string, def time.Duration) time.Duration {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return def
+	}
+	return d
 }
