@@ -52,17 +52,25 @@ func GenerateManifests(inst *models.Instance, tmpl *models.Template, trustDomain
 	return manifests
 }
 
-// filterRuntimeEnv drops the runtime config block from the template
-// env-var loop. Without this, `runtime:` would land on the pod as a
-// stringified env var — confusing and unhelpful. The runtime config
-// has its own dedicated path (tapeRuntimeManifests + tapeAgentEnv).
+// filterRuntimeEnv drops AIPlex-internal config keys from the template
+// env-var loop so they don't land on the pod as confusing
+// FORCE_RUNTIME_CHANGE=true env vars. The runtime config has its own
+// dedicated path (tapeRuntimeManifests + tapeAgentEnv).
+//
+// Internal keys:
+//   * runtime               — RuntimeConfig block (handled separately)
+//   * force_runtime_change  — bypass flag for PR 11 item 16
 func filterRuntimeEnv(config map[string]any) map[string]any {
 	if config == nil {
 		return nil
 	}
+	internal := map[string]struct{}{
+		"runtime":              {},
+		"force_runtime_change": {},
+	}
 	out := make(map[string]any, len(config))
 	for k, v := range config {
-		if k == "runtime" {
+		if _, isInternal := internal[k]; isInternal {
 			continue
 		}
 		out[k] = v

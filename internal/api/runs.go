@@ -388,17 +388,16 @@ func filterRuns(runs []models.ExecutionRun, keep func(models.ExecutionRun) bool)
 //     the scope strings to the authz layer; the handler trusts the
 //     middleware did its job and focuses on translating the request
 //     into a Tape admin RPC + recording the action in audit);
-//   * calls Tape's admin gRPC surface (PR 10 wires this through; PR 6/7
-//     left it as a TODO marker — the handler structure is here, the
-//     adapter is what arrives next);
-//   * appends a synthetic ExecutionEvent so the action shows up on the
-//     run timeline alongside Tape's own journal entries — the Console
-//     should never have to second-guess "did somebody click redrive?"
-//
-// For PR 10 the handlers return 202 Accepted with the synthetic event
-// already projected; the actual gRPC dispatch is stubbed behind the
-// TapeAdmin interface so a future PR can wire a real client without
-// touching the HTTP shape.
+//   * calls Tape's admin gRPC surface through the TapeAdmin interface.
+//     PR 11 ships GRPCTapeAdmin — a real adapter that dials TAPE_URL
+//     and maps each action to the matching Tape RPC (ResumeRun for
+//     redrive/reconcile/compensate, EndRun for cancel, SendSignal for
+//     signal). NoopTapeAdmin remains the default for tests and dev
+//     paths without a tape-server.
+//   * appends an OperatorAudit row (PR 11 item 8) — a SEPARATE
+//     collection from execution_events, so the Tape journal stays
+//     clean and projection rebuild from outbox can re-derive the
+//     run timeline without losing the operator trail.
 
 // TapeAdmin abstracts the admin RPCs AIPlex calls on a Tape server.
 // Real implementations dial the tape-server gRPC port; the in-process
