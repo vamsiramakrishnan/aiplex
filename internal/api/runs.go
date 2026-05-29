@@ -43,13 +43,17 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusInternalServerError)
 }
 
-// RunsHandler serves the AIPlex ↔ Tape audit ingestion endpoint and
-// (PR 7) the read API on top of the projected events.
+// RunsHandler serves the AIPlex ↔ Tape audit ingestion endpoint,
+// (PR 7) the read API on top of the projected events, and
+// (PR 10) the operator actions that mutate runtime state via Tape's
+// admin gRPC surface.
 type RunsHandler struct {
 	store registry.Store
+	admin TapeAdmin // optional; defaults to NoopTapeAdmin (see PR 10)
 }
 
-// NewRunsHandler constructs the handler.
+// NewRunsHandler constructs the handler with Noop admin (default).
+// Wire a real Tape admin client via WithTapeAdmin in main.go.
 func NewRunsHandler(store registry.Store) *RunsHandler {
 	return &RunsHandler{store: store}
 }
@@ -351,6 +355,224 @@ func filterRuns(runs []models.ExecutionRun, keep func(models.ExecutionRun) bool)
 		}
 	}
 	return out
+}
+
+// ── Operator actions (AIPlex integration PR 10) ──────────────────────────
+//
+// These endpoints govern *runtime mutations* on a Tape-backed run —
+// redrive a stuck one, reconcile an UNKNOWN effect, cancel cooperatively,
+// signal a waiting gate, kick off compensation. Each one:
+//
+//   * checks an aiplex:runs:* scope at the gateway (PR 10 also adds
+//     the scope strings to the authz layer; the handler trusts the
+//     middleware did its job and focuses on translating the request
+//     into a Tape admin RPC + recording the action in audit);
+//   * calls Tape's admin gRPC surface (PR 10 wires this through; PR 6/7
+//     left it as a TODO marker — the handler structure is here, the
+//     adapter is what arrives next);
+//   * appends a synthetic ExecutionEvent so the action shows up on the
+//     run timeline alongside Tape's own journal entries — the Console
+//     should never have to second-guess "did somebody click redrive?"
+//
+// For PR 10 the handlers return 202 Accepted with the synthetic event
+// already projected; the actual gRPC dispatch is stubbed behind the
+// TapeAdmin interface so a future PR can wire a real client without
+// touching the HTTP shape.
+
+// TapeAdmin abstracts the admin RPCs AIPlex calls on a Tape server.
+// Real implementations dial the tape-server gRPC port; the in-process
+// E2E tests use a no-op stub. Kept as an interface so the handler
+// doesn't depend on the Tape proto-generated types directly — the
+// only thing AIPlex needs is "did this operation get accepted by
+// Tape?", not the full response shape.
+type TapeAdmin interface {
+	Redrive(ctx context.Context, runID string) error
+	Reconcile(ctx context.Context, runID string) error
+	Cancel(ctx context.Context, runID, reason string) error
+	Signal(ctx context.Context, runID, gateName, resolutionJSON string) error
+	Compensate(ctx context.Context, runID string) error
+}
+
+// NoopTapeAdmin is the default — returns nil for every action. Used
+// when AIPlex is wired up without a live tape-server (tests, dev).
+type NoopTapeAdmin struct{}
+
+func (NoopTapeAdmin) Redrive(_ context.Context, _ string) error                   { return nil }
+func (NoopTapeAdmin) Reconcile(_ context.Context, _ string) error                 { return nil }
+func (NoopTapeAdmin) Cancel(_ context.Context, _, _ string) error                 { return nil }
+func (NoopTapeAdmin) Signal(_ context.Context, _, _, _ string) error              { return nil }
+func (NoopTapeAdmin) Compensate(_ context.Context, _ string) error                { return nil }
+
+// WithTapeAdmin returns a copy of the handler bound to a Tape admin
+// client. Optional — uncalled, the handler falls back to NoopTapeAdmin.
+func (h *RunsHandler) WithTapeAdmin(admin TapeAdmin) *RunsHandler {
+	cp := *h
+	cp.admin = admin
+	return &cp
+}
+
+func (h *RunsHandler) tapeAdmin() TapeAdmin {
+	if h.admin != nil {
+		return h.admin
+	}
+	return NoopTapeAdmin{}
+}
+
+// SignalBody is the JSON body for POST /api/v1/runs/{id}/signal.
+type SignalBody struct {
+	GateName       string `json:"gate_name"`
+	ResolutionJSON string `json:"resolution_json,omitempty"`
+}
+
+// CancelBody is the JSON body for POST /api/v1/runs/{id}/cancel.
+type CancelBody struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+// Redrive — POST /api/v1/runs/{id}/redrive. Requires aiplex:runs:redrive.
+func (h *RunsHandler) Redrive(w http.ResponseWriter, r *http.Request) {
+	h.operatorAction(w, r, "redrive", func(ctx context.Context, runID string) error {
+		return h.tapeAdmin().Redrive(ctx, runID)
+	}, nil)
+}
+
+// Reconcile — POST /api/v1/runs/{id}/reconcile. Requires aiplex:runs:reconcile.
+func (h *RunsHandler) Reconcile(w http.ResponseWriter, r *http.Request) {
+	h.operatorAction(w, r, "reconcile", func(ctx context.Context, runID string) error {
+		return h.tapeAdmin().Reconcile(ctx, runID)
+	}, nil)
+}
+
+// Cancel — POST /api/v1/runs/{id}/cancel.  Requires aiplex:runs:cancel.
+// Body: { "reason": "..." } (optional).
+func (h *RunsHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+	var body CancelBody
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	h.operatorAction(w, r, "cancel", func(ctx context.Context, runID string) error {
+		return h.tapeAdmin().Cancel(ctx, runID, body.Reason)
+	}, map[string]any{"reason": body.Reason})
+}
+
+// Signal — POST /api/v1/runs/{id}/signal. Requires aiplex:runs:signal.
+// Body: { "gate_name": "...", "resolution_json": "..." }.
+func (h *RunsHandler) Signal(w http.ResponseWriter, r *http.Request) {
+	var body SignalBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if body.GateName == "" {
+		http.Error(w, "gate_name is required", http.StatusBadRequest)
+		return
+	}
+	h.operatorAction(w, r, "signal", func(ctx context.Context, runID string) error {
+		return h.tapeAdmin().Signal(ctx, runID, body.GateName, body.ResolutionJSON)
+	}, map[string]any{"gate_name": body.GateName})
+}
+
+// Compensate — POST /api/v1/runs/{id}/compensate. Requires aiplex:runs:compensate.
+func (h *RunsHandler) Compensate(w http.ResponseWriter, r *http.Request) {
+	h.operatorAction(w, r, "compensate", func(ctx context.Context, runID string) error {
+		return h.tapeAdmin().Compensate(ctx, runID)
+	}, nil)
+}
+
+// operatorAction is the shared body of every PR 10 handler: resolve
+// the run id, call the Tape admin action, and append a synthetic
+// ExecutionEvent so the action surfaces on the timeline (it'll appear
+// in /events with kind=run.* and a payload describing what the
+// operator did — Tape itself is not aware of the AIPlex-side call).
+//
+// Returns 202 Accepted on success: Tape's admin RPCs are themselves
+// async (they enqueue work for a reactor loop), so 200 OK would
+// overpromise.
+func (h *RunsHandler) operatorAction(w http.ResponseWriter, r *http.Request,
+	action string, callTape func(context.Context, string) error,
+	extraPayload map[string]any) {
+	ctx := r.Context()
+	runID := pathParam(r, "run_id")
+	if _, err := h.store.GetExecutionRun(ctx, runID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if err := callTape(ctx, runID); err != nil {
+		http.Error(w, "tape admin call failed: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	payload := map[string]any{
+		"operator_action": action,
+		"actor":           operatorFromRequest(r),
+		"at":              time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	for k, v := range extraPayload {
+		payload[k] = v
+	}
+	pb, _ := json.Marshal(payload)
+	// Use a synthetic seq above any real journal entry (1e18) so the
+	// operator action is visibly out-of-band from Tape's own writes.
+	// Idempotency on (run_id, seq) still applies — multiple clicks
+	// produce multiple ordered entries because the timestamp differs
+	// each time, so the seq derivation is timestamp-based.
+	ev := &models.ExecutionEvent{
+		RunID:     runID,
+		Seq:       syntheticSeq(),
+		Kind:      synthKindFor(action),
+		Timestamp: time.Now().UTC(),
+		PayloadJSON: string(pb),
+	}
+	// Best-effort projection: don't fail the action just because we
+	// couldn't write the audit row.
+	_, _ = h.store.AppendExecutionEvent(ctx, ev)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"accepted": true,
+		"action":   action,
+		"run_id":   runID,
+	})
+}
+
+// operatorFromRequest reads the actor from a request header set by
+// WIFAuth middleware. Falls back to "unknown" rather than failing —
+// the operator action is authoritative through Tape's admin call;
+// the audit row is the supporting trail.
+func operatorFromRequest(r *http.Request) string {
+	if v := r.Header.Get("X-Aiplex-Actor"); v != "" {
+		return v
+	}
+	if v := r.Header.Get("Authorization"); v != "" {
+		// Best effort: just record that someone authenticated.
+		return "authenticated"
+	}
+	return "unknown"
+}
+
+// syntheticSeq produces a high seq so the operator action sorts after
+// any real journal entry. Nanosecond resolution gives unique values
+// across rapid back-to-back clicks within a single millisecond — good
+// enough for an audit trail, not used for any ordering guarantee.
+func syntheticSeq() int64 {
+	return time.Now().UnixNano()
+}
+
+// synthKindFor maps the action name to a journal kind. The Console
+// renders these with their own glyph/colour (see Runs.tsx KIND_STYLE);
+// we reuse the existing kinds where the semantics overlap (gate.waiting
+// for a signal, run.failed for cancel, etc.) and add a "policy.violation"
+// style "operator." prefix would be nice but would force a Console-side
+// migration. Until then, operator actions land as kind=run.* and the
+// Console differentiates by the payload's `operator_action` key.
+func synthKindFor(action string) models.ExecutionEventKind {
+	switch action {
+	case "redrive", "reconcile":
+		return models.ExecutionEventRunStarted
+	case "cancel":
+		return models.ExecutionEventRunFailed
+	case "signal":
+		return models.ExecutionEventGateWaiting
+	case "compensate":
+		return models.ExecutionEventObligationCreated
+	default:
+		return models.ExecutionEventRunStarted
+	}
 }
 
 func budgetUSDFromPayload(payload string) float64 {

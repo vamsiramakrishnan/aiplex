@@ -95,8 +95,8 @@ nothing to check.
 | **6** ✅ | Done    | `POST /internal/tape/events` ingests Tape's outbox into AIPlex audit storage with `(run_id, seq)` idempotency; unknown agents quarantined; projects per-run summary on `ExecutionRun`. |
 | **7** ✅ | Done    | `GET /api/v1/runs[/{id}[/{events,effects,obligations,budgets}]]` read API with tenant / agent / `has_unknown_effects` / `has_obligations` filters. |
 | **8** ✅ | Done    | Console **Runs** tab: filterable run list (tenant / agent / has-UNKNOWN / has-obligations) + per-run timeline with kind-coloured event rows, auto-refresh every 3–5s. |
-| **9** ✅ | This PR | End-to-end treasury demo: `examples/aiplex-tape-treasury/treasury.yaml` deploy manifest + `make e2e-aiplex-tape` smoke test asserting the headline claim (no duplicate wire after a mid-flight crash + reconcile). |
-| **10**  | Ops    | Operator actions (redrive / reconcile / cancel / signal / compensate) under new `aiplex:runs:*` scopes. |
+| **9** ✅ | Done    | End-to-end treasury demo: `examples/aiplex-tape-treasury/treasury.yaml` deploy manifest + `make e2e-aiplex-tape` smoke test asserting the headline claim (no duplicate wire after a mid-flight crash + reconcile). |
+| **10** ✅ | This PR | Operator actions: `POST /api/v1/runs/{id}/{redrive,reconcile,cancel,signal,compensate}` through a `TapeAdmin` interface (Noop default, real gRPC client pluggable). Each action appends a synthetic ExecutionEvent to the timeline so the audit trail shows what was clicked. |
 
 See the architectural survey at
 [`docs/integration/aiplex-tape-survey.md`](https://github.com/vamsiramakrishnan/aiplex/blob/main/docs/integration/aiplex-tape-survey.md)

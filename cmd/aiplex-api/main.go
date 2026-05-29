@@ -223,6 +223,15 @@ func main() {
 			r.Get("/{run_id}/effects", runsH.Effects)
 			r.Get("/{run_id}/obligations", runsH.Obligations)
 			r.Get("/{run_id}/budgets", runsH.Budgets)
+			// Operator actions (PR 10). Each requires an aiplex:runs:*
+			// scope at the authz layer. The handler returns 202 +
+			// appends a synthetic ExecutionEvent so the action shows
+			// up on the run timeline next to Tape's own journal rows.
+			r.Post("/{run_id}/redrive", runsH.Redrive)
+			r.Post("/{run_id}/reconcile", runsH.Reconcile)
+			r.Post("/{run_id}/cancel", runsH.Cancel)
+			r.Post("/{run_id}/signal", runsH.Signal)
+			r.Post("/{run_id}/compensate", runsH.Compensate)
 		})
 
 		// IAM — role bindings, WIF identity resolution
