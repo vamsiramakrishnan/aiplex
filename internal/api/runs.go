@@ -5,11 +5,43 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
+
+func parseIntDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
+}
+
+func pathParam(r *http.Request, name string) string {
+	return chi.URLParam(r, name)
+}
+
+func writeJSON(w http.ResponseWriter, code int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func writeStoreError(w http.ResponseWriter, err error) {
+	if errors.Is(err, registry.ErrNotFound) {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	http.Error(w, err.Error(), http.StatusInternalServerError)
+}
 
 // RunsHandler serves the AIPlex ↔ Tape audit ingestion endpoint and
 // (PR 7) the read API on top of the projected events.
@@ -187,6 +219,138 @@ func applyEventToRun(run *models.ExecutionRun, ev *models.ExecutionEvent) {
 			run.BudgetUSDCharged += amount
 		}
 	}
+}
+
+// ── Read API (AIPlex integration PR 7) ───────────────────────────────────
+//
+// All routes mounted under /api/v1/runs/* require the aiplex:runs:read
+// scope at the gateway authz layer (the JWT-scope check in
+// policies/aiplex_authz.rego). Operator-action scopes — redrive /
+// reconcile / cancel / signal / compensate — arrive in PR 10.
+
+// List returns the most recent runs for a tenant / agent.
+//   GET /api/v1/runs?tenant_id=...&agent_id=...&limit=100
+func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	q := r.URL.Query()
+	limit := parseIntDefault(q.Get("limit"), 100)
+	runs, err := h.store.ListExecutionRuns(ctx, q.Get("tenant_id"), q.Get("agent_id"), limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Optional client-side filters that don't need a separate query
+	// path: hide finished runs / show only those with unresolved
+	// follow-ups. Cheap to compute in-memory because the store already
+	// capped the result set.
+	if q.Get("has_unknown_effects") == "true" {
+		runs = filterRuns(runs, func(rn models.ExecutionRun) bool {
+			return rn.UnknownEffects > 0
+		})
+	}
+	if q.Get("has_obligations") == "true" {
+		runs = filterRuns(runs, func(rn models.ExecutionRun) bool {
+			return rn.Obligations > 0
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+}
+
+// Get returns one run's projected summary.
+//   GET /api/v1/runs/{run_id}
+func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := pathParam(r, "run_id")
+	run, err := h.store.GetExecutionRun(ctx, runID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, run)
+}
+
+// Events returns the ordered timeline for one run.
+//   GET /api/v1/runs/{run_id}/events?from_seq=0&limit=1000
+func (h *RunsHandler) Events(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := pathParam(r, "run_id")
+	q := r.URL.Query()
+	fromSeq := int64(parseIntDefault(q.Get("from_seq"), 0))
+	limit := parseIntDefault(q.Get("limit"), 1000)
+	events, err := h.store.ListExecutionEvents(ctx, runID, fromSeq, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
+}
+
+// Effects returns just the effect-kind events for a run. Useful for the
+// Console's "what did this agent attempt to do" panel without
+// shuttling decision / gate / budget noise.
+//   GET /api/v1/runs/{run_id}/effects
+func (h *RunsHandler) Effects(w http.ResponseWriter, r *http.Request) {
+	h.filteredEvents(w, r, isEffectKind, "effects")
+}
+
+// Obligations returns the obligation.* events for a run.
+//   GET /api/v1/runs/{run_id}/obligations
+func (h *RunsHandler) Obligations(w http.ResponseWriter, r *http.Request) {
+	h.filteredEvents(w, r, isObligationKind, "obligations")
+}
+
+// Budgets returns the budget.* events for a run.
+//   GET /api/v1/runs/{run_id}/budgets
+func (h *RunsHandler) Budgets(w http.ResponseWriter, r *http.Request) {
+	h.filteredEvents(w, r, isBudgetKind, "budgets")
+}
+
+func (h *RunsHandler) filteredEvents(w http.ResponseWriter, r *http.Request,
+	keep func(models.ExecutionEventKind) bool, fieldName string) {
+	ctx := r.Context()
+	runID := pathParam(r, "run_id")
+	all, err := h.store.ListExecutionEvents(ctx, runID, 0, 10000)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out := make([]models.ExecutionEvent, 0, len(all))
+	for _, ev := range all {
+		if keep(ev.Kind) {
+			out = append(out, ev)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{fieldName: out})
+}
+
+func isEffectKind(k models.ExecutionEventKind) bool {
+	switch k {
+	case models.ExecutionEventEffectBegin,
+		models.ExecutionEventEffectConfirmed,
+		models.ExecutionEventEffectFailed,
+		models.ExecutionEventEffectUnknown,
+		models.ExecutionEventEffectDuplicate:
+		return true
+	}
+	return false
+}
+
+func isObligationKind(k models.ExecutionEventKind) bool {
+	return k == models.ExecutionEventObligationCreated
+}
+
+func isBudgetKind(k models.ExecutionEventKind) bool {
+	return k == models.ExecutionEventBudgetCharged
+}
+
+func filterRuns(runs []models.ExecutionRun, keep func(models.ExecutionRun) bool) []models.ExecutionRun {
+	out := make([]models.ExecutionRun, 0, len(runs))
+	for _, r := range runs {
+		if keep(r) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func budgetUSDFromPayload(payload string) float64 {

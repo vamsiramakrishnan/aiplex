@@ -92,8 +92,8 @@ nothing to check.
 | --- | --- | --- |
 | **4** ✅ | Done    | `Instance.Runtime` field + validation + the example above. |
 | **5** ✅ | Done    | The deploy engine reads `Instance.Runtime` and emits `tape-server` + `tape-reactors` manifests in `aiplex-system` (env-scoped, one per environment), and injects `TAPE_URL` + `AIPLEX_*` env vars onto the agent pod. |
-| **6** ✅ | This PR | `POST /internal/tape/events` ingests Tape's outbox into AIPlex audit storage with `(run_id, seq)` idempotency; unknown agents quarantined; projects per-run summary on `ExecutionRun`. |
-| **7**   | Soon   | `/api/runs/...` read API on top of the ingested events. |
+| **6** ✅ | Done    | `POST /internal/tape/events` ingests Tape's outbox into AIPlex audit storage with `(run_id, seq)` idempotency; unknown agents quarantined; projects per-run summary on `ExecutionRun`. |
+| **7** ✅ | This PR | `GET /api/v1/runs[/{id}[/{events,effects,obligations,budgets}]]` read API with tenant / agent / `has_unknown_effects` / `has_obligations` filters. |
 | **8**   | Soon   | Console "Runs" tab projecting the run timeline. |
 | **9**   | Demo   | End-to-end treasury demo (`aiplex dev up --with-tape`). |
 | **10**  | Ops    | Operator actions (redrive / reconcile / cancel / signal / compensate) under new `aiplex:runs:*` scopes. |

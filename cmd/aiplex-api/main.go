@@ -210,6 +210,21 @@ func main() {
 			r.Post("/denials", dashH.RecordPolicyDenial)
 		})
 
+		// Runs — AIPlex ↔ Tape run timeline (AIPlex integration PR 7).
+		// Read-only projection of Tape's journal, indexed by tenant /
+		// agent / actor / subject for the Console. Requires
+		// aiplex:runs:read at the gateway authz layer; operator
+		// actions (redrive / reconcile / cancel / signal / compensate)
+		// arrive in PR 10 under aiplex:runs:* scopes.
+		r.Route("/runs", func(r chi.Router) {
+			r.Get("/", runsH.List)
+			r.Get("/{run_id}", runsH.Get)
+			r.Get("/{run_id}/events", runsH.Events)
+			r.Get("/{run_id}/effects", runsH.Effects)
+			r.Get("/{run_id}/obligations", runsH.Obligations)
+			r.Get("/{run_id}/budgets", runsH.Budgets)
+		})
+
 		// IAM — role bindings, WIF identity resolution
 		r.Route("/iam", func(r chi.Router) {
 			r.Get("/roles", iamH.ListRoles)
