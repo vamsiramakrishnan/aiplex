@@ -12,6 +12,7 @@ import Deploy from './pages/Deploy'
 import Permissions from './pages/Permissions'
 import Login from './pages/Login'
 import InstanceDetail from './pages/InstanceDetail'
+import Runs from './pages/Runs'
 import CommandPalette from './components/CommandPalette'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -45,6 +46,7 @@ function AppRoutes() {
           <Route path="/llmplex" element={<LLMPlex />} />
           <Route path="/skillsplex" element={<SkillsPlex />} />
           <Route path="/agents" element={<Agents />} />
+          <Route path="/runs" element={<Runs />} />
           <Route path="/deploy" element={<Deploy />} />
           <Route path="/permissions" element={<Permissions />} />
           <Route path="/instances/:id" element={<InstanceDetail />} />
