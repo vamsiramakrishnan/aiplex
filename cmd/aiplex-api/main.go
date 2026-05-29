@@ -130,6 +130,17 @@ func main() {
 	iamH := api.NewIAMHandler(store, wifValidator)
 	sseH := api.NewSSEHandler(store)
 	runsH := api.NewRunsHandler(store)
+	// PR 11 item 3: real Tape admin client when TAPE_URL is set.
+	// Falls back to NoopTapeAdmin (the default) in dev paths where
+	// no tape-server is reachable, so the API still starts cleanly.
+	if tapeAdmin, ok := api.NewGRPCTapeAdmin(); ok {
+		runsH = runsH.WithTapeAdmin(tapeAdmin)
+		defer tapeAdmin.Close()
+		log.Info().Str("tape_url", os.Getenv("TAPE_URL")).
+			Msg("Tape admin client wired (operator actions live)")
+	} else {
+		log.Warn().Msg("TAPE_URL not set — operator actions are no-ops (NoopTapeAdmin)")
+	}
 
 	// Router
 	r := chi.NewRouter()
