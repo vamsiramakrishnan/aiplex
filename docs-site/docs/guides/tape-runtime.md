@@ -90,8 +90,8 @@ nothing to check.
 
 | PR | Lands | What it does |
 | --- | --- | --- |
-| **4** ✅ | This PR | `Instance.Runtime` field + validation + the example above. The field round-trips through storage and the API but does not yet change deploy behavior. |
-| **5**   | Next   | The deploy engine reads `Instance.Runtime` and emits `tape-server` + `tape-reactors` manifests + env-var injection (`AIPLEX_*`, `TAPE_URL`) on the agent pod. |
+| **4** ✅ | Done    | `Instance.Runtime` field + validation + the example above. |
+| **5** ✅ | This PR | The deploy engine reads `Instance.Runtime` and emits `tape-server` + `tape-reactors` manifests in `aiplex-system` (env-scoped, one per environment), and injects `TAPE_URL` + `AIPLEX_*` env vars onto the agent pod. |
 | **6**   | Soon   | `/internal/tape/events` ingestion endpoint reads Tape's outbox into AIPlex audit storage with `(run_id, seq)` idempotency. |
 | **7**   | Soon   | `/api/runs/...` read API on top of the ingested events. |
 | **8**   | Soon   | Console "Runs" tab projecting the run timeline. |
