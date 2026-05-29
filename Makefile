@@ -57,6 +57,9 @@ test-coverage: ## Run tests with coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+e2e-aiplex-tape: ## Run the AIPlex+Tape end-to-end demo as an in-process smoke test
+	$(GO) test ./tests/... -run "AIPlexTape" -v -count=1
+
 # ─── Lint ───────────────────────────────────────────────
 
 lint: ## Run Go vet
