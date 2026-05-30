@@ -150,6 +150,30 @@ See the architectural survey at
 [`docs/integration/aiplex-tape-survey.md`](https://github.com/vamsiramakrishnan/aiplex/blob/main/docs/integration/aiplex-tape-survey.md)
 for the full file-paths and shapes of each PR.
 
+## Rollback
+
+The Tape integration spans 13 PRs across two repositories. If something goes
+wrong, you can disable layers independently — top-down, smallest blast radius
+first.
+
+| What broke | Knob | Effect |
+| --- | --- | --- |
+| Retention reactor is mis-compacting or hammering Tape | `AIPLEX_RETENTION_ENABLED=0` on the AIPlex API pod, then restart | Reactor stops on the next tick. Already-compacted runs stay compacted (Tape has the authoritative state). |
+| Operator action gRPC calls are failing or wrong | unset `TAPE_URL` on the AIPlex API pod | `GRPCTapeAdmin` falls back to `NoopTapeAdmin`; operator-action buttons in the Console still write to `operator_audit` but never call Tape. Manual fixes go through `tape-cli` directly. |
+| AIPlexSink is flooding `/internal/tape/events` | set `TAPE_OUTBOX_SINK=` (empty) on the agent pod | The sink stops POSTing. Events queue in the outbox; resume later by setting the var back. |
+| A single Tape-backed Instance is misbehaving | edit the Instance, set `runtime.engine: none`, redeploy | The pod restarts without `TAPE_*` env vars; the next run uses the v1 (non-durable) path. Existing runs in Tape are unaffected. |
+| The whole integration is regressing in prod | helm rollback to the pre-Tape revision in `aiplex-system` | Removes `tape-server`, the reactors deployment, and the retention env vars in one shot. Agent pods continue with whatever `Runtime` they were last deployed with — Set `engine: none` on each before rolling back if you want a hard cut. |
+| The retention compactor zeroed payloads you needed back | n/a (one-way) | Compaction is destructive. The audit envelope (kind, seq, scope, tool, business_key, status) survives forever; request/response bodies don't. Lengthen `compact_after_days` ahead of time for instances you care about. |
+
+The order matters: `AIPLEX_RETENTION_ENABLED=0` is the smallest disable and
+should be the first move. `engine: none` is the largest at the per-instance
+level. Full helm rollback is the nuclear option.
+
+What rollback **doesn't** do: it can't unwind Tape's journal. Once a `BeginRun`
+has landed, the run exists in `tape_runs` and the journal entries for it stay
+there until retention deletes them (or you `tape-cli runs purge`). This is by
+design — the journal is the auditable truth.
+
 ## Why a value, not a pointer
 
 `Instance.Runtime` is a `RuntimeConfig` value rather than `*RuntimeConfig`

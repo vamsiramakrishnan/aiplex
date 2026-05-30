@@ -90,16 +90,38 @@ func tenantFromLabels(labels map[string]string) string {
 	return "default"
 }
 
+// labelKeysWithDedicatedColumns are the identity keys that already get
+// their own AIPLEX_* env var (and therefore their own column on
+// tape_runs). Carrying them in AIPLEX_LABELS too writes the same value
+// into both `tenant_id` AND `labels_json` on every journal row — bytes
+// the compactor can never recover. Strip them before serialising.
+var labelKeysWithDedicatedColumns = map[string]struct{}{
+	"aiplex.tenant":   {}, // → AIPLEX_TENANT_ID → tape_runs.tenant_id
+	"aiplex.actor":    {}, // → AIPLEX_ACTOR     → tape_runs.actor
+	"aiplex.subject":  {}, // → AIPLEX_SUBJECT   → tape_runs.subject
+	"aiplex.agent":    {}, // → AIPLEX_AGENT_ID  → tape_runs.agent_id
+	"aiplex.instance": {}, // → AIPLEX_INSTANCE_ID → tape_runs.aiplex_instance_id
+	"aiplex.route":    {}, // → AIPLEX_ROUTE     → tape_runs.gateway_route
+}
+
 // serializeLabels turns the instance's labels map into the
 // "k=v,k=v"-style string that RunIdentity.from_env parses. Sorted so
-// the manifest YAML is byte-stable across deploys.
+// the manifest YAML is byte-stable across deploys, and stripped of
+// any key already projected to a dedicated identity column so we don't
+// double-write the same value on every journal row.
 func serializeLabels(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""
 	}
 	keys := make([]string, 0, len(labels))
 	for k := range labels {
+		if _, dedicated := labelKeysWithDedicatedColumns[k]; dedicated {
+			continue
+		}
 		keys = append(keys, k)
+	}
+	if len(keys) == 0 {
+		return ""
 	}
 	sort.Strings(keys)
 	parts := make([]string, 0, len(keys))

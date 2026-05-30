@@ -104,8 +104,10 @@ func TestGenerateManifests_TapeEnvInjection(t *testing.T) {
 		"AIPLEX_SUBJECT":     "vamsi@example.com",
 		"AIPLEX_ROUTE":       "/a2a/" + inst.ID,
 		"AIPLEX_SCOPES":      "mcp:tools:bank_wire llm:model:gemini-2.5-pro",
-		// labels sorted: aiplex.plane,aiplex.tenant
-		"AIPLEX_LABELS": "aiplex.plane=a2a,aiplex.tenant=acme",
+		// labels sorted: aiplex.plane only. aiplex.tenant is stripped
+		// because it already lives on tape_runs.tenant_id (see
+		// labelKeysWithDedicatedColumns in tape.go).
+		"AIPLEX_LABELS": "aiplex.plane=a2a",
 	}
 	for k, v := range wantEnv {
 		// Check `- name: K` appears immediately followed by the value
@@ -118,6 +120,15 @@ func TestGenerateManifests_TapeEnvInjection(t *testing.T) {
 		if !strings.Contains(agentDeploy, v) {
 			t.Errorf("env %s: expected value %q to appear in YAML, not found", k, v)
 		}
+	}
+
+	// Regression guard for the dedicated-columns strip: aiplex.tenant
+	// gets its own AIPLEX_TENANT_ID env var and its own tape_runs
+	// column. It must not also appear inside AIPLEX_LABELS — that would
+	// write the same value into labels_json on every journal row.
+	if strings.Contains(agentDeploy, "aiplex.plane=a2a,aiplex.tenant=acme") ||
+		strings.Contains(agentDeploy, "aiplex.tenant=acme,aiplex.plane=a2a") {
+		t.Errorf("AIPLEX_LABELS leaks aiplex.tenant — should be stripped because tenant_id has a dedicated column")
 	}
 }
 
