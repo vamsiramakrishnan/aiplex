@@ -2,6 +2,7 @@ package deploy
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
@@ -18,6 +19,13 @@ type Manifest struct {
 // GenerateManifests produces all K8s resources needed for a deployment.
 // For MCPlex/A2APlex: ServiceAccount, Deployment, Service, NetworkPolicy.
 // For LLMPlex: no K8s workloads (Envoy handles model routing directly).
+//
+// When inst.Runtime.Engine == "tape" the result also includes the
+// env-scoped tape-server + tape-reactors resources (idempotent on
+// (Namespace, Name) so re-applying across multiple Tape-backed agents
+// is a no-op after the first), and the agent's Deployment gets the
+// AIPLEX_* + TAPE_URL env vars injected for the Python SDK's
+// `RunIdentity.from_env()` to read.
 func GenerateManifests(inst *models.Instance, tmpl *models.Template, trustDomain string) []Manifest {
 	if inst.Plane == models.PlaneLLMPlex {
 		return nil // Envoy AI Gateway handles LLM routing — no pods needed
@@ -31,13 +39,43 @@ func GenerateManifests(inst *models.Instance, tmpl *models.Template, trustDomain
 	}
 
 	spiffeID := fmt.Sprintf("spiffe://%s/ns/%s/sa/%s", trustDomain, ns, name)
+	extraEnv := tapeAgentEnv(inst, "")
+	configEnv := filterRuntimeEnv(inst.Config)
 
-	return []Manifest{
+	manifests := []Manifest{
 		serviceAccount(name, ns, spiffeID),
-		deployment(name, ns, image, inst.Config, inst.Replicas),
+		deployment(name, ns, image, configEnv, extraEnv, inst.Replicas),
 		service(name, ns),
 		networkPolicy(name, ns),
 	}
+	manifests = append(manifests, tapeRuntimeManifests(inst)...)
+	return manifests
+}
+
+// filterRuntimeEnv drops AIPlex-internal config keys from the template
+// env-var loop so they don't land on the pod as confusing
+// FORCE_RUNTIME_CHANGE=true env vars. The runtime config has its own
+// dedicated path (tapeRuntimeManifests + tapeAgentEnv).
+//
+// Internal keys:
+//   * runtime               — RuntimeConfig block (handled separately)
+//   * force_runtime_change  — bypass flag for PR 11 item 16
+func filterRuntimeEnv(config map[string]any) map[string]any {
+	if config == nil {
+		return nil
+	}
+	internal := map[string]struct{}{
+		"runtime":              {},
+		"force_runtime_change": {},
+	}
+	out := make(map[string]any, len(config))
+	for k, v := range config {
+		if _, isInternal := internal[k]; isInternal {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 func serviceAccount(name, ns, spiffeID string) Manifest {
@@ -61,15 +99,30 @@ metadata:
 	}
 }
 
-func deployment(name, ns, image string, config map[string]any, replicas int) Manifest {
+func deployment(name, ns, image string, config map[string]any, extra map[string]string, replicas int) Manifest {
 	if replicas <= 0 {
 		replicas = 1
 	}
 
-	// Build env vars from config
+	// Build env vars from config + extras. Sort both so the YAML is
+	// byte-stable across deploys (otherwise map iteration order
+	// produces noisy diffs in K8s `apply --diff`).
 	envYAML := ""
-	for k, v := range config {
-		envYAML += fmt.Sprintf("        - name: %s\n          value: \"%v\"\n", k, v)
+	configKeys := make([]string, 0, len(config))
+	for k := range config {
+		configKeys = append(configKeys, k)
+	}
+	sort.Strings(configKeys)
+	for _, k := range configKeys {
+		envYAML += fmt.Sprintf("        - name: %s\n          value: \"%v\"\n", k, config[k])
+	}
+	extraKeys := make([]string, 0, len(extra))
+	for k := range extra {
+		extraKeys = append(extraKeys, k)
+	}
+	sort.Strings(extraKeys)
+	for _, k := range extraKeys {
+		envYAML += fmt.Sprintf("        - name: %s\n          value: %q\n", k, extra[k])
 	}
 
 	return Manifest{

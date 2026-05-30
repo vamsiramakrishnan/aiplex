@@ -9,6 +9,7 @@ const navItems = [
   { to: '/llmplex', label: 'LLMPlex' },
   { to: '/skillsplex', label: 'SkillsPlex' },
   { to: '/agents', label: 'Agents' },
+  { to: '/runs', label: 'Runs' },
   { to: '/permissions', label: 'Permissions' },
 ]
 
@@ -19,6 +20,7 @@ const routeLabels: Record<string, string> = {
   llmplex: 'LLMPlex',
   skillsplex: 'SkillsPlex',
   agents: 'Agents',
+  runs: 'Runs',
   permissions: 'Permissions',
   deploy: 'Deploy',
   instances: 'Instances',

@@ -77,6 +77,36 @@ type Store interface {
 	ListRoleBindingsByGroup(ctx context.Context, group string) ([]models.RoleBinding, error)
 	PutRoleBinding(ctx context.Context, rb *models.RoleBinding) error
 	DeleteRoleBinding(ctx context.Context, id string) error
+
+	// AIPlex ↔ Tape audit ingestion (PR 6).
+	//
+	// Tape's outbox relay POSTs events to /internal/tape/events; the
+	// handler dedupes on (RunID, Seq), quarantines events for unknown
+	// agents, and updates the ExecutionRun projection.
+	//
+	// AppendExecutionEvent returns (true, nil) when the row was newly
+	// written, (false, nil) when it was a duplicate (idempotent no-op),
+	// or (false, err) on a real error.
+	AppendExecutionEvent(ctx context.Context, ev *models.ExecutionEvent) (bool, error)
+	QuarantineExecutionEvent(ctx context.Context, q *models.QuarantinedExecutionEvent) error
+	GetExecutionRun(ctx context.Context, runID string) (*models.ExecutionRun, error)
+	UpsertExecutionRun(ctx context.Context, run *models.ExecutionRun) error
+	DeleteExecutionRun(ctx context.Context, runID string) error
+	ListExecutionRuns(ctx context.Context, tenantID, agentID string, limit int) ([]models.ExecutionRun, error)
+	ListExecutionEvents(ctx context.Context, runID string, fromSeq int64, limit int) ([]models.ExecutionEvent, error)
+	// Last-ingest timestamp drives the Runs page health checklist
+	// (PR 11 item 13) — "have we received any events recently?"
+	LastIngestAt(ctx context.Context) (time.Time, error)
+
+	// AIPlex ↔ Tape operator audit (PR 11 item 8). Distinct from
+	// ExecutionEvent so projection rebuild from Tape's outbox doesn't
+	// drop operator history.
+	AppendOperatorAudit(ctx context.Context, a *models.OperatorAudit) error
+	ListOperatorAudit(ctx context.Context, runID string, limit int) ([]models.OperatorAudit, error)
+
+	// Count instances whose Runtime.Engine matches — drives the
+	// tape-server lifecycle status endpoint (PR 11 item 17).
+	CountInstancesWithRuntime(ctx context.Context, engine models.RuntimeEngine) (int, error)
 }
 
 // ErrNotFound is returned when a resource does not exist.
@@ -98,6 +128,13 @@ type MemoryStore struct {
 	skillInvocations []models.SkillInvocation
 	policyDenials   []models.PolicyDenial
 	roleBindings    map[string]*models.RoleBinding
+	// Execution audit (AIPlex ↔ Tape integration PR 6 + PR 11).
+	executionEvents      map[string][]models.ExecutionEvent             // runID → events (append-only)
+	executionEventKeys   map[string]struct{}                            // "<runID>/<seq>" idempotency set
+	executionRuns        map[string]*models.ExecutionRun                // runID → projected summary
+	executionQuarantine  []models.QuarantinedExecutionEvent             // unknown-agent quarantine
+	lastIngest           time.Time                                       // PR 11 item 13
+	operatorAudit        map[string][]models.OperatorAudit               // runID → audit rows (PR 11 item 8)
 }
 
 // NewMemoryStore creates an empty in-memory store.
@@ -111,6 +148,10 @@ func NewMemoryStore() *MemoryStore {
 		providerConfigs: make(map[string]*models.ProviderConfig),
 		delegations:     make(map[string]*models.Delegation),
 		roleBindings:    make(map[string]*models.RoleBinding),
+		executionEvents:    make(map[string][]models.ExecutionEvent),
+		executionEventKeys: make(map[string]struct{}),
+		executionRuns:      make(map[string]*models.ExecutionRun),
+		operatorAudit:      make(map[string][]models.OperatorAudit),
 	}
 }
 
@@ -578,4 +619,167 @@ func (m *MemoryStore) DeleteRoleBinding(_ context.Context, id string) error {
 	}
 	delete(m.roleBindings, id)
 	return nil
+}
+
+// ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────
+
+// AppendExecutionEvent stores one event. Returns wrote=true on a fresh
+// row, wrote=false on a duplicate (idempotent on (RunID, Seq)).
+//
+// Out-of-order events are persisted in the order they arrive and sorted
+// at read time — the projection (UpsertExecutionRun) doesn't depend on
+// ordered ingest because every counter is monotonic-by-kind.
+func (m *MemoryStore) AppendExecutionEvent(_ context.Context, ev *models.ExecutionEvent) (bool, error) {
+	if ev == nil || ev.RunID == "" {
+		return false, fmt.Errorf("execution event: run_id required")
+	}
+	key := fmt.Sprintf("%s/%d", ev.RunID, ev.Seq)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, dup := m.executionEventKeys[key]; dup {
+		return false, nil
+	}
+	m.executionEventKeys[key] = struct{}{}
+	m.executionEvents[ev.RunID] = append(m.executionEvents[ev.RunID], *ev)
+	m.lastIngest = time.Now()
+	return true, nil
+}
+
+func (m *MemoryStore) QuarantineExecutionEvent(_ context.Context, q *models.QuarantinedExecutionEvent) error {
+	if q == nil {
+		return fmt.Errorf("quarantine: nil event")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.executionQuarantine = append(m.executionQuarantine, *q)
+	return nil
+}
+
+func (m *MemoryStore) GetExecutionRun(_ context.Context, runID string) (*models.ExecutionRun, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	run, ok := m.executionRuns[runID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	// Defensive copy so callers can't mutate through the pointer.
+	cp := *run
+	return &cp, nil
+}
+
+func (m *MemoryStore) UpsertExecutionRun(_ context.Context, run *models.ExecutionRun) error {
+	if run == nil || run.RunID == "" {
+		return fmt.Errorf("upsert execution run: run_id required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *run
+	m.executionRuns[run.RunID] = &cp
+	return nil
+}
+
+func (m *MemoryStore) ListExecutionRuns(_ context.Context, tenantID, agentID string, limit int) ([]models.ExecutionRun, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]models.ExecutionRun, 0, limit)
+	for _, r := range m.executionRuns {
+		if tenantID != "" && r.TenantID != tenantID {
+			continue
+		}
+		if agentID != "" && r.AgentID != agentID {
+			continue
+		}
+		out = append(out, *r)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (m *MemoryStore) ListExecutionEvents(_ context.Context, runID string, fromSeq int64, limit int) ([]models.ExecutionEvent, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	events := m.executionEvents[runID]
+	out := make([]models.ExecutionEvent, 0, len(events))
+	for _, e := range events {
+		if e.Seq < fromSeq {
+			continue
+		}
+		out = append(out, e)
+		if len(out) >= limit {
+			break
+		}
+	}
+	// Sort by seq so callers see a stable timeline regardless of
+	// ingest order (out-of-order events are allowed at the wire level).
+	sortExecutionEvents(out)
+	return out, nil
+}
+
+func sortExecutionEvents(es []models.ExecutionEvent) {
+	for i := 1; i < len(es); i++ {
+		for j := i; j > 0 && es[j-1].Seq > es[j].Seq; j-- {
+			es[j-1], es[j] = es[j], es[j-1]
+		}
+	}
+}
+
+// ── PR 11 extensions ──────────────────────────────────────────────────────
+
+func (m *MemoryStore) DeleteExecutionRun(_ context.Context, runID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.executionRuns, runID)
+	return nil
+}
+
+func (m *MemoryStore) LastIngestAt(_ context.Context) (time.Time, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastIngest, nil
+}
+
+func (m *MemoryStore) AppendOperatorAudit(_ context.Context, a *models.OperatorAudit) error {
+	if a == nil || a.RunID == "" {
+		return fmt.Errorf("operator audit: run_id required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *a
+	m.operatorAudit[a.RunID] = append(m.operatorAudit[a.RunID], cp)
+	return nil
+}
+
+func (m *MemoryStore) ListOperatorAudit(_ context.Context, runID string, limit int) ([]models.OperatorAudit, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	rows := m.operatorAudit[runID]
+	if len(rows) > limit {
+		rows = rows[len(rows)-limit:]
+	}
+	out := make([]models.OperatorAudit, len(rows))
+	copy(out, rows)
+	return out, nil
+}
+
+func (m *MemoryStore) CountInstancesWithRuntime(_ context.Context, engine models.RuntimeEngine) (int, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n := 0
+	for _, inst := range m.instances {
+		if inst.Runtime.Engine == engine {
+			n++
+		}
+	}
+	return n, nil
 }

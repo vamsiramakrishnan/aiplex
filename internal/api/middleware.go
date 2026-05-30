@@ -1,17 +1,26 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
@@ -293,6 +302,278 @@ func ValidatePlane(next http.Handler) http.Handler {
 		if !validPlanes[plane] {
 			Error(w, r, http.StatusBadRequest, "INVALID_PLANE",
 				"plane must be one of: mcplex, a2aplex, llmplex")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ── AIPlex ↔ Tape integration (PR 11) ────────────────────────────────────
+
+// BearerToken is a strict bearer-token middleware for internal endpoints
+// (currently /internal/tape/events and /internal/projections/*). Compares
+// the Authorization header against `envVar`; missing or wrong token →
+// 401. Empty `envVar` value at startup means the route is disabled
+// rather than open (defence in depth — a misconfigured deploy fails
+// closed, not open).
+//
+// Distinct from WIFAuth: that handles user JWTs and is non-blocking
+// (proceeds without identity for dev paths). This one is strict and
+// terminates the request on mismatch.
+func BearerToken(envVar string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			expected := os.Getenv(envVar)
+			if expected == "" {
+				log.Ctx(r.Context()).Error().Str("env", envVar).
+					Msg("bearer token env var is empty — route disabled")
+				Error(w, r, http.StatusServiceUnavailable, "AUTH_DISABLED",
+					"this endpoint is not configured (set "+envVar+")")
+				return
+			}
+			auth := r.Header.Get("Authorization")
+			const prefix = "Bearer "
+			if !strings.HasPrefix(auth, prefix) {
+				Error(w, r, http.StatusUnauthorized, "UNAUTHENTICATED",
+					"Bearer token required")
+				return
+			}
+			if subtle.ConstantTimeCompare([]byte(auth[len(prefix):]), []byte(expected)) != 1 {
+				Error(w, r, http.StatusUnauthorized, "UNAUTHENTICATED",
+					"invalid token")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// IPRateLimit is a token-bucket rate limiter keyed by source IP. Used
+// on the high-volume ingestion endpoint where one busy Tape outbox
+// could otherwise flood AIPlex's projection storage. Per-IP because
+// internal endpoints are mesh-only — the source IP IS the caller
+// identity. Production-grade: lazy creation, periodic GC of stale
+// buckets, configurable via env (default 1000 ev/sec/IP).
+func IPRateLimit(eventsPerSecond float64, burst int) func(http.Handler) http.Handler {
+	if eventsPerSecond <= 0 {
+		eventsPerSecond = 1000
+	}
+	if burst <= 0 {
+		burst = int(eventsPerSecond)
+	}
+	type entry struct {
+		limiter  *rate.Limiter
+		lastUsed time.Time
+	}
+	var mu sync.Mutex
+	buckets := make(map[string]*entry)
+
+	// GC stale buckets every 5 minutes so a long-running server doesn't
+	// accumulate one entry per source IP it's ever seen.
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		for range ticker.C {
+			mu.Lock()
+			cutoff := time.Now().Add(-10 * time.Minute)
+			for k, e := range buckets {
+				if e.lastUsed.Before(cutoff) {
+					delete(buckets, k)
+				}
+			}
+			mu.Unlock()
+		}
+	}()
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := clientIP(r)
+			mu.Lock()
+			e, ok := buckets[ip]
+			if !ok {
+				e = &entry{limiter: rate.NewLimiter(rate.Limit(eventsPerSecond), burst)}
+				buckets[ip] = e
+			}
+			e.lastUsed = time.Now()
+			limiter := e.limiter
+			mu.Unlock()
+
+			if !limiter.Allow() {
+				w.Header().Set("Retry-After", "1")
+				Error(w, r, http.StatusTooManyRequests, "RATE_LIMITED",
+					"events/sec per source IP exceeded; retry shortly")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// clientIP returns the request's source IP, preferring X-Forwarded-For
+// (set by the Envoy gateway in production) then RemoteAddr.
+func clientIP(r *http.Request) string {
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		// First entry is the original client; subsequent are proxies.
+		if comma := strings.IndexByte(v, ','); comma >= 0 {
+			return strings.TrimSpace(v[:comma])
+		}
+		return strings.TrimSpace(v)
+	}
+	// RemoteAddr is host:port — strip the port.
+	host := r.RemoteAddr
+	if i := strings.LastIndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	return host
+}
+
+// Idempotency caches operator-action responses keyed by Idempotency-Key
+// header (RFC 8235) or, when absent, by sha256(run_id, action, body).
+// Second call with the same key returns the cached response without
+// invoking the underlying handler — so a double-clicked redrive
+// doesn't drive Tape twice. 5-minute TTL.
+//
+// Implementation notes:
+//   - sync.Map for the table; entries expire via time.AfterFunc so
+//     there's no scanning goroutine.
+//   - Caches the full response body + status code; replays bit-exact.
+//   - Body is read once via io.ReadAll, then replayed downstream via
+//     bytes.NewReader so handlers see the original request shape.
+func Idempotency(actionFromPath func(*http.Request) string) func(http.Handler) http.Handler {
+	const ttl = 5 * time.Minute
+	type cached struct {
+		status int
+		hdrs   http.Header
+		body   []byte
+	}
+	var cache sync.Map // string → *cached
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Read body once so we can hash + replay.
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				Error(w, r, http.StatusBadRequest, "READ_BODY_FAILED", err.Error())
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+
+			key := r.Header.Get("Idempotency-Key")
+			if key == "" {
+				action := actionFromPath(r)
+				runID := chi.URLParam(r, "run_id")
+				h := sha256.Sum256(body)
+				key = fmt.Sprintf("%s|%s|%s", runID, action, hex.EncodeToString(h[:]))
+			}
+
+			if v, ok := cache.Load(key); ok {
+				c := v.(*cached)
+				for k, vv := range c.hdrs {
+					w.Header()[k] = vv
+				}
+				w.Header().Set("X-Idempotent-Replay", "true")
+				w.WriteHeader(c.status)
+				_, _ = w.Write(c.body)
+				return
+			}
+
+			// Capture the downstream response.
+			rec := &responseRecorder{ResponseWriter: w, status: 200, body: &bytes.Buffer{}}
+			next.ServeHTTP(rec, r)
+
+			// Cache only success-ish responses (2xx). Errors should
+			// fail loudly on each click so the operator can retry.
+			if rec.status >= 200 && rec.status < 300 {
+				c := &cached{
+					status: rec.status,
+					hdrs:   rec.Header().Clone(),
+					body:   rec.body.Bytes(),
+				}
+				cache.Store(key, c)
+				time.AfterFunc(ttl, func() { cache.Delete(key) })
+			}
+		})
+	}
+}
+
+// responseRecorder tees the downstream handler's response into a
+// buffer + the real writer simultaneously. Avoids the "buffer then
+// flush" pattern that breaks SSE; here we just need bytes for the
+// cache and the body has already been written when AfterFunc fires.
+type responseRecorder struct {
+	http.ResponseWriter
+	status int
+	body   *bytes.Buffer
+	wrote  bool
+}
+
+func (r *responseRecorder) WriteHeader(code int) {
+	if r.wrote {
+		return
+	}
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+	r.wrote = true
+}
+
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	if !r.wrote {
+		r.WriteHeader(http.StatusOK)
+	}
+	r.body.Write(b)
+	return r.ResponseWriter.Write(b)
+}
+
+// TenantFromContext returns the caller's tenant id and a flag
+// indicating whether they have the cross-tenant scope. Sources:
+//
+//   1. ResolvedAccess.Scopes — looks for `aiplex:tenant:<id>` and
+//      `aiplex:runs:read:cross_tenant`.
+//   2. WIFIdentity.Domain — the workforce identity's `hd` claim,
+//      mapped via env AIPLEX_DOMAIN_TENANT_MAP (k=v,k=v).
+//
+// Returns ("", false) when no tenant info is available; callers
+// decide whether to deny or fall through (the AIPLEX_REQUIRE_TENANT
+// env var, when "1", flips that to "deny by default").
+func TenantFromContext(ctx context.Context) (tenantID string, crossTenant bool) {
+	access := GetWIFAccess(ctx)
+	if access == nil {
+		return "", false
+	}
+	for _, scope := range access.Scopes {
+		switch {
+		case scope == "aiplex:runs:read:cross_tenant":
+			crossTenant = true
+		case strings.HasPrefix(scope, "aiplex:tenant:"):
+			tenantID = scope[len("aiplex:tenant:"):]
+		}
+	}
+	if tenantID == "" && access.Identity.Domain != "" {
+		// Optional convention: map workforce domain → tenant via env.
+		for _, pair := range strings.Split(os.Getenv("AIPLEX_DOMAIN_TENANT_MAP"), ",") {
+			if i := strings.IndexByte(pair, '='); i > 0 {
+				d, t := strings.TrimSpace(pair[:i]), strings.TrimSpace(pair[i+1:])
+				if d == access.Identity.Domain && t != "" {
+					tenantID = t
+					break
+				}
+			}
+		}
+	}
+	return tenantID, crossTenant
+}
+
+// RequireTenant returns 403 unless the caller has either a tenant
+// claim OR the cross-tenant scope. Wired on /api/v1/runs* in main.go.
+func RequireTenant(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if os.Getenv("AIPLEX_REQUIRE_TENANT") != "1" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		tenant, cross := TenantFromContext(r.Context())
+		if tenant == "" && !cross {
+			Error(w, r, http.StatusForbidden, "TENANT_REQUIRED",
+				"caller has no tenant claim and no cross-tenant scope")
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -57,6 +57,9 @@ test-coverage: ## Run tests with coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+e2e-aiplex-tape: ## Run the AIPlex+Tape end-to-end demo as an in-process smoke test
+	$(GO) test ./tests/... -run "AIPlexTape" -v -count=1
+
 # ─── Lint ───────────────────────────────────────────────
 
 lint: ## Run Go vet
@@ -69,6 +72,41 @@ run-local: ## Run API server locally (port 8080)
 		$(GO) run ./cmd/aiplex-api
 
 dev: docker-up run-local ## Start local deps + API server
+
+# ─── Dev with Tape (PR 11 item 14) ──────────────────────
+#
+# Brings up the full AIPlex ↔ Tape pipeline locally:
+#   1. Builds tape-server from the sibling durable-agents checkout
+#      (or skips with a clear error if it's not there).
+#   2. Starts tape-server on 127.0.0.1:7878 in the background.
+#   3. Starts the AIPlex API with TAPE_URL + TAPE_INGEST_TOKEN wired.
+# The user runs the agent + sink separately (see
+# examples/aiplex-tape-treasury/README.md). Ctrl-C kills both.
+TAPE_REPO ?= ../durable-agents
+TAPE_BIN  ?= $(TAPE_REPO)/tape/server/target/release/tape-server
+TAPE_INGEST_TOKEN ?= dev-token-aiplex-tape
+
+dev-tape: ## Start AIPlex API with tape-server alongside (full pipeline locally)
+	@if [ ! -d "$(TAPE_REPO)" ]; then \
+		echo "✗ Tape repo not at $(TAPE_REPO). Clone vamsiramakrishnan/durable-agents alongside this repo."; \
+		exit 1; \
+	fi
+	@if [ ! -x "$(TAPE_BIN)" ]; then \
+		echo "→ Building tape-server (one-time)..."; \
+		cd $(TAPE_REPO)/tape/server && cargo build --release; \
+	fi
+	@echo "→ Starting tape-server on 127.0.0.1:7878..."
+	@$(TAPE_BIN) --listen 127.0.0.1:7878 --store "sqlite:/tmp/aiplex-dev-tape.db" >/tmp/tape-server.log 2>&1 & \
+		TAPE_PID=$$!; \
+		echo "  tape-server PID=$$TAPE_PID (logs: /tmp/tape-server.log)"; \
+		trap "echo '→ Stopping tape-server'; kill $$TAPE_PID 2>/dev/null" EXIT INT TERM; \
+		sleep 1; \
+		echo "→ Starting AIPlex API with TAPE_URL + TAPE_INGEST_TOKEN wired..."; \
+		AIPLEX_HOST=0.0.0.0 AIPLEX_PORT=8080 LOG_LEVEL=debug \
+		TAPE_URL=tape://127.0.0.1:7878 \
+		TAPE_INGEST_TOKEN=$(TAPE_INGEST_TOKEN) \
+		TAPE_INGEST_RPS=1000 \
+		$(GO) run ./cmd/aiplex-api
 
 # ─── Docker Compose (Local Dev) ─────────────────────────
 

@@ -829,3 +829,198 @@ func (f *FirestoreStore) DeleteRoleBinding(ctx context.Context, id string) error
 	}
 	return nil
 }
+
+// ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────
+//
+// Tape's outbox relay POSTs events to /internal/tape/events; AIPlex
+// dedupes on (RunID, Seq), quarantines unknown agents, and updates the
+// ExecutionRun projection. Collections:
+//
+//   execution_events/{runID}/seq/{seq}     idempotent on doc id
+//   execution_runs/{runID}                 projected summary
+//   execution_quarantine/{auto}            unknown-agent triage queue
+//
+// Production-shaped but conservative: each AppendExecutionEvent is a
+// single doc set on the (runID, seq) key; the projection upsert is a
+// separate write. Batching is a follow-up if write QPS demands it.
+
+func (f *FirestoreStore) AppendExecutionEvent(ctx context.Context, ev *models.ExecutionEvent) (bool, error) {
+	if ev == nil || ev.RunID == "" {
+		return false, fmt.Errorf("execution event: run_id required")
+	}
+	docID := fmt.Sprintf("%d", ev.Seq)
+	ref := f.client.Collection("execution_events").Doc(ev.RunID).Collection("seq").Doc(docID)
+	// Create-only semantics so a duplicate POST is a typed no-op rather
+	// than an overwrite of the original journal row.
+	_, err := ref.Create(ctx, ev)
+	if err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			return false, nil
+		}
+		return false, fmt.Errorf("firestore append execution event: %w", err)
+	}
+	return true, nil
+}
+
+func (f *FirestoreStore) QuarantineExecutionEvent(ctx context.Context, q *models.QuarantinedExecutionEvent) error {
+	if q == nil {
+		return fmt.Errorf("quarantine: nil event")
+	}
+	_, _, err := f.client.Collection("execution_quarantine").Add(ctx, q)
+	if err != nil {
+		return fmt.Errorf("firestore quarantine execution event: %w", err)
+	}
+	return nil
+}
+
+func (f *FirestoreStore) GetExecutionRun(ctx context.Context, runID string) (*models.ExecutionRun, error) {
+	doc, err := f.client.Collection("execution_runs").Doc(runID).Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("firestore get execution run: %w", err)
+	}
+	run := &models.ExecutionRun{}
+	if err := doc.DataTo(run); err != nil {
+		return nil, fmt.Errorf("firestore decode execution run: %w", err)
+	}
+	return run, nil
+}
+
+func (f *FirestoreStore) UpsertExecutionRun(ctx context.Context, run *models.ExecutionRun) error {
+	if run == nil || run.RunID == "" {
+		return fmt.Errorf("upsert execution run: run_id required")
+	}
+	_, err := f.client.Collection("execution_runs").Doc(run.RunID).Set(ctx, run)
+	if err != nil {
+		return fmt.Errorf("firestore upsert execution run: %w", err)
+	}
+	return nil
+}
+
+func (f *FirestoreStore) ListExecutionRuns(ctx context.Context, tenantID, agentID string, limit int) ([]models.ExecutionRun, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	q := f.client.Collection("execution_runs").Limit(limit)
+	if tenantID != "" {
+		q = q.Where("tenant_id", "==", tenantID)
+	}
+	if agentID != "" {
+		q = q.Where("agent_id", "==", agentID)
+	}
+	docs, err := q.Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("firestore list execution runs: %w", err)
+	}
+	out := make([]models.ExecutionRun, 0, len(docs))
+	for _, d := range docs {
+		run := models.ExecutionRun{}
+		if err := d.DataTo(&run); err == nil {
+			out = append(out, run)
+		}
+	}
+	return out, nil
+}
+
+func (f *FirestoreStore) ListExecutionEvents(ctx context.Context, runID string, fromSeq int64, limit int) ([]models.ExecutionEvent, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	docs, err := f.client.Collection("execution_events").Doc(runID).Collection("seq").
+		Where("seq", ">=", fromSeq).
+		Limit(limit).
+		Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("firestore list execution events: %w", err)
+	}
+	out := make([]models.ExecutionEvent, 0, len(docs))
+	for _, d := range docs {
+		ev := models.ExecutionEvent{}
+		if err := d.DataTo(&ev); err == nil {
+			out = append(out, ev)
+		}
+	}
+	return out, nil
+}
+
+// ── PR 11 extensions ──────────────────────────────────────────────────────
+
+func (f *FirestoreStore) DeleteExecutionRun(ctx context.Context, runID string) error {
+	_, err := f.client.Collection("execution_runs").Doc(runID).Delete(ctx)
+	if err != nil && status.Code(err) != codes.NotFound {
+		return fmt.Errorf("firestore delete execution run: %w", err)
+	}
+	return nil
+}
+
+func (f *FirestoreStore) LastIngestAt(ctx context.Context) (time.Time, error) {
+	// "Most recently ingested" — single doc at execution_meta/last_ingest
+	// rewritten on each event. Cheap to read; we accept eventual
+	// consistency (the Console polls this every 30s).
+	doc, err := f.client.Collection("execution_meta").Doc("last_ingest").Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return time.Time{}, nil
+		}
+		return time.Time{}, fmt.Errorf("firestore last ingest: %w", err)
+	}
+	v, ok := doc.Data()["at"]
+	if !ok {
+		return time.Time{}, nil
+	}
+	t, _ := v.(time.Time)
+	return t, nil
+}
+
+func (f *FirestoreStore) AppendOperatorAudit(ctx context.Context, a *models.OperatorAudit) error {
+	if a == nil || a.RunID == "" {
+		return fmt.Errorf("operator audit: run_id required")
+	}
+	if a.ID == "" {
+		// One-doc-per-action; deterministic id based on actor+timestamp
+		// so a double-write through the idempotency cache is a no-op
+		// upsert rather than a duplicate.
+		a.ID = fmt.Sprintf("%s-%s-%d", a.RunID, a.Action, a.At.UnixNano())
+	}
+	_, err := f.client.Collection("operator_audit").Doc(a.ID).Set(ctx, a)
+	if err != nil {
+		return fmt.Errorf("firestore operator audit: %w", err)
+	}
+	return nil
+}
+
+func (f *FirestoreStore) ListOperatorAudit(ctx context.Context, runID string, limit int) ([]models.OperatorAudit, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	docs, err := f.client.Collection("operator_audit").
+		Where("run_id", "==", runID).
+		Limit(limit).
+		Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("firestore list operator audit: %w", err)
+	}
+	out := make([]models.OperatorAudit, 0, len(docs))
+	for _, d := range docs {
+		a := models.OperatorAudit{}
+		if err := d.DataTo(&a); err == nil {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (f *FirestoreStore) CountInstancesWithRuntime(ctx context.Context, engine models.RuntimeEngine) (int, error) {
+	// Firestore aggregation queries; falls back to enumeration when
+	// the aggregate API isn't enabled. Cheap regardless since instances
+	// is a small collection (< 10k rows in any real deployment).
+	docs, err := f.client.Collection("instances").
+		Where("runtime.engine", "==", string(engine)).
+		Documents(ctx).GetAll()
+	if err != nil {
+		return 0, fmt.Errorf("firestore count instances by runtime: %w", err)
+	}
+	return len(docs), nil
+}

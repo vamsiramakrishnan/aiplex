@@ -43,6 +43,12 @@ type Instance struct {
 	UpdatedAt       time.Time         `json:"updated_at"`
 	DeployedBy      string            `json:"deployed_by"`
 	Health          *HealthStatus     `json:"health,omitempty"`
+	// Runtime describes how the agent inside this Instance executes —
+	// {Engine: "none"} for the v1 path, {Engine: "tape", ...} for durable
+	// agents backed by the Tape substrate. See runtime.go. The field is a
+	// value (not a pointer) so consumers never branch on nil; the
+	// zero-value (which Validate accepts) means "no durable runtime."
+	Runtime RuntimeConfig `json:"runtime"`
 }
 
 // HealthStatus captures the last health check result.

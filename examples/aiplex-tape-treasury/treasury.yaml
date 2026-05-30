@@ -1,0 +1,75 @@
+# AIPlex + Tape — Treasury Agent (end-to-end demo)
+#
+# This is the worked manifest for the integration story. AIPlex's deploy
+# engine (PR 5) reads `runtime: { engine: tape }` and generates the
+# tape-server + reactor pods alongside this agent, then injects
+# AIPLEX_* + TAPE_URL env vars onto the agent's container so the
+# Python SDK's `tape.adk.identity.RunIdentity.from_env()` picks them
+# up automatically.
+#
+# The companion Tape-side example
+# (durable-agents/tape/examples/standalone/aiplex-integration/) runs
+# the actual agent code; this YAML wires the AIPlex deployment that
+# governs it.
+#
+# Usage:
+#   aiplex apply -f examples/aiplex-tape-treasury/treasury.yaml
+#   make e2e-aiplex-tape       # in-process smoke test of the full pipeline
+#   aiplex runs list           # see the runs flowing through (PR 7 API)
+#   open https://console/runs  # the Console "Runs" tab (PR 8)
+
+version: v1
+
+instances:
+  - name: Treasury Agent
+    plane: a2aplex
+    template: treasury-agent
+    labels:
+      aiplex.tenant: acme
+      aiplex.plane: a2a
+      aiplex.demo: treasury
+    config:
+      policy_version: aiplex-treasury-2026.05
+      # The runtime block AIPlex's deploy engine reads. With
+      # engine=tape the engine generates a tape-server Deployment in
+      # aiplex-system (env-scoped, one per environment) and injects
+      # TAPE_URL + the full AIPLEX_* env set on the agent pod.
+      runtime:
+        engine: tape
+        durable: true
+        replayable: true
+        store:
+          type: alloydb              # use sqlite for local dev
+          secret_ref: tape-store-url # K8s Secret with the conn URL
+        reactors:
+          recovery: true
+          reconciler: true
+          timers: true
+          outbox: true
+          compensation: true
+        outbox:
+          sink: pubsub
+          topic: aiplex-tape-events
+
+agents:
+  - client_id: treasury-agent
+    display_name: Treasury Agent
+    description: |
+      AI treasurer that sweeps idle cash to a money-market fund.
+      The agent runs on Tape — every wire is journaled, every UNKNOWN
+      gets reconciled by asking the bank, every duplicate registers a
+      compensation obligation. AIPlex governs the scope set; Tape
+      proves what happened with it.
+    auth_method: client_credentials
+    grant_types:
+      - client_credentials
+    allowed_scopes:
+      # The scopes the agent's instance needs. These flow as
+      # AIPLEX_SCOPES on the pod; the Tape SDK's @tape.effect(scope=...)
+      # decorator pre-checks against this set, the server re-checks
+      # at BeginEffect. See:
+      # durable-agents/tape/examples/standalone/aiplex-integration/
+      - mcp:tools:read_balance
+      - mcp:tools:bank_wire
+      - a2a:task:treasury_sweep
+      - llm:model:gemini-2.5-pro

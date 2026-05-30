@@ -42,6 +42,7 @@ const sidebars: SidebarsConfig = {
         'guides/catalog',
         'guides/observability',
         'guides/declarative-config',
+        'guides/tape-runtime',
       ],
     },
     {
@@ -66,6 +67,7 @@ const sidebars: SidebarsConfig = {
         'architecture/data-model',
         'architecture/security-model',
         'architecture/performance',
+        'architecture/embedded-tier-decision',
       ],
     },
     'contributing',

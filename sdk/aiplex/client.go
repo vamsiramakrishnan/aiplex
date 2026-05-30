@@ -713,3 +713,158 @@ func (c *Client) SetUserScopes(ctx context.Context, userID string, scopes []stri
 func (c *Client) Health(ctx context.Context) error {
 	return c.do(ctx, "GET", "/healthz", nil, nil)
 }
+
+// ── Runs (AIPlex ↔ Tape audit, PR 7 + 10 + 11) ────────────────────────────
+
+// ExecutionRun is the projected per-run summary returned by /api/v1/runs.
+type ExecutionRun struct {
+	RunID            string    `json:"run_id"`
+	TenantID         string    `json:"tenant_id"`
+	AgentID          string    `json:"agent_id"`
+	Plane            string    `json:"plane"`
+	Actor            string    `json:"actor"`
+	Subject          string    `json:"subject"`
+	AIPlexInstanceID string    `json:"aiplex_instance_id,omitempty"`
+	Status           string    `json:"status"`
+	StartedAt        time.Time `json:"started_at"`
+	EndedAt          *time.Time `json:"ended_at,omitempty"`
+	DecisionsCount   int64     `json:"decisions_count"`
+	EffectsCount     int64     `json:"effects_count"`
+	UnknownEffects   int64     `json:"unknown_effects"`
+	Obligations      int64     `json:"obligations"`
+	PolicyViolations int64     `json:"policy_violations"`
+	BudgetUSDCharged float64   `json:"budget_usd_charged"`
+}
+
+// ExecutionEvent is one journaled row in a run's timeline.
+type ExecutionEvent struct {
+	RunID            string    `json:"run_id"`
+	Seq              int64     `json:"seq"`
+	TenantID         string    `json:"tenant_id"`
+	AgentID          string    `json:"agent_id"`
+	Plane            string    `json:"plane"`
+	Actor            string    `json:"actor"`
+	Subject          string    `json:"subject"`
+	AIPlexInstanceID string    `json:"aiplex_instance_id,omitempty"`
+	Kind             string    `json:"kind"`
+	Scope            string    `json:"scope,omitempty"`
+	Tool             string    `json:"tool,omitempty"`
+	Timestamp        time.Time `json:"timestamp"`
+	PayloadJSON      string    `json:"payload_json,omitempty"`
+}
+
+// OperatorAudit is a row from /runs/{id}/operator-audit.
+type OperatorAudit struct {
+	ID         string    `json:"id"`
+	RunID      string    `json:"run_id"`
+	Action     string    `json:"action"`
+	Actor      string    `json:"actor"`
+	At         time.Time `json:"at"`
+	Reason     string    `json:"reason,omitempty"`
+	GateName   string    `json:"gate_name,omitempty"`
+	Resolution string    `json:"resolution,omitempty"`
+	Status     string    `json:"status"`
+	Error      string    `json:"error,omitempty"`
+}
+
+// ListRunsOpts narrows the result set; zero-value returns all.
+type ListRunsOpts struct {
+	TenantID          string
+	AgentID           string
+	HasUnknownEffects bool
+	HasObligations    bool
+	Limit             int
+}
+
+// ListRuns returns the most recent runs matching opts.
+func (c *Client) ListRuns(ctx context.Context, opts ListRunsOpts) ([]ExecutionRun, error) {
+	q := url.Values{}
+	if opts.TenantID != "" {
+		q.Set("tenant_id", opts.TenantID)
+	}
+	if opts.AgentID != "" {
+		q.Set("agent_id", opts.AgentID)
+	}
+	if opts.HasUnknownEffects {
+		q.Set("has_unknown_effects", "true")
+	}
+	if opts.HasObligations {
+		q.Set("has_obligations", "true")
+	}
+	if opts.Limit > 0 {
+		q.Set("limit", fmt.Sprintf("%d", opts.Limit))
+	}
+	path := "/api/v1/runs"
+	if s := q.Encode(); s != "" {
+		path += "?" + s
+	}
+	var resp struct {
+		Runs []ExecutionRun `json:"runs"`
+	}
+	if err := c.do(ctx, "GET", path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Runs, nil
+}
+
+// GetRun returns the projected summary for a single run.
+func (c *Client) GetRun(ctx context.Context, runID string) (*ExecutionRun, error) {
+	var run ExecutionRun
+	if err := c.do(ctx, "GET", "/api/v1/runs/"+url.PathEscape(runID), nil, &run); err != nil {
+		return nil, err
+	}
+	return &run, nil
+}
+
+// ListRunEvents returns the ordered timeline for a run.
+func (c *Client) ListRunEvents(ctx context.Context, runID string) ([]ExecutionEvent, error) {
+	var resp struct {
+		Events []ExecutionEvent `json:"events"`
+	}
+	if err := c.do(ctx, "GET", "/api/v1/runs/"+url.PathEscape(runID)+"/events", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Events, nil
+}
+
+// ListRunOperatorAudit returns the parallel operator timeline.
+func (c *Client) ListRunOperatorAudit(ctx context.Context, runID string) ([]OperatorAudit, error) {
+	var resp struct {
+		Audit []OperatorAudit `json:"audit"`
+	}
+	if err := c.do(ctx, "GET", "/api/v1/runs/"+url.PathEscape(runID)+"/operator-audit", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Audit, nil
+}
+
+// Operator actions — each returns nil on 202 Accepted.
+
+func (c *Client) RedriveRun(ctx context.Context, runID string) error {
+	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/redrive", struct{}{}, nil)
+}
+
+func (c *Client) ReconcileRun(ctx context.Context, runID string) error {
+	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/reconcile", struct{}{}, nil)
+}
+
+func (c *Client) CancelRun(ctx context.Context, runID, reason string) error {
+	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/cancel",
+		map[string]string{"reason": reason}, nil)
+}
+
+func (c *Client) SignalRun(ctx context.Context, runID, gateName, resolutionJSON string) error {
+	body := map[string]string{"gate_name": gateName, "resolution_json": resolutionJSON}
+	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/signal", body, nil)
+}
+
+func (c *Client) CompensateRun(ctx context.Context, runID string) error {
+	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/compensate", struct{}{}, nil)
+}
+
+// CompactRun triggers an out-of-band compaction of a settled run. The
+// scheduled retention reactor handles the policy-driven path; this is
+// the manual override for ops who want to free payload bytes early.
+func (c *Client) CompactRun(ctx context.Context, runID string) error {
+	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/compact", struct{}{}, nil)
+}

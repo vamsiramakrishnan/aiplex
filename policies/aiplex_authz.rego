@@ -50,3 +50,28 @@ allow if {
                     "tasks/list", "agents/list", "models/list",
                     "skills/list", "ping"}
 }
+
+# ── Runs (AIPlex ↔ Tape, PR 11 item 5) ──
+# GET /api/v1/runs* and per-run subroutes require aiplex:runs:read.
+# Operator-action POSTs each require their own action-scoped grant.
+
+method := input.attributes.request.http.method
+
+allow if {
+    method == "GET"
+    startswith(path, "/api/v1/runs")
+    "aiplex:runs:read" in scopes
+}
+
+# Operator actions — POST /api/v1/runs/{id}/{action}.
+# We parse the last path segment as the action name and require the
+# matching aiplex:runs:{action} scope.
+allow if {
+    method == "POST"
+    startswith(path, "/api/v1/runs/")
+    segments := split(trim_prefix(path, "/api/v1/runs/"), "/")
+    count(segments) == 2
+    action := segments[1]
+    action in {"redrive", "reconcile", "cancel", "signal", "compensate"}
+    sprintf("aiplex:runs:%s", [action]) in scopes
+}

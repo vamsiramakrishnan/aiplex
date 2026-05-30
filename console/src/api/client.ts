@@ -248,5 +248,170 @@ export interface WhoamiResponse {
   agents: string[]
 }
 
+// ── Runs (AIPlex ↔ Tape audit; mirrors models.ExecutionRun + ExecutionEvent) ──
+//
+// The Console reads from these endpoints (PR 7). Identity columns and
+// counters drive the run-list view; per-run /events feeds the timeline
+// panel. Effect / obligation / budget routes are convenience filters
+// over /events for the dedicated tabs in the run detail.
+
+export type ExecutionRunStatus =
+  | 'runnable' | 'running' | 'waiting' | 'terminal'
+  | 'failed' | 'compensating' | 'stuck' | 'cancelled'
+
+export type ExecutionEventKind =
+  | 'run.started' | 'run.completed' | 'run.failed' | 'run.compacted'
+  | 'decision.recorded'
+  | 'effect.begin' | 'effect.confirmed' | 'effect.failed'
+  | 'effect.unknown' | 'effect.duplicate'
+  | 'obligation.created' | 'gate.waiting' | 'timer.scheduled'
+  | 'budget.charged' | 'policy.violation'
+
+export interface ExecutionRun {
+  run_id: string
+  tenant_id: string
+  agent_id: string
+  plane: string
+  actor: string
+  subject: string
+  aiplex_instance_id?: string
+  status: ExecutionRunStatus
+  started_at: string
+  ended_at?: string
+  decisions_count: number
+  effects_count: number
+  unknown_effects: number
+  obligations: number
+  policy_violations: number
+  budget_usd_charged: number
+  compacted?: boolean
+  compacted_at?: string
+  retained_until?: string
+}
+
+export interface ExecutionEvent {
+  run_id: string
+  seq: number
+  tenant_id: string
+  agent_id: string
+  plane: string
+  actor: string
+  subject: string
+  aiplex_instance_id?: string
+  kind: ExecutionEventKind
+  scope?: string
+  tool?: string
+  timestamp: string
+  payload_json?: string
+}
+
+export interface RunsListParams {
+  tenant_id?: string
+  agent_id?: string
+  has_unknown_effects?: boolean
+  has_obligations?: boolean
+  limit?: number
+}
+
+export const listRuns = (params: RunsListParams = {}) => {
+  const qs = new URLSearchParams()
+  if (params.tenant_id) qs.set('tenant_id', params.tenant_id)
+  if (params.agent_id) qs.set('agent_id', params.agent_id)
+  if (params.has_unknown_effects) qs.set('has_unknown_effects', 'true')
+  if (params.has_obligations) qs.set('has_obligations', 'true')
+  if (params.limit) qs.set('limit', String(params.limit))
+  const suffix = qs.toString() ? `?${qs}` : ''
+  return request<{ runs: ExecutionRun[] }>(`/runs${suffix}`)
+}
+
+export const getRun = (runID: string) =>
+  request<ExecutionRun>(`/runs/${encodeURIComponent(runID)}`)
+
+export const listRunEvents = (runID: string, fromSeq = 0, limit = 1000) =>
+  request<{ events: ExecutionEvent[] }>(
+    `/runs/${encodeURIComponent(runID)}/events?from_seq=${fromSeq}&limit=${limit}`
+  )
+
+export const listRunEffects = (runID: string) =>
+  request<{ effects: ExecutionEvent[] }>(`/runs/${encodeURIComponent(runID)}/effects`)
+
+export const listRunObligations = (runID: string) =>
+  request<{ obligations: ExecutionEvent[] }>(`/runs/${encodeURIComponent(runID)}/obligations`)
+
+export const listRunBudgets = (runID: string) =>
+  request<{ budgets: ExecutionEvent[] }>(`/runs/${encodeURIComponent(runID)}/budgets`)
+
+// ── Operator audit + actions (PR 11 items 8, 10) ──────────────────────────
+
+export interface OperatorAudit {
+  id: string
+  run_id: string
+  action: 'redrive' | 'reconcile' | 'cancel' | 'signal' | 'compensate'
+  actor: string
+  at: string
+  reason?: string
+  gate_name?: string
+  resolution?: string
+  status: 'accepted' | 'failed'
+  error?: string
+}
+
+export const listOperatorAudit = (runID: string) =>
+  request<{ audit: OperatorAudit[] }>(`/runs/${encodeURIComponent(runID)}/operator-audit`)
+
+// Operator actions return 202 Accepted with { accepted, action, run_id }.
+// Wires the Idempotency-Key header so the middleware dedupes double-clicks.
+
+function withIdempotencyKey(runID: string, action: string, body?: object): RequestInit {
+  return {
+    method: 'POST',
+    headers: {
+      'Idempotency-Key': `${runID}|${action}|${Date.now()}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  }
+}
+
+export const runRedrive = (runID: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/redrive`,
+    withIdempotencyKey(runID, 'redrive'),
+  )
+
+export const runReconcile = (runID: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/reconcile`,
+    withIdempotencyKey(runID, 'reconcile'),
+  )
+
+export const runCancel = (runID: string, reason: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/cancel`,
+    withIdempotencyKey(runID, 'cancel', { reason }),
+  )
+
+export const runSignal = (runID: string, gateName: string, resolutionJson: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/signal`,
+    withIdempotencyKey(runID, 'signal', { gate_name: gateName, resolution_json: resolutionJson }),
+  )
+
+export const runCompensate = (runID: string) =>
+  request<{ accepted: boolean; action: string; run_id: string }>(
+    `/runs/${encodeURIComponent(runID)}/compensate`,
+    withIdempotencyKey(runID, 'compensate'),
+  )
+
+// Runs health — drives the empty-state checklist (PR 11 item 13).
+
+export interface RunsHealth {
+  last_ingest_at: string
+  has_runs: boolean
+  tape_instances_count: number
+  now: string
+}
+
+export const getRunsHealth = () => request<RunsHealth>('/runs/_health')
+
 export const getWhoami = () =>
   request<WhoamiResponse>('/auth/whoami')
