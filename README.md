@@ -1,41 +1,41 @@
 # AIPlex
 
-**Unified control plane for AI agent interactions.**
+AIPlex is a control plane for agent interactions. It puts MCP, A2A, and model traffic behind one gateway, one auth stack, one policy layer, and one audit trail.
 
-AIPlex governs three interaction planes through a single gateway, auth stack, policy engine, and audit trail:
+| Plane | Protocol | Governs | Route CRD |
+| --- | --- | --- | --- |
+| MCPlex | MCP (JSON-RPC) | Agent to tool | `MCPRoute` |
+| A2APlex | A2A (HTTP/JSON) | Agent to agent | `HTTPRoute` |
+| LLMPlex | Provider APIs | Agent to model | `LLMRoute` |
 
-| Plane | Protocol | What It Governs | Route CRD |
-|-------|----------|-----------------|-----------|
-| **MCPlex** | MCP (JSON-RPC) | Agent ↔ Tool | MCPRoute |
-| **A2APlex** | A2A (HTTP/JSON) | Agent ↔ Agent | HTTPRoute |
-| **LLMPlex** | Provider APIs | Agent ↔ Model | LLMRoute |
-
-## Quick Start
+## Quick start
 
 ```bash
-# Install
 curl -fsSL https://get.aiplex.dev | sh
 
-# Zero to running platform in one command
 aiplex quickstart
+```
 
-# Or step-by-step:
+Or run the setup steps yourself:
+
+```bash
 aiplex login
 aiplex deploy
 aiplex status my-tool
-
-# Terminal dashboard
-aiplex tui
-
-# Local console
-aiplex console
 ```
 
-**[Full Documentation](https://docs.aiplex.dev)** | **[Quickstart Guide](https://docs.aiplex.dev/docs/getting-started/quickstart)**
+Operator surfaces:
 
-## How It Works
-
+```bash
+aiplex tui      # terminal dashboard
+aiplex console  # local web console
 ```
+
+[Documentation](https://docs.aiplex.dev) · [Quickstart guide](https://docs.aiplex.dev/docs/getting-started/quickstart)
+
+## Request path
+
+```text
 Agents / IDEs / CLIs
        │
        ▼
@@ -51,7 +51,7 @@ Agents / IDEs / CLIs
   K8s namespaces: mcplex, a2aplex, llmplex
 ```
 
-A single JWT carries scopes across all planes:
+A JWT carries scopes across the three planes:
 
 ```json
 {
@@ -62,7 +62,7 @@ A single JWT carries scopes across all planes:
 }
 ```
 
-## Deploy Declaratively
+## Declarative deployment
 
 ```yaml
 # aiplex.yaml
@@ -93,76 +93,83 @@ agents:
       - llm:model:gemini-2.5-flash
 ```
 
+Apply it with:
+
 ```bash
 aiplex apply -f aiplex.yaml
 ```
 
-## Architecture
+## Components
 
-| Component | Language | Purpose |
-|-----------|----------|---------|
-| **AIPlex API** | Go | REST API, deploy engine, consent handler |
-| **AIPlex Console** | React/TS | Web UI for all three planes |
-| **aiplex-authz** | Rust | ext_authz (0.05ms p50 JWT validation) |
-| **AIPlex CLI** | Go | Command-line interface |
-| **Ory Hydra** | Go (configured) | OAuth 2.1 token issuance |
-| **Ory Kratos** | Go (configured) | Identity, social sign-in |
-| **Envoy AI Gateway** | C++ (configured) | MCPRoute, HTTPRoute, LLMRoute |
+| Component | Language | Responsibility |
+| --- | --- | --- |
+| AIPlex API | Go | REST API, deploy engine, consent handler |
+| AIPlex Console | React/TypeScript | Operator UI for all three planes |
+| `aiplex-authz` | Rust | `ext_authz`; JWT validation |
+| AIPlex CLI | Go | Command-line interface |
+| Ory Hydra | Go, configured | OAuth 2.1 token issuance |
+| Ory Kratos | Go, configured | Identity and social sign-in |
+| Envoy AI Gateway | C++, configured | `MCPRoute`, `HTTPRoute`, `LLMRoute` |
 
-**Infrastructure:** GKE Autopilot, Cloud Service Mesh (mTLS), Firestore, AlloyDB, Secret Manager
+Infrastructure: GKE Autopilot, Cloud Service Mesh with mTLS, Firestore, AlloyDB, and Secret Manager.
 
-## Three-Dimensional Permissions
+## Authorization model
 
+Effective access is the intersection of three limits:
+
+```text
+Agent ceiling ∩ user ceiling ∩ session consent = effective access
 ```
-Agent Ceiling (A)  ∩  User Ceiling (B)  ∩  User Consent (C)  =  Effective
-```
 
-- **A**: What the agent can ever access (admin-configured)
-- **B**: What the user can ever access (admin-configured)
-- **C**: What the user approved this session (runtime consent)
+- Agent ceiling: resources the agent may access.
+- User ceiling: resources the user may access.
+- Session consent: resources the user approved for the current session.
 
-Enforced by a [20-line Rego policy](policies/aiplex_authz.rego) / Rust ext_authz.
+The authorization path is implemented by [`policies/aiplex_authz.rego`](policies/aiplex_authz.rego) and the Rust `ext_authz` service.
 
-## Local Development
+## Local development
 
 ```bash
 git clone https://github.com/vamsiramakrishnan/aiplex.git
 cd aiplex
 
-# One-command setup (installs mise + all tools)
 ./setup.sh
+```
 
-# Or manually:
-make deps        # Check prerequisites
-make docker-up   # Start backing services
-make build       # Build API + CLI
-make run-local   # Start API server
-make console-dev # Start React dev server
+Manual setup:
 
-# View current context
+```bash
+make deps
+make docker-up
+make build
+make run-local
+make console-dev
+```
+
+Useful CLI commands:
+
+```bash
 aiplex whoami
-
-# Enable shell completion
 aiplex completion bash >> ~/.bashrc
 ```
 
-Tool versions (Go, Terraform, Helm, kubectl, Node) are pinned in `.mise.toml`.
+Go, Terraform, Helm, kubectl, and Node versions are pinned in `.mise.toml`.
 
-See [Installation](https://docs.aiplex.dev/docs/getting-started/installation) for details.
+See [Installation](https://docs.aiplex.dev/docs/getting-started/installation) for the full setup path.
 
-## Project Structure
+## Repository layout
 
-```
-cmd/           Go binaries (API server, CLI)
-internal/      Core packages (api, auth, catalog, deploy, registry)
+```text
+cmd/           Go binaries: API server and CLI
+internal/      Core packages: API, auth, catalog, deploy, registry
 authz/         Rust ext_authz service
-console/       React SPA
+console/       React application
 sdk/           Go SDK
-deploy/        Terraform, Helm, K8s manifests, Ory config
+deploy/        Terraform, Helm, Kubernetes manifests, Ory config
 policies/      OPA/Rego authorization policy
-examples/      Example aiplex.yaml configurations
-design/        Architecture design documents
-docs-site/     Documentation (Docusaurus)
+examples/      Example aiplex.yaml files
+design/        Architecture documents
+docs-site/     Docusaurus documentation
 ```
 
 ## License
