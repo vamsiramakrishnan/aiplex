@@ -1,5 +1,7 @@
 # AIPlex
 
+**Manage agent-to-tool, agent-to-agent, and agent-to-model traffic through a shared gateway and policy configuration.**
+
 **Unified control plane for AI agent interactions.**
 
 AIPlex governs three interaction planes through a single gateway, auth stack, policy engine, and audit trail:
@@ -9,6 +11,21 @@ AIPlex governs three interaction planes through a single gateway, auth stack, po
 | **MCPlex** | MCP (JSON-RPC) | Agent ↔ Tool | MCPRoute |
 | **A2APlex** | A2A (HTTP/JSON) | Agent ↔ Agent | HTTPRoute |
 | **LLMPlex** | Provider APIs | Agent ↔ Model | LLMRoute |
+
+## Choose the interaction you need to govern
+
+| Traffic | Project plane | Configuration object |
+|---|---|---|
+| An agent calls a tool | MCPlex | `MCPRoute` |
+| An agent calls another agent | A2APlex | `HTTPRoute` |
+| An agent calls a model | LLMPlex | `LLMRoute` |
+
+Start with one route and its identity policy. Then inspect the declarative
+configuration and expand to other planes. The [local development path](#local-development)
+is for working on the system; [deployment](#deploy-declaratively) applies
+configuration to an environment. Provider model IDs in examples must match
+what that environment supports.
+
 
 ## Quick Start
 
