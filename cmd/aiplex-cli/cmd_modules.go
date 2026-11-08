@@ -61,6 +61,7 @@ func registerModuleCommands(root *cobra.Command) {
 		{name: "llmplex", commands: []func() *cobra.Command{llmCmd}},
 		{name: "a2aplex", commands: []func() *cobra.Command{a2aCmd}},
 		{name: "skillsplex", commands: []func() *cobra.Command{skillsCmd}},
+		{name: "clientplex", commands: []func() *cobra.Command{clientsCmd}},
 	} {
 		for _, factory := range registration.commands {
 			command := factory()

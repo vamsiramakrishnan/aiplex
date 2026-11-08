@@ -3,6 +3,7 @@ import MCPlex from './pages/MCPlex'
 import A2APlex from './pages/A2APlex'
 import LLMPlex from './pages/LLMPlex'
 import SkillsPlex from './pages/SkillsPlex'
+import ClientPlex from './pages/ClientPlex'
 import type { ModuleDescriptor } from './api/client'
 
 export interface ConsoleModule {
@@ -19,6 +20,7 @@ export const consoleModules: readonly ConsoleModule[] = [
   { name: 'a2aplex', path: '/a2aplex', label: 'A2APlex', component: A2APlex },
   { name: 'llmplex', path: '/llmplex', label: 'LLMPlex', component: LLMPlex },
   { name: 'skillsplex', path: '/skillsplex', label: 'SkillsPlex', component: SkillsPlex },
+  { name: 'clientplex', path: '/clientplex', label: 'ClientPlex', component: ClientPlex },
 ]
 
 export function enabledConsoleModules(descriptors: readonly ModuleDescriptor[]): ConsoleModule[] {

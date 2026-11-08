@@ -56,6 +56,10 @@ func (e *Error) Error() string {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
+	return c.doWithHeaders(ctx, method, path, body, out, nil)
+}
+
+func (c *Client) doWithHeaders(ctx context.Context, method, path string, body, out any, headers map[string]string) error {
 	u := c.BaseURL + path
 
 	var reqBody io.Reader
@@ -78,6 +82,9 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("aiplex: request failed: %w", err)
@@ -119,22 +126,22 @@ type SourceError struct {
 }
 
 type Template struct {
-	ID           string            `json:"id"`
-	Source       string            `json:"source"`
-	Plane        string            `json:"plane"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	Image        string            `json:"image,omitempty"`
-	Version      string            `json:"version,omitempty"`
-	Tools        []ToolInfo        `json:"tools,omitempty"`
-	TaskTypes    []string          `json:"task_types,omitempty"`
-	ModelID      string            `json:"model_id,omitempty"`
-	Provider     string            `json:"provider,omitempty"`
-	Capabilities []string          `json:"capabilities,omitempty"`
-	Category     string            `json:"category"`
-	Verified     bool              `json:"verified"`
-	Tags         []string          `json:"tags,omitempty"`
-	Pricing      *Pricing          `json:"pricing,omitempty"`
+	ID           string     `json:"id"`
+	Source       string     `json:"source"`
+	Plane        string     `json:"plane"`
+	Name         string     `json:"name"`
+	Description  string     `json:"description"`
+	Image        string     `json:"image,omitempty"`
+	Version      string     `json:"version,omitempty"`
+	Tools        []ToolInfo `json:"tools,omitempty"`
+	TaskTypes    []string   `json:"task_types,omitempty"`
+	ModelID      string     `json:"model_id,omitempty"`
+	Provider     string     `json:"provider,omitempty"`
+	Capabilities []string   `json:"capabilities,omitempty"`
+	Category     string     `json:"category"`
+	Verified     bool       `json:"verified"`
+	Tags         []string   `json:"tags,omitempty"`
+	Pricing      *Pricing   `json:"pricing,omitempty"`
 }
 
 type ToolInfo struct {
@@ -266,23 +273,23 @@ func (c *Client) GetHistory(ctx context.Context, instanceID string) ([]DeployHis
 // --- Agents ---
 
 type Agent struct {
-	ClientID      string   `json:"client_id"`
-	DisplayName   string   `json:"display_name"`
-	Description   string   `json:"description,omitempty"`
-	AuthMethod    string   `json:"auth_method"`
-	GrantTypes    []string `json:"grant_types"`
-	AllowedScopes []string `json:"allowed_scopes"`
-	WIFPrincipal  string   `json:"wif_principal,omitempty"`
-	SpiffeID      string   `json:"spiffe_id,omitempty"`
-	RedirectURIs  []string `json:"redirect_uris,omitempty"`
+	ClientID      string    `json:"client_id"`
+	DisplayName   string    `json:"display_name"`
+	Description   string    `json:"description,omitempty"`
+	AuthMethod    string    `json:"auth_method"`
+	GrantTypes    []string  `json:"grant_types"`
+	AllowedScopes []string  `json:"allowed_scopes"`
+	WIFPrincipal  string    `json:"wif_principal,omitempty"`
+	SpiffeID      string    `json:"spiffe_id,omitempty"`
+	RedirectURIs  []string  `json:"redirect_uris,omitempty"`
 	RegisteredAt  time.Time `json:"registered_at"`
-	RegisteredBy  string   `json:"registered_by"`
-	Status        string   `json:"status"`
+	RegisteredBy  string    `json:"registered_by"`
+	Status        string    `json:"status"`
 }
 
 type AgentPermissions struct {
-	AgentID string                       `json:"agent_id"`
-	Ceiling map[string][]ScopeInfo       `json:"ceiling"`
+	AgentID string                 `json:"agent_id"`
+	Ceiling map[string][]ScopeInfo `json:"ceiling"`
 }
 
 type ScopeInfo struct {
@@ -718,22 +725,22 @@ func (c *Client) Health(ctx context.Context) error {
 
 // ExecutionRun is the projected per-run summary returned by /api/v1/runs.
 type ExecutionRun struct {
-	RunID            string    `json:"run_id"`
-	TenantID         string    `json:"tenant_id"`
-	AgentID          string    `json:"agent_id"`
-	Plane            string    `json:"plane"`
-	Actor            string    `json:"actor"`
-	Subject          string    `json:"subject"`
-	AIPlexInstanceID string    `json:"aiplex_instance_id,omitempty"`
-	Status           string    `json:"status"`
-	StartedAt        time.Time `json:"started_at"`
+	RunID            string     `json:"run_id"`
+	TenantID         string     `json:"tenant_id"`
+	AgentID          string     `json:"agent_id"`
+	Plane            string     `json:"plane"`
+	Actor            string     `json:"actor"`
+	Subject          string     `json:"subject"`
+	AIPlexInstanceID string     `json:"aiplex_instance_id,omitempty"`
+	Status           string     `json:"status"`
+	StartedAt        time.Time  `json:"started_at"`
 	EndedAt          *time.Time `json:"ended_at,omitempty"`
-	DecisionsCount   int64     `json:"decisions_count"`
-	EffectsCount     int64     `json:"effects_count"`
-	UnknownEffects   int64     `json:"unknown_effects"`
-	Obligations      int64     `json:"obligations"`
-	PolicyViolations int64     `json:"policy_violations"`
-	BudgetUSDCharged float64   `json:"budget_usd_charged"`
+	DecisionsCount   int64      `json:"decisions_count"`
+	EffectsCount     int64      `json:"effects_count"`
+	UnknownEffects   int64      `json:"unknown_effects"`
+	Obligations      int64      `json:"obligations"`
+	PolicyViolations int64      `json:"policy_violations"`
+	BudgetUSDCharged float64    `json:"budget_usd_charged"`
 }
 
 // ExecutionEvent is one journaled row in a run's timeline.

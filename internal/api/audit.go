@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -25,12 +28,38 @@ type AuditEvent struct {
 // responseCapture wraps http.ResponseWriter to capture the status code.
 type responseCapture struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode  int
+	wroteHeader bool
 }
 
 func (r *responseCapture) WriteHeader(code int) {
+	if r.wroteHeader {
+		return
+	}
+	r.wroteHeader = true
 	r.statusCode = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *responseCapture) Write(b []byte) (int, error) {
+	if !r.wroteHeader {
+		r.WriteHeader(http.StatusOK)
+	}
+	return r.ResponseWriter.Write(b)
+}
+func (r *responseCapture) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+func (r *responseCapture) Flush() {
+	if !r.wroteHeader {
+		r.WriteHeader(http.StatusOK)
+	}
+	_ = http.NewResponseController(r.ResponseWriter).Flush()
+}
+func (r *responseCapture) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijacking unsupported")
+	}
+	return h.Hijack()
 }
 
 // AuditLog middleware logs all mutations (POST, PUT, PATCH, DELETE) to

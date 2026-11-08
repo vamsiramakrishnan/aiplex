@@ -24,6 +24,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modules"
+	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 )
 
 func main() {
@@ -43,6 +44,7 @@ func main() {
 
 	// Store — use Firestore when configured, otherwise in-memory
 	var store registry.Store
+	var resourceStore resources.Store = resources.NewMemoryStore()
 	projectID := os.Getenv("GCP_PROJECT_ID")
 	if projectID == "" {
 		projectID = os.Getenv("FIRESTORE_PROJECT_ID")
@@ -56,6 +58,7 @@ func main() {
 		}
 		defer fs.Close()
 		store = fs
+		resourceStore = fs.ModuleResources()
 		log.Info().Str("project", projectID).Str("database", databaseID).Msg("using Firestore store")
 	} else {
 		store = registry.NewMemoryStore()
@@ -132,7 +135,13 @@ func main() {
 	if err := moduleRegistry.Register(&httpModule{descriptor: modules.Descriptor{Name: "identity", Version: "1.0.0", ContractVersion: modules.ContractVersion, Capabilities: []string{"identity.resolve"}}}); err != nil {
 		log.Fatal().Err(err).Msg("register identity")
 	}
-	enabledModules, err := selectModules(cfg.EnabledModules, builtinModules(llmH, a2aH, skillsH))
+	connectedH, clientH, err := connectedHandlers(resourceStore, sm, cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("connected module configuration failed")
+	}
+	availableModules := builtinModules(llmH, a2aH, skillsH)
+	extendConnectedModules(availableModules, connectedH, clientH)
+	enabledModules, err := selectModules(cfg.EnabledModules, availableModules)
 	if err != nil {
 		log.Fatal().Err(err).Msg("invalid module configuration")
 	}
@@ -141,7 +150,9 @@ func main() {
 		if err := moduleRegistry.Register(m); err != nil {
 			log.Fatal().Err(err).Msg("register module")
 		}
-		enabledPlanes = append(enabledPlanes, models.Plane(m.descriptor.Name))
+		if usesWorkloadRoutes(m) {
+			enabledPlanes = append(enabledPlanes, models.Plane(m.descriptor.Name))
+		}
 	}
 	routes, err := deploy.NewRouteRegistryForPlanes(enabledPlanes...)
 	if err != nil {
@@ -206,7 +217,15 @@ func main() {
 		log.Info().Strs("origins", corsOrigins).Msg("CORS restricted to configured origins")
 	}
 	r.Use(api.CORS(corsOrigins...))
-	r.Use(api.MaxBody(1 << 20))                               // 1MB max request body
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			limit := int64(1 << 20)
+			if nativeInvocation(r) {
+				limit = 8 << 20
+			}
+			api.MaxBody(limit)(next).ServeHTTP(w, r)
+		})
+	}) // 1MB max request body
 	r.Use(api.WIFAuthMode(wifValidator, cfg.DevelopmentMode)) // Extract WIF identity + sync Dimension B
 	r.Use(api.AuditLog)                                       // Log all mutations
 	r.Use(api.RateLimit(200))                                 // 200 req/min per user (in-process)
@@ -228,7 +247,15 @@ func main() {
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(api.RequireIdentity(cfg.DevelopmentMode))
-		r.Use(api.ControlPlaneAccess(cfg.DevelopmentMode))
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if nativeInvocation(r) {
+					next.ServeHTTP(w, r)
+					return
+				}
+				api.ControlPlaneAccess(cfg.DevelopmentMode)(next).ServeHTTP(w, r)
+			})
+		})
 		// Catalog
 		r.Get("/catalog", catalogH.List)
 		r.Get("/catalog/{id}", catalogH.Get)
@@ -351,13 +378,29 @@ func main() {
 		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/skills/{instanceId}/.well-known/skills.json", skillsH.GetSkillsManifest)
 	}
 
+	if moduleEnabled(enabledModules, "mcplex") && connectedH.Tools != nil && cfg.PublicURL != "" {
+		metadata, e := connectedH.Tools.MetadataHandler(cfg.PublicURL)
+		if e != nil {
+			log.Fatal().Err(e).Msg("CIMD metadata configuration invalid")
+		}
+		r.Handle("/mcp/client-metadata/*", metadata)
+	}
+
 	// Start server
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
-	srv := &http.Server{Addr: addr, Handler: r, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	tlsConfig, err := serverTLS(cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("TLS listener configuration failed")
+	}
+	srv := &http.Server{TLSConfig: tlsConfig, Addr: addr, Handler: r, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 
 	go func() {
 		log.Info().Str("addr", addr).Msg("aiplex-api starting")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		serve := srv.ListenAndServe
+		if cfg.TLSCertFile != "" {
+			serve = func() error { return srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile) }
+		}
+		if err := serve(); err != nil && err != http.ErrServerClosed {
 			log.Fatal().Err(err).Msg("server failed")
 		}
 	}()

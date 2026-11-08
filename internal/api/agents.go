@@ -13,6 +13,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 )
 
 // AgentHandler serves agent registration and permission endpoints.
@@ -102,7 +103,7 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, uri := range agent.RedirectURIs {
-			if !strings.HasPrefix(uri, "https://") && !strings.HasPrefix(uri, "http://localhost") {
+			if err := toolauth.ValidateRedirectURI(uri); err != nil {
 				Error(w, r, http.StatusBadRequest, "INVALID_REDIRECT_URI",
 					fmt.Sprintf("redirect_uri %q must use HTTPS (or http://localhost for dev)", uri))
 				return
@@ -125,10 +126,12 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent.RegisteredAt = time.Now()
+	agent.RegisteredBy = extractOwner(r)
 	agent.Status = "active"
 	agent.ResourceVersion = 1
 
-	// Create OAuth client in Hydra (non-fatal — agent is registered locally even if Hydra is unavailable)
+	// A configured authorization server must successfully issue the OAuth client
+	// before an active local registration can be persisted.
 	if h.hydra != nil {
 		grantTypes := agent.GrantTypes
 		if len(grantTypes) == 0 {
@@ -144,17 +147,36 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 		resp, err := h.hydra.CreateClient(r.Context(), oauthClient)
 		if err != nil {
-			// Log but don't fail — Hydra may not be available in dev mode
-			zerolog.Ctx(r.Context()).Warn().Err(err).
-				Str("client_id", agent.ClientID).
-				Msg("failed to create Hydra OAuth client")
-		} else if resp != nil {
-			agent.ClientSecret = resp.ClientSecret
+			zerolog.Ctx(r.Context()).Warn().Err(err).Str("client_id", agent.ClientID).Msg("Hydra OAuth client issuance failed")
+			Error(w, r, http.StatusBadGateway, "OAUTH_REGISTRATION_FAILED", "authorization server did not issue the client")
+			return
 		}
+		if resp == nil || resp.ClientID != agent.ClientID || resp.ClientSecret == "" {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+			cleanupErr := h.hydra.DeleteClient(cleanup, agent.ClientID)
+			cancel()
+			if cleanupErr != nil {
+				zerolog.Ctx(r.Context()).Error().Err(cleanupErr).Str("client_id", agent.ClientID).Msg("invalid OAuth issuance rollback failed")
+			}
+			Error(w, r, http.StatusBadGateway, "OAUTH_REGISTRATION_FAILED", "authorization server returned incomplete client credentials")
+			return
+		}
+		agent.ClientSecret = resp.ClientSecret
 	}
 
-	if err := h.store.PutAgent(r.Context(), &agent); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+	// Secrets are returned once, never stored even by the in-memory backend.
+	persisted := agent
+	persisted.ClientSecret = ""
+	if err := h.store.PutAgent(r.Context(), &persisted); err != nil {
+		if h.hydra != nil {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+			cleanupErr := h.hydra.DeleteClient(cleanup, agent.ClientID)
+			cancel()
+			if cleanupErr != nil {
+				zerolog.Ctx(r.Context()).Error().Err(cleanupErr).Str("client_id", agent.ClientID).Msg("OAuth registration rollback failed")
+			}
+		}
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "failed to persist agent registration")
 		return
 	}
 	JSON(w, http.StatusCreated, agent)
@@ -168,9 +190,9 @@ func (h *AgentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	// Delete OAuth client from Hydra
 	if h.hydra != nil {
 		if err := h.hydra.DeleteClient(r.Context(), clientID); err != nil {
-			zerolog.Ctx(r.Context()).Warn().Err(err).
-				Str("client_id", clientID).
-				Msg("failed to delete Hydra OAuth client")
+			zerolog.Ctx(r.Context()).Warn().Err(err).Str("client_id", clientID).Msg("failed to delete Hydra OAuth client")
+			Error(w, r, http.StatusBadGateway, "OAUTH_REVOCATION_FAILED", "authorization server did not revoke the client")
+			return
 		}
 	}
 

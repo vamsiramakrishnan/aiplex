@@ -32,12 +32,20 @@ type Config struct {
 	RoleBindingsFile      string   `env:"AIPLEX_ROLE_BINDINGS_FILE,default="`
 	ModuleManifest        string   `env:"AIPLEX_MODULE_MANIFEST,default="`
 	IdentityProvidersFile string   `env:"AIPLEX_IDENTITY_PROVIDERS_FILE,default="`
-	EnabledModules        []string `env:"AIPLEX_MODULES,default=mcplex,a2aplex,llmplex,skillsplex"`
+	EnabledModules        []string `env:"AIPLEX_MODULES,default=mcplex,a2aplex,llmplex,skillsplex,clientplex,networking"`
 	DevelopmentMode       bool     `env:"AIPLEX_DEV_MODE,default=false"`
 	JWTIssuer             string   `env:"JWT_ISSUER,default="`
 	JWTAudience           string   `env:"JWT_AUDIENCE,default="`
 	JWTJWKSURL            string   `env:"JWT_JWKS_URL,default="`
 	IdentityWorkforce     bool     `env:"IDENTITY_WORKFORCE,default=true"`
+
+	// Connected module providers and trusted single-tenant binding.
+	ConnectionsFile string `env:"AIPLEX_CONNECTIONS_FILE,default="`
+	TenantID        string `env:"AIPLEX_TENANT_ID,default="`
+	PublicURL       string `env:"AIPLEX_PUBLIC_URL,default="`
+	TLSCertFile     string `env:"TLS_CERT_FILE,default="`
+	TLSKeyFile      string `env:"TLS_KEY_FILE,default="`
+	ClientCAFile    string `env:"CLIENT_CA_FILE,default="`
 
 	// Identity
 	TrustDomain     string `env:"TRUST_DOMAIN,default=aiplex-prod.global"`

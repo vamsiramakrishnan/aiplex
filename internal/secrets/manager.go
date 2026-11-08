@@ -3,6 +3,8 @@ package secrets
 import (
 	"context"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
@@ -95,4 +97,40 @@ func (m *Manager) Create(ctx context.Context, secretID string, data []byte) erro
 		return fmt.Errorf("add secret version %q: %w", secretID, err)
 	}
 	return nil
+}
+
+// Put stores a new version in an explicitly configured Secret Manager. It never
+// succeeds without persistence, including local development callers.
+func (m *Manager) Put(ctx context.Context, secretID string, data []byte) error {
+	_, e := m.PutVersion(ctx, secretID, data)
+	return e
+}
+func (m *Manager) PutVersion(ctx context.Context, secretID string, data []byte) (string, error) {
+	if m == nil || m.client == nil {
+		return "", fmt.Errorf("secret manager not configured")
+	}
+	name := fmt.Sprintf("projects/%s/secrets/%s", m.projectID, secretID)
+	_, err := m.client.CreateSecret(ctx, &secretmanagerpb.CreateSecretRequest{Parent: fmt.Sprintf("projects/%s", m.projectID), SecretId: secretID, Secret: &secretmanagerpb.Secret{Replication: &secretmanagerpb.Replication{Replication: &secretmanagerpb.Replication_Automatic_{Automatic: &secretmanagerpb.Replication_Automatic{}}}}})
+	if err != nil && status.Code(err) != codes.AlreadyExists {
+		return "", fmt.Errorf("create credential secret: %w", err)
+	}
+	version, err := m.client.AddSecretVersion(ctx, &secretmanagerpb.AddSecretVersionRequest{Parent: name, Payload: &secretmanagerpb.SecretPayload{Data: data}})
+	if err != nil {
+		return "", fmt.Errorf("write credential secret: %w", err)
+	}
+	return version.Name, nil
+}
+func (m *Manager) GetLatestVersion(ctx context.Context, secretID string) ([]byte, string, error) {
+	if m == nil || m.client == nil {
+		return nil, "", fmt.Errorf("secret manager not configured")
+	}
+	name := fmt.Sprintf("projects/%s/secrets/%s/versions/latest", m.projectID, secretID)
+	result, e := m.client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{Name: name})
+	if e != nil {
+		return nil, "", e
+	}
+	if result.Payload == nil {
+		return nil, "", fmt.Errorf("empty secret payload")
+	}
+	return result.Payload.Data, result.Name, nil
 }

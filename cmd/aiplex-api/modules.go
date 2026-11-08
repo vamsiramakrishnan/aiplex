@@ -23,7 +23,7 @@ func (m *httpModule) Ready(context.Context) error    { return nil }
 
 func builtinModules(llmH *api.LLMHandler, a2aH *api.A2AHandler, skillsH *api.SkillsHandler) map[string]*httpModule {
 	makeModule := func(name, title, path, command string, mount func(chi.Router)) *httpModule {
-		d := modules.Descriptor{Name: name, Version: "1.0.0", ContractVersion: modules.ContractVersion, Capabilities: []string{name + ".manage"}, Dependencies: []modules.Dependency{{Name: "identity", ContractVersion: modules.ContractVersion}}, Navigation: []modules.Navigation{{Path: "/" + name, Title: title}}}
+		d := modules.Descriptor{Name: name, Version: "1.0.0", ContractVersion: modules.ContractVersion, Capabilities: []string{name + ".manage", "workload.route"}, Dependencies: []modules.Dependency{{Name: "identity", ContractVersion: modules.ContractVersion}}, Navigation: []modules.Navigation{{Path: "/" + name, Title: title}}}
 		if path != "" {
 			d.APIPrefixes = []string{"/api/v1" + path}
 		}

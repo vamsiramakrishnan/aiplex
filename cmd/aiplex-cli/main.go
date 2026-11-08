@@ -120,6 +120,7 @@ Get started:
 		// Metadata
 		versionCmd(),
 		modulesCmd(),
+		resourcesCmd(),
 
 		// Onboarding
 		quickstartCmd(),

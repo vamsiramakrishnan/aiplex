@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/config"
+	"github.com/vamsiramakrishnan/aiplex/pkg/agentidentity"
 	"io"
 	"os"
 )
 
 type identitySourceSpec struct {
-	Issuer      string `json:"issuer"`
-	Audience    string `json:"audience"`
-	JWKSURL     string `json:"jwks_url"`
-	PoolID      string `json:"pool_id"`
-	IsWorkforce bool   `json:"is_workforce"`
+	NativeAgentIdentity *agentidentity.Config `json:"native_agent_identity,omitempty"`
+	Issuer              string                `json:"issuer"`
+	Audience            string                `json:"audience"`
+	JWKSURL             string                `json:"jwks_url"`
+	PoolID              string                `json:"pool_id"`
+	IsWorkforce         bool                  `json:"is_workforce"`
 }
 type identitySourceFile struct {
 	Sources []identitySourceSpec `json:"sources"`
@@ -54,14 +56,27 @@ func identityValidator(store auth.IdentityStore, cfg *config.Config) (*auth.WIFV
 		if cfg.IdentityWorkforce {
 			pool = cfg.WorkforcePoolID
 		}
-		sources = append(sources, identitySourceSpec{cfg.JWTIssuer, cfg.JWTAudience, cfg.JWTJWKSURL, pool, cfg.IdentityWorkforce})
+		sources = append(sources, identitySourceSpec{Issuer: cfg.JWTIssuer, Audience: cfg.JWTAudience, JWKSURL: cfg.JWTJWKSURL, PoolID: pool, IsWorkforce: cfg.IdentityWorkforce})
 	}
 	if len(sources) == 0 {
 		return nil, fmt.Errorf("configure at least one verified identity source")
 	}
 	trusted := make([]auth.IdentitySource, 0, len(sources))
 	for _, s := range sources {
-		verifier, err := auth.NewJWKSVerifier(auth.JWKSConfig{Issuer: s.Issuer, Audience: s.Audience, JWKSURL: s.JWKSURL})
+		var verifier auth.TokenVerifier
+		var err error
+		if s.NativeAgentIdentity != nil {
+			native := s.NativeAgentIdentity
+			if s.IsWorkforce || s.Issuer != native.Issuer || s.Audience != native.Audience || s.PoolID != native.TrustDomain {
+				return nil, fmt.Errorf("native agent source must bind workload issuer/audience/trust domain exactly")
+			}
+			if native.BindingMode == agentidentity.RequiredBinding && (cfg.ClientCAFile == "" || cfg.TLSCertFile == "" || cfg.TLSKeyFile == "") {
+				return nil, fmt.Errorf("bound Agent Identity requires direct TLS and client CA configuration")
+			}
+			verifier, err = auth.NewNativeAgentVerifier(*native, auth.JWKSConfig{})
+		} else {
+			verifier, err = auth.NewJWKSVerifier(auth.JWKSConfig{Issuer: s.Issuer, Audience: s.Audience, JWKSURL: s.JWKSURL})
+		}
 		if err != nil {
 			return nil, err
 		}

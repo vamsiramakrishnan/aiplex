@@ -144,7 +144,13 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 	if verifier == nil {
 		return nil, fmt.Errorf("identity token verifier is not configured")
 	}
-	claims, err := verifier.Verify(r.Context(), token)
+	var claims map[string]any
+	var err error
+	if requestVerifier, ok := verifier.(RequestTokenVerifier); ok {
+		claims, err = requestVerifier.VerifyRequest(r, token)
+	} else {
+		claims, err = verifier.Verify(r.Context(), token)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("verify identity token: %w", err)
 	}
