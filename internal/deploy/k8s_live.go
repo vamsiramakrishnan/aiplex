@@ -54,6 +54,10 @@ func NewLiveK8sClientConfigured(opts ...LiveK8sOption) *LiveK8sClient {
 	return c
 }
 
+// CapabilityDiscoveryEnabled permits probes only after a real apply. A dry-run
+// does not create workloads, so discovery would target nonexistent services.
+func (c *LiveK8sClient) CapabilityDiscoveryEnabled() bool { return !c.dryRun }
+
 // Apply creates or updates a K8s resource using server-side apply.
 func (c *LiveK8sClient) Apply(ctx context.Context, m Manifest) error {
 	yamlBytes, err := marshalManifest(m)

@@ -20,7 +20,7 @@ QuotaPlex. It introduces no quota allocator, lending engine, or new spend ledger
 - Console/CLI use explicit trusted implementations plus server discovery.
 
 `AIPLEX_MODULES` selects built-ins (default
-`mcplex,a2aplex,llmplex,skillsplex`). Unknown/duplicate names fail startup.
+`mcplex,a2aplex,llmplex,skillsplex,clientplex,networking`). Unknown/duplicate names fail startup.
 Disabled modules cannot deploy through the shared instance endpoint or appear
 in catalog discovery. Existing deployments retain cleanup inventory so they can
 be removed after a module is disabled or its template disappears. Legacy
@@ -119,6 +119,23 @@ does not claim the HTTP adapter is a drop-in gRPC service replacement.
   defensive copies to prevent mutation.
 
 ## Validation boundaries
+
+The connected-module bugbash additionally repaired credential-origin confusion,
+cross-principal stateful model/agent sessions, audit middleware buffering SSE,
+resource revision reuse after deletion, and deployment-plan provenance and expiry
+binding. No-op, dry-run and unknown deployment adapters now retain template
+capabilities without probing cluster services. Live discovery requires explicit
+adapter opt-in.
+
+Fresh-checkout checks also cover the tracked Rust test signing fixture and Console
+embedding. Source CLI builds show build instructions until the Console is built;
+release packaging compiles and embeds the full Console first. CI and releases
+select the Go toolchain from `go.mod`.
+
+Final local validation: 416 Go tests pass with the race detector; seven Firestore
+integration tests require an emulator and are skipped. Go vet/build, 24 Rust tests
+and Clippy, 31 Console tests/build, public schemas, and a real Anvil CLI dry-run
+and bundle-hash compatibility check pass. No cloud resources were applied.
 
 Automated regression coverage includes fake JWKS servers and actual signed
 RS256/ES256 tokens; module startup/readiness failures; external module descriptor
