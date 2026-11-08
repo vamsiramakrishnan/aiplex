@@ -103,7 +103,7 @@ aiplex apply -f aiplex.yaml
 |-----------|----------|---------|
 | **AIPlex API** | Go | REST API, deploy engine, consent handler |
 | **AIPlex Console** | React/TS | Web UI for all three planes |
-| **aiplex-authz** | Rust | ext_authz (0.05ms p50 JWT validation) |
+| **aiplex-authz** | Rust | Scope authorization and JWT verification |
 | **AIPlex CLI** | Go | Command-line interface |
 | **Ory Hydra** | Go (configured) | OAuth 2.1 token issuance |
 | **Ory Kratos** | Go (configured) | Identity, social sign-in |
@@ -122,6 +122,10 @@ Agent Ceiling (A)  ∩  User Ceiling (B)  ∩  User Consent (C)  =  Effective
 - **C**: What the user approved this session (runtime consent)
 
 Enforced by a [20-line Rego policy](policies/aiplex_authz.rego) / Rust ext_authz.
+
+## Module foundations
+
+Built-in Plex modules can be selected independently; external services register through versioned descriptors. See [module contracts](docs/modules.md) and [deployment migration and bugbash](docs/foundations-bugbash.md) before upgrading an existing deployment.
 
 ## Local Development
 

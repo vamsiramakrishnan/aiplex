@@ -43,6 +43,14 @@ func (h *AuthHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.TrimSpace(cr.Subject) == "" || strings.TrimSpace(cr.Client.ClientID) == "" {
+		Error(w, r, http.StatusBadGateway, "HYDRA_ERROR", "consent request requires subject and client")
+		return
+	}
+	if access := GetWIFAccess(r.Context()); access != nil && cr.Subject != access.Identity.PrincipalID {
+		Error(w, r, http.StatusForbidden, "FORBIDDEN", "consent subject does not match verified caller")
+		return
+	}
 	// Look up agent ceiling (Dimension A) and user ceiling (Dimension B)
 	agent, err := h.store.GetAgent(r.Context(), cr.Client.ClientID)
 	if err != nil {
@@ -50,14 +58,19 @@ func (h *AuthHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userScopes, _ := h.store.GetUserScopes(r.Context(), cr.Subject)
+	userScopes, err := h.store.GetUserScopes(r.Context(), cr.Subject)
+	if err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "failed to resolve consent scopes")
+		return
+	}
+	if access := GetWIFAccess(r.Context()); access != nil {
+		userScopes = access.Scopes
+	}
 
 	// Compute grantable scopes = A ∩ B ∩ requested
-	agentSet := toSet(agent.AllowedScopes)
-	userSet := toSet(userScopes)
 	var grantable []string
 	for _, s := range cr.RequestedScope {
-		if agentSet[s] && userSet[s] {
+		if auth.ScopeAllowed(agent.AllowedScopes, s) && auth.ScopeAllowed(userScopes, s) {
 			grantable = append(grantable, s)
 		}
 	}
@@ -77,15 +90,19 @@ func (h *AuthHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 // POST /auth/consent
 func (h *AuthHandler) ConsentAccept(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Challenge     string   `json:"challenge"`
-		GrantedScopes []string `json:"granted_scopes"`
-		Deny          bool     `json:"deny"`
+		Challenge     string    `json:"challenge"`
+		GrantedScopes *[]string `json:"granted_scopes"`
+		Deny          bool      `json:"deny"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
 
+	if strings.TrimSpace(req.Challenge) == "" {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "consent challenge is required")
+		return
+	}
 	if req.Deny {
 		redirectURL, err := h.hydra.RejectConsent(r.Context(), req.Challenge, "user_denied", "User denied consent")
 		if err != nil {
@@ -96,7 +113,17 @@ func (h *AuthHandler) ConsentAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectURL, err := h.consent.HandleConsent(r.Context(), req.Challenge)
+	if req.GrantedScopes == nil {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "granted_scopes is required")
+		return
+	}
+	var redirectURL string
+	var err error
+	if access := GetWIFAccess(r.Context()); access != nil {
+		redirectURL, err = h.consent.HandleConsentForAccess(r.Context(), req.Challenge, *req.GrantedScopes, access)
+	} else {
+		redirectURL, err = h.consent.HandleConsentScopes(r.Context(), req.Challenge, *req.GrantedScopes)
+	}
 	if err != nil {
 		Error(w, r, http.StatusBadGateway, "HYDRA_ERROR", "consent acceptance failed: "+err.Error())
 		return
@@ -161,8 +188,8 @@ func (h *AuthHandler) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	// In production, redirect to Kratos self-service login UI
 	// For now, return the challenge so the Console can handle it
 	JSON(w, http.StatusOK, map[string]string{
-		"challenge":  challenge,
-		"login_url":  "/ui/login?login_challenge=" + challenge,
+		"challenge": challenge,
+		"login_url": "/ui/login?login_challenge=" + challenge,
 	})
 }
 
@@ -179,8 +206,8 @@ func (h *AuthHandler) GetUserScopes(w http.ResponseWriter, r *http.Request) {
 	// Group by plane for easier display
 	grouped := auth.ScopesByPlane(scopes)
 	JSON(w, http.StatusOK, map[string]any{
-		"user_id": userID,
-		"scopes":  scopes,
+		"user_id":  userID,
+		"scopes":   scopes,
 		"by_plane": grouped,
 	})
 }

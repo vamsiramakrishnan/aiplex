@@ -42,7 +42,6 @@ console/.env
 
 # Rust (authz)
 authz/target/
-authz/Cargo.lock
 
 # IDE
 .idea/

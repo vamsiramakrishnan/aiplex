@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 )
 
 // HydraClient wraps the Ory Hydra Admin API.
@@ -20,18 +22,18 @@ type HydraClient struct {
 func NewHydraClient(adminURL string) *HydraClient {
 	return &HydraClient{
 		adminURL:   adminURL,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
 // OAuthClient represents a Hydra OAuth2 client (maps to an AIPlex agent).
 type OAuthClient struct {
-	ClientID      string   `json:"client_id"`
-	ClientName    string   `json:"client_name"`
-	GrantTypes    []string `json:"grant_types"`
-	Scope         string   `json:"scope"`
-	RedirectURIs  []string `json:"redirect_uris,omitempty"`
-	TokenEndpointAuthMethod string `json:"token_endpoint_auth_method"`
+	ClientID                string   `json:"client_id"`
+	ClientName              string   `json:"client_name"`
+	GrantTypes              []string `json:"grant_types"`
+	Scope                   string   `json:"scope"`
+	RedirectURIs            []string `json:"redirect_uris,omitempty"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 }
 
 // CreateClientResponse contains the response from Hydra client creation.
@@ -122,8 +124,8 @@ func (h *HydraClient) UpdateClientScopes(ctx context.Context, clientID string, s
 
 // ConsentRequest represents a Hydra consent challenge.
 type ConsentRequest struct {
-	Challenge string   `json:"challenge"`
-	Subject   string   `json:"subject"`
+	Challenge string `json:"challenge"`
+	Subject   string `json:"subject"`
 	Client    struct {
 		ClientID string `json:"client_id"`
 	} `json:"client"`
@@ -133,7 +135,7 @@ type ConsentRequest struct {
 // GetConsentRequest fetches a consent challenge from Hydra.
 func (h *HydraClient) GetConsentRequest(ctx context.Context, challenge string) (*ConsentRequest, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		h.adminURL+"/admin/oauth2/auth/requests/consent?consent_challenge="+challenge, nil)
+		h.adminURL+"/admin/oauth2/auth/requests/consent?consent_challenge="+url.QueryEscape(challenge), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +144,9 @@ func (h *HydraClient) GetConsentRequest(ctx context.Context, challenge string) (
 		return nil, fmt.Errorf("hydra get consent: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("hydra get consent: status %d", resp.StatusCode)
+	}
 	var cr ConsentRequest
 	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
 		return nil, err
@@ -161,7 +166,7 @@ func (h *HydraClient) AcceptConsent(ctx context.Context, challenge string, grant
 	}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
-		h.adminURL+"/admin/oauth2/auth/requests/consent/accept?consent_challenge="+challenge,
+		h.adminURL+"/admin/oauth2/auth/requests/consent/accept?consent_challenge="+url.QueryEscape(challenge),
 		bytes.NewReader(body))
 	if err != nil {
 		return "", err
@@ -172,10 +177,18 @@ func (h *HydraClient) AcceptConsent(ctx context.Context, challenge string, grant
 		return "", fmt.Errorf("hydra accept consent: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("hydra consent decision: status %d", resp.StatusCode)
+	}
 	var result struct {
 		RedirectTo string `json:"redirect_to"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("hydra consent response: %w", err)
+	}
+	if result.RedirectTo == "" {
+		return "", fmt.Errorf("hydra consent response has no redirect")
+	}
 	return result.RedirectTo, nil
 }
 
@@ -187,7 +200,7 @@ func (h *HydraClient) RejectConsent(ctx context.Context, challenge, errorID, err
 	}
 	body, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
-		h.adminURL+"/admin/oauth2/auth/requests/consent/reject?consent_challenge="+challenge,
+		h.adminURL+"/admin/oauth2/auth/requests/consent/reject?consent_challenge="+url.QueryEscape(challenge),
 		bytes.NewReader(body))
 	if err != nil {
 		return "", err
@@ -198,9 +211,17 @@ func (h *HydraClient) RejectConsent(ctx context.Context, challenge, errorID, err
 		return "", fmt.Errorf("hydra reject consent: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("hydra consent decision: status %d", resp.StatusCode)
+	}
 	var result struct {
 		RedirectTo string `json:"redirect_to"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("hydra consent response: %w", err)
+	}
+	if result.RedirectTo == "" {
+		return "", fmt.Errorf("hydra consent response has no redirect")
+	}
 	return result.RedirectTo, nil
 }

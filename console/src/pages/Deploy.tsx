@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { deployInstance, getCatalog, type Template, type Manifest, applyManifest } from '../api/client'
+import { useModules } from '../hooks/useModules'
 
 type Step = 'plane' | 'template' | 'config' | 'review'
 
@@ -35,9 +36,12 @@ export default function Deploy() {
 
 function DeployWizard() {
   const queryClient = useQueryClient()
+  const { enabled, loading: modulesLoading, error: modulesError } = useModules()
+  const availablePlanes = enabled.map((module) => module.name)
+  const availableKey = availablePlanes.join(',')
   const [searchParams] = useSearchParams()
   const [step, setStep] = useState<Step>('plane')
-  const [plane, setPlane] = useState('mcplex')
+  const [plane, setPlane] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [config, setConfig] = useState<Record<string, string>>({})
@@ -45,6 +49,7 @@ function DeployWizard() {
   const { data: catalog, isLoading } = useQuery({
     queryKey: ['catalog', plane],
     queryFn: () => getCatalog(plane),
+    enabled: availablePlanes.includes(plane),
   })
 
   // Pre-populate from URL params
@@ -52,14 +57,19 @@ function DeployWizard() {
     const urlPlane = searchParams.get('plane')
     const urlTemplate = searchParams.get('template')
 
-    if (urlPlane && ['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].includes(urlPlane)) {
+    const available = availableKey.split(',').filter(Boolean)
+    if (urlPlane && available.includes(urlPlane)) {
       setPlane(urlPlane)
       if (urlTemplate) {
         // Move to template step and wait for catalog to load
         setStep('template')
       }
+    } else {
+      setPlane((current) => available.includes(current) ? current : available[0] ?? '')
+      setStep('plane')
+      setSelectedTemplate(null)
     }
-  }, [searchParams])
+  }, [searchParams, availableKey])
 
   // Auto-select template when catalog loads if template param is present
   useEffect(() => {
@@ -74,7 +84,10 @@ function DeployWizard() {
   }, [catalog, searchParams, selectedTemplate])
 
   const deploy = useMutation({
-    mutationFn: deployInstance,
+    mutationFn: (request: Parameters<typeof deployInstance>[0]) => {
+      if (!availablePlanes.includes(request.plane)) throw new Error('Selected module is not enabled')
+      return deployInstance(request)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['instances'] })
       setStep('plane')
@@ -97,6 +110,10 @@ function DeployWizard() {
     llmplex: 'Configure LLM model routing, failover, and cost budgets',
     skillsplex: 'Deploy skill servers that host invokable skill bundles for agents',
   }
+
+  if (modulesLoading) return <p role="status">Loading modules…</p>
+  if (modulesError) return <p role="alert">Module discovery unavailable: {modulesError}</p>
+  if (enabled.length === 0) return <p role="status">No deployable modules are enabled.</p>
 
   return (
     <div>
@@ -123,7 +140,7 @@ function DeployWizard() {
         <div className="space-y-4">
           <p className="text-sm text-gray-600">What do you want to deploy?</p>
           <div className="grid gap-3">
-            {['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].map(p => (
+            {enabled.map(({ name: p, label }) => (
               <button
                 key={p}
                 onClick={() => { setPlane(p); setStep('template') }}
@@ -131,10 +148,7 @@ function DeployWizard() {
                   ${plane === p ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}
               >
                 <div className="font-medium">
-                  {p === 'mcplex' ? 'MCPlex \u2014 Tools' :
-                   p === 'a2aplex' ? 'A2APlex \u2014 Agents' :
-                   p === 'llmplex' ? 'LLMPlex \u2014 Models' :
-                   'SkillsPlex \u2014 Skills'}
+                  {label}
                 </div>
                 <div className="text-sm text-gray-500 mt-1">{planeDescriptions[p]}</div>
               </button>

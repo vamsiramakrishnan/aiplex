@@ -119,6 +119,7 @@ Get started:
 	root.AddCommand(
 		// Metadata
 		versionCmd(),
+		modulesCmd(),
 
 		// Onboarding
 		quickstartCmd(),
@@ -143,9 +144,6 @@ Get started:
 		listCmd(),
 		getCmd(),
 		agentsCmd(),
-		llmCmd(),
-		a2aCmd(),
-		skillsCmd(),
 		runsCmd(),
 		catalogCmd(),
 
@@ -154,6 +152,7 @@ Get started:
 		completionCmd(),
 		validateCmd(),
 	)
+	registerModuleCommands(root)
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)

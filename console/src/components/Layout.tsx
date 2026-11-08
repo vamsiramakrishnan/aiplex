@@ -1,13 +1,10 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useModules } from '../hooks/useModules'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
-  { to: '/mcplex', label: 'MCPlex' },
-  { to: '/a2aplex', label: 'A2APlex' },
-  { to: '/llmplex', label: 'LLMPlex' },
-  { to: '/skillsplex', label: 'SkillsPlex' },
   { to: '/agents', label: 'Agents' },
   { to: '/runs', label: 'Runs' },
   { to: '/permissions', label: 'Permissions' },
@@ -83,6 +80,8 @@ function Breadcrumbs() {
 
 export default function Layout() {
   const { user, logout } = useAuth()
+  const { enabled, error } = useModules()
+  const navigation = [navItems[0], ...enabled.map((module) => ({ to: module.path, label: module.label })), ...navItems.slice(1)]
   const [dark, toggleDark] = useDarkMode()
   const navigate = useNavigate()
 
@@ -104,7 +103,7 @@ export default function Layout() {
           <p className="text-xs text-gray-400 mt-1">Unified AI Control Plane</p>
         </div>
         <div className="flex-1 py-4">
-          {navItems.map((item) => (
+          {navigation.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -162,6 +161,7 @@ export default function Layout() {
 
       {/* Main content */}
       <main className="flex-1 p-6 overflow-auto">
+        {error && <p role="alert" className="mb-4 text-red-600">Module discovery unavailable. Module navigation is hidden.</p>}
         <Breadcrumbs />
         <Outlet />
       </main>

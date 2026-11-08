@@ -20,7 +20,14 @@ api:
     limits:
       cpu: "1"
       memory: 512Mi
+  # Configure a pinned identity source before deployment. The API deliberately
+  # refuses to start without issuer/audience/JWKS (or a provider config file).
   env: {}
+  # JWT_ISSUER: https://your-issuer.example
+  # JWT_AUDIENCE: aiplex-api
+  # JWT_JWKS_URL: https://your-issuer.example/.well-known/jwks.json
+  # AIPLEX_MODULES: mcplex,a2aplex,llmplex,skillsplex
+  # AIPLEX_IDENTITY_PROVIDERS_FILE: /etc/aiplex/identity.json
   # Extra environment variables
   # MY_VAR: my-value
 

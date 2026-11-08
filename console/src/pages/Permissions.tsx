@@ -1,20 +1,18 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import ScopeSelector from '../components/ScopeSelector'
+import { authenticatedRequest } from '../api/client'
 
 async function getUserScopes(userId: string) {
-  const res = await fetch(`/auth/users/${encodeURIComponent(userId)}/scopes`)
-  if (!res.ok) throw new Error('Failed to fetch scopes')
-  return res.json() as Promise<{ user_id: string; scopes: string[]; by_plane: Record<string, string[]> }>
+  return authenticatedRequest<{ user_id: string; scopes: string[]; by_plane: Record<string, string[]> }>(`/auth/users/${encodeURIComponent(userId)}/scopes`)
 }
 
 async function setUserScopes(userId: string, scopes: string[]) {
-  const res = await fetch(`/auth/users/${encodeURIComponent(userId)}/scopes`, {
+  return authenticatedRequest<void>(`/auth/users/${encodeURIComponent(userId)}/scopes`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ scopes }),
   })
-  if (!res.ok) throw new Error('Failed to update scopes')
 }
 
 // All known scopes — in production, fetched from the API

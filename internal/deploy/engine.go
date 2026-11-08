@@ -15,30 +15,41 @@ import (
 
 // Engine orchestrates deployments across all three planes.
 type Engine struct {
-	store       registry.Store
+	store       registry.DeploymentStore
 	k8s         K8sClient
 	trustDomain string
 	gatewayName string
+	routes      *RouteRegistry
 }
 
 // NewEngine creates a deploy engine.
-func NewEngine(store registry.Store, trustDomain string) *Engine {
+func NewEngine(store registry.DeploymentStore, trustDomain string) *Engine {
 	return &Engine{
 		store:       store,
 		k8s:         NewNoOpK8sClient(),
 		trustDomain: trustDomain,
 		gatewayName: "aiplex-gateway",
+		routes:      NewBuiltinRouteRegistry(),
 	}
 }
 
 // NewEngineWithK8s creates a deploy engine with a real K8s client.
-func NewEngineWithK8s(store registry.Store, k8s K8sClient, trustDomain, gatewayName string) *Engine {
+func NewEngineWithK8s(store registry.DeploymentStore, k8s K8sClient, trustDomain, gatewayName string) *Engine {
 	return &Engine{
 		store:       store,
 		k8s:         k8s,
 		trustDomain: trustDomain,
 		gatewayName: gatewayName,
+		routes:      NewBuiltinRouteRegistry(),
 	}
+}
+
+// WithRouteRegistry selects the enabled module route generators. Configure the
+// engine before serving requests; an empty registry disables all deployment
+// planes. The registry is injected rather than modified globally.
+func (e *Engine) WithRouteRegistry(routes *RouteRegistry) *Engine {
+	e.routes = routes
+	return e
 }
 
 // Deploy provisions an instance for any plane.
@@ -58,6 +69,13 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 	template, err := e.store.GetTemplate(ctx, templateID)
 	if err != nil {
 		return nil, fmt.Errorf("template %q not found: %w", templateID, err)
+	}
+
+	if !e.routes.Has(plane) {
+		return nil, fmt.Errorf("%w: %s", ErrRouteGeneratorMissing, plane)
+	}
+	if template.Plane != "" && template.Plane != plane {
+		return nil, fmt.Errorf("template plane %q does not match requested plane %q", template.Plane, plane)
 	}
 
 	// PR 11 item 16: refuse to change the runtime config of an existing
@@ -130,12 +148,26 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		// cleanly through storage and the API.
 		Runtime: runtimeFromConfig(config),
 	}
+	routes, err := e.routes.Generate(inst, template, e.gatewayName)
+	if err != nil {
+		return nil, err
+	}
+
+	manifests := GenerateManifests(inst, template, e.trustDomain)
+	for _, manifest := range append(append([]Manifest(nil), manifests...), routes...) {
+		if manifest.Shared {
+			continue
+		}
+		inst.Resources = append(inst.Resources, models.ResourceReference{
+			APIVersion: manifest.APIVersion, Kind: manifest.Kind,
+			Name: manifest.Name, Namespace: manifest.Namespace,
+		})
+	}
 	if err := e.store.PutInstance(ctx, inst); err != nil {
 		return nil, fmt.Errorf("failed to persist instance: %w", err)
 	}
 
 	// 6. Apply K8s workload manifests (SA, Deployment, Service, NetworkPolicy)
-	manifests := GenerateManifests(inst, template, e.trustDomain)
 	for _, m := range manifests {
 		if err := e.k8s.Apply(ctx, m); err != nil {
 			inst.Status = models.StatusFailed
@@ -207,7 +239,6 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 	}
 
 	// 7. Apply route CRD (MCPRoute / HTTPRoute / LLMRoute)
-	routes := GenerateRoute(inst, template, e.gatewayName)
 	for _, m := range routes {
 		if err := e.k8s.Apply(ctx, m); err != nil {
 			inst.Status = models.StatusFailed
@@ -245,27 +276,44 @@ func (e *Engine) Undeploy(ctx context.Context, instanceID, performer string) err
 		return err
 	}
 
-	tmpl, _ := e.store.GetTemplate(ctx, inst.TemplateID)
-	logger.Info().Msg("starting undeploy")
-
-	// Delete route CRDs
-	if tmpl != nil {
-		routes := GenerateRoute(inst, tmpl, e.gatewayName)
-		for _, m := range routes {
-			if err := e.k8s.Delete(ctx, m.APIVersion, m.Kind, m.Name, m.Namespace); err != nil {
-				logger.Warn().Err(err).Str("kind", m.Kind).Str("name", m.Name).Msg("failed to delete route")
+	resources := inst.Resources
+	if len(resources) == 0 {
+		// Legacy instances predate inventory persistence. Built-in generators
+		// remain available for cleanup even when a module is now disabled.
+		tmpl, err := e.store.GetTemplate(ctx, inst.TemplateID)
+		if err != nil {
+			return fmt.Errorf("resolve legacy cleanup template: %w", err)
+		}
+		cleanupRoutes := e.routes
+		if !cleanupRoutes.Has(inst.Plane) {
+			cleanupRoutes = NewBuiltinRouteRegistry()
+		}
+		routes, err := cleanupRoutes.Generate(inst, tmpl, e.gatewayName)
+		if err != nil {
+			return err
+		}
+		for _, manifest := range append(GenerateManifests(inst, tmpl, e.trustDomain), routes...) {
+			if manifest.Shared {
+				continue
 			}
+			resources = append(resources, models.ResourceReference{
+				APIVersion: manifest.APIVersion, Kind: manifest.Kind,
+				Name: manifest.Name, Namespace: manifest.Namespace,
+			})
 		}
 	}
-
-	// Delete K8s workload manifests
-	if tmpl != nil {
-		manifests := GenerateManifests(inst, tmpl, e.trustDomain)
-		for _, m := range manifests {
-			if err := e.k8s.Delete(ctx, m.APIVersion, m.Kind, m.Name, m.Namespace); err != nil {
-				logger.Warn().Err(err).Str("kind", m.Kind).Str("name", m.Name).Msg("failed to delete resource")
-			}
+	logger.Info().Msg("starting undeploy")
+	var cleanupErrors []error
+	// Delete in reverse creation order: routes before their backing workloads.
+	for i := len(resources) - 1; i >= 0; i-- {
+		resource := resources[i]
+		if err := e.k8s.Delete(ctx, resource.APIVersion, resource.Kind, resource.Name, resource.Namespace); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("delete %s/%s: %w", resource.Kind, resource.Name, err))
 		}
+	}
+	if err := errors.Join(cleanupErrors...); err != nil {
+		e.recordHistory(ctx, inst, "undeploy", performer, nil, start, false, err.Error())
+		return err
 	}
 
 	inst.Status = models.StatusTerminated
@@ -300,7 +348,7 @@ func (e *Engine) recordHistory(ctx context.Context, inst *models.Instance, actio
 	}
 }
 
-func mustGetUserScopes(ctx context.Context, store registry.Store, userID string) []string {
+func mustGetUserScopes(ctx context.Context, store registry.UserScopeStore, userID string) []string {
 	scopes, _ := store.GetUserScopes(ctx, userID)
 	return scopes
 }

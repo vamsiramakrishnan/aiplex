@@ -17,11 +17,11 @@ import (
 // audit endpoints. It mirrors A2AHandler in shape and naming so the Console
 // and CLI can reuse the same patterns.
 type SkillsHandler struct {
-	store registry.Store
+	store registry.SkillsPlexStore
 }
 
 // NewSkillsHandler creates a SkillsPlex API handler.
-func NewSkillsHandler(store registry.Store) *SkillsHandler {
+func NewSkillsHandler(store registry.SkillsPlexStore) *SkillsHandler {
 	return &SkillsHandler{store: store}
 }
 
@@ -99,14 +99,14 @@ func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request
 	skills = append(skills, tmpl.Skills...)
 
 	manifest := map[string]any{
-		"instance_id":   instanceID,
-		"name":          tmpl.Name,
-		"description":   tmpl.Description,
-		"version":       tmpl.Version,
-		"url":           "/skills/" + instanceID,
-		"skill_bundle":  tmpl.SkillBundle,
-		"skills":        skills,
-		"scopes":        inst.Scopes,
+		"instance_id":  instanceID,
+		"name":         tmpl.Name,
+		"description":  tmpl.Description,
+		"version":      tmpl.Version,
+		"url":          "/skills/" + instanceID,
+		"skill_bundle": tmpl.SkillBundle,
+		"skills":       skills,
+		"scopes":       inst.Scopes,
 	}
 	JSON(w, http.StatusOK, manifest)
 }

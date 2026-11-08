@@ -16,14 +16,14 @@ import (
 
 // LLMHandler serves LLMPlex routing, provider, and usage endpoints.
 type LLMHandler struct {
-	store       registry.Store
+	store       registry.LLMPlexStore
 	k8s         deploy.K8sClient
 	gatewayName string
 	secrets     *secrets.Manager
 }
 
 // NewLLMHandler creates an LLMPlex API handler.
-func NewLLMHandler(store registry.Store, k8s deploy.K8sClient, gatewayName string, sm *secrets.Manager) *LLMHandler {
+func NewLLMHandler(store registry.LLMPlexStore, k8s deploy.K8sClient, gatewayName string, sm *secrets.Manager) *LLMHandler {
 	return &LLMHandler{store: store, k8s: k8s, gatewayName: gatewayName, secrets: sm}
 }
 
@@ -68,13 +68,9 @@ func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
 	rc.ModelID = modelID
 	rc.ID = "route-" + modelID
 
-	// Validate weights sum to 100
-	totalWeight := 0
-	for _, b := range rc.Backends {
-		totalWeight += b.Weight
-	}
-	if len(rc.Backends) > 0 && totalWeight != 100 {
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "backend weights must sum to 100")
+	manifests, err := deploy.GenerateRoutesFromConfigChecked(&rc, h.gatewayName)
+	if err != nil {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 		return
 	}
 
@@ -84,7 +80,6 @@ func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate and apply Envoy LLMRoute + AIServiceBackend CRDs
-	manifests := deploy.GenerateRoutesFromConfig(&rc, h.gatewayName)
 	for _, m := range manifests {
 		if err := h.k8s.Apply(r.Context(), m); err != nil {
 			zerolog.Ctx(r.Context()).Warn().Err(err).

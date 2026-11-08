@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { getCatalog } from '../api/client'
+import { getCatalog, authenticatedRequest } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
 interface SkillServer {
@@ -26,9 +26,9 @@ interface SkillInvocation {
 }
 
 const getServers = () =>
-  fetch('/api/v1/skills/servers').then((r) => r.json()) as Promise<SkillServer[]>
+  authenticatedRequest<SkillServer[]>('/api/v1/skills/servers')
 const getInvocations = () =>
-  fetch('/api/v1/skills/invocations').then((r) => r.json()) as Promise<SkillInvocation[]>
+  authenticatedRequest<SkillInvocation[]>('/api/v1/skills/invocations')
 
 export default function SkillsPlex() {
   const navigate = useNavigate()

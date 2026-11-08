@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
@@ -20,49 +22,87 @@ func NewConsentHandler(hydra *HydraClient, store registry.Store) *ConsentHandler
 	return &ConsentHandler{hydra: hydra, store: store}
 }
 
-// HandleConsent processes a consent challenge:
-// 1. Fetches the consent request from Hydra
-// 2. Looks up Dimension A (agent ceiling) and Dimension B (user ceiling)
-// 3. Computes A ∩ B ∩ C (requested scopes)
-// 4. Accepts the consent with the intersection
-func (ch *ConsentHandler) HandleConsent(ctx context.Context, challenge string) (redirectURL string, err error) {
-	// Fetch consent request from Hydra
+// HandleConsent preserves the server-driven integration API, granting only
+// requested scopes that fit both ceilings. Interactive UIs must use the explicit
+// selected-scope methods below so unchecked choices cannot become grants.
+func (ch *ConsentHandler) HandleConsent(ctx context.Context, challenge string) (string, error) {
+	return ch.handleConsent(ctx, challenge, nil, nil, false)
+}
+
+func (ch *ConsentHandler) HandleConsentScopes(ctx context.Context, challenge string, selected []string) (string, error) {
+	return ch.handleConsent(ctx, challenge, selected, nil, true)
+}
+
+// HandleConsentForAccess uses freshly resolved group grants for a verified
+// caller. Hydra must use the canonical principal. External subject strings are
+// issuer-scoped; matching subjects or email addresses never link identities.
+func (ch *ConsentHandler) HandleConsentForAccess(ctx context.Context, challenge string, selected []string, access *models.ResolvedAccess) (string, error) {
+	if access == nil {
+		return "", fmt.Errorf("verified consent identity is required")
+	}
+	return ch.handleConsent(ctx, challenge, selected, access, true)
+}
+
+func (ch *ConsentHandler) handleConsent(ctx context.Context, challenge string, selected []string, access *models.ResolvedAccess, explicit bool) (string, error) {
+	if strings.TrimSpace(challenge) == "" {
+		return "", fmt.Errorf("consent challenge is required")
+	}
 	cr, err := ch.hydra.GetConsentRequest(ctx, challenge)
 	if err != nil {
 		return "", err
 	}
-
-	// Dimension A: agent ceiling (from store/Hydra client)
+	if strings.TrimSpace(cr.Subject) == "" || strings.TrimSpace(cr.Client.ClientID) == "" {
+		return "", fmt.Errorf("consent request requires subject and client")
+	}
 	agent, err := ch.store.GetAgent(ctx, cr.Client.ClientID)
 	if err != nil {
 		return "", err
 	}
-	agentScopes := toSet(agent.AllowedScopes)
-
-	// Dimension B: user ceiling (from store)
-	userScopes, err := ch.store.GetUserScopes(ctx, cr.Subject)
-	if err != nil {
-		return "", err
-	}
-	userSet := toSet(userScopes)
-
-	// Dimension C: requested scopes
-	requestedSet := toSet(cr.RequestedScope)
-
-	// Effective = A ∩ B ∩ C
-	var granted []string
-	for scope := range requestedSet {
-		if agentScopes[scope] && userSet[scope] {
-			granted = append(granted, scope)
+	var userScopes []string
+	if access != nil {
+		identity := access.Identity
+		if identity.Subject == "" || identity.Provider == "" || identity.PrincipalID != CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.Subject) || cr.Subject != identity.PrincipalID {
+			return "", fmt.Errorf("consent subject does not match verified caller")
+		}
+		userScopes = access.Scopes
+	} else {
+		userScopes, err = ch.store.GetUserScopes(ctx, cr.Subject)
+		if err != nil {
+			return "", err
 		}
 	}
-
-	// Build act claim with agent's SPIFFE ID
-	actClaim := map[string]string{
-		"sub": agent.SpiffeID,
+	choices := selected
+	if !explicit {
+		choices = cr.RequestedScope
 	}
+	var granted []string
+	seen := make(map[string]bool)
+	requested := toSet(cr.RequestedScope)
+	for _, scope := range choices {
+		if scope == "" || !requested[scope] || !ScopeAllowed(agent.AllowedScopes, scope) || !ScopeAllowed(userScopes, scope) {
+			if explicit {
+				return "", fmt.Errorf("selected scope %q is not grantable", scope)
+			}
+			continue
+		}
+		if !seen[scope] {
+			granted = append(granted, scope)
+			seen[scope] = true
+		}
+	}
+	sort.Strings(granted)
+	return ch.hydra.AcceptConsent(ctx, challenge, granted, map[string]string{"sub": agent.SpiffeID})
+}
 
-	return ch.hydra.AcceptConsent(ctx, challenge, granted, actClaim)
+// ScopeAllowed supports exact scopes and terminal namespace wildcards. A
+// wildcard ceiling may cover a concrete requested scope, never the converse.
+func ScopeAllowed(ceiling []string, requested string) bool {
+	for _, scope := range ceiling {
+		if scope == requested || (strings.HasSuffix(scope, ":*") && strings.HasPrefix(requested, strings.TrimSuffix(scope, "*"))) {
+			return true
+		}
+	}
+	return false
 }
 
 // ScopesByPlane groups scopes by their plane prefix.

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, type LLMBackend } from '../api/client'
+import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, authenticatedRequest, type LLMBackend } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
 interface RouteConfig {
@@ -23,8 +23,8 @@ interface UsageSummary {
   avg_latency_ms: number
 }
 
-const getRoutes = () => fetch('/api/v1/llm/routes').then(r => r.json()) as Promise<RouteConfig[]>
-const getUsageSummary = (period: string) => fetch(`/api/v1/llm/usage/summary?period=${period}`).then(r => r.json()) as Promise<UsageSummary>
+const getRoutes = () => authenticatedRequest<RouteConfig[]>('/api/v1/llm/routes')
+const getUsageSummary = (period: string) => authenticatedRequest<UsageSummary>(`/api/v1/llm/usage/summary?period=${encodeURIComponent(period)}`)
 
 interface RouteFormData {
   model_id: string

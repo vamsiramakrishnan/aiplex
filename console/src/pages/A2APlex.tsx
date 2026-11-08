@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { getCatalog } from '../api/client'
+import { getCatalog, authenticatedRequest } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
 interface Delegation {
@@ -27,8 +27,8 @@ interface AgentCardSummary {
   status: string
 }
 
-const getAgentCards = () => fetch('/api/v1/a2a/agents').then(r => r.json()) as Promise<AgentCardSummary[]>
-const getDelegations = () => fetch('/api/v1/a2a/delegations').then(r => r.json()) as Promise<Delegation[]>
+const getAgentCards = () => authenticatedRequest<AgentCardSummary[]>('/api/v1/a2a/agents')
+const getDelegations = () => authenticatedRequest<Delegation[]>('/api/v1/a2a/delegations')
 
 export default function A2APlex() {
   const navigate = useNavigate()

@@ -14,12 +14,12 @@ import (
 
 // IAMHandler serves IAM role binding and WIF identity resolution endpoints.
 type IAMHandler struct {
-	store    registry.Store
-	wif      *auth.WIFValidator
+	store registry.RoleBindingStore
+	wif   *auth.WIFValidator
 }
 
 // NewIAMHandler creates an IAM handler.
-func NewIAMHandler(store registry.Store, wif *auth.WIFValidator) *IAMHandler {
+func NewIAMHandler(store registry.RoleBindingStore, wif *auth.WIFValidator) *IAMHandler {
 	return &IAMHandler{store: store, wif: wif}
 }
 
@@ -206,8 +206,8 @@ func (h *IAMHandler) ValidateWIFPrincipal(w http.ResponseWriter, r *http.Request
 
 	if err := auth.ValidateWIFPrincipal(req.Principal); err != nil {
 		JSON(w, http.StatusOK, map[string]any{
-			"valid":   false,
-			"error":   err.Error(),
+			"valid": false,
+			"error": err.Error(),
 		})
 		return
 	}

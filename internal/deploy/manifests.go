@@ -14,6 +14,8 @@ type Manifest struct {
 	Name       string
 	Namespace  string
 	YAML       string
+	// Shared resources are environment-owned and survive individual undeploys.
+	Shared bool
 }
 
 // GenerateManifests produces all K8s resources needed for a deployment.
@@ -58,8 +60,8 @@ func GenerateManifests(inst *models.Instance, tmpl *models.Template, trustDomain
 // dedicated path (tapeRuntimeManifests + tapeAgentEnv).
 //
 // Internal keys:
-//   * runtime               — RuntimeConfig block (handled separately)
-//   * force_runtime_change  — bypass flag for PR 11 item 16
+//   - runtime               — RuntimeConfig block (handled separately)
+//   - force_runtime_change  — bypass flag for PR 11 item 16
 func filterRuntimeEnv(config map[string]any) map[string]any {
 	if config == nil {
 		return nil
@@ -114,7 +116,10 @@ func deployment(name, ns, image string, config map[string]any, extra map[string]
 	}
 	sort.Strings(configKeys)
 	for _, k := range configKeys {
-		envYAML += fmt.Sprintf("        - name: %s\n          value: \"%v\"\n", k, config[k])
+		// Both fields are scalars supplied by a deployment request. Quoting
+		// only around an unescaped value lets quotes/newlines alter the pod
+		// structure; %q preserves them as data in the YAML double-quoted form.
+		envYAML += fmt.Sprintf("        - name: %q\n          value: %q\n", k, fmt.Sprint(config[k]))
 	}
 	extraKeys := make([]string, 0, len(extra))
 	for k := range extra {

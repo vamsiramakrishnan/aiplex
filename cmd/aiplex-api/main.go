@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -23,6 +23,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
+	"github.com/vamsiramakrishnan/aiplex/pkg/modules"
 )
 
 func main() {
@@ -99,15 +100,14 @@ func main() {
 	// Auth (Ory Hydra)
 	hydraClient := auth.NewHydraClient(cfg.HydraAdminURL)
 
-	// WIF Validator
-	wifValidator := auth.NewWIFValidator(store, auth.WIFConfig{
-		WorkforcePoolID: cfg.WorkforcePoolID,
-		WorkloadPoolID:  cfg.WIFPool,
-		TrustedIssuers: []string{
-			"https://accounts.google.com",
-			"https://sts.windows.net/",
-		},
-	})
+	wifValidator, err := identityValidator(store, cfg)
+	if err != nil {
+		log.Fatal().Err(err).Msg("identity configuration failed")
+	}
+
+	if err := bootstrapRoleBindings(ctx, store, cfg.RoleBindingsFile); err != nil {
+		log.Fatal().Err(err).Msg("operator role binding configuration failed")
+	}
 
 	// Secret Manager (optional — nil in local dev)
 	sm, err := secrets.NewManager(context.Background(), projectID)
@@ -128,6 +128,44 @@ func main() {
 	skillsH := api.NewSkillsHandler(store)
 	dashH := api.NewDashboardHandler(store)
 	iamH := api.NewIAMHandler(store, wifValidator)
+	moduleRegistry := modules.NewRegistry()
+	if err := moduleRegistry.Register(&httpModule{descriptor: modules.Descriptor{Name: "identity", Version: "1.0.0", ContractVersion: modules.ContractVersion, Capabilities: []string{"identity.resolve"}}}); err != nil {
+		log.Fatal().Err(err).Msg("register identity")
+	}
+	enabledModules, err := selectModules(cfg.EnabledModules, builtinModules(llmH, a2aH, skillsH))
+	if err != nil {
+		log.Fatal().Err(err).Msg("invalid module configuration")
+	}
+	enabledPlanes := make([]models.Plane, 0, len(enabledModules))
+	for _, m := range enabledModules {
+		if err := moduleRegistry.Register(m); err != nil {
+			log.Fatal().Err(err).Msg("register module")
+		}
+		enabledPlanes = append(enabledPlanes, models.Plane(m.descriptor.Name))
+	}
+	routes, err := deploy.NewRouteRegistryForPlanes(enabledPlanes...)
+	if err != nil {
+		log.Fatal().Err(err).Msg("configure module routes")
+	}
+	engine.WithRouteRegistry(routes)
+	catalogH.WithEnabledPlanes(enabledPlanes...)
+	if err := registerExternalModules(moduleRegistry, cfg.ModuleManifest, cfg.DevelopmentMode); err != nil {
+		log.Fatal().Err(err).Msg("external module configuration failed")
+	}
+	runtime := modules.NewRuntime(moduleRegistry)
+	startCtx, startCancel := context.WithTimeout(ctx, 15*time.Second)
+	err = runtime.Start(startCtx)
+	startCancel()
+	if err != nil {
+		log.Fatal().Err(err).Msg("module startup failed")
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := runtime.Stop(stopCtx); err != nil {
+			log.Error().Err(err).Msg("module shutdown failed")
+		}
+	}()
 	sseH := api.NewSSEHandler(store)
 	runsH := api.NewRunsHandler(store)
 	// PR 11 item 3: real Tape admin client when TAPE_URL is set.
@@ -168,19 +206,29 @@ func main() {
 		log.Info().Strs("origins", corsOrigins).Msg("CORS restricted to configured origins")
 	}
 	r.Use(api.CORS(corsOrigins...))
-	r.Use(api.MaxBody(1 << 20))          // 1MB max request body
-	r.Use(api.WIFAuth(wifValidator))     // Extract WIF identity + sync Dimension B
-	r.Use(api.AuditLog)                  // Log all mutations
-	r.Use(api.RateLimit(200))            // 200 req/min per user (in-process)
-	r.Use(api.Compress)                  // Response compression hints
+	r.Use(api.MaxBody(1 << 20))                               // 1MB max request body
+	r.Use(api.WIFAuthMode(wifValidator, cfg.DevelopmentMode)) // Extract WIF identity + sync Dimension B
+	r.Use(api.AuditLog)                                       // Log all mutations
+	r.Use(api.RateLimit(200))                                 // 200 req/min per user (in-process)
+	r.Use(api.Compress)                                       // Response compression hints
 
 	// Health (readyz checks store connectivity)
 	healthH := api.NewHealthHandler(store)
 	r.Get("/healthz", healthH.Liveness)
-	r.Get("/readyz", healthH.Readiness)
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		probe, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if err := runtime.Ready(probe); err != nil {
+			api.JSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unavailable", "error": "module unavailable"})
+			return
+		}
+		healthH.Readiness(w, r.WithContext(probe))
+	})
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(api.RequireIdentity(cfg.DevelopmentMode))
+		r.Use(api.ControlPlaneAccess(cfg.DevelopmentMode))
 		// Catalog
 		r.Get("/catalog", catalogH.List)
 		r.Get("/catalog/{id}", catalogH.Get)
@@ -199,35 +247,10 @@ func main() {
 		r.Delete("/agents/{clientId}", agentH.Delete)
 		r.Get("/agents/{clientId}/permissions", agentH.GetPermissions)
 
-		// LLMPlex — routing, providers, usage
-		r.Route("/llm", func(r chi.Router) {
-			r.Get("/routes", llmH.ListRouteConfigs)
-			r.Get("/routes/{modelId}", llmH.GetRouteConfig)
-			r.Put("/routes/{modelId}", llmH.PutRouteConfig)
-			r.Delete("/routes/{modelId}", llmH.DeleteRouteConfig)
-			r.Get("/providers", llmH.ListProviders)
-			r.Put("/providers/{provider}", llmH.PutProvider)
-			r.Post("/usage", llmH.RecordUsage)
-			r.Get("/usage", llmH.ListUsageRecords)
-			r.Get("/usage/summary", llmH.GetUsageSummary)
-		})
-
-		// A2APlex — delegations, agent cards
-		r.Route("/a2a", func(r chi.Router) {
-			r.Get("/agents", a2aH.ListAgentCards)
-			r.Post("/delegations", a2aH.RecordDelegation)
-			r.Get("/delegations", a2aH.ListDelegations)
-			r.Get("/delegations/{id}", a2aH.GetDelegation)
-			r.Patch("/delegations/{id}", a2aH.UpdateDelegation)
-			r.Get("/delegations/{id}/chain", a2aH.GetDelegationChain)
-		})
-
-		// SkillsPlex — skill servers, manifests, invocation audit
-		r.Route("/skills", func(r chi.Router) {
-			r.Get("/servers", skillsH.ListSkillServers)
-			r.Post("/invocations", skillsH.RecordInvocation)
-			r.Get("/invocations", skillsH.ListInvocations)
-		})
+		for _, module := range enabledModules {
+			module.mount(r)
+		}
+		r.Get("/modules", moduleDiscovery(moduleRegistry))
 
 		// Dashboard — unified observability
 		r.Route("/dashboard", func(r chi.Router) {
@@ -286,16 +309,16 @@ func main() {
 
 	// Auth webhooks (Hydra consent + token hook)
 	r.Route("/auth", func(r chi.Router) {
-		r.Get("/consent", authH.ConsentGet)
-		r.Post("/consent", authH.ConsentAccept)
-		r.Post("/token-hook", authH.TokenHook)
+		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/consent", authH.ConsentGet)
+		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Post("/consent", authH.ConsentAccept)
+		r.With(api.BearerToken("AUTH_HOOK_TOKEN")).Post("/token-hook", authH.TokenHook)
 		r.Get("/login", authH.LoginRedirect)
-		r.Get("/users/{userId}/scopes", authH.GetUserScopes)
-		r.Put("/users/{userId}/scopes", authH.SetUserScopes)
+		r.With(api.RequireIdentity(cfg.DevelopmentMode), api.RequireRole(models.RoleAdmin)).Get("/users/{userId}/scopes", authH.GetUserScopes)
+		r.With(api.RequireIdentity(cfg.DevelopmentMode), api.RequireRole(models.RoleAdmin)).Put("/users/{userId}/scopes", authH.SetUserScopes)
 	})
 
 	// Server-Sent Events for live dashboard
-	r.Get("/events/stream", sseH.Stream)
+	r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/events/stream", sseH.Stream)
 
 	// AIPlex ↔ Tape audit ingestion. Tape's outbox relay POSTs
 	// here; AIPlex dedupes on (run_id, seq), quarantines unknown
@@ -314,17 +337,23 @@ func main() {
 	})
 
 	// MCP sub-registry (v0.1 spec)
-	r.Get("/v0.1/servers", catalogH.List)
+	if moduleEnabled(enabledModules, "mcplex") {
+		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/v0.1/servers", catalogH.List)
+	}
 
 	// A2A Agent Card discovery (per-instance)
-	r.Get("/a2a/{instanceId}/.well-known/agent.json", a2aH.GetAgentCard)
+	if moduleEnabled(enabledModules, "a2aplex") {
+		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/a2a/{instanceId}/.well-known/agent.json", a2aH.GetAgentCard)
+	}
 
 	// SkillsPlex skills manifest (per-instance)
-	r.Get("/skills/{instanceId}/.well-known/skills.json", skillsH.GetSkillsManifest)
+	if moduleEnabled(enabledModules, "skillsplex") {
+		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/skills/{instanceId}/.well-known/skills.json", skillsH.GetSkillsManifest)
+	}
 
 	// Start server
-	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: r}
+	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	srv := &http.Server{Addr: addr, Handler: r, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
 
 	go func() {
 		log.Info().Str("addr", addr).Msg("aiplex-api starting")

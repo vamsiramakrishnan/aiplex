@@ -9,16 +9,16 @@ import (
 
 // LocalSource serves templates from the store (Firestore or in-memory).
 type LocalSource struct {
-	store registry.Store
+	store registry.TemplateLister
 	plane models.Plane
 }
 
 // NewLocalSource creates a store-backed catalog source for the given plane.
-func NewLocalSource(store registry.Store, plane models.Plane) *LocalSource {
+func NewLocalSource(store registry.TemplateLister, plane models.Plane) *LocalSource {
 	return &LocalSource{store: store, plane: plane}
 }
 
-func (l *LocalSource) Name() string       { return "local:" + string(l.plane) }
+func (l *LocalSource) Name() string        { return "local:" + string(l.plane) }
 func (l *LocalSource) Plane() models.Plane { return l.plane }
 
 func (l *LocalSource) Fetch(ctx context.Context) ([]models.Template, error) {

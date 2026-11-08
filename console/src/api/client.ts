@@ -1,7 +1,9 @@
 const BASE = '/api/v1'
 const TOKEN_KEY = 'aiplex_token'
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// Shared transport for API and authentication endpoints. Credentials stay in
+// headers; callers get consistent non-2xx handling.
+export async function authenticatedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = (() => {
     try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
   })()
@@ -14,7 +16,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(path, {
     ...init,
     headers,
   })
@@ -26,7 +28,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
+function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return authenticatedRequest<T>(`${BASE}${path}`, init)
+}
+
 // Types matching Go models
+export interface ModuleDescriptor {
+  name: string
+  version: string
+  contract_version: string
+  capabilities?: string[]
+  navigation?: { path: string; title: string }[]
+  commands?: { name: string; description: string }[]
+}
+
+export const listModules = async (): Promise<ModuleDescriptor[]> => {
+  const result = await request<ModuleDescriptor[]>('/modules')
+  if (!Array.isArray(result) || result.some((d) => !d || typeof d.name !== 'string' || typeof d.version !== 'string' || typeof d.contract_version !== 'string' ||
+    (d.navigation !== undefined && (!Array.isArray(d.navigation) || d.navigation.some((entry) => !entry || typeof entry.path !== 'string' || typeof entry.title !== 'string'))))) {
+    throw new Error('Invalid module discovery response')
+  }
+  return result
+}
+
 export interface Instance {
   id: string
   plane: string

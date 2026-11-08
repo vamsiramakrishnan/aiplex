@@ -17,11 +17,11 @@ import (
 
 // A2AHandler serves A2APlex delegation and Agent Card endpoints.
 type A2AHandler struct {
-	store registry.Store
+	store registry.A2APlexStore
 }
 
 // NewA2AHandler creates an A2APlex API handler.
-func NewA2AHandler(store registry.Store) *A2AHandler {
+func NewA2AHandler(store registry.A2APlexStore) *A2AHandler {
 	return &A2AHandler{store: store}
 }
 
@@ -55,10 +55,10 @@ func (h *A2AHandler) GetAgentCard(w http.ResponseWriter, r *http.Request) {
 
 	// Build Agent Card from template + instance
 	card := models.AgentCard{
-		Name:        tmpl.Name,
-		Description: tmpl.Description,
-		URL:         fmt.Sprintf("/a2a/%s", instanceID),
-		Version:     tmpl.Version,
+		Name:         tmpl.Name,
+		Description:  tmpl.Description,
+		URL:          fmt.Sprintf("/a2a/%s", instanceID),
+		Version:      tmpl.Version,
 		Capabilities: tmpl.TaskTypes,
 		AuthSchemes: []models.AuthSchemeInfo{
 			{Scheme: "bearer", Config: map[string]any{"issuer": "https://aiplex.example.com/auth/realms/aiplex"}},

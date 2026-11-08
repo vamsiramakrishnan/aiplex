@@ -2,10 +2,11 @@ package deploy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
@@ -135,6 +136,9 @@ func (c *LiveK8sClient) Delete(ctx context.Context, apiVersion, kind, name, name
 
 // marshalManifest converts a Manifest to YAML bytes.
 func marshalManifest(m Manifest) ([]byte, error) {
+	if strings.TrimSpace(m.APIVersion) == "" || strings.TrimSpace(m.Kind) == "" || strings.TrimSpace(m.Name) == "" {
+		return nil, fmt.Errorf("manifest requires apiVersion, kind, and name")
+	}
 	doc := map[string]any{
 		"apiVersion": m.APIVersion,
 		"kind":       m.Kind,
@@ -144,19 +148,51 @@ func marshalManifest(m Manifest) ([]byte, error) {
 		},
 	}
 
-	// Parse the YAML content to merge into the document
-	if m.YAML != "" {
+	// A module owns exactly the resource identified by Manifest. Never apply
+	// undecodable raw content, accept extra documents, or permit an embedded
+	// document to redirect an operation to a different kind/name/namespace.
+	if strings.TrimSpace(m.YAML) != "" {
 		var content map[string]any
-		if err := yaml.Unmarshal([]byte(m.YAML), &content); err != nil {
-			// Try JSON
-			if err := json.Unmarshal([]byte(m.YAML), &content); err != nil {
-				return []byte(m.YAML), nil // Return raw content
+		decoder := yaml.NewDecoder(strings.NewReader(m.YAML))
+		if err := decoder.Decode(&content); err != nil {
+			return nil, fmt.Errorf("invalid manifest YAML: %w", err)
+		}
+		if content == nil {
+			return nil, fmt.Errorf("manifest must be an object")
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			return nil, fmt.Errorf("manifest must contain exactly one YAML document")
+		}
+		for field, expected := range map[string]string{"apiVersion": m.APIVersion, "kind": m.Kind} {
+			if value, present := content[field]; present {
+				if actual, ok := value.(string); !ok || actual != expected {
+					return nil, fmt.Errorf("manifest %s does not match declared resource", field)
+				}
+			}
+		}
+		metadata := map[string]any{"name": m.Name, "namespace": m.Namespace}
+		if value, present := content["metadata"]; present {
+			actual, ok := value.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("manifest metadata must be an object")
+			}
+			for field, expected := range map[string]string{"name": m.Name, "namespace": m.Namespace} {
+				if value, present := actual[field]; present {
+					if text, ok := value.(string); !ok || text != expected {
+						return nil, fmt.Errorf("manifest metadata.%s does not match declared resource", field)
+					}
+				}
+			}
+			for key, value := range actual {
+				metadata[key] = value
 			}
 		}
 		// Merge content into doc
 		for k, v := range content {
 			doc[k] = v
 		}
+		doc["metadata"] = metadata
 	}
 
 	return yaml.Marshal(doc)

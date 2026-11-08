@@ -17,12 +17,12 @@ import (
 
 // AgentHandler serves agent registration and permission endpoints.
 type AgentHandler struct {
-	store registry.Store
+	store registry.AgentStore
 	hydra *auth.HydraClient
 }
 
 // NewAgentHandler creates an agent API handler.
-func NewAgentHandler(store registry.Store, hydra ...*auth.HydraClient) *AgentHandler {
+func NewAgentHandler(store registry.AgentStore, hydra ...*auth.HydraClient) *AgentHandler {
 	h := &AgentHandler{store: store}
 	if len(hydra) > 0 {
 		h.hydra = hydra[0]
