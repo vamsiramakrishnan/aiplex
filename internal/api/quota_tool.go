@@ -63,6 +63,10 @@ func (h *ConnectedHandler) toolConfiguration(ctx context.Context, tenant string,
 			}
 		}
 		result.OAuthGrantID = session.GrantID
+	} else if config.CredentialMode == toolexec.ConnectionAuth {
+		if err := h.connectionAuthConfiguration(tenant, connection, &result); err != nil {
+			return quotaToolConfiguration{}, err
+		}
 	} else {
 		if err := h.Runtime.CheckDestination(tenant, config.IdentityRef, config.Endpoint); err != nil {
 			return quotaToolConfiguration{}, err
@@ -144,6 +148,10 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 			}
 			return nil
 		}
+	}
+	if err = h.governToolExecution(r, tenant, record, connection, &opts); err != nil {
+		Error(w, r, 503, "TOOL_CONFIGURATION_UNAVAILABLE", "tool execution prerequisites are unavailable")
+		return
 	}
 	if h.Quota != nil {
 		opts.Prepare = h.ToolExecutionPreparer(r, record, connection)
