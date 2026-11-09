@@ -1,0 +1,8 @@
+data: {"id":"chatcmpl-fix0004","object":"chat.completion.chunk","created":1700000002,"model":"fixture-model-a","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}],"usage":null,"obfuscation":"x7Qp"}
+
+data: {"id":"chatcmpl-fix0004","object":"chat.completion.chunk","created":1700000002,"model":"fixture-model-a","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{"content":"Hi"},"logprobs":null,"finish_reason":null}],"usage":null,"obfuscation":"x7Qp"}
+
+data: {"id":"chatcmpl-fix0004","object":"chat.completion.chunk","created":1700000002,"model":"fixture-model-a","system_fingerprint":"fp_fixture","choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}],"usage":null,"obfuscation":"x7Qp"}
+
+data: [DONE]
+

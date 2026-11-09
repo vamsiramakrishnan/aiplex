@@ -1,0 +1,2 @@
+{"type":"response.created","response":{"id":"resp_fix0009","object":"response","created_at":1700000010,"status":"in_progress","completed_at":null,"error":null,"incomplete_details":null,"model":"fixture-model-b","output":[],"background":false,"store":true,"usage":null},"sequence_number":0}
+{"type":"response.output_text.delta","item_id":"msg_fix9","output_index":0,"content_index":0,"delta":"Par","logprobs":[],"sequence_number":1}

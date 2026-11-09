@@ -1,0 +1,6 @@
+data: {"type":"transcript.text.delta","delta":"Hello"}
+
+data: {"type":"transcript.text.delta","delta":" world."}
+
+data: {"type":"transcript.text.done","text":"Hello world.","usage":{"type":"tokens","input_tokens":14,"input_token_details":{"text_tokens":10,"audio_tokens":4},"output_tokens":18,"total_tokens":32}}
+
