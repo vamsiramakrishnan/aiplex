@@ -7,6 +7,7 @@ import * as api from '../api/accessPoints'
 import * as apUsage from '../api/accessPointUsage'
 import { endpointGroups, fieldForError } from '../api/accessPoints'
 import { listInstances } from '../api/client'
+import * as overview from '../api/overview'
 
 vi.mock('../api/client', async (original) => ({ ...(await original<typeof import('../api/client')>()), listInstances: vi.fn(), listAgents: vi.fn() }))
 vi.mock('../api/accessPoints', async (original) => ({
@@ -14,6 +15,7 @@ vi.mock('../api/accessPoints', async (original) => ({
   listAccessPoints: vi.fn(), getAccessPoint: vi.fn(), putAccessPoint: vi.fn(), deleteAccessPoint: vi.fn(), getQuotaPlan: vi.fn(),
   listModelSurfaces: vi.fn(), listClientRegistrations: vi.fn(), listToolConnections: vi.fn(), listAgents: vi.fn(),
 }))
+vi.mock('../api/overview', async (original) => ({ ...(await original<typeof import('../api/overview')>()), getConnect: vi.fn(), listClientProfiles: vi.fn() }))
 vi.mock('../api/accessPointUsage', async (original) => ({ ...(await original<typeof import('../api/accessPointUsage')>()), accessPointUsageSummary: vi.fn() }))
 
 const spec: api.AccessPointSpec = {
@@ -59,6 +61,7 @@ beforeEach(() => {
   vi.mocked(api.listAgents).mockResolvedValue([{ client_id: 'tutor-agent', display_name: 'Tutor' } as api.Agent])
   vi.mocked(listInstances).mockResolvedValue([{ id: 'runbooks', display_name: 'Runbooks' } as never])
   vi.mocked(apUsage.accessPointUsageSummary).mockResolvedValue({ group_by: [], groups: [], records_scanned: 0, truncated: false })
+  vi.mocked(overview.getConnect).mockRejectedValue(Object.assign(new Error('public URL not set'), { status: 409, code: 'PUBLIC_URL_REQUIRED' }))
   vi.mocked(api.putAccessPoint).mockImplementation(async (s, revision) => ({ id: s.id, revision: revision + 1, spec: s }))
   Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true })
 })
@@ -90,7 +93,7 @@ describe('create form', () => {
     fireEvent.change(await screen.findByLabelText(/Access point ID/), { target: { value: 'new-ap' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add model' }))
     const surface = await screen.findByLabelText('Model surface')
-    await waitFor(() => expect(within(surface).getAllByRole('option').map(o => o.textContent)).toEqual(['Choose a surface…', 'vertex-global (google-genai)', 'anthropic-us (anthropic-messages)']))
+    await waitFor(() => expect(within(surface).getAllByRole('option').map(o => o.textContent)).toEqual(['Choose a surface…', 'vertex-global · google-cloud · google-genai', 'anthropic-us · google-cloud · anthropic-messages']))
     fireEvent.change(surface, { target: { value: 'vertex-global' } })
     fireEvent.change(screen.getByLabelText('Native model'), { target: { value: 'gemini-2.5-flash' } })
     // name follows the native model until edited
@@ -395,5 +398,68 @@ describe('pure helpers', () => {
     const groups = endpointGroups(spec, 'https://a.example/', surfaces)
     expect(groups.map(g => g.id)).toEqual(['google-genai', 'models', 'mcp', 'skills'])
     expect(groups[0].urls[0].url).toBe('https://a.example/ap/ide-team/v1beta/models/{model}:{op}')
+  })
+})
+
+describe('surface picker with non-Google providers', () => {
+  const bedrock: api.ModelSurfaceRecord = { id: 'bedrock-us', revision: 1, spec: { surface: { id: 'bedrock-us', protocol: 'bedrock-converse', models: ['claude-x'], provider: { id: 'bedrock' } } } }
+  const openai: api.ModelSurfaceRecord = { id: 'oai', revision: 1, spec: { surface: { id: 'oai', protocol: 'openai-chat', models: ['gpt-5'], provider: { id: 'openai' } } } }
+
+  it('shows provider and protocol and disables surfaces access points cannot route, with the reason', async () => {
+    vi.mocked(api.listModelSurfaces).mockResolvedValue([...surfaces, openai, bedrock])
+    show('/access-points/new')
+    fireEvent.click(await screen.findByRole('button', { name: 'Add model' }))
+    const surface = await screen.findByLabelText('Model surface')
+    await waitFor(() => expect(within(surface).getAllByRole('option').length).toBe(5))
+    const options = within(surface).getAllByRole('option') as HTMLOptionElement[]
+    const byText = (t: RegExp) => options.find(o => t.test(o.textContent ?? ''))!
+    expect(byText(/^oai/).textContent).toBe('oai · openai · openai-chat')
+    expect(byText(/^oai/).disabled).toBe(false)
+    expect(byText(/^bedrock-us/).textContent).toBe('bedrock-us · bedrock · bedrock-converse (unavailable: access points do not route bedrock-converse yet)')
+    expect(byText(/^bedrock-us/).disabled).toBe(true)
+  })
+
+  it('blocks saving and explains when an existing model uses an unroutable surface', async () => {
+    vi.mocked(api.listModelSurfaces).mockResolvedValue([bedrock])
+    vi.mocked(api.getAccessPoint).mockResolvedValue({ ...record, spec: { ...spec, models: [{ name: 'c', surface_ref: 'bedrock-us', native_model: 'c' }] } })
+    show('/access-points/ide-team/edit')
+    expect(await screen.findByText(/Surface bedrock-us is unavailable for access points: access points do not route bedrock-converse yet/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+  })
+})
+
+describe('detail endpoint URLs from the server', () => {
+  const connectInfo: overview.ConnectInfo = {
+    access_point_id: 'ide-team', client: 'generic',
+    base_urls: { genai: 'https://public.example.com/ap/ide-team' }, models: [{ name: 'gemini-pro', protocols: ['google-genai'] }],
+    mcp_url: 'https://public.example.com/ap/ide-team/mcp', mcp_catalog_url: 'https://public.example.com/ap/ide-team/v0.1/servers', skills_url: 'https://public.example.com/ap/ide-team/skills',
+    auth: { scheme: 'Bearer', header: 'Authorization', token_env: 'AIPLEX_TOKEN', caller_kinds: [], steps: [] }, snippets: [], notes: [],
+  }
+
+  it('uses the server-built URLs when available', async () => {
+    vi.mocked(overview.getConnect).mockResolvedValue(connectInfo)
+    show('/access-points/ide-team')
+    const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
+    await waitFor(() => expect(within(endpoints).getByText('https://public.example.com/ap/ide-team/v1beta/models/{model}:{op}')).toBeInTheDocument())
+    expect(within(endpoints).getByText('https://public.example.com/ap/ide-team/mcp/search')).toBeInTheDocument()
+    expect(within(endpoints).getByText('https://public.example.com/ap/ide-team/skills')).toBeInTheDocument()
+    expect(within(endpoints).queryByText(window.location.origin + '/ap/ide-team/mcp')).toBeNull()
+    expect(within(endpoints).getByText(/built by the server/)).toBeInTheDocument()
+  })
+
+  it('falls back to browser-derived URLs with a note naming why', async () => {
+    show('/access-points/ide-team')
+    const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
+    const note = await within(endpoints).findByRole('note')
+    expect(note).toHaveTextContent(/derived from this console's address/)
+    expect(note).toHaveTextContent(/no public URL configured/)
+    expect(within(endpoints).getByText(`${window.location.origin}/ap/ide-team/mcp`)).toBeInTheDocument()
+  })
+
+  it('launches the connect wizard from the detail view', async () => {
+    vi.mocked(overview.listClientProfiles).mockResolvedValue([])
+    show('/access-points/ide-team')
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect a client' }))
+    expect(await screen.findByRole('dialog', { name: 'Connect a client to ide-team' })).toBeInTheDocument()
   })
 })

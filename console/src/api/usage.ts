@@ -47,6 +47,8 @@ export interface UsageRecord {
   principal_id?: string
   actor_id?: string
   client_id?: string
+  access_point_id?: string
+  caller_kind?: string
   request_id?: string
   trace_id?: string
   quota_attempt_id?: string
@@ -55,6 +57,8 @@ export interface UsageRecord {
   http_status?: number
   error_class?: string
   source: 'managed' | 'reported'
+  /** Provider rate-limit observation; shape is provider-defined, so it is shown as received. */
+  provider_limits?: Record<string, unknown>
   requests: Count
   usage: UsageCounters | null
   cost: UsageCost
@@ -70,13 +74,15 @@ export interface UsageFilter {
   actor_id?: string
   principal_id?: string
   client_id?: string
+  access_point_id?: string
+  caller_kind?: string
   status?: string
   source?: string
   since?: string
   until?: string
 }
 
-export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'status'] as const
+export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status'] as const
 export type GroupField = (typeof GROUP_FIELDS)[number]
 export type Bucket = '' | 'hour' | 'day'
 

@@ -10,7 +10,7 @@ const card = 'rounded border border-gray-200 p-4 dark:border-gray-800'
 const muted = 'text-xs text-gray-500 dark:text-gray-400'
 
 export const GROUP_LABELS: Record<api.GroupField, string> = {
-  plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', status: 'Status',
+  plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', access_point_id: 'Access point', caller_kind: 'Caller kind', status: 'Status',
 }
 
 // ---- filters -------------------------------------------------------------
@@ -23,14 +23,16 @@ export interface FilterDraft {
   actor_id: string
   principal_id: string
   client_id: string
+  access_point_id: string
+  caller_kind: string
   status: string
 }
-export const emptyDraft: FilterDraft = { preset: '24h', plane: '', model_id: '', tool_name: '', actor_id: '', principal_id: '', client_id: '', status: '' }
+export const emptyDraft: FilterDraft = { preset: '24h', plane: '', model_id: '', tool_name: '', actor_id: '', principal_id: '', client_id: '', access_point_id: '', caller_kind: '', status: '' }
 
 /** Turns the form into API filters; the time window is resolved once, at apply time. */
 export function buildFilter(draft: FilterDraft, now: Date = new Date()): api.UsageFilter {
   const filter: api.UsageFilter = { since: api.presetSince(draft.preset, now) }
-  for (const name of ['plane', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'status'] as const) {
+  for (const name of ['plane', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status'] as const) {
     const value = draft[name].trim()
     if (value) filter[name] = value
   }
@@ -53,6 +55,8 @@ function FilterBar({ draft, onChange, onApply }: { draft: FilterDraft; onChange:
     <Field label="Agent"><input className={field} value={draft.actor_id} onChange={set('actor_id')} placeholder="agent / actor ID" /></Field>
     <Field label="Principal"><input className={field} value={draft.principal_id} onChange={set('principal_id')} placeholder="user / principal ID" /></Field>
     <Field label="Client"><input className={field} value={draft.client_id} onChange={set('client_id')} placeholder="client ID" /></Field>
+    <Field label="Access point"><input className={field} value={draft.access_point_id} onChange={set('access_point_id')} placeholder="access point ID" /></Field>
+    <Field label="Caller kind"><select className={field} value={draft.caller_kind} onChange={set('caller_kind')}><option value="">Any caller kind</option><option value="agent">agent</option><option value="user">user</option><option value="client">client</option></select></Field>
     <div className="flex items-end gap-3 sm:col-span-2 lg:col-span-4"><button type="submit" className={button}>Apply filters</button><button type="button" className="text-sm underline" onClick={() => { onChange(emptyDraft); }}>Reset fields</button></div>
   </form>
 }
@@ -184,7 +188,7 @@ const DETAIL_FIELDS: [string, (r: api.UsageRecord) => string][] = [
   ['ID', (r) => r.id], ['Tenant', (r) => r.tenant_id], ['Started', (r) => r.started_at], ['Finished', (r) => r.finished_at], ['Latency', (r) => `${r.latency_ms} ms`],
   ['Plane', (r) => r.plane], ['Provider', (r) => r.provider || none], ['Resource', (r) => r.resource_id || none], ['Operation', (r) => r.operation || none],
   ['Model', (r) => r.model_id || none], ['Model version', (r) => r.model_version || none], ['Tool', (r) => r.tool_name || none],
-  ['Principal', (r) => r.principal_id || none], ['Agent', (r) => r.actor_id || none], ['Client', (r) => r.client_id || none],
+  ['Principal', (r) => r.principal_id || none], ['Agent', (r) => r.actor_id || none], ['Client', (r) => r.client_id || none], ['Access point', (r) => r.access_point_id || none], ['Caller kind', (r) => r.caller_kind || none],
   ['Request ID', (r) => r.request_id || none], ['Trace ID', (r) => r.trace_id || none], ['Quota attempt', (r) => r.quota_attempt_id || none],
   ['Streaming', (r) => (r.streaming ? 'yes' : 'no')], ['Status', (r) => r.status], ['HTTP status', (r) => (r.http_status ? String(r.http_status) : none)],
   ['Error class', (r) => r.error_class || none], ['Source', (r) => r.source], ['Requests', (r) => api.formatCount(r.requests)],
@@ -205,6 +209,7 @@ export function RecordDrawer({ record, onClose }: { record: api.UsageRecord; onC
     <div className="mb-4 flex items-start justify-between gap-3"><h3 className="text-lg font-medium">Usage record</h3><button ref={closeRef} type="button" className="underline" onClick={onClose}>Close</button></div>
     {record.usage === null && <p className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700">No usage was reported for this request. Token counts are unknown, not zero.</p>}
     <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 text-sm">{DETAIL_FIELDS.map(([label, read]) => <div key={label} className="contents"><dt className="text-gray-500">{label}</dt><dd className="break-all font-mono text-xs leading-5">{read(record)}</dd></div>)}</dl>
+    {record.provider_limits && <section aria-label="Provider limits" className="mt-4"><h4 className="text-sm font-medium">Provider limits</h4><p className="text-xs text-gray-500">Rate-limit signals the upstream provider returned for this request, as received.</p><pre className="mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(record.provider_limits, null, 2)}</pre></section>}
     <details className="mt-4"><summary className="cursor-pointer text-sm">Raw record</summary><pre className="mt-2 max-h-72 overflow-auto rounded bg-gray-100 p-3 text-xs dark:bg-gray-900">{JSON.stringify(record, null, 2)}</pre></details>
   </aside>
 }

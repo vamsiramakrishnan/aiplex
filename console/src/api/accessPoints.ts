@@ -1,4 +1,5 @@
 import { authenticatedRequest, listAgents, type Agent } from './client'
+import type { ConnectInfo } from './overview'
 import { listToolConnections, type ToolConnectionRecord } from './toolAuth'
 
 // Access points: one stable URL (/ap/{id}/...) that enforces identity, access
@@ -71,7 +72,7 @@ export const getQuotaPlan = (id: string) =>
 export interface ModelSurfaceRecord {
   id: string
   revision: number
-  spec: { surface: { id: string; protocol: string; models?: string[]; publisher?: string; location?: string } }
+  spec: { surface: { id: string; protocol: string; models?: string[]; publisher?: string; location?: string; provider?: { id: string; [k: string]: unknown } } }
 }
 export interface RegistrationRecord { id: string; revision: number; spec: { id: string; profile_id?: string; mode?: string; protocol?: string } }
 
@@ -109,6 +110,20 @@ export const WIRES: readonly Wire[] = [
   { id: 'anthropic-messages', label: 'Anthropic Messages', path: '/v1/messages', surfaceProtocol: 'anthropic-messages' },
   { id: 'google-genai', label: 'Google GenAI', path: '/v1beta/models/{model}:{op}', surfaceProtocol: 'google-genai' },
 ]
+
+type SurfaceInfo = ModelSurfaceRecord['spec']['surface']
+/** Provider name shown for a surface: its explicit provider, else Google Cloud. */
+export const surfaceProviderName = (s: SurfaceInfo) => s.provider?.id ?? 'google-cloud'
+/** Why an access point cannot route this surface, or undefined when it can. */
+export function surfaceUnroutableReason(s: SurfaceInfo): string | undefined {
+  if (WIRES.some(w => w.surfaceProtocol === s.protocol)) return undefined
+  if (s.protocol.startsWith('bedrock-')) return `access points do not route ${s.protocol} yet`
+  return `access points have no client protocol for ${s.protocol}`
+}
+export const surfaceOptionLabel = (s: SurfaceInfo) => {
+  const reason = surfaceUnroutableReason(s)
+  return `${s.id} · ${surfaceProviderName(s)} · ${s.protocol}${reason ? ` (unavailable: ${reason})` : ''}`
+}
 
 export interface EndpointGroup { id: string; title: string; note?: string; urls: { label: string; url: string }[] }
 
@@ -180,4 +195,35 @@ export function fieldForError(message: string): string | undefined {
 
 export function parseList(text: string): string[] {
   return text.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
+}
+
+/**
+ * Endpoint groups from the server-built connect response (built from the
+ * configured public URL, not from this browser's address).
+ */
+export function endpointGroupsFromConnect(spec: AccessPointSpec, c: ConnectInfo): EndpointGroup[] {
+  const groups: EndpointGroup[] = []
+  const reach = new Set((c.models ?? []).flatMap(m => m.protocols ?? []))
+  for (const w of WIRES.filter(w => reach.has(w.id))) {
+    const family = w.id.startsWith('openai') ? 'openai' : w.id === 'anthropic-messages' ? 'anthropic' : 'genai'
+    const baseUrl = c.base_urls?.[family]
+    if (!baseUrl) continue
+    const path = family === 'openai' ? w.path.replace(/^\/v1/, '') : w.path
+    groups.push({ id: w.id, title: w.label, urls: [{ label: 'Endpoint', url: baseUrl + path }] })
+  }
+  if (c.base_urls?.openai && reach.has('openai-chat-completions') || c.base_urls?.openai && reach.has('openai-responses')) {
+    groups.push({ id: 'models', title: 'Model listing', urls: [{ label: 'List models', url: `${c.base_urls.openai}/models` }] })
+  }
+  if (c.mcp_url) {
+    groups.push({
+      id: 'mcp', title: 'MCP tools (Streamable HTTP)',
+      urls: [
+        { label: 'All tools, named {connection}__{tool}', url: c.mcp_url },
+        ...(spec.tools ?? []).map(t => ({ label: `Connection ${t.connection_ref}`, url: `${c.mcp_url}/${t.connection_ref}` })),
+        ...(c.mcp_catalog_url ? [{ label: 'MCP registry catalog', url: c.mcp_catalog_url }] : []),
+      ],
+    })
+  }
+  if (c.skills_url) groups.push({ id: 'skills', title: 'Skills', urls: [{ label: 'Skills manifest', url: c.skills_url }] })
+  return groups
 }

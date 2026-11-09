@@ -5,6 +5,8 @@ import {
   deleteAccessPoint, errorStatus, getAccessPoint, isRevisionConflict, listAccessPoints, listModelSurfaces, putAccessPoint,
   type AccessPointRecord, type AccessPointSpec,
 } from '../api/accessPoints'
+import { connectErrorMessage, getConnect } from '../api/overview'
+import ConnectWizard from '../components/ConnectWizard'
 import AccessPointForm from '../components/AccessPointForm'
 import AccessPointSummaryCard from '../components/AccessPointSummaryCard'
 import AccessPointUsagePanel from '../components/AccessPointUsagePanel'
@@ -162,6 +164,8 @@ function AccessPointDetail() {
   const surfaces = useQuery({ queryKey: ['ref-model-surfaces'], queryFn: listModelSurfaces })
   const [confirming, setConfirming] = useState(false)
   const [conflict, setConflict] = useState(false)
+  const [connecting, setConnecting] = useState(false)
+  const connect = useQuery({ queryKey: ['ap-connect', id, 'generic'], queryFn: () => getConnect(id, 'generic'), retry: false })
 
   const remove = useMutation({
     mutationFn: (r: AccessPointRecord) => deleteAccessPoint(r.id, r.revision),
@@ -186,12 +190,14 @@ function AccessPointDetail() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-2xl font-bold">{spec.display_name || spec.id}</h2>
           <div className="flex gap-2">
+            <button type="button" className={btn} onClick={() => setConnecting(true)}>Connect a client</button>
             <Link to={`/access-points/${encodeURIComponent(id)}/edit`} className={btn}>Edit</Link>
             <button type="button" className={`${btn} text-red-600`} onClick={() => setConfirming(true)} disabled={confirming}>Delete</button>
           </div>
         </div>
       </div>
 
+      {connecting && <ConnectWizard accessPointId={id} onClose={() => setConnecting(false)} />}
       {confirming && (
         <div role="alertdialog" aria-label={`Confirm delete of ${spec.id}`} className="rounded border border-red-300 dark:border-red-800 p-3 text-sm">
           <p>Delete access point <strong>{spec.id}</strong>? Clients using <code>/ap/{spec.id}</code> will stop working. This cannot be undone.</p>
@@ -249,7 +255,7 @@ function AccessPointDetail() {
         )}
       </section>
 
-      <EndpointList spec={spec} surfaces={surfaces.data} />
+      <EndpointList spec={spec} surfaces={surfaces.data} connect={connect.data} connectLoading={connect.isLoading} connectError={connect.isError ? connectErrorMessage(connect.error) : undefined} />
       <QuotaPlanPanel spec={spec} />
       <AccessPointUsagePanel accessPointId={spec.id} />
     </div>

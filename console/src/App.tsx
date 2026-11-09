@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import { consoleModules } from './modules'
 import { ModuleProvider, RequireModule } from './hooks/useModules'
 import Agents from './pages/Agents'
+import Overview from './pages/Overview'
 import AccessPoints from './pages/AccessPoints'
 import UserIdentity from './pages/UserIdentity'
 import Deploy from './pages/Deploy'
@@ -41,7 +42,8 @@ function AppRoutes() {
             </RequireAuth>
           }
         >
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Navigate to="/overview" replace />} />
+          <Route path="/overview" element={<Overview />} />
           <Route path="/dashboard" element={<Dashboard />} />
           {consoleModules.map(({ name, path, component: Component }) => (
             <Route key={name} path={path} element={<RequireModule name={name}><Component /></RequireModule>} />

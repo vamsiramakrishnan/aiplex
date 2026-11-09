@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import UserIdentity from '../pages/UserIdentity'
 import * as api from '../api/userIdentity'
-import { editRequest, unknownProviderFields } from '../api/userIdentity'
+import { overlapConflict, providerRequest, unknownProviderFields } from '../api/userIdentity'
 
 vi.mock('../api/userIdentity', async (original) => ({
   ...(await original<typeof import('../api/userIdentity')>()),
@@ -17,6 +17,7 @@ const catalog: api.UserPresetCatalog = {
     {
       id: 'okta', display_name: 'Okta', vendor: 'okta', description: 'Okta org authorization server', issuer_shape: 'https://ORG.okta.com', subject_shape: 'sub',
       group_sources: ['claim', 'membership-authority'], allows_required_claims: true, algorithms: ['RS256'],
+      directory_kinds: ['okta'], client_claim_default: 'cid (Okta access tokens)',
       inputs: [
         { name: 'issuer', label: 'Issuer URL', description: 'Your Okta issuer', required: true, example: 'https://acme.okta.com' },
         { name: 'audience', label: 'Audience', description: '', required: true },
@@ -31,7 +32,9 @@ const provider: api.UserProvider = {
   id: 'corp-okta', preset: 'okta', inputs: { issuer: 'https://acme.okta.com', audience: 'aiplex', groups_from: 'claim' }, display_name: 'Corp Okta', disabled: false,
   issuer: 'https://acme.okta.com', jwks_url: 'https://acme.okta.com/keys', audience: 'aiplex', subject_claim: 'sub', extra_claims: { hd: 'acme.com' }, required_claims: { hd: 'acme.com', tid: 'x' },
   revision: 7, principal_pool: 'pool-acme',
-  directory: { kind: 'google', customer_id: 'C123' }, client_claim: 'azp', client_ids: ['cursor-client'],
+  groups_from: 'claim', group_claim: 'groups',
+  directory: { kind: 'okta', mode: 'fallback', credential: { api_token_ref: 'okta-token' }, org_url: 'https://acme.okta.com', group_id: 'name' },
+  client_claim: 'azp', client_ids: ['cursor-client'], warnings: ['stale response warning'], future_flag: { keep: true },
 }
 const plan: api.UserPlan = {
   provider: { id: 'corp-okta', preset: 'okta' }, vendor: 'okta', issuer: provider.issuer, audience: 'aiplex', subject_claim: 'sub', groups_from: 'claim', group_claim: 'groups', principal_pool: 'pool-acme',
@@ -135,7 +138,7 @@ describe('edit a provider keeps unknown fields', () => {
   it('sends fields the console does not render and omits server-derived ones', async () => {
     show()
     fireEvent.click(await screen.findByRole('button', { name: 'Edit provider corp-okta' }))
-    expect(await screen.findByText(/additional settings this console does not edit \(directory, client_claim, client_ids\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/additional settings this console does not edit \(future_flag\)/)).toBeInTheDocument()
     expect(screen.getByLabelText('Provider preset')).toBeDisabled()
     expect(screen.getByLabelText(/Provider ID/)).toHaveAttribute('readonly')
     fireEvent.change(screen.getByLabelText('Display name (optional)'), { target: { value: 'Corp Okta 2' } })
@@ -150,17 +153,19 @@ describe('edit a provider keeps unknown fields', () => {
       required_claims: { hd: 'acme.com' },      // operator extras only, not the derived tid
       display_name: 'Corp Okta 2',
       disabled: false,
-      directory: { kind: 'google', customer_id: 'C123' },
+      directory: provider.directory,
       client_claim: 'azp',
       client_ids: ['cursor-client'],
+      future_flag: { keep: true },
     })
-    for (const derived of ['issuer', 'jwks_url', 'audience', 'subject_claim', 'revision', 'principal_pool', 'id', 'extra_claims']) expect(body).not.toHaveProperty(derived)
+    // response-only and derived fields are never echoed back
+    for (const derived of ['issuer', 'jwks_url', 'audience', 'subject_claim', 'revision', 'principal_pool', 'id', 'extra_claims', 'warnings', 'groups_from', 'group_claim', 'acknowledge_overlap']) expect(body).not.toHaveProperty(derived)
   })
 
   it('pure helpers agree', () => {
-    expect(Object.keys(unknownProviderFields(provider)).sort()).toEqual(['client_claim', 'client_ids', 'directory'])
-    expect(editRequest(provider, { inputs: {}, display_name: '', disabled: true, required_claims: {} })).toEqual({
-      preset: 'okta', inputs: {}, disabled: true, directory: provider.directory, client_claim: 'azp', client_ids: ['cursor-client'],
+    expect(Object.keys(unknownProviderFields(provider))).toEqual(['future_flag'])
+    expect(providerRequest('okta', { inputs: {}, display_name: '', disabled: true, required_claims: {}, client_ids: [] }, provider)).toEqual({
+      preset: 'okta', inputs: {}, disabled: true, future_flag: { keep: true },
     })
   })
 
