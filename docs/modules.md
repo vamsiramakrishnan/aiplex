@@ -9,6 +9,9 @@ This foundation does not implement QuotaPlex allocation, reservations, pricing,
 borrowing, or accounting. A future QuotaPlex can use the same lifecycle and
 discovery contracts as any other independently deployed service.
 
+See [QuotaPlex prerequisites and readiness](quotaplex-prerequisites.md) for the
+current foundation status, required contracts and production enforcement gates.
+
 ## Registration and compatibility
 
 A module implements `Descriptor`, `Start`, `Ready`, and `Stop`. Register trusted

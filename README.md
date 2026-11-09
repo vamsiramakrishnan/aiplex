@@ -133,6 +133,8 @@ Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity 
 
 Built-in Plex modules can be selected independently; external services register through versioned descriptors. See [module contracts](docs/modules.md) and [deployment migration and bugbash](docs/foundations-bugbash.md) before upgrading an existing deployment.
 
+[QuotaPlex prerequisites and readiness](docs/quotaplex-prerequisites.md) lists the contracts, accounting rules and integration gates needed to add quotas while preserving this flow.
+
 ## Local Development
 
 ```bash

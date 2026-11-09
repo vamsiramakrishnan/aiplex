@@ -155,3 +155,5 @@ Target cloud IAM, private connectivity, model billing/availability, production
 IdP sign-in and licensed Claude gateway deployment require live environment
 validation. No live cloud infrastructure was applied during implementation.
 QuotaPlex allocation and accounting remain a separate module.
+Its [prerequisite checklist](quotaplex-prerequisites.md) distinguishes reusable
+foundations, pending host integrations and production enforcement gates.

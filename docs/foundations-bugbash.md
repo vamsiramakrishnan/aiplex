@@ -159,3 +159,6 @@ Cloud deployment, IAM grants, provider billing and traffic interception are not
 validated by these local tests. Legacy LLMPlex budget checks remain reporting-time
 checks; they are not an admission-based hard spending limit. QuotaPlex will replace
 that path with reservations and durable settlement in a later change.
+The [QuotaPlex readiness checklist](quotaplex-prerequisites.md) records the exact
+remaining contracts and host integration gates; the foundation test counts do
+not establish production quota enforcement.
