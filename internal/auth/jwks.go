@@ -77,6 +77,39 @@ func NewJWKSVerifier(cfg JWKSConfig) (*JWKSVerifier, error) {
 }
 
 func (v *JWKSVerifier) Verify(ctx context.Context, token string) (map[string]any, error) {
+	claims, err := v.VerifySignature(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if claims["iss"] != v.cfg.Issuer {
+		return nil, fmt.Errorf("untrusted JWT issuer")
+	}
+	if !hasAudience(claims["aud"], v.cfg.Audience) {
+		return nil, fmt.Errorf("invalid JWT audience")
+	}
+	subject, _ := claims["sub"].(string)
+	if strings.TrimSpace(subject) == "" {
+		return nil, fmt.Errorf("JWT subject is required")
+	}
+	exp, ok := numericDate(claims["exp"])
+	if !ok || time.Now().Unix() >= exp {
+		return nil, fmt.Errorf("JWT is expired or has no valid expiry")
+	}
+	if raw, exists := claims["nbf"]; exists {
+		nbf, ok := numericDate(raw)
+		if !ok || time.Now().Unix() < nbf {
+			return nil, fmt.Errorf("JWT is not yet valid")
+		}
+	}
+	return claims, nil
+}
+
+// VerifySignature checks only the JOSE header, the signature against the
+// pinned key set and the payload encoding. It performs no issuer, audience,
+// subject or lifetime checks; callers that use it directly (for example the
+// agent federation verification engine, which reports each check separately)
+// must apply those checks themselves before trusting any claim.
+func (v *JWKSVerifier) VerifySignature(ctx context.Context, token string) (map[string]any, error) {
 	if len(token) > 64*1024 {
 		return nil, fmt.Errorf("JWT exceeds size limit")
 	}
@@ -123,26 +156,6 @@ func (v *JWKSVerifier) Verify(ctx context.Context, token string) (map[string]any
 	}
 	if err := dec.Decode(new(any)); err != io.EOF {
 		return nil, fmt.Errorf("invalid trailing JWT payload")
-	}
-	if claims["iss"] != v.cfg.Issuer {
-		return nil, fmt.Errorf("untrusted JWT issuer")
-	}
-	if !hasAudience(claims["aud"], v.cfg.Audience) {
-		return nil, fmt.Errorf("invalid JWT audience")
-	}
-	subject, _ := claims["sub"].(string)
-	if strings.TrimSpace(subject) == "" {
-		return nil, fmt.Errorf("JWT subject is required")
-	}
-	exp, ok := numericDate(claims["exp"])
-	if !ok || time.Now().Unix() >= exp {
-		return nil, fmt.Errorf("JWT is expired or has no valid expiry")
-	}
-	if raw, exists := claims["nbf"]; exists {
-		nbf, ok := numericDate(raw)
-		if !ok || time.Now().Unix() < nbf {
-			return nil, fmt.Errorf("JWT is not yet valid")
-		}
 	}
 	return claims, nil
 }
