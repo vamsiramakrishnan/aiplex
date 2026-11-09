@@ -1,0 +1,20 @@
+{
+  "id": "modr-fix1",
+  "model": "fixture-moderation",
+  "results": [
+    {
+      "flagged": false,
+      "categories": {
+        "violence": false
+      },
+      "category_scores": {
+        "violence": 0.001
+      },
+      "category_applied_input_types": {
+        "violence": [
+          "text"
+        ]
+      }
+    }
+  ]
+}

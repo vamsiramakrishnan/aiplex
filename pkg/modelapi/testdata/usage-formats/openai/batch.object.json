@@ -1,0 +1,27 @@
+{
+  "id": "batch_fix1",
+  "object": "batch",
+  "endpoint": "/v1/chat/completions",
+  "status": "completed",
+  "completion_window": "24h",
+  "created_at": 1700000040,
+  "completed_at": 1700000900,
+  "output_file_id": "file-out1",
+  "error_file_id": null,
+  "request_counts": {
+    "total": 2,
+    "completed": 2,
+    "failed": 0
+  },
+  "usage": {
+    "input_tokens": 510,
+    "input_tokens_details": {
+      "cached_tokens": 128
+    },
+    "output_tokens": 70,
+    "output_tokens_details": {
+      "reasoning_tokens": 5
+    },
+    "total_tokens": 580
+  }
+}

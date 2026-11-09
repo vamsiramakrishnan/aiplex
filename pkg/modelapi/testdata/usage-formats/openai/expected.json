@@ -1,0 +1,272 @@
+{
+  "chat.json": {
+    "input_tokens": 1500,
+    "output_tokens": 420,
+    "cache_read_tokens": 640,
+    "cache_write_tokens": 96,
+    "reasoning_tokens": 192,
+    "total_tokens": 1920,
+    "notes": "prompt_tokens includes cached_tokens and cache_write_tokens (subsets of prompt_tokens). completion_tokens includes reasoning_tokens. total_tokens = prompt+completion. Model id at top-level 'model'."
+  },
+  "chat.sse": {
+    "input_tokens": 310,
+    "output_tokens": 25,
+    "cache_read_tokens": 256,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 7,
+    "total_tokens": 335,
+    "notes": "stream_options.include_usage=true. Only the final chunk (choices == [], before data: [DONE]) has non-null usage; every other chunk has usage:null. The finish_reason:stop chunk is NOT the usage chunk. Same includes/subset semantics as chat.json."
+  },
+  "chat.interrupted.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Stream cut before finish_reason, usage chunk and [DONE]; docs: final usage chunk may not be received. Usage unknown, not zero."
+  },
+  "chat.nousage.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Completed stream but stream_options.include_usage not set: every chunk carries usage:null and no empty-choices chunk. Usage absent despite a clean [DONE]."
+  },
+  "responses.json": {
+    "input_tokens": 2048,
+    "output_tokens": 731,
+    "cache_read_tokens": 1024,
+    "cache_write_tokens": 512,
+    "reasoning_tokens": 384,
+    "total_tokens": 2779,
+    "notes": "input_tokens includes cached_tokens and cache_write_tokens; output_tokens includes reasoning_tokens (total = input+output). Response-level optional 'tool_usage' (image_gen/web_search) is separate from 'usage' and is not in these totals. Model id at response.model."
+  },
+  "responses.sse": {
+    "input_tokens": 311,
+    "output_tokens": 88,
+    "cache_read_tokens": 256,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 0,
+    "total_tokens": 399,
+    "notes": "Usage is only on response.completed (response.usage); response.created / response.in_progress carry usage:null. No [DONE] sentinel. Count once per response id."
+  },
+  "responses.failed.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Terminal response.failed with usage:null (as in docs example). Whether partial usage is ever billed/reported on failure is UNCONFIRMED."
+  },
+  "responses.incomplete.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Terminal response.incomplete; docs example shows usage:null. Real incomplete responses may carry usage - UNCONFIRMED; an observer must read usage from this event if present."
+  },
+  "responses.error.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Stream ends with in-band 'error' event and no terminal response.* event: usage unknown."
+  },
+  "responses.background.queued.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "GET /v1/responses/{id} while status is queued/in_progress: usage is null/absent. Poll until a terminal status (completed, failed, incomplete, cancelled)."
+  },
+  "responses.background.cancelled.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "POST /v1/responses/{id}/cancel result; usage presence on cancelled responses is UNCONFIRMED (shown null)."
+  },
+  "responses.ws.jsonl": {
+    "input_tokens": 913,
+    "output_tokens": 57,
+    "cache_read_tokens": 512,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 21,
+    "total_tokens": 970,
+    "notes": "Responses WebSocket mode (/v1/responses): server events identical to SSE streaming events; usage on response.completed only. 'stream' and 'background' are not used. One WS carries many sequential responses: sum per response id, not per connection."
+  },
+  "responses.interrupted.ws.jsonl": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Socket closed mid-response, no terminal event: usage unknown."
+  },
+  "realtime.ws.jsonl": {
+    "input_tokens": 372,
+    "output_tokens": 198,
+    "cache_read_tokens": 192,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 570,
+    "notes": "Totals = sum of response.done usage across the two responses (132+240, 121+77, 64+128). Each response.done is per-response, not cumulative, but later turns re-include earlier turns as input by design. input_tokens includes cached_tokens (subset) and text/audio/image splits. conversation.item.input_audio_transcription.completed usage (22 tokens, billed to the ASR model) is a DIFFERENT meter and is excluded here; rate_limits.updated is not usage. No cache-write counter in Realtime usage; no reasoning counter. Same events over WebRTC data channel (oai-events) and SIP/sideband WebSocket (UNCONFIRMED for byte-level identity)."
+  },
+  "realtime.cancelled.ws.jsonl": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "response.done is always emitted, even for cancelled/failed/incomplete; usage is optional and shown absent here. Whether cancelled responses carry partial usage is UNCONFIRMED."
+  },
+  "realtime.interrupted.ws.jsonl": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Connection dropped before response.done; in-band 'error' events are usually recoverable and are not usage."
+  },
+  "live.ws.jsonl": {
+    "input_tokens": 132,
+    "output_tokens": 44,
+    "cache_read_tokens": 30,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 12,
+    "total_tokens": 176,
+    "notes": "Token totals = nested response.event/response.completed usage (90/44) plus decision.event decision.usage (42/0) - two distinct meters on one socket, each once. Voice meter is SECONDS (not representable here): session.usage.updated are cumulative snapshots that replace each other (do not sum: 12, 32.5); record session.closed usage.seconds=45.8 once. Wrapped response.event deltas carry no usage."
+  },
+  "live.interrupted.ws.jsonl": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "No session.closed: docs say a closing connection without session.closed does not confirm finalization; final seconds unconfirmed (last snapshot is only a lower bound). No token usage seen."
+  },
+  "embeddings.json": {
+    "input_tokens": 8,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 8,
+    "notes": "Embeddings: usage.prompt_tokens (=input) and total_tokens only; no output counter (null, not 0). Model at top-level 'model'. Batch of inputs yields one aggregate usage."
+  },
+  "transcription.json": {
+    "input_tokens": 14,
+    "output_tokens": 101,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 115,
+    "notes": "Token-billed ASR model: usage.type=='tokens'; input_token_details splits audio/text. Response has no 'model' field (model is only in the request)."
+  },
+  "transcription.duration.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Duration-billed ASR model: usage.type=='duration', unit is SECONDS of input audio; no token counters (all null). Do not map seconds into tokens."
+  },
+  "transcription.sse": {
+    "input_tokens": 14,
+    "output_tokens": 18,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 32,
+    "notes": "Streaming transcription: usage only on transcript.text.done; deltas have none."
+  },
+  "transcription.interrupted.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Stream cut before transcript.text.done: usage absent."
+  },
+  "images.json": {
+    "input_tokens": 50,
+    "output_tokens": 50,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 100,
+    "notes": "GPT image models only: usage tokens with input_tokens_details{text,image}; older image models (DALL-E) return no usage and bill per image (unit: images) - UNCONFIRMED shape. Optional svg_usage is a separate meter and not included."
+  },
+  "images.sse": {
+    "input_tokens": 60,
+    "output_tokens": 130,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 190,
+    "notes": "Usage only on image_generation.completed; partial_image events carry none (and their cost is included in the final usage, UNCONFIRMED)."
+  },
+  "images.interrupted.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Only partial images, no image_generation.completed: usage absent."
+  },
+  "moderation.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Moderation response has id, model, results only - no usage object documented. Free endpoint; all null."
+  },
+  "batch.output.jsonl": {
+    "input_tokens": 510,
+    "output_tokens": 70,
+    "cache_read_tokens": 128,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 5,
+    "total_tokens": 580,
+    "notes": "Batch output file (output_file_id): one line per request, usage inside response.body exactly as the per-endpoint body (here /v1/chat/completions); sum lines. Body shape for other endpoints is the endpoint's own (UNCONFIRMED by explicit docs example). Lines are not ordered; key on custom_id. Output file may be empty for failed batches."
+  },
+  "batch.errors.jsonl": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Error file (error_file_id): response is null, error{code,message}. No usage. Individual request-level 4xx may instead appear as an output line with response.status_code != 200 (UNCONFIRMED)."
+  },
+  "batch.object.json": {
+    "input_tokens": 510,
+    "output_tokens": 70,
+    "cache_read_tokens": 128,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 5,
+    "total_tokens": 580,
+    "notes": "Batch object usage (GET /v1/batches/{id}), only populated for batches created after 2025-09-07 and only when finished; note input_tokens_details has cached_tokens only (no cache_write). Must NOT be added on top of batch.output.jsonl totals - same tokens, two views."
+  }
+}

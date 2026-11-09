@@ -1,0 +1,2 @@
+{"type":"session.started","event_id":"evt_m0"}
+{"type":"session.usage.updated","event_id":"evt_m1","usage":{"seconds":12}}

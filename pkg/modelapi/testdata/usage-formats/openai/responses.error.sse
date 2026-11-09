@@ -1,0 +1,4 @@
+data: {"type":"response.created","response":{"id":"resp_fix0005","object":"response","created_at":1700000010,"status":"in_progress","completed_at":null,"error":null,"incomplete_details":null,"model":"fixture-model-b","output":[],"background":false,"store":true,"usage":null},"sequence_number":0}
+
+data: {"type":"error","code":"ERR_SOMETHING","message":"Something went wrong","param":null,"sequence_number":1}
+

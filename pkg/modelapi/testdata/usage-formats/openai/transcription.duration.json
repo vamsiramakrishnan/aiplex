@@ -1,0 +1,7 @@
+{
+  "text": "Hello world.",
+  "usage": {
+    "type": "duration",
+    "seconds": 3
+  }
+}
