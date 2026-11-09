@@ -29,6 +29,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 )
 
@@ -43,6 +44,10 @@ type ToolConnection struct {
 	Issuer                string                 `json:"issuer,omitempty"`
 	Client                toolauth.ClientProfile `json:"client"`
 	NetworkProfileRef     string                 `json:"network_profile_ref,omitempty"`
+	// Auth selects the upstream credential; nil keeps the execution
+	// credential mode's existing behaviour. Tools is connection-level policy.
+	Auth  *toolcredential.Auth `json:"auth,omitempty"`
+	Tools *toolexec.ToolPolicy `json:"tools,omitempty"`
 }
 type ConnectedHandler struct {
 	ToolSessions    *toolauth.Runtime
@@ -56,6 +61,7 @@ type ConnectedHandler struct {
 	Runtime         *connections.Runtime
 	Tenant          TenantResolver
 	Tools           *toolauth.Service
+	ToolCredentials *toolcredential.Provider
 	Development     bool
 	PublicURL       string
 }
@@ -315,6 +321,9 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 		if c.ID != id {
 			return fmt.Errorf("tool connection id mismatch")
 		}
+		if e := h.validateToolAuth(ctx, tenant, c); e != nil {
+			return e
+		}
 		if c.ClientRegistrationRef != "" {
 			record, e := h.Store.Get(ctx, tenant, clientplex.Kind, c.ClientRegistrationRef)
 			if e != nil {
@@ -345,7 +354,7 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			if e := c.Execution.Validate(); e != nil {
 				return e
 			}
-			if c.Execution.CredentialMode != toolexec.DelegatedOAuth {
+			if c.Execution.CredentialMode != toolexec.DelegatedOAuth && c.Execution.CredentialMode != toolexec.ConnectionAuth {
 				if e := h.Runtime.CheckDestination(tenant, c.Execution.IdentityRef, c.ResourceURL); e != nil {
 					return e
 				}

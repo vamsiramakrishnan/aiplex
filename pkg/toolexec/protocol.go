@@ -42,7 +42,7 @@ type Connection struct {
 func (c Connection) Validate() error {
 	_, versionErr := time.Parse("2006-01-02", c.ProtocolVersion)
 	credentialValid := (c.CredentialMode == "" || c.CredentialMode == OperatorBearer) && validIdentifier(c.IdentityRef)
-	credentialValid = credentialValid || (c.CredentialMode == DelegatedOAuth && c.IdentityRef == "")
+	credentialValid = credentialValid || ((c.CredentialMode == DelegatedOAuth || c.CredentialMode == ConnectionAuth) && c.IdentityRef == "")
 	if !validIdentifier(c.ID) || !credentialValid || (c.Mode != StatelessJSON && c.Mode != StatelessStreamableHTTP) || !protocolVersion.MatchString(c.ProtocolVersion) || versionErr != nil || len(c.AllowedTools) == 0 || len(c.AllowedTools) > 1024 {
 		return fmt.Errorf("bounded identity, explicit stateless mode, protocol version and tools are required")
 	}

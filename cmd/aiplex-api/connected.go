@@ -106,6 +106,9 @@ func connectedHandlers(store resources.Store, sm *secrets.Manager, cfg *config.C
 		}
 	}
 	connected := api.NewConnectedHandler(store, runtime, tenant, tools, cfg.DevelopmentMode)
+	if connected.ToolCredentials, e = toolCredentialProvider(runtime, sm, cfg.DevelopmentMode); e != nil {
+		return nil, nil, e
+	}
 	if tools != nil && (sm != nil || cfg.DevelopmentMode) {
 		var vault toolauth.SessionVault = connections.SecretToolSessions{Manager: sm}
 		if sm == nil {
@@ -144,6 +147,7 @@ func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHa
 	}
 	available["mcplex"].descriptor.APIPrefixes = []string{"/api/v1/mcp"}
 	available["mcplex"].mount = func(r chi.Router) {
+		r.Get("/mcp/auth-types", h.ToolAuthTypes)
 		r.Route("/mcp/connections", func(r chi.Router) {
 			resourceRoutes(r, h, "tool-connection")
 			r.Post("/{id}/registration", h.RegisterTool)
