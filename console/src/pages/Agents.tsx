@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listAgents, listInstances, registerAgent, deleteAgent, type Agent } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import ScopeSelector from '../components/ScopeSelector'
+import AgentIdentities from '../components/AgentIdentities'
 
 const AUTH_METHODS = [
   { value: 'client_credentials', label: 'Client Credentials', desc: 'Server-to-server (internal agents, CI/CD)' },
@@ -137,6 +138,7 @@ export default function Agents() {
                       <div className="mt-2 text-xs text-gray-400">
                         Registered: {new Date(agent.registered_at).toLocaleDateString()}
                       </div>
+                      <AgentIdentities agentId={agent.client_id} />
                     </td>
                   </tr>
                 )}
