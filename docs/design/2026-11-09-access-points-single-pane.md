@@ -51,7 +51,15 @@ point: `https://<aiplex>/ap/{id}/…`.
 | `/v1/responses` | OpenAI Responses |
 | `/v1/messages` | Anthropic Messages |
 | `/v1beta/models/{model}:{op}` | Google GenAI |
+| `/model/{model}/converse`, `/model/{model}/converse-stream` | Bedrock Converse (AWS error shape: `{"message"}` + `X-Amzn-ErrorType`) |
+| `/model/{model}/invoke`, `/model/{model}/invoke-with-response-stream` | Bedrock InvokeModel |
+| `GET /v1/realtime?model={model}` (WebSocket) | OpenAI Realtime session (request-count metered) |
+| `GET /ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent?model={model}` (WebSocket) | Gemini Live session; `?model=` is the routing selector and must equal `setup.model` (request-count metered) |
 | `/v1/models` | Listing, filtered to what the caller may use |
+
+Responses WebSocket mode is not routed by access points: its model is chosen per
+`response.create` inside the session, after the upgrade, so no route can be
+selected at connect time. It is served on the surface's own native path.
 
 A request is resolved to a saved model surface and then handed to the existing
 managed native handler, so authorization, credentials, quota admission and the

@@ -61,6 +61,10 @@ func clientNativePath(s modelapi.Surface, r *http.Request, path string) (string,
 		return providerClientNativePath(s, r, path)
 	}
 	base := "/" + s.APIVersion + "/projects/" + s.Project + "/locations/" + s.Location
+	if path == "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent" && r.Method == http.MethodGet {
+		// Vertex Live: the WebSocket path is fixed; the model is in setup.
+		return path, nil, nil
+	}
 	switch s.Protocol {
 	case "google-genai":
 		match := genaiClientPath.FindStringSubmatch(path)

@@ -111,8 +111,9 @@ type AccessPointOptions struct {
 }
 
 var (
-	accessPointIDPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-	accessPointModelPattern = regexp.MustCompile(`^[A-Za-z0-9._@-][A-Za-z0-9._@/-]{0,255}$`)
+	accessPointIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	// ':' appears in Bedrock model and inference-profile ids ("...-v1:0").
+	accessPointModelPattern = regexp.MustCompile(`^[A-Za-z0-9._@-][A-Za-z0-9._@/:-]{0,255}$`)
 	accessPointClassPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 	// Connection ids namespace aggregate tool names as {connection}__{tool}.
 	accessPointConnectionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`)
@@ -154,6 +155,10 @@ func accessPointAliasRewritable(s modelapi.Surface) bool {
 		return true
 	case clientplex.Messages:
 		return !clientOperationReady(s, "anthropic.messages")
+	case modelapi.ProtocolBedrockConverse, modelapi.ProtocolBedrockInvoke, modelapi.ProtocolOpenAIRealtime:
+		// The model is the path segment (Bedrock) or connect-time query
+		// (Realtime): the access point rewrites it without touching a body.
+		return true
 	}
 	return false
 }
@@ -271,7 +276,7 @@ func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant
 	names := map[string]bool{}
 	for _, m := range entries {
 		if !accessPointModelPattern.MatchString(m.Name) || !accessPointModelPattern.MatchString(m.NativeModel) || strings.Contains(m.Name+m.NativeModel, "..") || m.SurfaceRef == "" {
-			return fmt.Errorf("models entries need name, surface_ref and native_model ([A-Za-z0-9._@/-], no '..')")
+			return fmt.Errorf("models entries need name, surface_ref and native_model ([A-Za-z0-9._@/:-], no '..')")
 		}
 		if names[m.Name] {
 			return fmt.Errorf("model name %q is not unique", m.Name)

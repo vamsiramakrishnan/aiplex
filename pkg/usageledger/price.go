@@ -146,11 +146,20 @@ func Estimate(prices []Price, r Record) Cost {
 		quantities[MeterCacheWrite] = r.Usage.CacheWriteTokens
 		quantities[MeterReasoning] = r.Usage.ReasoningTokens
 		quantities[MeterInput] = r.Usage.InputTokens
-		if _, cachePriced := p.Meters[MeterCacheRead]; cachePriced {
-			input, cached := r.Usage.InputTokens, r.Usage.CacheReadTokens
+		// input_tokens is total input: cache reads and cache writes are inside
+		// it. A separately priced cache subset is removed from the input
+		// quantity so it is charged once, at its own rate.
+		for _, subset := range []struct {
+			meter string
+			value *int64
+		}{{MeterCacheRead, r.Usage.CacheReadTokens}, {MeterCacheWrite, r.Usage.CacheWriteTokens}} {
+			if _, priced := p.Meters[subset.meter]; !priced || quantities[MeterInput] == nil {
+				continue
+			}
+			input := quantities[MeterInput]
 			quantities[MeterInput] = nil
-			if input != nil && cached != nil && *cached <= *input {
-				quantities[MeterInput] = Int64(*input - *cached)
+			if subset.value != nil && *subset.value <= *input {
+				quantities[MeterInput] = Int64(*input - *subset.value)
 			}
 		}
 	}

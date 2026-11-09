@@ -1,11 +1,14 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -22,7 +25,18 @@ const (
 	WireOpenAIResponses = "openai-responses"
 	WireAnthropic       = "anthropic-messages"
 	WireGenAI           = "google-genai"
+	// Bedrock Runtime native paths: the model is the path segment.
+	WireBedrockConverse = "bedrock-converse"
+	WireBedrockInvoke   = "bedrock-invoke"
+	// WebSocket sessions. The model is selected at connect time by the
+	// ?model= query parameter (the Realtime API's own selector; for Live it is
+	// the access point's routing selector and must equal setup.model).
+	WireOpenAIRealtime = "openai-realtime"
+	WireGeminiLive     = "google-live"
 )
+
+// geminiLivePath is the Vertex Live (BidiGenerateContent) WebSocket path.
+const geminiLivePath = "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
 
 type accessPointWire struct {
 	ID       string
@@ -35,6 +49,33 @@ var accessPointWires = []accessPointWire{
 	{WireOpenAIResponses, "/v1/responses", []string{clientplex.Responses}},
 	{WireAnthropic, "/v1/messages", []string{clientplex.Messages}},
 	{WireGenAI, "/v1beta/models/{model}:{method}", []string{clientplex.GenAI}},
+	{WireBedrockConverse, "/model/{model}/converse[-stream]", []string{modelapi.ProtocolBedrockConverse}},
+	{WireBedrockInvoke, "/model/{model}/invoke[-with-response-stream]", []string{modelapi.ProtocolBedrockInvoke}},
+	{WireOpenAIRealtime, "/v1/realtime?model={model} (WebSocket)", []string{modelapi.ProtocolOpenAIRealtime}},
+	{WireGeminiLive, geminiLivePath + "?model={model} (WebSocket)", []string{clientplex.GenAI}},
+}
+
+// accessPointWebSocket reports the session wires, which carry no body and
+// are upgraded by the native gateway.
+func accessPointWebSocket(protocol string) bool {
+	return protocol == WireOpenAIRealtime || protocol == WireGeminiLive
+}
+
+// bedrockErrorType is the AWS error type (X-Amzn-ErrorType) for a status.
+func bedrockErrorType(status int) string {
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return "AccessDeniedException"
+	case status == http.StatusNotFound:
+		return "ResourceNotFoundException"
+	case status == http.StatusTooManyRequests:
+		return "ThrottlingException"
+	case status == http.StatusServiceUnavailable:
+		return "ServiceUnavailableException"
+	case status >= 500:
+		return "InternalServerException"
+	}
+	return "ValidationException"
 }
 
 // accessPointWireProtocols lists the wire protocols that reach a surface.
@@ -134,8 +175,11 @@ func nativeErrorBody(protocol string, status int, code, message string) []byte {
 	switch protocol {
 	case WireAnthropic:
 		value = map[string]any{"type": "error", "error": map[string]any{"type": anthropicErrorType(status), "message": message}}
-	case WireGenAI:
+	case WireGenAI, WireGeminiLive:
 		value = map[string]any{"error": map[string]any{"code": status, "message": message, "status": googleErrorStatus(status)}}
+	case WireBedrockConverse, WireBedrockInvoke:
+		// AWS JSON protocol error: {"message"} plus the X-Amzn-ErrorType header.
+		value = map[string]any{"message": message}
 	default:
 		value = map[string]any{"error": map[string]any{"message": message, "type": openAIErrorType(status), "param": nil, "code": strings.ToLower(code)}}
 	}
@@ -149,6 +193,9 @@ func writeNativeError(w http.ResponseWriter, protocol string, status int, code, 
 	w.Header().Set("Cache-Control", "no-store")
 	if status == http.StatusUnauthorized {
 		w.Header().Set("WWW-Authenticate", "Bearer")
+	}
+	if protocol == WireBedrockConverse || protocol == WireBedrockInvoke {
+		w.Header().Set("X-Amzn-ErrorType", bedrockErrorType(status))
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(nativeErrorBody(protocol, status, code, message))
@@ -207,6 +254,17 @@ func (w *nativeErrorWriter) Write(b []byte) (int, error) {
 		w.buf.Reset()
 	}
 	return w.ResponseWriter.Write(b)
+}
+
+// Hijack lets a WebSocket session upgrade through the writer. Errors before
+// the upgrade are still re-rendered; after it the connection is the session's.
+func (w *nativeErrorWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok || w.wrote {
+		return nil, nil, fmt.Errorf("response does not support hijacking")
+	}
+	w.wrote = true
+	return hijacker.Hijack()
 }
 
 func (w *nativeErrorWriter) Flush() {
@@ -330,14 +388,33 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			return
 		}
 		var name, method string
-		if protocol == WireGenAI {
+		switch {
+		case protocol == WireGenAI:
 			match := genaiClientPath.FindStringSubmatch(local)
 			if match == nil {
 				fail(w, r, http.StatusNotFound, "UNSUPPORTED_OPERATION", "unsupported GenAI model operation")
 				return
 			}
 			name, method = match[1], match[2]
-		} else if name, err = bodyModel(data); err != nil {
+		case protocol == WireBedrockConverse || protocol == WireBedrockInvoke:
+			match := bedrockClientPath.FindStringSubmatch(local)
+			converse := match != nil && strings.HasPrefix(match[2], "converse")
+			if match == nil || converse != (protocol == WireBedrockConverse) {
+				fail(w, r, http.StatusNotFound, "UNSUPPORTED_OPERATION", "unsupported Bedrock Runtime operation")
+				return
+			}
+			name, method = match[1], match[2]
+		case accessPointWebSocket(protocol):
+			query := r.URL.Query()
+			if len(data) != 0 || len(query) != 1 || len(query["model"]) != 1 || query.Get("model") == "" {
+				fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", "a WebSocket session is selected by exactly one ?model= query parameter")
+				return
+			}
+			name = query.Get("model")
+		default:
+			name, err = bodyModel(data)
+		}
+		if err != nil {
 			fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 			return
 		}
@@ -376,10 +453,20 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			return
 		}
 		path, body := local, data
+		rawQuery := r.URL.RawQuery
+		if accessPointWebSocket(protocol) {
+			body = nil
+			rawQuery = url.Values{"model": {entry.NativeModel}}.Encode()
+		}
 		if entry.Name != entry.NativeModel {
 			switch {
 			case protocol == WireGenAI:
 				path = "/v1beta/models/" + entry.NativeModel + ":" + method
+			case protocol == WireBedrockConverse || protocol == WireBedrockInvoke:
+				// The path selects the model; the body is relayed untouched.
+				path = "/model/" + entry.NativeModel + "/" + method
+			case protocol == WireOpenAIRealtime:
+				// rawQuery already carries the native model.
 			case protocol == WireAnthropic && accessPointAliasRewritable(connection.Surface):
 				if body, err = rewriteBodyModel(data, entry.NativeModel); err != nil {
 					fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", "request body must be one JSON object")
@@ -391,6 +478,7 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			}
 		}
 		inner := delegateRequest(r, call, "/api/v1/llm/gateway/"+entry.SurfaceRef+path, entry.SurfaceRef, body)
+		inner.URL.RawQuery = rawQuery
 		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol}
 		defer writer.finish()
 		h.ClientGateway(writer, inner)

@@ -30,6 +30,9 @@ const (
 	ProtocolAnthropicMessages = "anthropic-messages"
 	ProtocolBedrockConverse   = "bedrock-converse"
 	ProtocolBedrockInvoke     = "bedrock-invoke"
+	// ProtocolOpenAIRealtime is the Realtime API WebSocket protocol
+	// (wss://api.openai.com/v1/realtime?model=...).
+	ProtocolOpenAIRealtime = "openai-realtime"
 )
 
 // EventStream is the AWS binary event-stream response transport
@@ -99,7 +102,8 @@ const (
 	FormatOpenAIResponses   = "openai-responses"
 	FormatAnthropicMessages = "anthropic-messages"
 	FormatBedrockConverse   = "bedrock-converse"
-	FormatBedrockInvoke     = "bedrock-invoke" // model-specific body: usage unknown
+	FormatBedrockInvoke     = "bedrock-invoke" // model-specific body: Messages-shaped usage is advisory
+	FormatOpenAIRealtime    = "openai-realtime"
 )
 
 type providerOp struct {
@@ -125,6 +129,9 @@ func providerCatalog() map[string][]providerOp {
 		ProviderOpenAI: {
 			chat("openai.v1.chat-completions", "/v1/chat/completions", openaiRef+"/resources/chat/subresources/completions/methods/create"),
 			responses("openai.v1.responses", "/v1/responses", openaiRef+"/resources/responses/methods/create"),
+			// WebSocket sessions: request-count metered, usage advisory.
+			{Operation{ID: "openai.v1.responses-websocket", Method: "GET", Path: "/v1/responses", Transport: WebSocket, Action: Invoke, ResourceKind: "response", Stateful: true, SourceURL: "https://developers.openai.com/api/docs/guides/websocket-mode"}, FormatOpenAIResponses, ProtocolOpenAIResponses},
+			{Operation{ID: "openai.v1.realtime", Method: "GET", Path: "/v1/realtime", Transport: WebSocket, Action: Invoke, SourceURL: openaiRef + "/resources/realtime/server-events"}, FormatOpenAIRealtime, ProtocolOpenAIRealtime},
 		},
 		ProviderAnthropic: {
 			{AnthropicOperations()[0], FormatAnthropicMessages, ProtocolAnthropicMessages},

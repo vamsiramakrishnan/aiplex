@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
 type jsonObservation struct {
@@ -33,9 +35,19 @@ func cumulativeUsage(op Operation) bool {
 	}
 }
 
+// anthropicWire reports a Messages-format body on this surface: the native
+// Messages API, Vertex rawPredict on the anthropic publisher, or a Bedrock
+// InvokeModel body whose model-native payload is the Messages shape.
+func (g *Gateway) anthropicWire(op Operation) bool {
+	return op.ID == "anthropic.messages" || (g.surface.Publisher == "anthropic" && anthropicOperation(op)) || bedrockInvoke(op)
+}
+
 func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, data []byte, terminal, includeUsage bool) (jsonObservation, error) {
-	if bedrockOperation(op) {
+	if bedrockOperation(op) && !(bedrockInvoke(op) && anthropicShaped(data)) {
 		return g.inspectBedrockJSON(op, data, includeUsage)
+	}
+	if geminiGeneration(op) && jsonArray(data) {
+		return g.inspectGeminiArray(ctx, owner, op, data, terminal, includeUsage)
 	}
 	var result jsonObservation
 	var root map[string]json.RawMessage
@@ -141,6 +153,14 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 			}
 		}
 	}
+	if result.eventType == "message_start" && g.anthropicWire(op) {
+		// message_start.output_tokens is a placeholder (1-3 tokens), never a
+		// usage report; the cumulative message_delta carries the real count.
+		delete(usage, "output_tokens")
+	}
+	if raw := root["predictions"]; raw != nil && len(usage) == 0 && predictOperation(op) {
+		return result, embeddingPredictUsage(&result, g.surface.ID, op, raw)
+	}
 	if len(usage) == 0 {
 		return result, nil
 	}
@@ -165,7 +185,9 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		return nil
 	}
 	for native, target := range mappings {
-		if raw := usage[native]; raw != nil {
+		// A documented-nullable counter (Anthropic message_delta cache and
+		// input fields) that is null is unknown, never zero and never invalid.
+		if raw := usage[native]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			if err := setCounter(target, raw); err != nil {
 				return result, err
 			}
@@ -200,21 +222,49 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		}
 	}
 	for parent, meter := range map[string]string{"input_tokens_details": "cached_tokens", "prompt_tokens_details": "cached_tokens", "output_tokens_details": "thought_tokens", "completion_tokens_details": "thought_tokens"} {
-		if raw := usage[parent]; raw != nil {
+		if raw := usage[parent]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			var detail map[string]json.RawMessage
 			if json.Unmarshal(raw, &detail) != nil {
 				return result, fmt.Errorf("invalid provider usage detail")
 			}
-			field := "cached_tokens"
+			fields := []string{"cached_tokens"}
 			if meter == "thought_tokens" {
-				field = "reasoning_tokens"
+				// OpenAI reports reasoning_tokens, Anthropic thinking_tokens.
+				// Both are subsets of output, never additive.
+				fields = []string{"reasoning_tokens", "thinking_tokens"}
 			}
-			if value := detail[field]; value != nil {
-				if err := setCounter(meter, value); err != nil {
-					return result, err
+			for _, field := range fields {
+				if value := detail[field]; value != nil && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+					if err := setCounter(meter, value); err != nil {
+						return result, err
+					}
 				}
 			}
 		}
+	}
+	if _, scalar := counters["cache_write_tokens"]; !scalar && g.anthropicWire(op) {
+		// Cache writes may be reported only as the per-TTL breakdown, whose
+		// buckets do not overlap and sum to the scalar.
+		if raw := usage["cache_creation"]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			var buckets map[string]json.RawMessage
+			if json.Unmarshal(raw, &buckets) != nil {
+				return result, fmt.Errorf("invalid cache creation breakdown")
+			}
+			var sum int64
+			for _, value := range buckets {
+				var n int64
+				if json.Unmarshal(value, &n) != nil || n < 0 || n > int64(^uint64(0)>>2) {
+					return result, fmt.Errorf("invalid cache creation bucket")
+				}
+				sum += n
+			}
+			if len(buckets) > 0 {
+				counters["cache_write_tokens"] = sum
+			}
+		}
+	}
+	if op.ID == "openai.chat-completions" && g.surface.Provider == nil {
+		vertexCompletionComposition(counters)
 	}
 	if len(counters) == 0 {
 		return result, nil
@@ -222,8 +272,141 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 	if root["event_type"] != nil || root["type"] != nil {
 		terminal = result.nativeTerminal
 	}
-	result.usage = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, ResourceID: id, Terminal: terminal, Counters: counters, Cumulative: cumulativeUsage(op) || (g.surface.Publisher == "anthropic" && anthropicOperation(op)), ModelVersion: result.modelVersion}
+	result.usage = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, ResourceID: id, Terminal: terminal, Counters: counters, Cumulative: cumulativeUsage(op) || g.anthropicWire(op), ModelVersion: result.modelVersion}
 	return result, nil
+}
+
+// vertexCompletionComposition gives the Vertex OpenAI-compatible endpoint's
+// counters OpenAI semantics. Unlike OpenAI, Gemini on that endpoint reports
+// completion_tokens EXCLUDING reasoning_tokens (prompt + completion +
+// reasoning = total). Open models on the same endpoint may follow OpenAI's
+// inclusive convention, so the native total decides: an exclusive composition
+// folds reasoning into output; an inclusive one stays; anything else leaves
+// output and total unknown rather than guessing.
+func vertexCompletionComposition(counters map[string]int64) {
+	thought, hasThought := counters["thought_tokens"]
+	output, hasOutput := counters["output_tokens"]
+	if !hasThought || thought == 0 || !hasOutput {
+		return
+	}
+	input, hasInput := counters["input_tokens"]
+	total, hasTotal := counters["total_tokens"]
+	switch {
+	case hasInput && hasTotal && total == input+output+thought:
+		counters["output_tokens"] = output + thought
+	case hasInput && hasTotal && total == input+output && thought <= output:
+	default:
+		delete(counters, "output_tokens")
+		delete(counters, "total_tokens")
+	}
+}
+
+func jsonArray(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+// anthropicShaped reports a decoded Messages-API object or stream event: the
+// documented shape of an Anthropic model's InvokeModel body on Bedrock.
+func anthropicShaped(data []byte) bool {
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(data, &probe) != nil {
+		return false
+	}
+	switch probe.Type {
+	case "message", "message_start", "message_delta", "message_stop", "content_block_start", "content_block_delta", "content_block_stop", "ping", "error":
+		return true
+	}
+	return false
+}
+
+// inspectGeminiArray observes streamGenerateContent without alt=sse: one JSON
+// array of GenerateContentResponse. usageMetadata is cumulative within the
+// stream, so the last element is authoritative; earlier elements must not
+// regress and are never added.
+func (g *Gateway) inspectGeminiArray(ctx context.Context, owner Owner, op Operation, data []byte, terminal, includeUsage bool) (jsonObservation, error) {
+	var elements []json.RawMessage
+	if err := json.Unmarshal(data, &elements); err != nil {
+		return jsonObservation{}, nil
+	}
+	var last jsonObservation
+	var cumulative execution.CumulativeUsage
+	version := ""
+	for i, element := range elements {
+		value, err := g.inspectJSON(ctx, owner, op, element, terminal && i == len(elements)-1, includeUsage)
+		if err != nil {
+			return value, err
+		}
+		if value.modelVersion != "" {
+			if version != "" && version != value.modelVersion {
+				return value, fmt.Errorf("native model version changed within stream")
+			}
+			version = value.modelVersion
+		}
+		if value.usage != nil {
+			if err = cumulative.Observe(value.usage.Counters); err != nil {
+				return value, err
+			}
+		}
+		if i < len(elements)-1 && value.nativeTerminal {
+			return value, fmt.Errorf("native generation continued after final marker")
+		}
+		if value.candidateCount > last.candidateCount {
+			last.candidateCount = value.candidateCount
+		}
+		last.foreignCandidate = last.foreignCandidate || value.foreignCandidate
+		last.usage, last.nativeTerminal, last.resource, last.gemini = value.usage, value.nativeTerminal, value.resource, value.gemini
+	}
+	last.modelVersion = version
+	if last.usage != nil && last.usage.ModelVersion == "" {
+		last.usage.ModelVersion = version
+	}
+	return last, nil
+}
+
+func predictOperation(op Operation) bool {
+	return op.ID == "models.predict" || op.ID == "endpoints.predict"
+}
+
+// embeddingPredictUsage reads Vertex embedding :predict statistics
+// (predictions[].embeddings.statistics.token_count, summed per instance).
+// Other :predict models have model-defined bodies: usage stays unknown unless
+// every prediction carries the embedding statistics.
+func embeddingPredictUsage(result *jsonObservation, surfaceID string, op Operation, raw json.RawMessage) error {
+	var predictions []struct {
+		Embeddings *struct {
+			Statistics *struct {
+				TokenCount *json.Number `json:"token_count"`
+			} `json:"statistics"`
+		} `json:"embeddings"`
+	}
+	if json.Unmarshal(raw, &predictions) != nil || len(predictions) == 0 {
+		return nil
+	}
+	var sum int64
+	for _, p := range predictions {
+		if p.Embeddings == nil || p.Embeddings.Statistics == nil || p.Embeddings.Statistics.TokenCount == nil {
+			return nil
+		}
+		n, err := p.Embeddings.Statistics.TokenCount.Int64()
+		if err != nil {
+			// The statistic is documented as a number; accept whole values only.
+			f, ferr := p.Embeddings.Statistics.TokenCount.Float64()
+			if ferr != nil || f < 0 || f > 1<<53 || f != float64(int64(f)) {
+				return nil
+			}
+			n = int64(f)
+		}
+		if n < 0 || n > 1<<53 || sum > 1<<53 {
+			return nil
+		}
+		sum += n
+	}
+	result.nativeTerminal = true
+	result.usage = &UsageObservation{Source: "upstream", SurfaceID: surfaceID, OperationID: op.ID, Terminal: true, Counters: map[string]int64{"input_tokens": sum}, Cumulative: true}
+	return nil
 }
 
 func nativeTerminal(root, object map[string]json.RawMessage) bool {

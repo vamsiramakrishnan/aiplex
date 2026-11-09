@@ -30,8 +30,42 @@ cancellation HTTP request, **not** generated tokens, retained storage, upstream
 job lifetime or internal tool work. Its concurrency permit spans the managed
 exchange. A configured request price is a fixed per-request tariff. Native
 resource IDs and ownership are still bound before delivery, but API acceptance
-is not proof that an upstream job has completed. Live WebSockets and operations
-without an installed coverage contract remain unsupported by the managed host.
+is not proof that an upstream job has completed. Operations without an
+installed coverage contract remain unsupported by the managed host.
+
+## WebSocket sessions
+
+Gemini Live (`live.connect`), OpenAI Realtime (`openai.v1.realtime`) and OpenAI
+Responses WebSocket mode (`openai.v1.responses-websocket`) are covered by the
+`request-count` profile only. A session maps onto the one-exchange model:
+
+- **Admission**: one lease per session, prepared once the session's model is
+  known (Live: after the bounded `setup` message; Realtime: the `?model=`
+  connect parameter; Responses: per `response.create`, each re-authorized) and
+  before credentials or the upstream dial. A token-profile lease is aborted and
+  the session refused (`UNSUPPORTED_EXECUTION_TRANSPORT`).
+- **Observation**: usage server events are forwarded as advisory, non-terminal
+  observations: Live `usageMetadata` as cumulative session snapshots (last
+  replaces earlier, never added), Realtime `response.done` and Responses
+  `response.completed` as per-response deltas summed over distinct response ids.
+  Realtime input-transcription usage is a separate `transcription_*` meter
+  (billed at the transcription model's rate) and is never merged into the
+  session's token counters. Realtime `rate_limits.updated` feeds the provider
+  limit observation.
+- **Settlement**: exactly once at session end. Only a clean close with complete
+  evidence (every started response finished with usage; no Live model output,
+  turn signal or client input after the last snapshot) yields a terminal
+  observation with session totals. Otherwise the observed usage is labelled
+  `lower_bound`, `ambiguous` (a resumed Live session, whose counter reset is
+  unconfirmed) or `partial` (non-token units such as transcription seconds),
+  and the ledger records the exchange as `unknown` with that `usage_bound`.
+  Either way the request-count lease settles its one request and releases its
+  permit.
+- **Exposure bound**: per session, one admitted request against request
+  budgets/rates and one concurrency permit for at most the gateway's
+  `MaxStreamDuration` (default 30 minutes, at most 24 hours), after which both
+  sockets are closed. Tokens on these paths are not bounded by quota, only by
+  provider session limits and that duration; no token-metered claim is made.
 
 ## Strict text request contracts
 
@@ -80,6 +114,19 @@ Gemini reports prompt tokens including cached input, separate candidate/output
 and thought counters, and a total. Settlement verifies that composition, removes
 cached input from uncached input, and never adds prompt totals to their subsets.
 Interactions uses its corresponding total input/cache/output/thought counters.
+
+The Vertex OpenAI-compatible endpoint (`openai.chat-completions` on a Google
+surface) reuses OpenAI field names with different semantics for Gemini:
+`completion_tokens` **excludes** `reasoning_tokens` (prompt + completion +
+reasoning = total). The observer folds reasoning into output only when the
+native total proves that composition, keeps an inclusive composition when the
+total proves that instead (open models), and otherwise leaves output unknown.
+The endpoint documents no cached-input breakdown, so the strict `openai-text`
+profile fails closed there.
+
+Usage-format conformance against provider-documented samples, and the
+generated provider x surface x transport coverage matrix, are in
+[the usage-format reference](reference/usage-formats/coverage.md).
 
 OpenAI reports reasoning **inside** output/completion tokens. Its output meter
 therefore retains the full billed output count; reasoning details are diagnostic

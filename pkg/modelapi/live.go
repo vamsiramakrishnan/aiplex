@@ -12,6 +12,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
 // LiveDialer is the functional WebSocket transport. Hosts should use
@@ -39,9 +40,26 @@ func NewLiveDialer(policy SafeNetworkDialer, tlsConfig *tls.Config) (*websocket.
 	return &websocket.Dialer{NetDialContext: policy.DialContext, TLSClientConfig: safeTLS, HandshakeTimeout: 10 * time.Second, ReadBufferSize: 32 << 10, WriteBufferSize: 32 << 10}, nil
 }
 
+func websocketEndpoint(origin, path, rawQuery string) string {
+	endpoint := strings.TrimSuffix(origin, "/") + path
+	if strings.HasPrefix(endpoint, "https://") {
+		endpoint = "wss://" + strings.TrimPrefix(endpoint, "https://")
+	} else {
+		endpoint = "ws://" + strings.TrimPrefix(endpoint, "http://")
+	}
+	if rawQuery != "" {
+		endpoint += "?" + rawQuery
+	}
+	return endpoint
+}
+
+// serveLive relays a Gemini Live (BidiGenerateContent) session. Client
+// authentication has already succeeded. Only the bounded initial setup is read
+// before quota admission, server credentials or the upstream socket. A quota
+// lease must use the request-count profile: one session is one admitted
+// exchange, observed usage is advisory, and token-metered leases are refused
+// before credentials are acquired.
 func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted contracts.RequestContext, owner Owner, op Operation) {
-	// Client authentication has already succeeded. Read only the bounded initial
-	// setup before acquiring server credentials or opening the upstream socket.
 	connection, e := (&websocket.Upgrader{HandshakeTimeout: 10 * time.Second}).Upgrade(w, r, nil)
 	if e != nil {
 		return
@@ -53,95 +71,70 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 	if e != nil || kind != websocket.TextMessage {
 		return
 	}
-	metadata, e := g.validateLiveSetup(r.Context(), owner, setup)
+	metadata, resumed, e := g.validateLiveSetupResumption(r.Context(), owner, setup)
+	if pinned := r.URL.Query()["model"]; e == nil && len(pinned) > 0 {
+		// A routing selector (e.g. an access point's ?model=) pins the
+		// session: the setup must name the same model.
+		if len(pinned) != 1 || g.normalizeModel(pinned[0]) != g.normalizeModel(metadata.Model) {
+			e = fmt.Errorf("setup model differs from the selected model")
+		}
+	}
 	if e != nil {
-		_ = connection.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "setup denied"), time.Now().Add(time.Second))
+		closeWebSocket(connection, websocket.ClosePolicyViolation, "setup denied")
 		return
 	}
 	if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
+		closeWebSocket(connection, websocket.ClosePolicyViolation, "operation denied")
+		return
+	}
+	run, e := g.prepareSession(r, trusted, op, metadata, setup)
+	if e != nil {
+		closeWebSocketForExecution(connection, e)
+		return
+	}
+	if run != nil {
+		defer run.close()
+	}
+	if e = run.beforeDispatch(r.Context()); e != nil {
+		closeWebSocketForExecution(connection, e)
 		return
 	}
 	token, e := g.options.TokenSource.Token(r.Context())
 	if e != nil || token == "" {
+		_ = run.finish(execution.Result{Err: fmt.Errorf("upstream identity unavailable")})
+		closeWebSocket(connection, websocket.CloseTryAgainLater, "upstream identity unavailable")
 		return
-	}
-	endpoint := strings.TrimSuffix(g.surface.Origin, "/") + r.URL.EscapedPath()
-	if strings.HasPrefix(endpoint, "https://") {
-		endpoint = "wss://" + strings.TrimPrefix(endpoint, "https://")
-	} else {
-		endpoint = "ws://" + strings.TrimPrefix(endpoint, "http://")
 	}
 	headers := forwardRequestHeaders(r.Header)
 	applyTrustedHeaders(headers, g.options.UpstreamHeaders)
 	headers.Set("Authorization", "Bearer "+token)
-	upstream, response, e := g.options.LiveDialer.DialContext(r.Context(), endpoint, headers)
+	upstream, response, e := g.options.LiveDialer.DialContext(r.Context(), websocketEndpoint(g.surface.Origin, r.URL.EscapedPath(), ""), headers)
 	if e != nil && response != nil && response.Body != nil {
 		response.Body.Close()
 	}
 	if e != nil {
+		_ = run.finish(execution.Result{Err: e})
+		closeWebSocket(connection, websocket.CloseTryAgainLater, "upstream unavailable")
 		return
 	}
 	defer upstream.Close()
 	upstream.SetReadLimit(g.options.MaxBodyBytes)
 	if e = upstream.WriteMessage(kind, setup); e != nil {
+		_ = run.finish(execution.Result{Err: e})
 		return
 	}
 	_ = connection.SetReadDeadline(time.Time{})
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-r.Context().Done():
-			connection.Close()
-			upstream.Close()
-		case <-done:
-		}
-	}()
-	failures := make(chan error, 2)
-	go func() {
-		for {
-			kind, payload, e := connection.ReadMessage()
-			if e != nil {
-				failures <- e
-				return
-			}
-			if kind == websocket.TextMessage {
-				var doc map[string]json.RawMessage
-				if json.Unmarshal(payload, &doc) == nil && doc["setup"] != nil {
-					failures <- fmt.Errorf("repeated setup denied")
-					return
-				}
-			}
-			if e = upstream.WriteMessage(kind, payload); e != nil {
-				failures <- e
-				return
-			}
-		}
-	}()
-	go func() {
-		for {
-			kind, payload, e := upstream.ReadMessage()
-			if e != nil {
-				failures <- e
-				return
-			}
-			if kind == websocket.TextMessage {
-				if e = g.observeLive(r.Context(), owner, op, payload); e != nil {
-					failures <- e
-					return
-				}
-			}
-			if e = connection.WriteMessage(kind, payload); e != nil {
-				failures <- e
-				return
-			}
-		}
-	}()
-	<-failures
+	g.pumpWebSocket(r.Context(), connection, upstream, owner, op, &liveAdapter{gateway: g, owner: owner, resumed: resumed}, run)
 }
+
 func (g *Gateway) validateLiveSetup(ctx context.Context, owner Owner, payload []byte) (Metadata, error) {
+	metadata, _, err := g.validateLiveSetupResumption(ctx, owner, payload)
+	return metadata, err
+}
+
+func (g *Gateway) validateLiveSetupResumption(ctx context.Context, owner Owner, payload []byte) (Metadata, bool, error) {
 	if e := validateJSON(payload); e != nil {
-		return Metadata{}, e
+		return Metadata{}, false, e
 	}
 	var doc struct {
 		Setup struct {
@@ -152,34 +145,137 @@ func (g *Gateway) validateLiveSetup(ctx context.Context, owner Owner, payload []
 		} `json:"setup"`
 	}
 	if e := json.Unmarshal(payload, &doc); e != nil || doc.Setup.Model == "" || !g.allowedModel(doc.Setup.Model) {
-		return Metadata{}, fmt.Errorf("Live setup model denied")
+		return Metadata{}, false, fmt.Errorf("Live setup model denied")
 	}
-	if handle := doc.Setup.SessionResumption.Handle; handle != "" {
+	handle := doc.Setup.SessionResumption.Handle
+	if handle != "" {
 		if len(handle) > 8192 || g.options.Ownership == nil {
-			return Metadata{}, fmt.Errorf("session ownership required")
+			return Metadata{}, false, fmt.Errorf("session ownership required")
 		}
 		if e := g.options.Ownership.Check(ctx, owner, Resource{"live-session", handle}); e != nil {
-			return Metadata{}, e
+			return Metadata{}, false, e
 		}
 	}
-	return Metadata{Model: doc.Setup.Model, Transport: WebSocket}, nil
+	return Metadata{Model: doc.Setup.Model, Transport: WebSocket}, handle != "", nil
 }
-func (g *Gateway) observeLive(ctx context.Context, owner Owner, op Operation, payload []byte) error {
-	var doc struct {
-		SessionResumptionUpdate struct {
+
+// liveAdapter observes Gemini Live server messages.
+//
+// usageMetadata is its own top-level server message. The Developer API names
+// the output counter responseTokenCount; the Vertex v1 UsageMetadata names it
+// candidatesTokenCount (no page shows the Vertex Live JSON), so both are
+// accepted and a conflict is refused. Vertex documents the message as "tokens
+// used by the session so far", so snapshots are cumulative: the last one
+// replaces earlier ones and successive snapshots are never added. A snapshot
+// that regresses disproves that reading for the session, which then stays
+// ambiguous rather than being summed or replaced.
+//
+// The final snapshot is used as the session's usage only when the session
+// closed cleanly and no model output, turn signal or client input followed
+// it. Otherwise the last snapshot is a lower bound. Whether counters restart
+// after session resumption is unconfirmed, so a resumed session's usage is
+// labelled ambiguous instead of being presented as additive to the session it
+// resumed (no double counting is claimed either way).
+type liveAdapter struct {
+	gateway    *Gateway
+	owner      Owner
+	resumed    bool
+	cumulative execution.CumulativeUsage
+	last       map[string]int64
+	stale      bool // activity after the last usage snapshot
+	ambiguous  bool
+}
+
+func (a *liveAdapter) clientMessage(context.Context, []byte, int) error {
+	if a.last != nil {
+		a.stale = true
+	}
+	return nil
+}
+
+func (a *liveAdapter) serverMessage(ctx context.Context, payload []byte) (wsEffects, error) {
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(payload, &doc) != nil {
+		return wsEffects{}, nil
+	}
+	effects := wsEffects{}
+	if raw := doc["sessionResumptionUpdate"]; raw != nil {
+		var update struct {
 			NewHandle string `json:"newHandle"`
-		} `json:"sessionResumptionUpdate"`
-	}
-	if e := json.Unmarshal(payload, &doc); e != nil {
-		return e
-	}
-	if handle := doc.SessionResumptionUpdate.NewHandle; handle != "" {
-		if len(handle) > 8192 || g.options.Ownership == nil {
-			return fmt.Errorf("session ownership required")
 		}
-		if e := g.options.Ownership.Bind(ctx, owner, Resource{"live-session", handle}); e != nil {
-			return e
+		if json.Unmarshal(raw, &update) != nil {
+			return effects, fmt.Errorf("invalid session resumption update")
+		}
+		if update.NewHandle != "" {
+			if len(update.NewHandle) > 8192 || a.gateway.options.Ownership == nil {
+				return effects, fmt.Errorf("session ownership required")
+			}
+			if e := a.gateway.options.Ownership.Bind(ctx, a.owner, Resource{"live-session", update.NewHandle}); e != nil {
+				return effects, e
+			}
 		}
 	}
-	return g.observeJSON(ctx, owner, op, payload, false)
+	for _, key := range []string{"serverContent", "toolCall", "outputTranscription", "inputTranscription"} {
+		if doc[key] != nil && a.last != nil {
+			a.stale = true
+		}
+	}
+	raw := doc["usageMetadata"]
+	if raw == nil {
+		return effects, nil
+	}
+	counters, err := liveUsageCounters(raw)
+	if err != nil || len(counters) == 0 {
+		// Advisory telemetry: an unreadable snapshot is unknown, not fatal.
+		return effects, nil
+	}
+	if a.cumulative.Observe(counters) != nil {
+		a.ambiguous = true
+		return effects, nil
+	}
+	a.last, a.stale = counters, false
+	effects.observations = append(effects.observations, UsageObservation{Source: "upstream", SurfaceID: a.gateway.surface.ID, Counters: cloneCounters(counters), Cumulative: true})
+	return effects, nil
+}
+
+func (a *liveAdapter) end(clean bool) (*UsageObservation, string) {
+	switch {
+	case a.resumed || a.ambiguous:
+		return nil, execution.BoundAmbiguous
+	case a.last == nil || !clean || a.stale:
+		return nil, execution.BoundLowerBound
+	}
+	return &UsageObservation{Source: "upstream", SurfaceID: a.gateway.surface.ID, Counters: cloneCounters(a.last), Cumulative: true}, ""
+}
+
+// liveUsageCounters maps a Live usageMetadata message.
+func liveUsageCounters(raw json.RawMessage) (map[string]int64, error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil, fmt.Errorf("invalid Live usage")
+	}
+	counters := map[string]int64{}
+	for native, target := range map[string]string{"promptTokenCount": "input_tokens", "cachedContentTokenCount": "cached_tokens", "responseTokenCount": "output_tokens", "candidatesTokenCount": "output_tokens", "thoughtsTokenCount": "thought_tokens", "toolUsePromptTokenCount": "tool_use_tokens", "totalTokenCount": "total_tokens"} {
+		value := fields[native]
+		if value == nil {
+			continue
+		}
+		var n int64
+		if json.Unmarshal(value, &n) != nil || n < 0 || n > 1<<53 {
+			return nil, fmt.Errorf("invalid Live usage counter")
+		}
+		if prior, ok := counters[target]; ok && prior != n {
+			return nil, fmt.Errorf("conflicting Live usage counters")
+		}
+		counters[target] = n
+	}
+	return counters, nil
+}
+
+func cloneCounters(in map[string]int64) map[string]int64 {
+	out := make(map[string]int64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

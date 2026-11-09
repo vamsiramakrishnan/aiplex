@@ -61,6 +61,10 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := Owner{trusted.TenantID, trusted.PrincipalID, g.surface.ID}
+	if op.Transport == WebSocket {
+		g.serveProviderWebSocket(w, r, trusted, owner, op)
+		return
+	}
 	metadata := Metadata{Model: params["model"], Transport: op.Transport}
 	if metadata.Model != "" && !g.allowedModel(metadata.Model) {
 		http.Error(w, "model is not allowed", http.StatusForbidden)

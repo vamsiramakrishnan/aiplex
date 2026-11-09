@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net"
 	"net/http"
@@ -43,6 +44,11 @@ type usageCapture struct {
 	incomplete   bool
 	streaming    bool
 	finished     bool
+	// terminalSeen and bound come from the native adapter's observations. A
+	// WebSocket session has no HTTP completion signal of its own, so its
+	// usage is final only with a terminal observation.
+	terminalSeen bool
+	bound        string
 }
 
 // beginUsage starts capturing an exchange for a verified tenant. The returned
@@ -110,10 +116,16 @@ func (c *usageCapture) noteError(err error) {
 	}
 }
 
-func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string) {
+func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string, terminal bool, bound string) {
 	if c == nil {
 		return
 	}
+	c.mu.Lock()
+	c.terminalSeen = c.terminalSeen || terminal
+	if bound != "" {
+		c.bound = bound
+	}
+	c.mu.Unlock()
 	c.usage.Observe(counters, cumulative)
 	if modelVersion != "" {
 		c.set(func(r *usageledger.Record) { r.ModelVersion = modelVersion })
@@ -128,14 +140,18 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 		return
 	}
 	c.set(func(r *usageledger.Record) { r.Provider = connection.Surface.Publisher })
+	// Messages-format usage (Anthropic provider, the anthropic publisher on
+	// Vertex, and Anthropic-shaped Bedrock InvokeModel bodies) counts cache
+	// reads and writes outside input_tokens; the ledger's input_tokens is total
+	// input. This holds with and without a quota lease (a request-count lease
+	// forwards the native counters unnormalized).
+	c.mu.Lock()
+	c.anthropicRaw = connection.Surface.Publisher == "anthropic"
 	if connection.Surface.Provider != nil {
-		// Provider surfaces record their provider ID; native Anthropic usage
-		// is normalized to total input exactly as for Anthropic publishers.
-		c.mu.Lock()
 		c.record.Provider = connection.Surface.Provider.ID
-		c.anthropicRaw = connection.Surface.Provider.ID == modelapi.ProviderAnthropic
-		c.mu.Unlock()
+		c.anthropicRaw = connection.Surface.Provider.ID == modelapi.ProviderAnthropic || connection.Surface.Provider.ID == modelapi.ProviderBedrock
 	}
+	c.mu.Unlock()
 	authorize := opts.Authorize
 	opts.Authorize = func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
 		c.set(func(r *usageledger.Record) {
@@ -163,12 +179,9 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 		})
 		return
 	}
-	c.mu.Lock()
-	c.anthropicRaw = connection.Surface.Publisher == "anthropic"
-	c.mu.Unlock()
 	opts.Observe = func(_ context.Context, _ modelapi.Owner, value modelapi.UsageObservation) {
 		if value.Source == "upstream" {
-			c.observe(value.Counters, value.Cumulative, value.ModelVersion)
+			c.observe(value.Counters, value.Cumulative, value.ModelVersion, value.Terminal, value.Bound)
 		}
 	}
 }
@@ -281,7 +294,7 @@ func (l *usageLease) BeforeDispatch(ctx context.Context) error {
 func (l *usageLease) Observe(ctx context.Context, observation execution.Observation) error {
 	err := l.inner.Observe(ctx, observation)
 	if observation.Source == "upstream" {
-		l.capture.observe(observation.Counters, observation.Cumulative, observation.ModelVersion)
+		l.capture.observe(observation.Counters, observation.Cumulative, observation.ModelVersion, observation.Terminal, observation.Bound)
 	}
 	l.capture.noteError(err)
 	return err
@@ -368,7 +381,19 @@ func (c *usageCapture) finish() {
 	counters := c.usage.Snapshot()
 	anthropicRaw, attemptID, code, incomplete := c.anthropicRaw, c.attemptID, c.errorCode, c.incomplete
 	streaming := c.streaming || hijacked
+	bound, terminalSeen := c.bound, c.terminalSeen
 	c.mu.Unlock()
+	if hijacked && !terminalSeen {
+		// A relayed session without a final usage observation: whatever was
+		// observed is a lower bound (or labelled more specifically).
+		incomplete = true
+		if bound == "" {
+			bound = usageledger.UsageLowerBound
+		}
+		if code == "" {
+			code = "session_usage_" + bound
+		}
+	}
 
 	if media, _, err := mime.ParseMediaType(contentType); err == nil {
 		switch media {
@@ -409,18 +434,16 @@ func (c *usageCapture) finish() {
 		record.ErrorClass = code
 	}
 	if anthropicRaw {
-		// The native Anthropic usage object counts cached reads outside
-		// input_tokens; the ledger's input_tokens is total input.
-		if _, normalized := counters["uncached_input_tokens"]; !normalized {
-			if input, ok := counters["input_tokens"]; ok {
-				if cached, ok := counters["cached_tokens"]; ok {
-					counters["uncached_input_tokens"] = input
-					counters["input_tokens"] = input + cached
-				}
-			}
-		}
+		normalizeExclusiveInput(counters)
 	}
 	record.Usage = usageledger.FromCounters(counters)
+	if bound != "" {
+		record.UsageBound = bound
+	} else if nonTokenUsage(counters) {
+		// Audio seconds and similar units were observed but have no ledger
+		// field: the token counters do not describe the whole exchange.
+		record.UsageBound = usageledger.UsagePartial
+	}
 	record.Cost = usageledger.UnknownCost()
 	h := c.h
 	h.Ledger.Submit(c.r.Context(), func(ctx context.Context) (usageledger.Record, error) {
@@ -438,6 +461,47 @@ func (c *usageCapture) finish() {
 		}
 		return record, nil
 	})
+}
+
+// nonTokenUsage reports observed meters the record cannot represent:
+// non-token units (milliseconds of audio, counts of images) and separately
+// attributed meters such as Realtime input transcription (billed to the
+// transcription model, while a record carries one model).
+func nonTokenUsage(counters map[string]int64) bool {
+	for key := range counters {
+		if strings.HasSuffix(key, "_milliseconds") || strings.HasSuffix(key, "_images") || strings.HasPrefix(key, "transcription_") {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeExclusiveInput converts native Messages-format counters, whose
+// input_tokens excludes cache reads and cache writes, to the ledger
+// vocabulary: input_tokens is total input (fresh + cache read + cache write)
+// and uncached_input_tokens the fresh part. Counters an adapter already
+// normalized (uncached_input_tokens present) are left alone. A missing cache
+// counter adds nothing; it is never reported as zero.
+func normalizeExclusiveInput(counters map[string]int64) {
+	if _, normalized := counters["uncached_input_tokens"]; normalized {
+		return
+	}
+	input, ok := counters["input_tokens"]
+	if !ok {
+		return
+	}
+	total := input
+	for _, key := range []string{"cached_tokens", "cache_write_tokens"} {
+		if n, known := counters[key]; known {
+			if n < 0 || total > math.MaxInt64-n {
+				delete(counters, "input_tokens")
+				return
+			}
+			total += n
+		}
+	}
+	counters["uncached_input_tokens"] = input
+	counters["input_tokens"] = total
 }
 
 // ModelPrices returns the tenant's valid model-price resources. Invalid stored

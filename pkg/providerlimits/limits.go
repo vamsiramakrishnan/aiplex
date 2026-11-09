@@ -6,6 +6,7 @@
 package providerlimits
 
 import (
+	"encoding/json"
 	"math"
 	"net/http"
 	"strconv"
@@ -224,6 +225,52 @@ func retryAfter(h http.Header, now time.Time) (int64, bool) {
 		return d.Milliseconds(), true
 	}
 	return 0, false
+}
+
+// ParseRealtimeEvent reads an OpenAI Realtime rate_limits.updated server
+// event: rate_limits[]{name: "requests"|"tokens", limit, remaining,
+// reset_seconds}. Resets are numeric seconds (unlike the HTTP duration
+// strings). The event is emitted at the start of each response with output
+// tokens reserved, so remaining reflects that reservation. ok is false for any
+// other event; malformed members stay unknown (nil), never zero.
+func ParseRealtimeEvent(provider string, payload []byte, now time.Time) (Limits, bool) {
+	var event struct {
+		Type       string `json:"type"`
+		RateLimits []struct {
+			Name         string   `json:"name"`
+			Limit        *float64 `json:"limit"`
+			Remaining    *float64 `json:"remaining"`
+			ResetSeconds *float64 `json:"reset_seconds"`
+		} `json:"rate_limits"`
+	}
+	if json.Unmarshal(payload, &event) != nil || event.Type != "rate_limits.updated" {
+		return Limits{}, false
+	}
+	whole := func(v *float64) *int64 {
+		if v == nil || *v < 0 || *v > 1<<53 || *v != math.Trunc(*v) {
+			return nil
+		}
+		n := int64(*v)
+		return &n
+	}
+	out := Limits{Provider: provider, ObservedAt: now.UTC()}
+	for _, item := range event.RateLimits {
+		w := &Window{Limit: whole(item.Limit), Remaining: whole(item.Remaining)}
+		if s := item.ResetSeconds; s != nil && *s >= 0 && *s <= 366*24*3600 {
+			reset := now.UTC().Add(time.Duration(*s * float64(time.Second)))
+			w.ResetAt = &reset
+		}
+		if w.empty() {
+			continue
+		}
+		switch item.Name {
+		case "requests":
+			out.Requests = w
+		case "tokens":
+			out.Tokens = w
+		}
+	}
+	return out, !out.Empty()
 }
 
 // Headers lists every response header Parse may read, for operators enabling

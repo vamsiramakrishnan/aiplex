@@ -68,9 +68,10 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 		if !modelapi.Coverage(input.Operation).RequestCount {
 			return nil, quotaStatus(501, "QUOTA_OPERATION_UNSUPPORTED", "this model operation has no managed execution adapter")
 		}
-		if input.Metadata.Transport == modelapi.WebSocket {
-			return nil, quotaStatus(501, "QUOTA_TRANSPORT_UNSUPPORTED", "protected Live sessions require a renewal and metering adapter")
-		}
+		// WebSocket sessions are admitted only under the request-count profile
+		// (quotaProfileOperation admits no token profile for them): one session
+		// is one admitted exchange, settled once at session end, bounded by the
+		// gateway's maximum stream duration. The gateway aborts any other lease.
 		if input.Context.TenantID != record.TenantID || input.Context.ResourceID != record.ID || input.Surface.ID != connection.Surface.ID {
 			return nil, quotaStatus(403, "QUOTA_SURFACE_MISMATCH", "verified surface context changed")
 		}
