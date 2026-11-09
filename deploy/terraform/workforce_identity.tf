@@ -52,7 +52,7 @@ resource "google_iam_workforce_pool_provider" "google_workspace" {
     "google.subject"       = "assertion.sub"
     "google.display_name"  = "assertion.name"
     "attribute.email"      = "assertion.email"
-    "attribute.groups"     = "assertion.groups"
+    "google.groups"     = "assertion.groups"
     "attribute.domain"     = "assertion.hd"
   }
 
@@ -96,7 +96,7 @@ resource "google_iam_workforce_pool_provider" "azure_ad" {
     "google.subject"       = "assertion.sub"
     "google.display_name"  = "assertion.name"
     "attribute.email"      = "assertion.email"
-    "attribute.groups"     = "assertion.groups"
+    "google.groups"     = "assertion.groups"
     "attribute.tenant_id"  = "assertion.tid"
   }
 }
@@ -138,7 +138,7 @@ resource "google_iam_workforce_pool_provider" "okta" {
     "google.subject"       = "assertion.sub"
     "google.display_name"  = "assertion.name"
     "attribute.email"      = "assertion.email"
-    "attribute.groups"     = "assertion.groups"
+    "google.groups"     = "assertion.groups"
   }
 }
 

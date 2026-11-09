@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useSSE } from '../hooks/useSSE'
+import { authenticatedRequest } from '../api/client'
 
 interface DashboardStats {
   total_instances: number
@@ -28,8 +29,8 @@ interface PolicyDenial {
   reason: string
 }
 
-const getStats = () => fetch('/api/v1/dashboard/stats').then(r => r.json()) as Promise<DashboardStats>
-const getDenials = () => fetch('/api/v1/dashboard/denials').then(r => r.json()) as Promise<PolicyDenial[]>
+const getStats = () => authenticatedRequest<DashboardStats>('/api/v1/dashboard/stats')
+const getDenials = () => authenticatedRequest<PolicyDenial[]>('/api/v1/dashboard/denials')
 
 export default function Dashboard() {
   // Real-time SSE stats (5s updates)

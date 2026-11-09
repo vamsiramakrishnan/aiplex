@@ -1,7 +1,9 @@
 const BASE = '/api/v1'
 const TOKEN_KEY = 'aiplex_token'
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// Shared transport for API and authentication endpoints. Credentials stay in
+// headers; callers get consistent non-2xx handling.
+export async function authenticatedRequest<T>(path: string, init?: RequestInit, decode?: (response: Response) => Promise<T>): Promise<T> {
   const token = (() => {
     try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
   })()
@@ -14,19 +16,42 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(path, {
     ...init,
     headers,
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }))
+    if (res.status === 401) window.dispatchEvent(new CustomEvent('aiplex:session-invalid', { detail: { token } }))
     throw new Error(err.message ?? `HTTP ${res.status}`)
   }
   if (res.status === 204) return undefined as T
-  return res.json()
+  return decode ? decode(res) : res.json()
+}
+
+function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return authenticatedRequest<T>(`${BASE}${path}`, init)
 }
 
 // Types matching Go models
+export interface ModuleDescriptor {
+  name: string
+  version: string
+  contract_version: string
+  capabilities?: string[]
+  navigation?: { path: string; title: string }[]
+  commands?: { name: string; description: string }[]
+}
+
+export const listModules = async (): Promise<ModuleDescriptor[]> => {
+  const result = await request<ModuleDescriptor[]>('/modules')
+  if (!Array.isArray(result) || result.some((d) => !d || typeof d.name !== 'string' || typeof d.version !== 'string' || typeof d.contract_version !== 'string' ||
+    (d.navigation !== undefined && (!Array.isArray(d.navigation) || d.navigation.some((entry) => !entry || typeof entry.path !== 'string' || typeof entry.title !== 'string'))))) {
+    throw new Error('Invalid module discovery response')
+  }
+  return result
+}
+
 export interface Instance {
   id: string
   plane: string
@@ -62,6 +87,7 @@ export interface Template {
 }
 
 export interface Agent {
+ revision?: number
   client_id: string
   display_name: string
   description?: string
@@ -70,6 +96,8 @@ export interface Agent {
   allowed_scopes: string[]
   status: string
   registered_at: string
+  redirect_uris?: string[]
+  client_secret?: string
 }
 
 export interface CatalogPage {
@@ -114,9 +142,13 @@ export const registerAgent = (body: {
   auth_method: string
   grant_types: string[]
   allowed_scopes: string[]
+  redirect_uris?: string[]
 }) => request<Agent>('/agents', { method: 'POST', body: JSON.stringify(body) })
-export const deleteAgent = (id: string) =>
-  request<void>(`/agents/${id}`, { method: 'DELETE' })
+export const deleteAgent = async (id: string, revision?: number) => {
+ const current = revision ?? (await getAgent(id)).revision
+ if (!current) throw new Error("Reload the agent before deleting it")
+ return request<void>(`/agents/${id}`, { method: "DELETE", headers: { "If-Match": String(current) } })
+}
 
 // LLM Routes
 export interface LLMBackend {
@@ -135,6 +167,7 @@ export interface UsageBudget {
 }
 
 export interface LLMRouteConfig {
+ revision?: number
   id: string
   model_id: string
   backends: LLMBackend[]
@@ -145,10 +178,13 @@ export interface LLMRouteConfig {
 export const listLLMRoutes = () => request<LLMRouteConfig[]>('/llm/routes')
 export const putLLMRoute = (modelId: string, body: Partial<LLMRouteConfig>) =>
   request<LLMRouteConfig>(`/llm/routes/${modelId}`, {
-    method: 'PUT', body: JSON.stringify(body)
+    method: 'PUT', body: JSON.stringify(body), headers: { 'If-Match': String(body.revision ?? 0) }
   })
-export const deleteLLMRoute = (modelId: string) =>
-  request<void>(`/llm/routes/${modelId}`, { method: 'DELETE' })
+export const deleteLLMRoute = async (modelId: string, revision?: number) => {
+ const current = revision ?? (await request<LLMRouteConfig>(`/llm/routes/${modelId}`)).revision
+ if (!current) throw new Error("Reload the route before deleting it")
+ return request<void>(`/llm/routes/${modelId}`, { method: "DELETE", headers: { "If-Match": String(current) } })
+}
 
 // Manifest (apply YAML/JSON from UI)
 export interface Manifest {
@@ -157,8 +193,10 @@ export interface Manifest {
   agents?: Array<{
     client_id: string; display_name: string; description?: string
     auth_method: string; grant_types: string[]; allowed_scopes: string[]
+    redirect_uris?: string[]
   }>
   routes?: Array<{
+    revision?: number
     model_id: string; backends: LLMBackend[]; fallbacks?: string[]
     budget?: UsageBudget
   }>
@@ -168,6 +206,12 @@ export interface Manifest {
 export async function applyManifest(manifest: Manifest): Promise<{
   applied: number; failed: string[]
 }> {
+  if (!manifest || typeof manifest !== 'object' || !['v1', '1'].includes(manifest.version)) throw new Error('Manifest version must be v1.')
+  for (const key of ['instances', 'agents', 'routes'] as const) if (manifest[key] !== undefined && !Array.isArray(manifest[key])) throw new Error(`Manifest ${key} must be an array.`)
+  if (!(manifest.instances?.length || manifest.agents?.length || manifest.routes?.length)) throw new Error('Add at least one resource before applying a manifest.')
+  if (manifest.instances?.some((item) => !item || typeof item.name !== 'string' || !item.name || typeof item.template !== 'string' || !item.template || !['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].includes(item.plane))) throw new Error('Every instance requires a name, supported plane and template ID.')
+  if (manifest.agents?.some((item) => !item || !item.client_id || !item.display_name || !Array.isArray(item.allowed_scopes) || !Array.isArray(item.grant_types))) throw new Error('Every agent requires its identity, auth method, grant types and scope ceiling.')
+  if (manifest.routes?.some((item) => !item || !item.model_id || !Array.isArray(item.backends) || item.backends.length === 0)) throw new Error('Every route requires a model ID and at least one backend.')
   const failed: string[] = []
   let applied = 0
 
@@ -229,24 +273,23 @@ export const getDashboardStats = () =>
 
 // Role bindings
 export interface RoleBinding {
+ revision?: number
   id: string
-  subject: string
-  subject_type: 'user' | 'agent'
+  group: string
+  role: 'admin' | 'deployer' | 'viewer' | 'agent'
+  provider?: string
+  pool_id?: string
+  description?: string
   scopes: string[]
-  granted_at: string
-  granted_by: string
+  created_at: string
+  created_by: string
 }
 
 export const listRoleBindings = () =>
-  request<RoleBinding[]>('/access/bindings')
+  request<RoleBinding[]>('/iam/role-bindings')
 
 // Whoami
-export interface WhoamiResponse {
-  sub: string
-  email: string
-  scopes: string[]
-  agents: string[]
-}
+export type WhoamiResponse = ResolvedAccess
 
 // ── Runs (AIPlex ↔ Tape audit; mirrors models.ExecutionRun + ExecutionEvent) ──
 //
@@ -413,5 +456,12 @@ export interface RunsHealth {
 
 export const getRunsHealth = () => request<RunsHealth>('/runs/_health')
 
-export const getWhoami = () =>
-  request<WhoamiResponse>('/auth/whoami')
+export interface ResolvedAccess {
+  identity: { principal_id: string; subject: string; email: string; actor_id?: string; authorized_party?: string }
+  roles: string[]
+  scopes: string[]
+  group_scopes?: string[]
+  manual_scopes?: string[]
+}
+
+export const getWhoami = () => request<ResolvedAccess>('/iam/whoami')

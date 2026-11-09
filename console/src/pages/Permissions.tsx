@@ -1,112 +1,47 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import ScopeSelector from '../components/ScopeSelector'
+import { authenticatedRequest, listInstances } from '../api/client'
+import { useAuth } from '../hooks/useAuth'
+import NativeGovernance from './NativeGovernance'
 
-async function getUserScopes(userId: string) {
-  const res = await fetch(`/auth/users/${encodeURIComponent(userId)}/scopes`)
-  if (!res.ok) throw new Error('Failed to fetch scopes')
-  return res.json() as Promise<{ user_id: string; scopes: string[]; by_plane: Record<string, string[]> }>
-}
-
-async function setUserScopes(userId: string, scopes: string[]) {
-  const res = await fetch(`/auth/users/${encodeURIComponent(userId)}/scopes`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scopes }),
-  })
-  if (!res.ok) throw new Error('Failed to update scopes')
-}
-
-// All known scopes — in production, fetched from the API
-const ALL_SCOPES = [
-  'mcp:tools:search_curriculum',
-  'mcp:tools:generate_quiz',
-  'mcp:tools:get_document',
-  'mcp:tools:grade_submission',
-  'a2a:task:research',
-  'a2a:task:summarize',
-  'a2a:task:visualize',
-  'llm:model:gemini-2.5-flash',
-  'llm:model:gemini-2.5-pro',
-  'llm:model:claude-opus-4',
-  'llm:model:claude-sonnet-4',
-  'llm:model:gpt-4.1',
-  'llm:capability:text',
-  'llm:capability:vision',
-  'llm:capability:code',
-]
-
+const canonicalPrincipal = /^principal-[0-9a-f]{64}$/
+interface UserScopes { user_id: string; scopes: string[]; by_plane: Record<string, string[]> }
 export default function Permissions() {
-  const queryClient = useQueryClient()
-  const [userId, setUserId] = useState('')
-  const [selectedScopes, setSelectedScopes] = useState<string[]>([])
-  const [loaded, setLoaded] = useState(false)
-
-  const scopesQuery = useQuery({
-    queryKey: ['userScopes', userId],
-    queryFn: () => getUserScopes(userId),
-    enabled: false,
+  const cache = useQueryClient()
+  const { user } = useAuth()
+  const [tab, setTab] = useState<'users' | 'native'>('users')
+  const [principal, setPrincipal] = useState('')
+  const [loadedPrincipal, setLoadedPrincipal] = useState('')
+  const [selected, setSelected] = useState<string[]>([])
+  const scopes = useQuery({ queryKey: ['permission-scope-options'], queryFn: () => listInstances(), enabled: tab === 'users' })
+  const available = [...new Set(scopes.data?.flatMap((instance) => instance.scopes ?? []) ?? [])]
+  const load = useMutation({
+    mutationFn: (id: string) => authenticatedRequest<UserScopes>(`/auth/users/${encodeURIComponent(id)}/scopes`),
+    onSuccess: (result, id) => { if (result.user_id !== id) throw new Error('Permission response identity mismatch.'); setLoadedPrincipal(id); setSelected(result.scopes ?? []) },
   })
-
-  const saveMutation = useMutation({
-    mutationFn: () => setUserScopes(userId, selectedScopes),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['userScopes', userId] }),
+  const save = useMutation({
+    mutationFn: ({ id, values }: { id: string; values: string[] }) => authenticatedRequest<void>(`/auth/users/${encodeURIComponent(id)}/scopes`, { method: 'PUT', body: JSON.stringify({ scopes: values }) }),
+    onSuccess: () => cache.invalidateQueries({ queryKey: ['userScopes'] }),
   })
-
-  const loadScopes = async () => {
-    const result = await scopesQuery.refetch()
-    if (result.data) {
-      setSelectedScopes(result.data.scopes || [])
-      setLoaded(true)
-    }
-  }
-
-  return (
-    <div className="max-w-2xl">
-      <h2 className="text-2xl font-bold mb-2">Permissions</h2>
-      <p className="text-gray-500 mb-6">Manage user scopes (Dimension B — user ceiling)</p>
-
-      <div className="flex gap-2 mb-6">
-        <input
-          value={userId}
-          onChange={(e) => { setUserId(e.target.value); setLoaded(false) }}
-          placeholder="user@example.com"
-          className="flex-1 border rounded px-3 py-2 text-sm"
-        />
-        <button
-          onClick={loadScopes}
-          disabled={!userId}
-          className="px-4 py-2 bg-gray-100 text-sm rounded hover:bg-gray-200 disabled:opacity-50"
-        >
-          Load
-        </button>
-      </div>
-
-      {loaded && (
-        <>
-          <ScopeSelector
-            available={ALL_SCOPES}
-            selected={selectedScopes}
-            onChange={setSelectedScopes}
-          />
-
-          <div className="mt-4 flex gap-2">
-            <button
-              onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending}
-              className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50"
-            >
-              {saveMutation.isPending ? 'Saving...' : 'Save Permissions'}
-            </button>
-            {saveMutation.isSuccess && (
-              <span className="text-sm text-green-600 self-center">Saved!</span>
-            )}
-            {saveMutation.error && (
-              <span className="text-sm text-red-600 self-center">{saveMutation.error.message}</span>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  )
+  function changePrincipal(value: string) { setPrincipal(value); setLoadedPrincipal(''); setSelected([]); load.reset(); save.reset() }
+  const busy = load.isPending || save.isPending
+  return <div className="max-w-4xl space-y-5">
+    <div><h2 className="text-2xl font-bold">Permissions</h2><p className="text-gray-500">Manage manual user ceilings and review native cloud governance.</p></div>
+    <div className="flex gap-2" role="tablist" aria-label="Permission settings"><button role="tab" aria-selected={tab === 'users'} onClick={() => setTab('users')} className="border rounded px-4 py-2 text-sm">User scopes</button><button role="tab" aria-selected={tab === 'native'} onClick={() => setTab('native')} className="border rounded px-4 py-2 text-sm">Native governance</button></div>
+    {tab === 'native' ? <NativeGovernance /> : <section className="space-y-4">
+      <p className="text-sm text-gray-500">Admin access is required. Manual scopes are keyed by the server's canonical principal ID; email addresses and native cloud principal URIs are separate identifiers. Group-derived grants remain controlled by IAM role bindings.</p>
+      <div><label htmlFor="permission-principal" className="block text-sm font-medium mb-1">Canonical principal ID</label><input id="permission-principal" value={principal} disabled={busy} onChange={(e) => changePrincipal(e.target.value.trim())} placeholder="principal- followed by 64 lowercase hex characters" className="border rounded px-3 py-2 text-sm w-full font-mono" /></div>
+      <div className="flex gap-2"><button disabled={busy || !canonicalPrincipal.test(principal)} onClick={() => { setLoadedPrincipal(''); setSelected([]); save.reset(); load.mutate(principal) }} className="border rounded px-3 py-2 text-sm disabled:opacity-50">{load.isPending ? 'Loading…' : 'Load scopes'}</button>{canonicalPrincipal.test(user?.sub ?? '') && <button className="border rounded px-3 py-2 text-sm" disabled={busy} onClick={() => changePrincipal(user!.sub)}>Use my principal</button>}</div>
+      {load.error && <p role="alert" className="text-red-600">{load.error.message}</p>}
+      {loadedPrincipal === principal && <>
+        <p className="text-sm break-all">Editing manual grants for <code>{loadedPrincipal}</code>.</p>
+        <p className="text-xs text-gray-500">Options come from deployed instance scopes. Add exact scopes for other configured capabilities.</p>
+        {scopes.error && <p role="alert">Scope discovery unavailable: {scopes.error.message}. Existing scopes and explicit custom scopes remain available.</p>}
+        <ScopeSelector available={available} selected={selected} disabled={busy} onChange={(values) => { setSelected(values); save.reset() }} />
+        <button onClick={() => save.mutate({ id: loadedPrincipal, values: [...selected] })} disabled={busy} className="bg-brand-600 text-white rounded px-4 py-2 text-sm disabled:opacity-50">{save.isPending ? 'Saving…' : 'Save permissions'}</button>
+        {save.isSuccess && <p role="status" className="text-green-700">Manual grants saved.</p>}{save.error && <p role="alert" className="text-red-600">{save.error.message}</p>}
+      </>}
+    </section>}
+  </div>
 }

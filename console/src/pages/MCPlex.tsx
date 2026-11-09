@@ -11,6 +11,8 @@ export default function MCPlex() {
   const catalog = useQuery({ queryKey: ['catalog', 'mcplex'], queryFn: () => getCatalog('mcplex') })
   const instances = useQuery({ queryKey: ['instances', 'mcplex'], queryFn: () => listInstances('mcplex') })
 
+  const activeQuery = tab === 'catalog' ? catalog : instances
+
   const filteredInstances = instances.data?.filter(i =>
     i.display_name?.toLowerCase().includes(search.toLowerCase()) ||
     i.id?.toLowerCase().includes(search.toLowerCase()) ||
@@ -37,7 +39,10 @@ export default function MCPlex() {
         </button>
       </div>
 
-      {tab === 'instances' && (
+      {activeQuery.isLoading && <p role="status">Loading module data…</p>}
+      {activeQuery.error && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeQuery.error.message}</p>}
+
+      {tab === 'instances' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
           <div className="mb-4">
             <input
@@ -73,7 +78,7 @@ export default function MCPlex() {
         </div>
       )}
 
-      {tab === 'catalog' && (
+      {tab === 'catalog' && !activeQuery.isLoading && !activeQuery.error && (
         <div className="grid grid-cols-2 gap-4">
           {catalog.data?.templates?.map((t) => (
             <div key={t.id} className="bg-white rounded-lg shadow p-4">

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, type LLMBackend } from '../api/client'
+import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, authenticatedRequest, type LLMBackend } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
 interface RouteConfig {
+ revision?: number
   model_id: string
   backends: { provider: string; model_id: string; weight: number; enabled: boolean }[]
   fallbacks?: string[]
@@ -23,8 +24,8 @@ interface UsageSummary {
   avg_latency_ms: number
 }
 
-const getRoutes = () => fetch('/api/v1/llm/routes').then(r => r.json()) as Promise<RouteConfig[]>
-const getUsageSummary = (period: string) => fetch(`/api/v1/llm/usage/summary?period=${period}`).then(r => r.json()) as Promise<UsageSummary>
+const getRoutes = () => authenticatedRequest<RouteConfig[]>('/api/v1/llm/routes')
+const getUsageSummary = (period: string) => authenticatedRequest<UsageSummary>(`/api/v1/llm/usage/summary?period=${encodeURIComponent(period)}`)
 
 interface RouteFormData {
   model_id: string
@@ -54,6 +55,8 @@ export default function LLMPlex() {
   const instances = useQuery({ queryKey: ['instances', 'llmplex'], queryFn: () => listInstances('llmplex') })
   const routes = useQuery({ queryKey: ['llm-routes'], queryFn: getRoutes })
   const usage = useQuery({ queryKey: ['llm-usage', 'day'], queryFn: () => getUsageSummary('day') })
+  const activeLoading = tab === 'providers' ? catalog.isLoading || instances.isLoading : tab === 'routes' ? routes.isLoading : usage.isLoading
+  const activeError = tab === 'providers' ? catalog.error ?? instances.error : tab === 'routes' ? routes.error : usage.error
 
   const putRouteMutation = useMutation({
     mutationFn: ({ modelId, config }: { modelId: string; config: Partial<RouteConfig> }) =>
@@ -72,7 +75,7 @@ export default function LLMPlex() {
   })
 
   const deleteRouteMutation = useMutation({
-    mutationFn: (modelId: string) => deleteLLMRoute(modelId),
+    mutationFn: (modelId: string) => deleteLLMRoute(modelId, routes.data?.find(route => route.model_id === modelId)?.revision),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['llm-routes'] })
       setFeedback({ type: 'success', message: 'Route deleted successfully' })
@@ -159,6 +162,7 @@ export default function LLMPlex() {
     putRouteMutation.mutate({
       modelId: formData.model_id,
       config: {
+        revision: editingRoute?.revision ?? 0,
         model_id: formData.model_id,
         backends: formData.backends,
         fallbacks: formData.fallbacks.length > 0 ? formData.fallbacks : undefined,
@@ -184,7 +188,10 @@ export default function LLMPlex() {
         ))}
       </div>
 
-      {tab === 'providers' && (
+      {activeLoading && <p role="status">Loading module data…</p>}
+      {activeError && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeError.message}</p>}
+
+      {tab === 'providers' && !activeLoading && !activeError && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Available Models</h3>
           <div className="grid grid-cols-3 gap-4 mb-8">
@@ -241,7 +248,7 @@ export default function LLMPlex() {
         </div>
       )}
 
-      {tab === 'routes' && (
+      {tab === 'routes' && !activeLoading && !activeError && (
         <div>
           <div className="flex justify-between items-center mb-3">
             <h3 className="font-semibold text-lg">Routing Rules</h3>
@@ -510,7 +517,7 @@ export default function LLMPlex() {
         </div>
       )}
 
-      {tab === 'costs' && (
+      {tab === 'costs' && !activeLoading && !activeError && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Cost Tracking (Last 24h)</h3>
           {usage.data ? (

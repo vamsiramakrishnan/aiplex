@@ -2,10 +2,12 @@ package deploy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
@@ -52,6 +54,10 @@ func NewLiveK8sClientConfigured(opts ...LiveK8sOption) *LiveK8sClient {
 	}
 	return c
 }
+
+// CapabilityDiscoveryEnabled permits probes only after a real apply. A dry-run
+// does not create workloads, so discovery would target nonexistent services.
+func (c *LiveK8sClient) CapabilityDiscoveryEnabled() bool { return !c.dryRun }
 
 // Apply creates or updates a K8s resource using server-side apply.
 func (c *LiveK8sClient) Apply(ctx context.Context, m Manifest) error {
@@ -104,6 +110,10 @@ func (c *LiveK8sClient) Apply(ctx context.Context, m Manifest) error {
 
 // Delete removes a K8s resource.
 func (c *LiveK8sClient) Delete(ctx context.Context, apiVersion, kind, name, namespace string) error {
+	resourceType, err := qualifiedResourceType(apiVersion, kind)
+	if err != nil || !resourceName.MatchString(name) || len(name) > 253 || namespace != "" && (!namespaceName.MatchString(namespace) || len(namespace) > 63) {
+		return fmt.Errorf("invalid Kubernetes cleanup resource identity")
+	}
 	logger := log.Ctx(ctx).With().
 		Str("kind", kind).
 		Str("name", name).
@@ -115,7 +125,9 @@ func (c *LiveK8sClient) Delete(ctx context.Context, apiVersion, kind, name, name
 		return nil
 	}
 
-	args := []string{"delete", kind, name, "--ignore-not-found"}
+	// Qualify CRDs by their recorded API group; an unqualified Kind can resolve
+	// to an unrelated resource when two installed APIs use the same Kind.
+	args := []string{"delete", resourceType, name, "--ignore-not-found"}
 	if namespace != "" {
 		args = append(args, "-n", namespace)
 	}
@@ -133,8 +145,30 @@ func (c *LiveK8sClient) Delete(ctx context.Context, apiVersion, kind, name, name
 	return nil
 }
 
+var resourceName = regexp.MustCompile(`^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$`)
+var namespaceName = regexp.MustCompile(`^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$`)
+var resourceKind = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
+var apiVersionName = regexp.MustCompile(`^v[0-9]+(?:alpha[0-9]+|beta[0-9]+)?$`)
+
+func qualifiedResourceType(apiVersion, kind string) (string, error) {
+	if !resourceKind.MatchString(kind) {
+		return "", fmt.Errorf("invalid Kubernetes kind")
+	}
+	parts := strings.Split(apiVersion, "/")
+	if len(parts) == 1 && apiVersionName.MatchString(parts[0]) {
+		return kind, nil
+	}
+	if len(parts) != 2 || !resourceName.MatchString(parts[0]) || len(parts[0]) > 253 || !apiVersionName.MatchString(parts[1]) {
+		return "", fmt.Errorf("invalid Kubernetes API version")
+	}
+	return kind + "." + parts[0], nil
+}
+
 // marshalManifest converts a Manifest to YAML bytes.
 func marshalManifest(m Manifest) ([]byte, error) {
+	if strings.TrimSpace(m.APIVersion) == "" || strings.TrimSpace(m.Kind) == "" || strings.TrimSpace(m.Name) == "" {
+		return nil, fmt.Errorf("manifest requires apiVersion, kind, and name")
+	}
 	doc := map[string]any{
 		"apiVersion": m.APIVersion,
 		"kind":       m.Kind,
@@ -144,19 +178,51 @@ func marshalManifest(m Manifest) ([]byte, error) {
 		},
 	}
 
-	// Parse the YAML content to merge into the document
-	if m.YAML != "" {
+	// A module owns exactly the resource identified by Manifest. Never apply
+	// undecodable raw content, accept extra documents, or permit an embedded
+	// document to redirect an operation to a different kind/name/namespace.
+	if strings.TrimSpace(m.YAML) != "" {
 		var content map[string]any
-		if err := yaml.Unmarshal([]byte(m.YAML), &content); err != nil {
-			// Try JSON
-			if err := json.Unmarshal([]byte(m.YAML), &content); err != nil {
-				return []byte(m.YAML), nil // Return raw content
+		decoder := yaml.NewDecoder(strings.NewReader(m.YAML))
+		if err := decoder.Decode(&content); err != nil {
+			return nil, fmt.Errorf("invalid manifest YAML: %w", err)
+		}
+		if content == nil {
+			return nil, fmt.Errorf("manifest must be an object")
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			return nil, fmt.Errorf("manifest must contain exactly one YAML document")
+		}
+		for field, expected := range map[string]string{"apiVersion": m.APIVersion, "kind": m.Kind} {
+			if value, present := content[field]; present {
+				if actual, ok := value.(string); !ok || actual != expected {
+					return nil, fmt.Errorf("manifest %s does not match declared resource", field)
+				}
+			}
+		}
+		metadata := map[string]any{"name": m.Name, "namespace": m.Namespace}
+		if value, present := content["metadata"]; present {
+			actual, ok := value.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("manifest metadata must be an object")
+			}
+			for field, expected := range map[string]string{"name": m.Name, "namespace": m.Namespace} {
+				if value, present := actual[field]; present {
+					if text, ok := value.(string); !ok || text != expected {
+						return nil, fmt.Errorf("manifest metadata.%s does not match declared resource", field)
+					}
+				}
+			}
+			for key, value := range actual {
+				metadata[key] = value
 			}
 		}
 		// Merge content into doc
 		for k, v := range content {
 			doc[k] = v
 		}
+		doc["metadata"] = metadata
 	}
 
 	return yaml.Marshal(doc)

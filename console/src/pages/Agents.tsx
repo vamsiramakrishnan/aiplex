@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listAgents, registerAgent, deleteAgent } from '../api/client'
+import { listAgents, listInstances, registerAgent, deleteAgent, type Agent } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import ScopeSelector from '../components/ScopeSelector'
 
@@ -16,10 +16,12 @@ export default function Agents() {
   const [showRegister, setShowRegister] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [issued, setIssued] = useState<{ clientId: string; secret: string } | null>(null)
+  const [showSecret, setShowSecret] = useState(false)
 
   const remove = useMutation({
-    mutationFn: deleteAgent,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agents'] }),
+    mutationFn: (id: string) => deleteAgent(id, agents.data?.find(agent => agent.client_id === id)?.revision),
+    onSuccess: (_data, id) => { if (issued?.clientId === id) setIssued(null); queryClient.invalidateQueries({ queryKey: ['agents'] }) },
   })
 
   const filteredAgents = agents.data?.filter(agent =>
@@ -36,7 +38,8 @@ export default function Agents() {
         </div>
         <button
           onClick={() => setShowRegister(!showRegister)}
-          className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+          disabled={issued !== null && !showRegister}
+          className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50"
         >
           {showRegister ? 'Cancel' : 'Register Agent'}
         </button>
@@ -44,12 +47,15 @@ export default function Agents() {
 
       {showRegister && (
         <RegisterAgentForm
-          onSuccess={() => {
+          onSuccess={(agent) => {
+            if (agent.client_secret) { setIssued({ clientId: agent.client_id, secret: agent.client_secret }); setShowSecret(false); delete agent.client_secret }
             setShowRegister(false)
             queryClient.invalidateQueries({ queryKey: ['agents'] })
           }}
         />
       )}
+
+      {issued && <section className="border rounded p-4 mb-5 space-y-2" aria-label="Issued OAuth credential"><h3 className="font-semibold">Credential issued for {issued.clientId}</h3><p className="text-sm">Store this client secret in your approved secret manager now. It is returned once and cannot be retrieved from the client list.</p><input aria-label="Issued client secret" type={showSecret ? 'text' : 'password'} readOnly value={issued.secret} className="border rounded p-2 w-full font-mono text-sm" /><div className="flex gap-3 text-sm"><button onClick={() => setShowSecret(!showSecret)}>{showSecret ? 'Hide secret' : 'Show secret'}</button><button onClick={() => { setIssued(null); setShowSecret(false) }}>Dismiss credential</button></div></section>}
 
       <div className="mb-4">
         <input
@@ -62,6 +68,9 @@ export default function Agents() {
       </div>
 
       <div className="bg-white rounded-lg shadow">
+        {agents.isLoading && <p role="status" className="p-4">Loading registered OAuth clients…</p>}
+        {agents.error && <p role="alert" className="p-4 text-red-600">Could not load agents: {agents.error.message}</p>}
+        {remove.error && <p role="alert" className="p-4 text-red-600">Could not delete agent: {remove.error.message}</p>}
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
@@ -75,7 +84,7 @@ export default function Agents() {
           </thead>
           <tbody>
             {filteredAgents.map((agent) => (
-              <>
+              <Fragment key={agent.client_id}>
                 <tr
                   key={agent.client_id}
                   className="border-t cursor-pointer hover:bg-gray-50"
@@ -131,9 +140,9 @@ export default function Agents() {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
-            {filteredAgents.length === 0 && (
+            {!agents.isLoading && !agents.error && filteredAgents.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
                   {agents.data?.length === 0
@@ -149,12 +158,15 @@ export default function Agents() {
   )
 }
 
-function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
+function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void }) {
+  const instances = useQuery({ queryKey: ['agent-scope-options'], queryFn: () => listInstances() })
+  const availableScopes = [...new Set(instances.data?.flatMap((instance) => instance.scopes ?? []) ?? [])]
   const [step, setStep] = useState(1)
   const [clientId, setClientId] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [description, setDescription] = useState('')
   const [authMethod, setAuthMethod] = useState('client_credentials')
+  const [redirects, setRedirects] = useState('')
   const [scopes, setScopes] = useState<string[]>([])
   const [error, setError] = useState('')
 
@@ -167,6 +179,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
   const grantTypes = authMethod === 'client_credentials' ? ['client_credentials'] :
                      authMethod === 'device_code' ? ['urn:ietf:params:oauth:grant-type:device_code'] :
                      ['authorization_code']
+  const redirectURIs = redirects.split('\n').map((uri) => uri.trim()).filter(Boolean)
 
   return (
     <div className="bg-white rounded-lg shadow p-6 mb-6">
@@ -248,9 +261,10 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
               </button>
             ))}
           </div>
+          {authMethod === 'authorization_code' && <div><label htmlFor="agent-redirects" className="block text-sm font-medium">OAuth callback URIs</label><textarea id="agent-redirects" value={redirects} onChange={(event) => setRedirects(event.target.value)} rows={3} className="w-full border rounded p-2 text-sm font-mono" placeholder="One HTTPS or approved local callback URI per line" /><p className="text-xs text-gray-500">The server validates callbacks before registering the authorization-code client.</p></div>}
           <div className="flex gap-2">
             <button onClick={() => setStep(1)} className="px-4 py-2 border text-sm rounded">Back</button>
-            <button onClick={() => setStep(3)} className="px-4 py-2 bg-brand-600 text-white text-sm rounded">
+            <button disabled={authMethod === 'authorization_code' && redirectURIs.length === 0} onClick={() => setStep(3)} className="px-4 py-2 bg-brand-600 text-white text-sm rounded disabled:opacity-50">
               Next
             </button>
           </div>
@@ -264,7 +278,9 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
             Set the maximum scopes this agent can ever request (Dimension A ceiling).
             Users can further restrict these at consent time.
           </p>
-          <ScopeSelector selected={scopes} onChange={setScopes} />
+          <p className="text-xs text-gray-500">Options come from deployed instances. Add exact scopes for other configured capabilities.</p>
+          {instances.error && <p role="alert" className="text-red-600">Scope discovery unavailable: {instances.error.message}</p>}
+          <ScopeSelector available={availableScopes} selected={scopes} onChange={setScopes} />
           <div className="flex gap-2">
             <button onClick={() => setStep(2)} className="px-4 py-2 border text-sm rounded">Back</button>
             <button onClick={() => setStep(4)} className="px-4 py-2 bg-brand-600 text-white text-sm rounded">
@@ -301,17 +317,11 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: () => void }) {
             </div>
           </div>
 
-          {/* YAML preview */}
+          {/* JSON preserves user-entered strings without YAML interpolation. */}
           <details className="text-sm">
-            <summary className="cursor-pointer text-gray-500">View as YAML</summary>
+            <summary className="cursor-pointer text-gray-500">View as JSON</summary>
             <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded text-xs">
-{`agents:
-  - client_id: ${clientId}
-    display_name: ${displayName}${description ? `\n    description: ${description}` : ''}
-    auth_method: ${authMethod}
-    grant_types: [${grantTypes.join(', ')}]
-    allowed_scopes:
-${scopes.map(s => `      - ${s}`).join('\n') || '      # none selected'}`}
+{JSON.stringify({ agents: [{ client_id: clientId, display_name: displayName, description: description || undefined, auth_method: authMethod, grant_types: grantTypes, allowed_scopes: scopes, redirect_uris: authMethod === 'authorization_code' ? redirectURIs : undefined }] }, null, 2)}
             </pre>
           </details>
 
@@ -327,6 +337,7 @@ ${scopes.map(s => `      - ${s}`).join('\n') || '      # none selected'}`}
                 auth_method: authMethod,
                 grant_types: grantTypes,
                 allowed_scopes: scopes,
+                redirect_uris: authMethod === 'authorization_code' ? redirectURIs : undefined,
               })}
               disabled={register.isPending}
               className="px-4 py-2 bg-brand-600 text-white text-sm rounded disabled:opacity-50"

@@ -103,7 +103,7 @@ aiplex apply -f aiplex.yaml
 |-----------|----------|---------|
 | **AIPlex API** | Go | REST API, deploy engine, consent handler |
 | **AIPlex Console** | React/TS | Web UI for all three planes |
-| **aiplex-authz** | Rust | ext_authz (0.05ms p50 JWT validation) |
+| **aiplex-authz** | Rust | Scope authorization and JWT verification |
 | **AIPlex CLI** | Go | Command-line interface |
 | **Ory Hydra** | Go (configured) | OAuth 2.1 token issuance |
 | **Ory Kratos** | Go (configured) | Identity, social sign-in |
@@ -122,6 +122,26 @@ Agent Ceiling (A)  ∩  User Ceiling (B)  ∩  User Consent (C)  =  Effective
 - **C**: What the user approved this session (runtime consent)
 
 Enforced by a [20-line Rego policy](policies/aiplex_authz.rego) / Rust ext_authz.
+
+## Connected Plex modules
+
+ClientPlex registers developer clients; LLMPlex preserves native model APIs; MCPlex handles OAuth registration; A2APlex invokes native cloud agents. Shared networking plans can use an optional Anvil provider for missing infrastructure constructs. See [configuration and API ownership](docs/connected-plexes.md).
+
+Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity and Microsoft Entra Agent ID through scoped inventory, reviewed policy plans and durable apply receipts. See [native governance](docs/native-agent-governance.md) for credential brokers, provider limits and configuration.
+
+## Module foundations
+
+Built-in Plex modules can be selected independently; external services register through versioned descriptors. See [module contracts](docs/modules.md) and [deployment migration and bugbash](docs/foundations-bugbash.md) before upgrading an existing deployment.
+
+[QuotaPlex prerequisites and readiness](docs/quotaplex-prerequisites.md) lists the contracts, accounting rules and integration gates needed to add quotas while preserving this flow.
+
+[QuotaPlex foundation design](docs/quotaplex-foundation-design.md) defines the shared control core for unequal allocations, model/tool meters, rate and burst limits, concurrency and scheduled throughput.
+
+The [QuotaPlex core guide](docs/quotaplex-core.md) documents the Go library, exact accounting, atomic admission, Firestore adapter, budget loans and weighted queue primitive. The [opt-in managed execution guide](docs/quotaplex-integration.md) covers supported model/tool dispatch, terminal usage and recovery. Broader provider coverage and throughput guarantees retain explicit integration gates.
+
+[Foundation completion](docs/foundation-completion.md) connects revisioned configuration, directory membership, native model profiles, delegated MCP authorization, quota operations, atomic scheduling and reviewed infrastructure execution. [Production qualification](docs/production-qualification.md) supplies emulator CI, reference benchmarks and billing-evidence comparison.
+
+The [feature cohesion bugbash](docs/feature-cohesion-bugbash.md) records repairs to existing OAuth, routing, persistence, audit, SDK/CLI and Console handoffs, including deployment compatibility.
 
 ## Local Development
 

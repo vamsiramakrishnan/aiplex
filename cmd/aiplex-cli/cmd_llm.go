@@ -1,8 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -13,7 +14,7 @@ func llmCmd() *cobra.Command {
 		Short: "LLMPlex — manage model routes, providers, and costs",
 	}
 
-	cmd.AddCommand(llmRoutesCmd(), llmProvidersCmd(), llmCostsCmd())
+	cmd.AddCommand(llmRoutesCmd(), llmProvidersCmd(), llmCostsCmd(), llmUsageCmd())
 	return cmd
 }
 
@@ -23,7 +24,7 @@ func llmRoutesCmd() *cobra.Command {
 		Short: "List LLM routing rules",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			routes, err := c.ListLLMRoutes(context.Background())
+			routes, err := c.ListLLMRoutes(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("list routes: %w", err)
 			}
@@ -64,7 +65,7 @@ func llmProvidersCmd() *cobra.Command {
 		Short: "List LLM providers",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			providers, err := c.ListProviders(context.Background())
+			providers, err := c.ListProviders(cmd.Context())
 			if err != nil {
 				return fmt.Errorf("list providers: %w", err)
 			}
@@ -92,14 +93,14 @@ func llmProvidersCmd() *cobra.Command {
 }
 
 func llmCostsCmd() *cobra.Command {
-	var period string
+	var period, modelID, agentID string
 
 	cmd := &cobra.Command{
 		Use:   "costs",
 		Short: "Show LLM usage and cost summary",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			summary, err := c.GetUsageSummary(context.Background(), period)
+			summary, err := c.GetUsageSummaryWithOpts(cmd.Context(), &aiplex.UsageSummaryOpts{Period: period, ModelID: modelID, AgentID: agentID})
 			if err != nil {
 				return fmt.Errorf("get costs: %w", err)
 			}
@@ -123,5 +124,37 @@ func llmCostsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&period, "period", "p", "day", "Time period: day, week, month")
+	cmd.Flags().StringVar(&modelID, "model", "", "Filter by model ID")
+	cmd.Flags().StringVar(&agentID, "agent", "", "Filter by agent ID")
+	return cmd
+}
+
+func llmUsageCmd() *cobra.Command {
+	var modelID, agentID, since string
+	var limit int
+	cmd := &cobra.Command{Use: "usage", Short: "List recorded model usage", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		opts := &aiplex.ListUsageRecordsOpts{ModelID: modelID, AgentID: agentID, Limit: limit}
+		if since != "" {
+			parsed, err := time.Parse(time.RFC3339Nano, since)
+			if err != nil {
+				return fmt.Errorf("--since must be RFC3339")
+			}
+			opts.Since = parsed
+		}
+		rows, err := newClient().ListUsageRecords(cmd.Context(), opts)
+		if err != nil {
+			return err
+		}
+		if output == "yaml" {
+			printYAML(rows)
+		} else {
+			printJSON(rows)
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&modelID, "model", "", "Filter by model ID")
+	cmd.Flags().StringVar(&agentID, "agent", "", "Filter by agent ID")
+	cmd.Flags().StringVar(&since, "since", "", "RFC3339 start timestamp")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum records (1–1000)")
 	return cmd
 }

@@ -1,0 +1,14 @@
+{
+  "modules": [
+    {
+      "descriptor": {
+        "name": "echo",
+        "version": "1.0.0",
+        "contract_version": "v1",
+        "capabilities": ["example.echo"]
+      },
+      "endpoint": "http://127.0.0.1:9199",
+      "allow_insecure_localhost": true
+    }
+  ]
+}
