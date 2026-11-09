@@ -228,6 +228,9 @@ func serverTLS(cfg *config.Config) (*tls.Config, error) {
 // NativeInvocation bypasses only the administrative POST role test. The native
 // handler must enforce its own per-resource action grant before credentials.
 func nativeInvocation(r *http.Request) bool {
+	if strings.HasPrefix(r.URL.Path, "/ap/") {
+		return true // access points enforce per-request authorization themselves
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/mcp/connections/") {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/mcp/connections/"), "/")
 		if len(parts) >= 2 && parts[0] != "" && !strings.ContainsAny(parts[0], "%\\") && parts[1] == "authorization" {

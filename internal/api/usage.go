@@ -25,7 +25,7 @@ func NewUsageHandler(ledger usageledger.Store, tenant TenantResolver, developmen
 }
 
 var (
-	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "status", "source", "since", "until"}
+	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "since", "until"}
 	usageListParams    = append(append([]string{}, usageFilterParams...), "limit", "cursor")
 	usageSummaryParams = append(append([]string{}, usageFilterParams...), "group_by", "bucket")
 )
@@ -86,11 +86,16 @@ func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, er
 			return usageledger.Filter{}, errors.New("query parameter " + strconv.Quote(name) + " is too long")
 		}
 	}
-	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), Status: values.Get("status"), Source: values.Get("source")}
+	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), AccessPointID: values.Get("access_point_id"), CallerKind: values.Get("caller_kind"), Status: values.Get("status"), Source: values.Get("source")}
 	switch f.Plane {
 	case "", usageledger.PlaneLLM, usageledger.PlaneMCP, usageledger.PlaneA2A:
 	default:
 		return f, errors.New("plane must be llmplex, mcplex or a2aplex")
+	}
+	switch f.CallerKind {
+	case "", "agent", "user", "client":
+	default:
+		return f, errors.New("caller_kind must be agent, user or client")
 	}
 	switch f.Status {
 	case "", usageledger.StatusOK, usageledger.StatusError, usageledger.StatusDenied, usageledger.StatusUnknown:

@@ -136,6 +136,7 @@ func main() {
 		log.Fatal().Err(err).Msg("connected module configuration failed")
 	}
 	connectedH.ResolveAccess = wifValidator.SyncUserScopes
+	connectedH.AccessPoint = accessPointOptions(cfg, store)
 	federationH, err := agentFederation(cfg, store, resourceStore, connectedH.Runtime.Config.Network, connectedH.Tenant, wifValidator)
 	if err != nil {
 		log.Fatal().Err(err).Msg("agent identity federation configuration failed")
@@ -294,6 +295,7 @@ func main() {
 		}
 		r.Get("/modules", moduleDiscovery(moduleRegistry))
 		mountUsageLedger(r, usageH, connectedH)
+		connectedH.MountAccessPoints(r) // /api/v1/access-points
 
 		// Dashboard — unified observability
 		r.Route("/dashboard", func(r chi.Router) {
@@ -384,6 +386,9 @@ func main() {
 	if moduleEnabled(enabledModules, "mcplex") {
 		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/v0.1/servers", catalogH.List)
 	}
+
+	// Access points: /ap/{id}/… model, MCP, catalog and skill endpoints.
+	connectedH.MountAccessPointEndpoints(r)
 
 	// A2A Agent Card discovery (per-instance)
 	if moduleEnabled(enabledModules, "a2aplex") {

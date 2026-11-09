@@ -438,6 +438,10 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 		}
 	}
 	target.PoolID, target.ModelVersion = binding.PoolID, binding.ModelVersion
+	accessPoint := accessPointCallFrom(r.Context())
+	if err := accessPoint.applyQuotaTarget(tenant.policy.Policy(), &target); err != nil {
+		return nil, err
+	}
 	configuration := struct {
 		Binding       QuotaBinding
 		Configuration any
@@ -489,6 +493,9 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 		}
 		if err := in.Reauthorize(callCtx); err != nil {
 			return quotaStatus(403, "QUOTA_EXECUTION_REVOKED", "execution authority or configuration changed")
+		}
+		if err := accessPoint.recheckCall(callCtx); err != nil {
+			return quotaStatus(403, "QUOTA_ACCESS_POINT_CHANGED", "access point configuration or caller admission changed")
 		}
 		freshPrincipal, freshActor, err := h.subjects(callCtx, r, request.TenantID, h.clock().UTC())
 		if err != nil {

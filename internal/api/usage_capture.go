@@ -58,6 +58,10 @@ func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, te
 		c.record.ActorID = identity.ActorID
 		c.record.ClientID = identity.AuthorizedParty
 	}
+	if call := accessPointCallFrom(r.Context()); call != nil {
+		c.record.AccessPointID = call.ID
+		c.record.CallerKind = call.CallerKind
+	}
 	return c.writer, c
 }
 
