@@ -1,7 +1,8 @@
 # QuotaPlex prerequisites and readiness
 
 Status: implementation checklist, audited against the native-governance
-foundation at `d3ed9d8`, updated for the [feature cohesion repairs](feature-cohesion-bugbash.md).
+foundation and the [implemented QuotaPlex core](quotaplex-core.md), including the
+[feature cohesion repairs](feature-cohesion-bugbash.md).
 This checklist preserves the existing architecture and distinguishes pending
 quota work from implemented reporting behavior.
 
@@ -12,8 +13,8 @@ foundation tests establish those seams; they do not prove a quota allocator.
 
 The [foundation design](quotaplex-foundation-design.md) extends the implementation
 baseline to uneven group sizes, tool work, rates, concurrency and scheduling.
-QuotaPlex can now start as a shared control core for models and tools. Completing
-that core precedes provider-specific functions and does not enable hard limits.
+QuotaPlex now has a shared control core for models and tools. The library and
+transaction backend do not automatically intercept traffic or establish hard limits.
 
 ## Preserve the current architecture
 
@@ -47,29 +48,29 @@ before enabling enforcement. None of the pending rows changes module ownership.
 
 | ID | Prerequisite | Current state and evidence | Required completion |
 | --- | --- | --- | --- |
-| Q01 | Independent module boundary | Present: [module contracts](modules.md), [registry](../pkg/modules/registry.go) | QuotaPlex descriptor/configuration and required-provider registration; pin compatible contracts |
-| Q02 | Trusted tenant, principal and agent actor | Present: [request context](../pkg/contracts/context.go), [WIF resolution](../internal/auth/wif.go), [native identity](native-agent-governance.md) | Contract: distinguish caller, delegated user, agent, application and payer; never infer payer from email or sponsor |
-| Q03 | Multiple-group membership at admission | Present: snapshot type and `ValidateFor`; current [host context](../internal/api/connected.go) omits its reference | Integration: authoritative resolver, source-qualified group IDs, freshness/revocation rules, durable decision snapshot and attached reference |
-| Q04 | Funding and overlapping limits | Contract; authentication merges permissions, not money | Define eligible accounts, selected payer, account priority and all simultaneous user/group/tenant/model limits |
-| Q05 | Nonuniform allocations and periods | Contract; legacy daily/monthly reports are insufficient | Explicit quantities, units, interval type, start/anchor, timezone, effective revisions and overlap rules; no implicit division by group size |
-| Q06 | Admission and receipt lifecycle | Present: [enforcement interfaces](../pkg/enforcement/pipeline.go) | Contract: typed quota admission and settlement envelopes; integration before billable dispatch and after actual outcomes |
-| Q07 | Stable accounting identities | Present: request correlation; no durable quota identity | Contract: logical operation, attempt, reservation, provider resource and usage-event IDs; bind idempotency keys to immutable request fingerprints |
-| Q08 | Immutable decision provenance | Present: [policy snapshots](../pkg/policy/snapshots.go); memory backend only | Quota policy validation/evaluation, durable policy history, pinned membership/price revisions and explainable decisions |
-| Q09 | Atomic ledger and balance storage | Present: [resource CAS](../pkg/resources/store.go) and [Firestore adapter](../internal/registry/module_resources.go) | Quota-owned transaction contract enforcing all charged accounts, holds and transfers atomically; restart/recovery proof |
-| Q10 | Reservation exposure bounds | Contract | Estimated versus maximum committed usage, output/session bounds, lease/renewal rules and treatment of uncertain provider work |
-| Q11 | Trusted metering | Present: [observation type](../pkg/modelapi/gateway.go) and [limited extraction](../pkg/modelapi/observations.go); host observer is unset | Operation-specific meters, durable acknowledged handoff, attempt/receipt correlation, cumulative/delta semantics and deduplication |
-| Q12 | Exact monetary accounting | Present: legacy floating-point input/output pricing and usage reports | Fixed-point money, integer meters, currency/scale/rounding/overflow rules, versioned prices and unknown-price policy |
-| Q13 | Sharing unused allocation | Contract | Eligible lending pools, protected floors, active-hold exclusion, limits, lease expiry, recall and conservation across different periods |
-| Q14 | Failure and recovery behavior | Present: in-process receipt retry/cleanup; native governance has separate write receipts | Quota-specific durable recovery for dispatch ambiguity, partial usage, late reports, retries and adjustments |
+| Q01 | Independent module boundary | Present: [QuotaPlex lifecycle and descriptor](../pkg/quotaplex/module.go), typed library and explicit pipeline adapter | Host required-provider registration and authenticated remote admission RPC; preserve default traffic until coverage gates pass |
+| Q02 | Trusted tenant, principal and agent actor | Present: [typed demand and target configuration digest](../pkg/quotaplex/types.go), WIF/native identity seams | Host binds verified human, agent, application and payer facts; never infer funding from email or sponsor |
+| Q03 | Multiple-group membership at admission | Present: independent principal/actor snapshot validation in [compiler](../pkg/quotaplex/policy.go); host context still omits its reference | Authoritative resolver and cached source-qualified membership, freshness/revocation integration and explicit host attachment |
+| Q04 | Funding and overlapping limits | Present: one eligible selected/highest-priority payer plus all matched mandatory constraints; ambiguous selection denied | Configure tenant funding rules; split charging and implicit group-balance union remain unsupported |
+| Q05 | Nonuniform allocations and periods | Present: explicit quantities, fixed/anchored/calendar windows, effective revisions and frozen population strategies | Rolling budgets and structural window migrations remain unsupported; host validates trusted population evidence |
+| Q06 | Admission and receipt lifecycle | Present: [atomic engine](../pkg/quotaplex/engine.go), [typed bound provider](../pkg/quotaplex/enforcement.go) and explicit terminal proof | Invoke at actual billable dispatch and trusted usage boundaries; library registration alone supplies no coverage |
+| Q07 | Stable accounting identities | Present: logical operation/attempt identity, payload/configuration digests, durable dispatch claim/resource pin and terminal-event replay | Host generates stable billable-attempt and tenant-unique producer event IDs; preserve native job/session correlation |
+| Q08 | Immutable decision provenance | Present: policy activation CAS, immutable meter/price revisions, pinned membership/demand/plan and stable reason codes | Authorized publication, retention and production recovery/administration integration |
+| Q09 | Atomic ledger and balance storage | Present: quota-owned [transaction contract](../pkg/quotaplex/store.go), memory reference and [Firestore adapter](../internal/registry/quota_store.go) | Live multi-replica, restore, contention, IAM and deployment validation; single-resource CAS is not the ledger implementation |
+| Q10 | Reservation exposure bounds | Present: explicit raw bounds, computed exact money, unknown exposure retained and overrun debt recorded | Adapters prove maximum committed exposure/output/session bounds; renewal/checkpoint semantics for supported long-running paths |
+| Q11 | Trusted metering | Present: acknowledged terminal settlement and producer event deduplication; native host observer remains unset | Operation-specific trusted extraction, cumulative/delta normalization, durable handoff and partial/async reconciliation |
+| Q12 | Exact monetary accounting | Present: integer meters/currency scale, rational prices, one aggregate rounding boundary, overflow checks and immutable prices | Verify actual commercial rates and billable composition; no implicit currency conversion or trust in legacy floating reports |
+| Q13 | Sharing unused allocation | Present: [explicit compatible-account loans](../pkg/quotaplex/loans.go), protected allocation floors, bounded outstanding indexes and atomic returns | Authorized administration and expiry maintenance worker; automatic lending allocation and throughput sharing are separate future integrations |
+| Q14 | Failure and recovery behavior | Present: durable one-shot dispatch, provider-resource pin, unknown retention, original-plan terminal settlement and bounded recovery scans | Recovery workers, native status correlation, missing/partial usage reconciliation and authorized adjustments |
 | Q15 | Enforcement coverage | Integration: native facades share `NativeModel`; raw agent/direct-provider paths differ | Explicit operation/deployment coverage matrix, no-bypass proof for hard limits, and declared treatment of uncovered paths |
-| Q16 | Balance and decision APIs | Contract | Granted/held/consumed/available/borrowed/lent with period, unit, revision and as-of semantics; tenant-scoped administration and explanations |
+| Q16 | Balance and decision APIs | Present: library Decision, GetAttempt/GetLoan and BudgetBalance with last-committed limit provenance | Tenant-authorized REST/SDK/CLI/Console surfaces and current-policy/as-of explanations |
 | Q17 | Reconciliation and operations | Production | Recover outstanding holds; reconcile trusted usage; audit adjustments; alerts, backup/restore and bounded outage behavior |
 | Q18 | Performance and rollout | Production | Measured latency/QPS/contention bounds, multi-replica tests, shadow comparisons and rollback preserving in-flight accounting |
-| Q19 | Rate and burst controls | Contract; existing process-local request middleware is not distributed quota control | Independent meter/interval/burst and admitted-versus-observed basis; atomically check applicable tenant, account, subject and target buckets |
-| Q20 | Concurrency permits | Contract | Fenced acquire/renew/release, global and scoped limits, dispatch uncertainty and recovery; expiry alone does not prove upstream work stopped |
-| Q21 | Scheduling and assigned QoS | Contract | Bounded queue/deadline, priority, weights, protected shares, ceilings, work-conserving excess sharing and feasible upstream capacity pools; rate ceilings alone promise no minimum throughput |
-| Q22 | Tool and other resource meters | Integration; MCP OAuth registration is not execution interception | Canonical tool operation/cost units and trustworthy execution lifecycle; reuse the common core for calls, duration, bytes, rows, executions or provider-defined work |
-| Q23 | Group population allocation | Contract; group membership is not authoritative group cardinality | Fixed group allowances by default; explicit per-member formulas require source-qualified, revisioned population snapshots, eligibility/count rules and defined effective boundaries |
+| Q19 | Rate and burst controls | Present: exact-rational admitted-demand buckets checked atomically with budgets/concurrency | Actual dispatch adapter and global shared-backend deployment; observed-only meters do not enforce admission |
+| Q20 | Concurrency permits | Present: scoped atomic active-work permits, one-shot fenced dispatch and known-terminal/undispatched release | Supported ownership renewal/recovery protocols; no automatic release from timeout or local lease expiry |
+| Q21 | Scheduling and assigned QoS | Partial: bounded serializable weighted DRR selection with deadlines/cancel/replay limits | Atomic scheduling/admission, priority/protected shares, feasible capacity pools and verified provider capacity; selection grants no dispatch right |
+| Q22 | Tool and other resource meters | Present: extensible raw units and same core exercised for model/tool demand; MCP registration still is not execution interception | Canonical tool execution/cost units, trustworthy dispatch/usage lifecycle and coverage proof |
+| Q23 | Group population allocation | Present: explicit frozen per-member strategy bound to a source-qualified group snapshot; no implicit headcount normalization | Host-authorized population snapshots and effective-boundary operations; no automatic live rebalance |
 
 The evidence links describe current code. A versioned schema, registry entry or
 native IAM integration alone does not satisfy a pending accounting gate.
@@ -216,8 +217,11 @@ IDs or hide funding/meter facts in arbitrary context values.
 
 ## Module-owned accounting contracts
 
-The following are required contracts to define, not implemented APIs. Keep them
-inside QuotaPlex and its host adapter; reuse the shared trusted context.
+The shared core implements the initial typed demand, plan, terminal settlement,
+ledger and recovery mechanisms. The following register describes the complete
+required contract, including pending streaming, renewal and adjustment work.
+See the [core guide](quotaplex-core.md) for the implemented subset. These contracts
+remain inside QuotaPlex and its explicit host adapter.
 
 | Contract | Required facts and behavior |
 | --- | --- |
@@ -232,9 +236,10 @@ inside QuotaPlex and its host adapter; reuse the shared trusted context.
 | Recovery | Outstanding-hold ownership, provider-state correlation, reconciliation checkpoints, bounded retries and operator adjustment authority |
 
 `enforcement.Provider.Admit` currently receives only `RequestContext`; `Outcome`
-contains `Successful` and integer usage counters. They do not yet carry all quota
-facts above. Define a typed quota envelope/adapter through that boundary without
-making the shared pipeline own pricing, funding selection or provider JSON.
+contains `Successful` and integer usage counters. `Demand`, `Plan` and the bound
+QuotaPlex provider now carry the quota-owned facts through that boundary. The
+adapter requires explicit dispatch and trusted terminal settlement; the generic
+pipeline does not own pricing, funding selection or provider JSON.
 
 An independently deployed QuotaPlex also needs a versioned, authenticated
 admission/reservation/settlement RPC adapter with deadlines and the same durable
@@ -243,9 +248,10 @@ it does not invoke remote enforcement. In-process and remote deployments retain
 the same ownership and request path; registration alone never proves admission.
 
 `RequestID` is correlation, not durable accounting identity: the current middleware
-accepts a caller request ID or produces a process-local value. Scope accounting
-idempotency by tenant and operation/attempt, bind it to immutable input, and reject
-the same key with changed content. The operator response cache and in-process
+accepts a caller request ID or produces a process-local value. The core scopes
+attempt idempotency by tenant and immutable input, including separate payload and
+configuration digests; changed input conflicts and correlation changes do not
+create another accounting operation. The operator response cache and in-process
 pipeline ticket are not durable reservation recovery.
 
 ## Required host integrations
@@ -304,12 +310,13 @@ caller-supplied billing or cost-center headers cannot select the payer or ledger
 
 ## Durability, invariants and recovery gates
 
-Select and test a private storage implementation that can atomically enforce all
-applicable caps and transfers. Existing tenant-scoped resource CAS is useful for
-configuration and revisions; it does not expose a multi-account ledger transaction.
-The in-memory policy backend similarly needs durable publication/history for a
-production deployment. A backend choice should follow measured contention and
-consistency needs rather than impose a new database on every Plex.
+The quota transaction contract has memory-reference and native Firestore
+implementations for caps, transfers, immutable policy/price history and replay.
+SDK tests cover composition and recovery mechanisms; production must validate
+the chosen backend's live contention, permissions, durability and restore behavior.
+Existing single-resource CAS and the generic in-memory policy store remain
+separate foundations. Additional backends can implement the quota contract
+without imposing another database on every Plex.
 
 Before enabling enforcement, demonstrate:
 
@@ -364,33 +371,36 @@ routing, native credentials and billing/usage comparisons. Deploying every cloud
 identity product is not a prerequisite to writing QuotaPlex. Enable coverage only
 where these checks pass.
 
-## Ready-to-start and ready-to-enforce checklists
+## Core implementation and ready-to-enforce checklists
 
-Before implementing the module, record decisions for:
+The initial foundation now implements:
 
-- [ ] Identity/payer mapping, multi-group funding and simultaneous constraints.
-- [ ] Nonuniform allocation periods, overlap, effective changes and clock authority.
-- [ ] Meter units, exact money, price revisions and uncertainty/exposure bounds.
-- [ ] Typed admission, usage, ledger and reservation/recovery contracts.
-- [ ] Atomic persistence and durable idempotency semantics.
-- [ ] Sharing/borrowing invariants and the initial operation/deployment coverage matrix.
-- [ ] Rate basis/burst, concurrency lifecycle, queue/deadline/fairness rules and
-  capacity feasibility; distinguish protected throughput from maximum rates.
-- [ ] Tool meter/operation contracts and explicit group-population allocation rules.
+- [x] Typed subjects, independent memberships, selected payer and simultaneous constraints.
+- [x] Explicit unequal allocations and supported fixed, anchored and calendar windows.
+- [x] Extensible integer meters, exact money, immutable price revisions and overflow handling.
+- [x] Typed admission, dispatch/resource pinning, unknown retention and terminal settlement.
+- [x] Atomic memory-reference/Firestore storage and durable replay mechanisms.
+- [x] Explicit compatible-budget loans, protected allocation floors and expiry guards.
+- [x] Admitted rate/burst controls, concurrency permits and bounded weighted queue selection.
+- [x] Frozen source-qualified population allocation; no automatic headcount rebalance.
+
+The core guide identifies unsupported rolling windows, structural migrations and
+partial/correction/renewal workflows. Capacity floors and atomic scheduling/admission
+remain separate mechanisms to finish before claiming assigned-throughput guarantees.
 
 Before enabling enforcement, require:
 
-- [ ] Quota-owned allocation, reservations and ledger implemented; monetary pricing
-  for enabled money limits and lending for enabled sharing policies; required
-  immutable policy/membership/price history durable.
+- [ ] Validate allocation, reservations, ledger, configured prices and immutable
+  policy/membership/price history on the chosen production backend and deployment.
 - [ ] Existing host paths supply trusted context, admission and acknowledged usage.
 - [ ] Per-operation metering, streaming/async recovery and bypass coverage verified.
-- [ ] Concurrency, retry, crash, expiry, rollover and reconciliation tests pass.
+- [ ] Deployment-level concurrency, retry, crash, expiry, rollover and reconciliation tests pass.
 - [ ] Compound budget/rate/concurrency admission, bounded queues, weighted sharing,
   tool metering and supported throughput guarantees pass their own invariant tests.
 - [ ] Latency/capacity, audit, outage, backup/restore and administrative controls verified.
 - [ ] Shadow comparison, migration, activation and rollback evidence recorded.
 
-These checks preserve the present flow. The pending allocator, lending and
-accounting mechanisms are QuotaPlex's implementation backlog, not new responsibilities
-for Identity, LLMPlex, A2APlex, ClientPlex, networking or Anvil.
+These checks preserve the present flow. Remaining automation, capacity scheduling,
+recovery and enforcement integration stay with QuotaPlex and its explicit host
+adapters. Identity, LLMPlex, A2APlex, ClientPlex, networking and Anvil retain their
+existing responsibilities.

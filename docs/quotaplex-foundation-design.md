@@ -1,9 +1,10 @@
 # QuotaPlex foundation design
 
-Status: proposed implementation baseline, independently reviewed against the
-existing foundations. This document specifies the next work; it does not claim
-that a quota engine, scheduler, durable ledger or host enforcement exists.
-See [prerequisites and readiness](quotaplex-prerequisites.md) for current evidence.
+Status: implementation baseline, independently reviewed against the existing
+foundations. The [shared core](quotaplex-core.md) now implements typed policy,
+exact accounting, atomic admission, durable-backend mechanisms, explicit loans
+and weighted queue selection. Capacity guarantees, host interception and
+production enforcement remain pending. See the [readiness register](quotaplex-prerequisites.md).
 
 Build one resource-control core for LLMPlex, MCPlex, A2APlex and SkillsPlex.
 Provider adapters supply trusted demands, capacity coordinates and usage; they
@@ -33,7 +34,7 @@ provider charges. Models can use input/output/cached/reasoning tokens, requests
 and other verified native units. Units have explicit scope: tokens from different
 tokenizers or model families are interchangeable only where policy declares it.
 
-## Proposed baseline policy decisions
+## Baseline policy decisions
 
 These choices make the first core deterministic. Unsupported alternatives must
 be rejected explicitly rather than silently approximated.

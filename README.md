@@ -137,6 +137,8 @@ Built-in Plex modules can be selected independently; external services register 
 
 [QuotaPlex foundation design](docs/quotaplex-foundation-design.md) defines the shared control core for unequal allocations, model/tool meters, rate and burst limits, concurrency and scheduled throughput.
 
+The [QuotaPlex core guide](docs/quotaplex-core.md) documents the implemented Go library, atomic admission, exact accounting, Firestore adapter, explicit budget loans and weighted queue primitive. Provider enforcement and throughput guarantees require the remaining integration gates.
+
 The [feature cohesion bugbash](docs/feature-cohesion-bugbash.md) records repairs to existing OAuth, routing, persistence, audit, SDK/CLI and Console handoffs, including deployment compatibility.
 
 ## Local Development
