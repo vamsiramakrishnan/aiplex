@@ -129,19 +129,57 @@ The authorization path is implemented by [`policies/aiplex_authz.rego`](policies
 
 ## Connected Plex modules
 
-ClientPlex registers developer clients; LLMPlex preserves native model APIs; MCPlex handles OAuth registration; A2APlex invokes native cloud agents. Shared networking plans can use an optional Anvil provider for missing infrastructure constructs. See [configuration and API ownership](docs/connected-plexes.md).
+ClientPlex registers developer clients; LLMPlex preserves native model APIs; MCPlex handles OAuth registration and configured tool execution; A2APlex invokes native cloud agents. Shared networking plans can use an optional Anvil provider for missing infrastructure constructs. See [configuration and API ownership](docs/connected-plexes.md).
 
 Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity and Microsoft Entra Agent ID through scoped inventory, reviewed policy plans and durable apply receipts. See [native governance](docs/native-agent-governance.md) for credential brokers, provider limits and configuration.
+
+## Shared quotas with QuotaPlex
+
+QuotaPlex is an opt-in control module shared by the existing planes. It supports unequal token, money and request allocations, independent human/agent attribution, fixed/anchored/calendar periods, explicit budget loans, atomic admission, rate limits, concurrency and weighted scheduling.
+
+For configured calls through the Go API's managed endpoints:
+
+```text
+Verified principal (+ independent delegated actor)
+                        |
+                        v
+          Managed model / tool / agent endpoint
+                        |
+                        v
+ QuotaPlex: budget hold + admitted-rate debit + permit
+                        |
+                        v
+             Claim once -> native provider
+                                |
+                                v
+                    Trusted terminal evidence
+                                |
+                         +------+------+
+                         |             |
+                       known        unknown
+                         |             |
+                    settle once   retain holds
+```
+
+LLMPlex and MCPlex keep their native HTTP, SSE and tool protocols. QuotaPlex owns admission and accounting. A request-count profile measures the managed exchange; it does not measure an async job's lifetime or an agent's internal model/tool work.
+
+| Capability | Implemented | Still missing |
+| --- | --- | --- |
+| Membership | Verified group claims or a signed authority; independent principal/actor views | Native directory synchronization and distributed revocation event consumers |
+| Allocations | Unequal budgets, exact prices, supported periods and explicit loans | Rolling budgets, split charging, currency conversion, automatic lending and population rebalance |
+| Model/tool metering | Supported native text profiles; stateless JSON/finite-SSE tool call counts | Live/async job billing, broader media/cache/server-tool profiles, tool rows/bytes/duration |
+| Recovery | Durable evidence, restart-safe settlement and reviewed reconciliation | Native provider status/usage lookup adapters; long-running renewal and acknowledged cancellation |
+| Enforcement coverage | Exact bindings on supported managed API paths | Automatic Envoy/direct-route interception and authenticated remote admission/settlement RPC |
+| Operations | Policy preview/export, attempt/balance inspection, loans and corrections in API/CLI/Console | Isolated shadow evaluation, runtime coverage qualification and alerts for aging unknown exposure |
+| Throughput | Shared admitted-demand rates, concurrency and atomic weighted capacity admission | Provider capacity reservation, stream token pacing, preemption and provider minimum-throughput guarantees |
+
+Existing Envoy routes and direct provider calls do not automatically pass through this quota path. Admitted tokens/s and requests/s are separate from actual provider generation throughput. Hard limits require verified provider bounds, prices, identity sources and routing for each enabled profile; live billing, load and backup-restore qualification remain deployment work.
+
+Read the [core guide](docs/quotaplex-core.md), [managed execution guide](docs/quotaplex-integration.md), [execution coverage and regression matrix](docs/quotaplex-execution-coverage.md), or [full readiness register](docs/quotaplex-prerequisites.md). The [foundation design](docs/quotaplex-foundation-design.md) records allocation, metering and scheduling contracts.
 
 ## Module foundations
 
 Built-in Plex modules can be selected independently; external services register through versioned descriptors. See [module contracts](docs/modules.md) and [deployment migration and bugbash](docs/foundations-bugbash.md) before upgrading an existing deployment.
-
-[QuotaPlex prerequisites and readiness](docs/quotaplex-prerequisites.md) lists the contracts, accounting rules and integration gates needed to add quotas while preserving this flow.
-
-[QuotaPlex foundation design](docs/quotaplex-foundation-design.md) defines the shared control core for unequal allocations, model/tool meters, rate and burst limits, concurrency and scheduled throughput.
-
-The [QuotaPlex core guide](docs/quotaplex-core.md) documents the Go library, exact accounting, atomic admission, Firestore adapter, budget loans and weighted queue primitive. The [opt-in managed execution guide](docs/quotaplex-integration.md) covers supported model/tool dispatch, terminal usage and recovery. Broader provider coverage and throughput guarantees retain explicit integration gates.
 
 [Foundation completion](docs/foundation-completion.md) connects revisioned configuration, directory membership, native model profiles, delegated MCP authorization, quota operations, atomic scheduling and reviewed infrastructure execution. [Production qualification](docs/production-qualification.md) supplies emulator CI, reference benchmarks and billing-evidence comparison.
 

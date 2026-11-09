@@ -24,7 +24,7 @@ type quotaHostLease struct {
 	claimUncertain    bool
 	resource          string
 	modelVersion      string
-	counters          map[string]int64
+	counters          execution.CumulativeUsage
 	evidence          *quotaplex.TerminalEvidence
 	acknowledged      bool
 	completed         bool
@@ -32,7 +32,7 @@ type quotaHostLease struct {
 }
 
 func newQuotaHostLease(host *QuotaHost, engine *quotaplex.Engine, bound *quotaplex.BoundProvider, ticket *enforcement.Ticket, demand quotaplex.Demand, binding QuotaBinding, proof *QuotaBoundsProof) *quotaHostLease {
-	return &quotaHostLease{host: host, engine: engine, bound: bound, ticket: ticket, demand: demand, binding: binding, proof: proof, counters: map[string]int64{}}
+	return &quotaHostLease{host: host, engine: engine, bound: bound, ticket: ticket, demand: demand, binding: binding, proof: proof}
 }
 func (l *quotaHostLease) AttemptID() string       { return l.demand.AttemptID }
 func (l *quotaHostLease) MeteringProfile() string { return l.binding.Profile }
@@ -148,13 +148,13 @@ func (l *quotaHostLease) Observe(ctx context.Context, observation execution.Obse
 		if !observation.Cumulative {
 			return quotaStatus(502, "QUOTA_USAGE_INVALID", "protected Gemini usage must be cumulative")
 		}
-		for native, value := range observation.Counters {
-			if prior, known := l.counters[native]; known && value < prior {
+		if err := l.counters.Observe(observation.Counters); err != nil {
+			if errors.Is(err, execution.ErrUsageRegression) {
 				return quotaStatus(502, "QUOTA_USAGE_REGRESSED", "upstream cumulative usage regressed")
 			}
-			l.counters[native] = value
+			return quotaStatus(502, "QUOTA_USAGE_INVALID", "upstream cumulative usage is invalid")
 		}
-		if !observation.Terminal && l.exceedsExposure(l.counters) {
+		if !observation.Terminal && l.exceedsExposure(l.counters.Snapshot()) {
 			l.exposureViolation = true
 			if err := l.host.quarantineBinding(bounded, l.binding, l.modelVersion, "exposure_bound_exceeded"); err != nil {
 				return quotaStatus(503, "QUOTA_QUARANTINE_UNACKNOWLEDGED", "provider-exposure quarantine could not be persisted")

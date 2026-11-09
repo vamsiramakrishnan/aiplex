@@ -133,12 +133,14 @@ func sseFields(frame []byte) (data []byte, eventID string) {
 func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, reader io.Reader, owner Owner, op Operation, run *executionRun, status int) {
 	input := bufio.NewReaderSize(reader, 32<<10)
 	anthropic := op.ID == "anthropic.messages" || (g.surface.Publisher == "anthropic" && anthropicOperation(op))
+	validateCumulative := anthropic || !requestCountRun(run)
 	var frame, tail bytes.Buffer
 	var latest *UsageObservation
 	seenFinal, seenDone := false, false
 	anthropicStarted, anthropicStopped, anthropicFinalUsage := false, false, false
 	modelVersion := ""
 	var anthropicLatest *UsageObservation
+	var cumulative execution.CumulativeUsage
 	deferredVersion := ""
 	finish := func(result execution.Result) {
 		if deferredVersion != "" {
@@ -212,6 +214,14 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 				if anthropic && value.eventType == "message_delta" && value.nativeTerminal && value.usage != nil {
 					_, anthropicFinalUsage = value.usage.Counters["output_tokens"]
 				}
+				// Validate every cumulative update, including the withheld final
+				// tail. Replacing latest must not erase higher observed usage.
+				if value.usage != nil && value.usage.Cumulative && validateCumulative {
+					if err := cumulative.Observe(value.usage.Counters); err != nil {
+						finish(execution.Result{Err: err})
+						return
+					}
+				}
 				if anthropic && value.usage != nil {
 					if anthropicLatest == nil {
 						copy := *value.usage
@@ -219,10 +229,6 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 						anthropicLatest = &copy
 					}
 					for key, n := range value.usage.Counters {
-						if prior, ok := anthropicLatest.Counters[key]; ok && n < prior {
-							finish(execution.Result{Err: fmt.Errorf("native cumulative usage regressed")})
-							return
-						}
 						anthropicLatest.Counters[key] = n
 					}
 					if value.usage.ModelVersion != "" {
@@ -302,6 +308,12 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 			}
 			{
 				if err := normalizeForRun(op, latest, run); err != nil {
+					finish(execution.Result{ResponseComplete: true, Err: err})
+					return
+				}
+			}
+			if latest.Cumulative && validateCumulative {
+				if err := cumulative.Observe(latest.Counters); err != nil {
 					finish(execution.Result{ResponseComplete: true, Err: err})
 					return
 				}

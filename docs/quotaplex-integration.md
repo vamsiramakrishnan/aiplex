@@ -8,6 +8,9 @@ opt-in; default module selection and existing gateway ownership are unchanged.
 
 Read the [core guide](quotaplex-core.md) for accounting contracts and the
 [readiness register](quotaplex-prerequisites.md) for deployment gates.
+The [execution coverage and regression matrix](quotaplex-execution-coverage.md)
+maps actual model/tool dispatch, identities, retries, uncertainty and scheduling
+to implementation contracts and test evidence.
 
 ## Enable an explicit deployment
 
@@ -220,8 +223,8 @@ Verify real provider limits/prices, identity refresh, required grants, endpoint
 coverage, shared-store permissions, recovery lag, unknown-hold alerts and restore
 behavior before enabling a path. The local tests exercise mechanisms and native
 protocol fixtures; they do not prove live billing equivalence or deployed routing.
-Rolling budgets, minimum-throughput guarantees, distributed capacity scheduling,
-native preemption, remote admission RPC, direct-route interception and additional
+Rolling budgets, minimum-throughput guarantees, native capacity reservation,
+preemption, remote admission RPC, direct-route interception and additional
 specialized model/tool/agent adapters remain explicit work.
 
 ## Additional foundational mechanisms

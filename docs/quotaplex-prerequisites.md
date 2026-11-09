@@ -386,8 +386,10 @@ The initial foundation now implements:
 - [x] Frozen source-qualified population allocation; no automatic headcount rebalance.
 
 The core guide identifies unsupported rolling windows, structural migrations and
-partial/correction/renewal workflows. Capacity floors and atomic scheduling/admission
-remain separate mechanisms to finish before claiming assigned-throughput guarantees.
+operation-specific partial-usage/checkpoint/renewal workflows. Reviewed corrections
+and atomic scheduling/admission are implemented. Native capacity reservation,
+preemption and provider throughput guarantees still require their own contracts
+and deployment evidence; configured admission credits do not establish them.
 
 Before enabling enforcement, require:
 
