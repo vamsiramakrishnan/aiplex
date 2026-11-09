@@ -25,7 +25,7 @@ Default traffic does not acquire quotas by registering the library. See the
 | Lifecycle | Single dispatch claim, retained unknown exposure, idempotent terminal usage acknowledgement and original-plan settlement |
 | Usage recovery | Immutable terminal outbox, fenced/backoff settlement work, bounded recovery pages and retained mismatched-model evidence |
 | Allocation loans | Explicit policy-authorized transfers between compatible account budgets; source/destination windows, floors and outstanding limits are pinned |
-| Weighted selection | Serializable bounded deficit-round-robin queue state, deadlines, cancellation and replay history |
+| Weighted selection | Bounded DRR primitive plus opt-in atomic queue/admission/capacity scheduler with protected partitions, deadline/cancellation and retained replay history |
 | Storage | Snapshot-isolated memory reference backend and a native multi-document Firestore transaction adapter |
 
 Rolling windows are rejected. Calendar configurations with unsupported anchors
@@ -219,10 +219,13 @@ permit, provider capacity or dispatch claim. Queue state is bound to tenant, poo
 and policy generation. Changing generations requires explicit migration retaining
 attempt deduplication; creating fresh state is not a replay-history reset mechanism.
 
-Protected throughput floors, capacity feasibility, atomic scheduling/admission and
-native preemption/cancellation semantics remain integration work. Managed native
-generation and stateless tool paths now have interception and acknowledged usage
-under explicit coverage profiles. Additional operations, native async status
-resolvers, corrections, direct-route coverage, broader administration, authenticated
-remote enforcement and measured multi-replica/shadow-rollout evidence remain.
+The opt-in atomic scheduler now composes queue selection, capacity debit and core
+admission in one transaction. It partitions operator-attested admission credits;
+it does not establish native protected throughput, preemption or token pacing.
+Managed model/tool paths have explicit coverage profiles and acknowledged usage.
+Scoped administration and reviewed original-price corrections are implemented.
+Additional billable dimensions, native async lookups, direct-route/remote
+enforcement and live provider/billing/restore/shadow-rollout qualification remain.
 Enable hard limits only for paths that pass their operation-specific gates.
+
+See [foundation completion](foundation-completion.md) for the connected operational mechanisms.

@@ -58,6 +58,7 @@ func (h *IAMHandler) GetRoleBinding(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
+	configurationETag(w, rb.Revision)
 	JSON(w, http.StatusOK, rb)
 }
 
@@ -83,6 +84,14 @@ func (h *IAMHandler) CreateRoleBinding(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 400, "BAD_REQUEST", "invalid role binding ID")
 		return
 	}
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
+	expected, ok := configurationExpected(w, r, 0)
+	if !ok {
+		return
+	}
 	if _, err := h.store.GetRoleBinding(r.Context(), rb.ID); err == nil {
 		Error(w, r, 409, "CONFLICT", "role binding already exists")
 		return
@@ -99,8 +108,7 @@ func (h *IAMHandler) CreateRoleBinding(w http.ResponseWriter, r *http.Request) {
 		rb.Scopes = append([]string{}, models.DefaultRoleScopes[rb.Role]...)
 	}
 
-	if err := h.store.PutRoleBinding(r.Context(), &rb); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+	if !putConfiguration(w, r, versioned, registry.ConfigRoleBinding, rb.ID, &rb, expected, generation) {
 		return
 	}
 	JSON(w, http.StatusCreated, rb)
@@ -110,6 +118,10 @@ func (h *IAMHandler) CreateRoleBinding(w http.ResponseWriter, r *http.Request) {
 // PUT /api/v1/iam/role-bindings/{id}
 func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
 
 	existing, err := h.store.GetRoleBinding(r.Context(), id)
 	if err != nil {
@@ -121,6 +133,10 @@ func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	expected, ok := configurationExpected(w, r, existing.Revision)
+	if !ok {
+		return
+	}
 	var fields map[string]json.RawMessage
 	if decodeAuthJSON(r, &fields, false) != nil {
 		Error(w, r, 400, "BAD_REQUEST", "invalid request body")
@@ -132,7 +148,7 @@ func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 	}
 	for key := range fields {
 		switch key {
-		case "id", "group", "role", "provider", "pool_id", "scopes", "description", "created_at", "created_by":
+		case "id", "group", "role", "provider", "pool_id", "scopes", "description", "created_at", "created_by", "revision":
 		default:
 			Error(w, r, 400, "BAD_REQUEST", "unknown role binding field")
 			return
@@ -171,8 +187,7 @@ func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.PutRoleBinding(r.Context(), &update); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+	if !putConfiguration(w, r, versioned, registry.ConfigRoleBinding, id, &update, expected, generation) {
 		return
 	}
 	JSON(w, http.StatusOK, update)
@@ -182,12 +197,21 @@ func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/v1/iam/role-bindings/{id}
 func (h *IAMHandler) DeleteRoleBinding(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := h.store.DeleteRoleBinding(r.Context(), id); err != nil {
-		if errors.Is(err, registry.ErrNotFound) {
-			Error(w, r, http.StatusNotFound, "NOT_FOUND", "role binding not found")
-			return
-		}
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
+	existing, err := h.store.GetRoleBinding(r.Context(), id)
+	if err != nil {
+		configurationError(w, r, err)
+		return
+	}
+	expected, ok := configurationExpected(w, r, existing.Revision)
+	if !ok {
+		return
+	}
+	if err = versioned.DeleteConfiguration(r.Context(), registry.ConfigRoleBinding, id, expected, generation); err != nil {
+		configurationError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

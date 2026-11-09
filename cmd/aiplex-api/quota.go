@@ -27,11 +27,14 @@ import (
 )
 
 type quotaDeploymentFile struct {
-	Version          string                  `json:"version"`
-	Host             api.QuotaHostConfig     `json:"host"`
-	ProviderLimits   []providerLimitEvidence `json:"provider_limits,omitempty"`
-	Actors           []quotaplex.Subject     `json:"actors,omitempty"`
-	RecoveryInterval string                  `json:"recovery_interval,omitempty"`
+	MembershipAuthority *membershipDeploymentConfig `json:"membership_authority,omitempty"`
+	Scheduling          []quotaSchedulingDeployment `json:"scheduling,omitempty"`
+	Administration      api.QuotaAdminOptions       `json:"administration,omitempty"`
+	Version             string                      `json:"version"`
+	Host                api.QuotaHostConfig         `json:"host"`
+	ProviderLimits      []providerLimitEvidence     `json:"provider_limits,omitempty"`
+	Actors              []quotaplex.Subject         `json:"actors,omitempty"`
+	RecoveryInterval    string                      `json:"recovery_interval,omitempty"`
 }
 
 func firestoreConfiguration(cfg *config.Config) (string, string) {
@@ -267,13 +270,14 @@ type quotaWorker struct {
 	cursors  [3]string
 }
 type quotaRuntime struct {
-	mu       sync.Mutex
-	host     *api.QuotaHost
-	workers  []quotaWorker
-	interval time.Duration
-	cancel   context.CancelFunc
-	done     chan struct{}
-	running  bool
+	mu             sync.Mutex
+	host           *api.QuotaHost
+	workers        []quotaWorker
+	interval       time.Duration
+	cancel         context.CancelFunc
+	done           chan struct{}
+	running        bool
+	administration api.QuotaAdminOptions
 }
 
 func configureQuota(ctx context.Context, cfg *config.Config, store registry.Store, h *api.ConnectedHandler) (*quotaRuntime, error) {
@@ -319,11 +323,32 @@ func configureQuota(ctx context.Context, cfg *config.Config, store registry.Stor
 	if err != nil {
 		return nil, err
 	}
-	host, err := api.NewQuotaHost(ctx, spec.Host, quotaStore, time.Now, actors, limits)
+	var options []api.QuotaHostOption
+	membershipResolver, err := configuredMembership(spec.MembershipAuthority, h, spec.Host.Tenants)
 	if err != nil {
 		return nil, err
 	}
-	runtime := &quotaRuntime{host: host, interval: interval}
+	if membershipResolver != nil {
+		options = append(options, api.WithQuotaMembershipResolver(membershipResolver))
+	}
+	var scheduled *quotaScheduledAdmission
+	if len(spec.Scheduling) > 0 {
+		scheduled, err = newQuotaScheduledAdmission(spec.Scheduling)
+		if err != nil {
+			return nil, err
+		}
+		options = append(options, api.WithQuotaAdmissionController(scheduled))
+	}
+	host, err := api.NewQuotaHost(ctx, spec.Host, quotaStore, time.Now, actors, limits, options...)
+	if err != nil {
+		return nil, err
+	}
+	if scheduled != nil {
+		if err = scheduled.initialize(ctx, host.Engines(), spec.Host.Tenants); err != nil {
+			return nil, err
+		}
+	}
+	runtime := &quotaRuntime{host: host, interval: interval, administration: spec.Administration}
 	engines := host.Engines()
 	names := make([]string, 0, len(engines))
 	for tenant := range engines {
@@ -342,7 +367,7 @@ func configureQuota(ctx context.Context, cfg *config.Config, store registry.Stor
 }
 
 func (m *quotaRuntime) Descriptor() modules.Descriptor {
-	return modules.Descriptor{Name: "quotaplex", Version: "0.2.0", ContractVersion: modules.ContractVersion, Capabilities: []string{"quota.managed-model", "quota.managed-tool", "quota.terminal-outbox", "quota.recovery"}, Dependencies: []modules.Dependency{{Name: "identity", ContractVersion: modules.ContractVersion}}, APIPrefixes: []string{"/api/v1/quota"}}
+	return modules.Descriptor{Name: "quotaplex", Version: "0.3.0", ContractVersion: modules.ContractVersion, Capabilities: []string{"quota.managed-model", "quota.managed-tool", "quota.terminal-outbox", "quota.recovery", "quota.administration", "quota.scheduling"}, Navigation: []modules.Navigation{{Path: "/quotaplex", Title: "QuotaPlex"}}, Dependencies: []modules.Dependency{{Name: "identity", ContractVersion: modules.ContractVersion}}, APIPrefixes: []string{"/api/v1/quota"}}
 }
 func (m *quotaRuntime) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
@@ -437,6 +462,7 @@ func (m *quotaRuntime) pass(ctx context.Context) {
 }
 
 func (m *quotaRuntime) mount(r chi.Router, h *api.ConnectedHandler) {
+	h.MountQuotaAdministrationWithOptions(r, m.administration)
 	r.Get("/quota/attempts/{id}", func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := h.Tenant(r)
 		if err != nil || tenant == "" {

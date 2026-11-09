@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -28,18 +29,24 @@ func TestIAMPartialUpdatePreservesSourceAndScopeRestrictions(t *testing.T) {
 	r := chi.NewRouter()
 	r.Put("/bindings/{id}", h.UpdateRoleBinding)
 	response := httptest.NewRecorder()
-	r.ServeHTTP(response, httptest.NewRequest("PUT", "/bindings/binding", strings.NewReader(`{"description":"updated"}`)))
+	request := httptest.NewRequest("PUT", "/bindings/binding", strings.NewReader(`{"description":"updated"}`))
+	request.Header.Set("If-Match", strconv.FormatInt(original.Revision, 10))
+	r.ServeHTTP(response, request)
 	got, _ := store.GetRoleBinding(context.Background(), "binding")
 	if response.Code != 200 || got.Provider != "issuer" || got.PoolID != "pool" || !reflect.DeepEqual(got.Scopes, original.Scopes) {
 		t.Fatalf("partial edit changed trust boundary: %d %+v", response.Code, got)
 	}
 	response = httptest.NewRecorder()
-	r.ServeHTTP(response, httptest.NewRequest("PUT", "/bindings/binding", strings.NewReader(`{"role":"superuser"}`)))
+	request = httptest.NewRequest("PUT", "/bindings/binding", strings.NewReader(`{"role":"superuser"}`))
+	request.Header.Set("If-Match", strconv.FormatInt(got.Revision, 10))
+	r.ServeHTTP(response, request)
 	if response.Code != 400 {
 		t.Fatalf("invalid IAM role persisted: %d %s", response.Code, response.Body.String())
 	}
 	response = httptest.NewRecorder()
-	r.ServeHTTP(response, httptest.NewRequest("PUT", "/bindings/binding", strings.NewReader(`{"role":"viewer"}`)))
+	request = httptest.NewRequest("PUT", "/bindings/binding", strings.NewReader(`{"role":"viewer"}`))
+	request.Header.Set("If-Match", strconv.FormatInt(got.Revision, 10))
+	r.ServeHTTP(response, request)
 	got, _ = store.GetRoleBinding(context.Background(), "binding")
 	if response.Code != 200 || len(got.Scopes) != 0 {
 		t.Fatalf("role downgrade retained old execution grants: %d %+v", response.Code, got)
@@ -200,13 +207,13 @@ type failedAgentWriteStore struct {
 	cancel context.CancelFunc
 }
 
-func (s failedAgentWriteStore) PutAgent(context.Context, *models.Agent) error {
+func (s failedAgentWriteStore) PutConfiguration(context.Context, registry.ConfigurationRecord, int64, int64) (registry.ConfigurationRecord, error) {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	return errors.New("persistent store failed")
+	return registry.ConfigurationRecord{}, errors.New("persistent store failed")
 }
-func TestAgentRegistrationRollsBackOAuthAfterCanceledPersistenceFailure(t *testing.T) {
+func TestAgentRegistrationClaimFailurePreventsOAuthSideEffects(t *testing.T) {
 	var methods []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		methods = append(methods, r.Method)
@@ -223,7 +230,7 @@ func TestAgentRegistrationRollsBackOAuthAfterCanceledPersistenceFailure(t *testi
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest("POST", "/agents", strings.NewReader(`{"client_id":"agent","display_name":"Agent","auth_method":"client_credentials","allowed_scopes":[]}`)).WithContext(ctx)
 	h.Register(response, request)
-	if response.Code != 500 || !reflect.DeepEqual(methods, []string{"POST", "DELETE"}) || strings.Contains(response.Body.String(), "never-return-after-failure") {
+	if response.Code != 503 || len(methods) != 0 || strings.Contains(response.Body.String(), "never-return-after-failure") {
 		t.Fatalf("failed registration left an OAuth credential or leaked it: %d methods=%v body=%s", response.Code, methods, response.Body.String())
 	}
 }

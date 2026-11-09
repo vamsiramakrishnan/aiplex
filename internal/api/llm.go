@@ -1,8 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strconv"
 	"sync"
 	"time"
@@ -57,6 +59,7 @@ func (h *LLMHandler) GetRouteConfig(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
+	configurationETag(w, rc.Revision)
 	JSON(w, http.StatusOK, rc)
 }
 
@@ -82,11 +85,28 @@ func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
 	rc.ModelID = modelID
 	rc.ID = "route-" + modelID
 	rc.BackendNamingVersion = 2 // caller metadata cannot choose native resource identities
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
 	previous, err := h.store.GetRouteConfig(r.Context(), modelID)
 	if err != nil && !errors.Is(err, registry.ErrNotFound) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "route configuration unavailable")
 		return
 	}
+	currentRevision := int64(0)
+	if previous != nil {
+		currentRevision = previous.Revision
+	}
+	expected, ok := configurationExpected(w, r, currentRevision)
+	if !ok {
+		return
+	}
+	if previous != nil && previous.DeletionPending {
+		Error(w, r, 409, "ROUTE_DELETION_PENDING", "finish deleting the saved route before replacing it")
+		return
+	}
+	rc.ActivationPending, rc.DeletionPending = true, false
 	if previous != nil {
 		rc.CreatedAt = previous.CreatedAt
 	} else {
@@ -97,6 +117,11 @@ func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 		return
 	}
+	if previous != nil && previous.ActivationPending && !sameDesiredRoute(previous, &rc) {
+		Error(w, r, 409, "ROUTE_ACTIVATION_PENDING", "retry the saved desired route before replacing its unfinished activation")
+		return
+	}
+
 	if previous != nil && !sameBackendNames(previous, &rc) {
 		if err := h.routeNotReferenced(r.Context(), modelID); err != nil {
 			Error(w, r, http.StatusConflict, "ROUTE_IN_USE", "remove fallback references before changing this route's backend inventory")
@@ -116,8 +141,7 @@ func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.saveRoute(r.Context(), &rc); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+	if !putConfiguration(w, r, versioned, registry.ConfigRoute, modelID, &rc, expected, generation) {
 		return
 	}
 
@@ -146,14 +170,13 @@ func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(rc.RetiredBackends) > 0 {
-		rc.RetiredBackends = nil
-		if err := h.saveRoute(r.Context(), &rc); err != nil {
-			w.Header().Set("X-LLM-Activation", "cleanup-pending")
-			Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "route submitted and old backends removed; cleanup inventory persistence failed; retry saved configuration")
-			return
-		}
+	rc.RetiredBackends = nil
+	rc.ActivationPending = false
+	if !putConfiguration(w, r, versioned, registry.ConfigRoute, modelID, &rc, rc.Revision, -1) {
+		w.Header().Set("X-LLM-Activation", "cleanup-pending")
+		return
 	}
+
 	w.Header().Set("X-LLM-Activation", "submitted-unverified")
 
 	JSON(w, http.StatusOK, rc)
@@ -169,6 +192,10 @@ func (h *LLMHandler) DeleteRouteConfig(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusBadRequest, "INVALID_MODEL", "valid route model identifier required")
 		return
 	}
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
 	config, err := h.store.GetRouteConfig(r.Context(), modelID)
 	if err != nil {
 		if errors.Is(err, registry.ErrNotFound) {
@@ -178,6 +205,15 @@ func (h *LLMHandler) DeleteRouteConfig(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
+	expected, ok := configurationExpected(w, r, config.Revision)
+	if !ok {
+		return
+	}
+	if config.ActivationPending {
+		Error(w, r, 409, "ROUTE_ACTIVATION_PENDING", "finish the saved route activation before deletion")
+		return
+	}
+
 	if err := h.routeNotReferenced(r.Context(), modelID); err != nil {
 		Error(w, r, http.StatusConflict, "ROUTE_IN_USE", "remove fallback references before deleting this route")
 		return
@@ -190,6 +226,11 @@ func (h *LLMHandler) DeleteRouteConfig(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusConflict, "BACKEND_OWNERSHIP_CONFLICT", "backend names overlap another route inventory; desired state retained")
 		return
 	}
+	config.DeletionPending = true
+	if !putConfiguration(w, r, versioned, registry.ConfigRoute, modelID, config, expected, generation) {
+		return
+	}
+
 	if err := h.k8s.Delete(r.Context(), "aigateway.envoyproxy.io/v1alpha1", "LLMRoute", "llm-"+modelID, "aiplex-system"); err != nil {
 		Error(w, r, http.StatusBadGateway, "ROUTE_DELETE_FAILED", "desired configuration retained; route deletion failed")
 		return
@@ -198,8 +239,8 @@ func (h *LLMHandler) DeleteRouteConfig(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusBadGateway, "ROUTE_CLEANUP_FAILED", "desired configuration retained; backend cleanup failed")
 		return
 	}
-	if err := h.store.DeleteRouteConfig(r.Context(), modelID); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "route deleted; desired configuration cleanup failed")
+	if err := versioned.DeleteConfiguration(r.Context(), registry.ConfigRoute, modelID, config.Revision, -1); err != nil {
+		configurationError(w, r, err)
 		return
 	}
 
@@ -239,6 +280,19 @@ func (h *LLMHandler) PutProvider(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusBadRequest, "INVALID_PROVIDER", err.Error())
 		return
 	}
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
+	current, err := versioned.GetConfiguration(r.Context(), registry.ConfigProvider, providerName)
+	if err != nil && !errors.Is(err, registry.ErrNotFound) {
+		configurationError(w, r, err)
+		return
+	}
+	expected, ok := configurationExpected(w, r, current.Revision)
+	if !ok {
+		return
+	}
 	if !pc.Enabled {
 		if err := h.providerNotReferenced(r.Context(), providerName); err != nil {
 			Error(w, r, http.StatusConflict, "PROVIDER_IN_USE", "remove enabled route backends before disabling this provider")
@@ -246,8 +300,7 @@ func (h *LLMHandler) PutProvider(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.store.PutProviderConfig(r.Context(), &pc); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+	if !putConfiguration(w, r, versioned, registry.ConfigProvider, providerName, &pc, expected, generation) {
 		return
 	}
 	w.Header().Set("X-LLM-Configuration", "saved")
@@ -353,4 +406,20 @@ func (h *LLMHandler) ListUsageRecords(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	JSON(w, http.StatusOK, records)
+}
+
+// Pending activation may be retried only for the same desired effect; a new
+// intent cannot overtake an unacknowledged native operation.
+func sameDesiredRoute(a, b *models.LLMRouteConfig) bool {
+	x, y := *a, *b
+	x.Revision, y.Revision = 0, 0
+	x.ActivationPending, y.ActivationPending = false, false
+	x.DeletionPending, y.DeletionPending = false, false
+	x.RetiredBackends, y.RetiredBackends = nil, nil
+	x.CreatedAt, y.CreatedAt = time.Time{}, time.Time{}
+	x.UpdatedAt, y.UpdatedAt = time.Time{}, time.Time{}
+	// Creation metadata is server-owned and not a desired routing effect.
+	rawX, _ := json.Marshal(x)
+	rawY, _ := json.Marshal(y)
+	return reflect.DeepEqual(rawX, rawY)
 }

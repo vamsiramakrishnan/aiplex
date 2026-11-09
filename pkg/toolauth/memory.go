@@ -20,6 +20,7 @@ func NewMemoryCredentials() *MemoryCredentials {
 }
 func cloneCredential(c Credential) Credential {
 	c.RedirectURIs = append([]string(nil), c.RedirectURIs...)
+	c.GrantTypes = append([]string(nil), c.GrantTypes...)
 	return c
 }
 func credentialReference(key CredentialKey) string {

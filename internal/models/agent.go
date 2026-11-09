@@ -4,6 +4,7 @@ import "time"
 
 // Agent represents a registered OAuth client (AI agent) that can access AIPlex resources.
 type Agent struct {
+	Revision    int64    `json:"revision"`
 	ClientID    string   `json:"client_id"`
 	DisplayName string   `json:"display_name"`
 	Description string   `json:"description,omitempty"`
@@ -17,8 +18,8 @@ type Agent struct {
 	ClientSecret string `json:"client_secret,omitempty" firestore:"-"`
 
 	// Identity
-	WIFPrincipal string `json:"wif_principal,omitempty"`
-	SpiffeID     string `json:"spiffe_id,omitempty"`
+	WIFPrincipal string   `json:"wif_principal,omitempty"`
+	SpiffeID     string   `json:"spiffe_id,omitempty"`
 	RedirectURIs []string `json:"redirect_uris,omitempty"`
 
 	// Organization
@@ -33,8 +34,8 @@ type Agent struct {
 
 // AgentPermissions provides a cross-plane view of an agent's effective permissions.
 type AgentPermissions struct {
-	AgentID string                    `json:"agent_id"`
-	Ceiling map[Plane][]ScopeInfo     `json:"ceiling"`
+	AgentID string                `json:"agent_id"`
+	Ceiling map[Plane][]ScopeInfo `json:"ceiling"`
 }
 
 // ScopeInfo describes a single scope with its human-readable description.

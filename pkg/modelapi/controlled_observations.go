@@ -57,8 +57,8 @@ func (g *Gateway) inspectControlled(owner Owner, op Operation, data []byte, run 
 	value, err := g.inspectJSON(ctx, owner, op, data, false, true)
 	if metadataFirst {
 		value.deferredVersion = err == nil && value.nativeTerminal && value.usage != nil
-		if value.deferredVersion && geminiGeneration(op) {
-			value.deferredVersion = normalizeGeminiFinal(value.usage) == nil
+		if value.deferredVersion {
+			value.deferredVersion = normalizeForRun(op, value.usage, run) == nil
 		}
 		if !value.deferredVersion {
 			if observeErr := observeVersionMetadata(run, value); observeErr != nil {
@@ -95,8 +95,8 @@ func (g *Gateway) observeControlledJSON(owner Owner, op Operation, data []byte, 
 		return false, nil
 	}
 	value.usage.Terminal = value.nativeTerminal
-	if geminiGeneration(op) && value.nativeTerminal {
-		if err = normalizeGeminiFinal(value.usage); err != nil {
+	if value.nativeTerminal {
+		if err = normalizeForRun(op, value.usage, run); err != nil {
 			if observeErr := observeVersionMetadata(run, value); observeErr != nil {
 				return false, observeErr
 			}
@@ -132,10 +132,13 @@ func sseFields(frame []byte) (data []byte, eventID string) {
 // usage; this preserves TTFT without delivering a false settled completion.
 func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, reader io.Reader, owner Owner, op Operation, run *executionRun, status int) {
 	input := bufio.NewReaderSize(reader, 32<<10)
+	anthropic := op.ID == "anthropic.messages" || (g.surface.Publisher == "anthropic" && anthropicOperation(op))
 	var frame, tail bytes.Buffer
 	var latest *UsageObservation
 	seenFinal, seenDone := false, false
+	anthropicStarted, anthropicStopped, anthropicFinalUsage := false, false, false
 	modelVersion := ""
+	var anthropicLatest *UsageObservation
 	deferredVersion := ""
 	finish := func(result execution.Result) {
 		if deferredVersion != "" {
@@ -167,7 +170,7 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 		if complete {
 			raw := append([]byte(nil), frame.Bytes()...)
 			data, id := sseFields(raw)
-			if seenDone && len(data) > 0 {
+			if (seenDone || anthropicStopped) && len(data) > 0 {
 				finish(execution.Result{Err: fmt.Errorf("native data followed stream completion")})
 				return
 			}
@@ -200,8 +203,47 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 					finish(execution.Result{Err: fmt.Errorf("native generation continued after final marker")})
 					return
 				}
+				if anthropic && value.eventType == "message_start" && value.resource.ID != "" && value.usage != nil {
+					anthropicStarted = true
+				}
+				if anthropic && value.eventType == "message_stop" {
+					anthropicStopped = true
+				}
+				if anthropic && value.eventType == "message_delta" && value.nativeTerminal && value.usage != nil {
+					_, anthropicFinalUsage = value.usage.Counters["output_tokens"]
+				}
+				if anthropic && value.usage != nil {
+					if anthropicLatest == nil {
+						copy := *value.usage
+						copy.Counters = map[string]int64{}
+						anthropicLatest = &copy
+					}
+					for key, n := range value.usage.Counters {
+						if prior, ok := anthropicLatest.Counters[key]; ok && n < prior {
+							finish(execution.Result{Err: fmt.Errorf("native cumulative usage regressed")})
+							return
+						}
+						anthropicLatest.Counters[key] = n
+					}
+					if value.usage.ModelVersion != "" {
+						anthropicLatest.ModelVersion = value.usage.ModelVersion
+					}
+					if value.usage.ResourceID != "" {
+						anthropicLatest.ResourceID = value.usage.ResourceID
+					}
+					copy := *anthropicLatest
+					copy.Counters = map[string]int64{}
+					for key, n := range anthropicLatest.Counters {
+						copy.Counters[key] = n
+					}
+					value.usage = &copy
+				}
 				if value.nativeTerminal {
 					seenFinal = true
+					if anthropic && value.usage == nil && anthropicLatest != nil {
+						copy := *anthropicLatest
+						value.usage = &copy
+					}
 				}
 				if value.usage != nil {
 					value.usage.EventID = id
@@ -240,7 +282,7 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 				finish(execution.Result{Err: r.Context().Err()})
 				return
 			}
-			markerComplete := seenFinal && (op.ID != "openai.chat-completions" || seenDone)
+			markerComplete := seenFinal && (op.ID != "openai.chat-completions" || seenDone) && (!anthropic || (anthropicStarted && anthropicStopped && anthropicFinalUsage))
 			if markerComplete && latest == nil {
 				// Counter-only policies can acknowledge a complete native response
 				// without token usage. Strict metering leases reject this result.
@@ -258,8 +300,8 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 			if latest.ModelVersion == "" {
 				latest.ModelVersion = modelVersion
 			}
-			if geminiGeneration(op) {
-				if err := normalizeGeminiFinal(latest); err != nil {
+			{
+				if err := normalizeForRun(op, latest, run); err != nil {
 					finish(execution.Result{ResponseComplete: true, Err: err})
 					return
 				}

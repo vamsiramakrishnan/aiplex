@@ -34,7 +34,8 @@ type quotaHostLease struct {
 func newQuotaHostLease(host *QuotaHost, engine *quotaplex.Engine, bound *quotaplex.BoundProvider, ticket *enforcement.Ticket, demand quotaplex.Demand, binding QuotaBinding, proof *QuotaBoundsProof) *quotaHostLease {
 	return &quotaHostLease{host: host, engine: engine, bound: bound, ticket: ticket, demand: demand, binding: binding, proof: proof, counters: map[string]int64{}}
 }
-func (l *quotaHostLease) AttemptID() string { return l.demand.AttemptID }
+func (l *quotaHostLease) AttemptID() string       { return l.demand.AttemptID }
+func (l *quotaHostLease) MeteringProfile() string { return l.binding.Profile }
 func quotaDurableContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -143,7 +144,7 @@ func (l *quotaHostLease) Observe(ctx context.Context, observation execution.Obse
 			return quotaStatus(502, "QUOTA_MODEL_VERSION_MISMATCH", "upstream model version differs from the configured authority")
 		}
 	}
-	if l.binding.Profile == quotaProfileGemini {
+	if quotaStrictProfile(l.binding.Profile) {
 		if !observation.Cumulative {
 			return quotaStatus(502, "QUOTA_USAGE_INVALID", "protected Gemini usage must be cumulative")
 		}
@@ -186,13 +187,26 @@ func (l *quotaHostLease) exceedsExposure(native map[string]int64) bool {
 	if value, known := native["input_tokens"]; known && value > inputLimit {
 		return true
 	}
-	for _, pair := range []struct {
+	pairs := []struct {
 		first, second string
 		limit         int64
 	}{
 		{"uncached_input_tokens", "cached_tokens", inputLimit},
 		{"output_tokens", "thought_tokens", l.proof.NativeBounds["output_tokens"]},
-	} {
+	}
+	if l.binding.Profile == quotaProfileOpenAI || l.binding.Profile == quotaProfileAnthropic {
+		pairs = pairs[:1]
+	}
+	if l.binding.Profile == quotaProfileAnthropic {
+		if _, normalized := native["uncached_input_tokens"]; !normalized {
+			input, iok := native["input_tokens"]
+			cached, cok := native["cached_tokens"]
+			if iok && cok && (cached > inputLimit || input > inputLimit-cached) {
+				return true
+			}
+		}
+	}
+	for _, pair := range pairs {
 		first, firstKnown := native[pair.first]
 		second, secondKnown := native[pair.second]
 		if (firstKnown && first > pair.limit) || (secondKnown && second > pair.limit) || (firstKnown && secondKnown && first > pair.limit-second) {
@@ -224,8 +238,11 @@ func (l *quotaHostLease) terminalLocked(ctx context.Context, native map[string]i
 	if l.binding.Plane == "mcplex" {
 		producer = "native-tool"
 	}
+	if l.binding.Plane == "a2aplex" {
+		producer = "native-agent"
+	}
 	eventID, _ := quotaDigest([]string{l.demand.Context.TenantID, l.demand.AttemptID, producer, "terminal"})
-	evidence := quotaplex.TerminalEvidence{Version: quotaplex.Version, ProducerID: producer, ConfigurationDigest: l.demand.Target.ConfigurationDigest, Settlement: quotaplex.Settlement{TenantID: l.demand.Context.TenantID, AttemptID: l.demand.AttemptID, EventID: eventID, Claim: *l.claim, Usage: usage, ProviderResourceID: l.resource}, ObservedModelVersion: l.modelVersion, RequireModelVersion: l.binding.Profile == quotaProfileGemini}
+	evidence := quotaplex.TerminalEvidence{Version: quotaplex.Version, ProducerID: producer, ConfigurationDigest: l.demand.Target.ConfigurationDigest, Settlement: quotaplex.Settlement{TenantID: l.demand.Context.TenantID, AttemptID: l.demand.AttemptID, EventID: eventID, Claim: *l.claim, Usage: usage, ProviderResourceID: l.resource}, ObservedModelVersion: l.modelVersion, RequireModelVersion: quotaStrictProfile(l.binding.Profile)}
 	if l.evidence != nil {
 		oldDigest, _ := quotaDigest(l.evidence)
 		newDigest, _ := quotaDigest(evidence)
@@ -242,7 +259,7 @@ func (l *quotaHostLease) flushTerminalLocked(ctx context.Context) error {
 	if l.evidence == nil {
 		return quotaplex.ErrTerminalEvidenceRequired
 	}
-	mismatch := (l.binding.Profile == quotaProfileGemini && l.modelVersion == "") || (l.modelVersion != "" && l.binding.ModelVersion != "" && l.modelVersion != l.binding.ModelVersion)
+	mismatch := (quotaStrictProfile(l.binding.Profile) && l.modelVersion == "") || (l.modelVersion != "" && l.binding.ModelVersion != "" && l.modelVersion != l.binding.ModelVersion)
 	if mismatch || l.exposureViolation {
 		observed := l.modelVersion
 		if observed == "" {

@@ -121,8 +121,9 @@ advertises an authorization-server registration endpoint it cannot actually issu
 Production DCR secrets go to Secret Manager as tenant/issuer/profile-bound
 version-specific references. Only NotFound permits new registration; permission
 or network failures fail closed. Concurrent calls coalesce within a host, while
-immutable secret versions prevent cross-host client/secret confusion. User login
-and token exchange are separate OAuth mechanisms. See `pkg/toolauth/README.md`.
+immutable secret versions prevent cross-host client/secret confusion. Owner-bound PKCE callbacks, code exchange, refresh rotation and revocation now
+feed managed execution through the optional runtime. See
+[MCP runtime authorization](mcp-runtime-authorization.md).
 
 ## Native networking and Anvil fallback
 
@@ -141,10 +142,9 @@ intent/network revisions, bundle snapshot, executable, Anvil build and expiry.
 Public previews omit credentials and raw business payloads.
 
 Anvil's own deploy/publish commands prepare connector artifacts; they do not prove
-cloud apply or readiness. The HTTP integration exposes planning only. The public
-provider library additionally supports execution with host-verified approval and
-a durable receipt journal, disabled by default, and preserves ambiguous effects as
-`unknown` for reconciliation. See [Anvil provider](anvil-deployment-provider.md).
+cloud apply or readiness. The HTTP integration now exposes operator-enabled approved execution and separately
+configured native health observations. Durable approval and invocation records
+preserve ambiguous effects as `unknown`; none are automatically retried. See [Anvil provider](anvil-deployment-provider.md).
 
 ## Validation scope
 
@@ -157,3 +157,5 @@ validation. No live cloud infrastructure was applied during implementation.
 QuotaPlex allocation and accounting remain a separate module.
 Its [prerequisite checklist](quotaplex-prerequisites.md) distinguishes reusable
 foundations, pending host integrations and production enforcement gates.
+
+See [configuration consistency](configuration-consistency.md), [membership authority](membership-authority.md), [quota administration](quotaplex-administration.md) and [model metering profiles](model-metering-profiles.md) for the completed shared mechanisms and their boundaries.

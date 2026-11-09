@@ -50,11 +50,11 @@ revision across replicas; stale replicas fail readiness/dispatch checks.
 
 | Path | Enabled coverage |
 | --- | --- |
-| `/api/v1/llm/native/{surface}/*` | Exact `models.generateContent` and `models.streamGenerateContent` bindings; JSON and native SSE respectively |
+| `/api/v1/llm/native/{surface}/*` | Explicit operation coverage with request-count or supported native token profiles; see [model metering profiles](model-metering-profiles.md) |
 | `/api/v1/llm/gateway/{surface}/*` | Client facade only when it resolves to the same supported native operation and surface; it reuses the same admission path |
-| `/api/v1/mcp/connections/{connection}/invoke` | Explicit stateless JSON HTTP `tools/call`, with an allowlisted tool and operator credential adapter |
-| Other model operations | Protected execution fails closed; Interactions, batch/jobs, media, raw prediction, Live and other transports need their own exposure/metering adapters |
-| `/api/v1/a2a/connections/{connection}/invoke` | Returns `501 QUOTA_AGENT_COVERAGE_UNAVAILABLE` while QuotaPlex is enabled; opaque internal agent work has no supported accounting contract |
+| `/api/v1/mcp/connections/{connection}/invoke` | Allowlisted stateless JSON or bounded finite SSE `tools/call`, with operator or owner-bound delegated OAuth credentials |
+| Other model operations | Unsupported operations fail closed. Request-count can cover cataloged job/cache exchanges; it does not meter their internal work. Live and unbounded token profiles remain unsupported. |
+| `/api/v1/a2a/connections/{connection}/invoke` | Explicit `a2aplex` request-count bindings govern the native HTTP exchange; opaque internal model/tool work and job lifetime remain outside this profile |
 | Direct provider, Envoy-deployed routes, external/native client modes and skill servers | No automatic coverage; their existing paths are not rewritten into this Go API integration |
 
 An enabled host requires a matching binding for each managed invocation. Missing
@@ -64,9 +64,9 @@ Registration, WIF, registry metadata and a configured network route do not prove
 that every billable call crosses the protected path.
 
 The model adapter preserves exact upstream payloads, identity headers and native
-JSON/SSE framing. It does not infer compatibility from a provider label. In the
-first managed adapter, only the two named Gemini generation operations are enabled;
-an OpenAI-compatible protocol label does not add a protected Chat/Responses path.
+JSON/SSE framing. It does not infer compatibility from a provider label. Installed operation/profile contracts now include Gemini generation, model-backed
+Interactions, OpenAI Chat/Responses and Anthropic Messages. A protocol label alone
+does not install a metering contract or establish model availability.
 
 ## Request-count and tool profiles
 
@@ -86,12 +86,13 @@ throughput guarantees.
 
 Managed MCP execution is separate from OAuth registration. The saved connection
 needs an explicit `execution` object with matching `id`/`endpoint`, an approved
-`identity_ref`, `mode: "stateless-json"`, a real `protocol_version` and
+operator `identity_ref` or delegated OAuth mode, an explicit `mode` and `protocol_version`, and
 `allowed_tools`. The endpoint must match `resource_url` and both network and
 credential-origin policies. The adapter sends one JSON-RPC request and accepts a
-bounded JSON response with its matching ID. Batch calls, notifications, session
-initialization, `MCP-Session-Id`, SSE delivery and delegated OAuth sessions are not
-inferred from DCR/CIMD metadata. A valid JSON-RPC error still consumes a call.
+bounded JSON response with its matching ID. The `stateless-streamable-http` mode additionally supports bounded finite native SSE.
+Batch calls, notification-only invocations, initialization and `MCP-Session-Id` are
+not inferred from registration. A valid JSON-RPC error still consumes a call. See
+[delegated MCP runtime authorization](mcp-runtime-authorization.md).
 
 ## Token and monetary exposure
 
@@ -143,8 +144,8 @@ and canonical principal. Request arrival does not create membership freshness.
 Verified request-bound mTLS can shorten usable expiry to the certificate expiry;
 a certificate alone supplies no directory group authority.
 Service-account/native OIDC credentials that omit complete signed groups still
-need a principal membership authority; a generic principal-directory resolver is
-not installed merely by enabling WIF. The actor resolver is a separate contract.
+need a principal membership authority; configure the signed principal-directory authority described below; enabling WIF
+alone does not install one. Principal and actor queries stay independent.
 
 `host.max_membership_age` defaults to five minutes and is bounded from one second
 to 24 hours. Effective membership expiry is the earlier of that age and credential
@@ -160,8 +161,9 @@ not a live synchronization with a native cloud registry or IdP directory.
 
 Claim-time checks reread saved connection/network/credential configuration and
 re-resolve current manual/role grants from the registry using the verified caller.
-This does not perform an IdP directory lookup or make cached group membership
-instantly revocable. Missing access refresh on a protected host fails closed.
+Role/manual-grant refresh itself does not query an IdP. With a configured signed
+directory authority, quota membership is separately refreshed within its bounded
+cache/revocation contract. Missing access refresh on a protected host fails closed.
 
 `X-Aiplex-Funding-Account` requests a payer; it cannot grant eligibility or override
 an operator-pinned payer. `Idempotency-Key` identifies a billable attempt within
@@ -206,9 +208,11 @@ aiplex quota attempt attempt-<opaque-id>
 ```
 
 The SDK exposes `GetQuotaAttempt`. Reads preserve both human and agent ownership
-boundaries. There is no arbitrary settlement, correction, repricing or quarantine
-clear endpoint. Missing/changed version proof and operator corrections require a
-future authorized workflow; they must not be repaired by editing ledger records.
+boundaries. [Quota administration](quotaplex-administration.md) now provides scoped inspection,
+policy validation/export, audited loans and reviewed reconciliation. Corrections
+require exact state/digest/model proof and settle at original prices while
+preserving original evidence. There is no arbitrary repricing or quarantine-clear
+endpoint. A corrected attempt does not reopen its binding generation.
 
 ## Deployment gates
 
@@ -219,3 +223,54 @@ protocol fixtures; they do not prove live billing equivalence or deployed routin
 Rolling budgets, minimum-throughput guarantees, distributed capacity scheduling,
 native preemption, remote admission RPC, direct-route interception and additional
 specialized model/tool/agent adapters remain explicit work.
+
+## Additional foundational mechanisms
+
+[Signed membership authority](membership-authority.md) can supply complete, expanded
+source-qualified principal and actor snapshots independently of JWT group claims.
+Configure `membership_authority` with its pinned HTTP signing keys, allowed sources,
+endpoint, host identity reference and optional bounded cache. Resolver failure does
+not fall back to claims. This custom authority protocol does not install a native
+Google/Entra/AWS directory synchronizer or grant new execution scopes.
+
+`administration.allow_self_approval` is operator policy, default false. The Console
+module exposes policy/inventory inspection, reviewed draft export, loans and
+reconciliation. Mutations retain stable operation IDs after uncertain responses;
+browser-unsafe integers require the exact CLI/API path instead of rounding.
+
+The optional `scheduling` array binds a `SchedulerConfig` to exact resource, operation
+and selected payer routes. The host derives flow identity after funding eligibility
+resolution; callers cannot select protected partitions. Queue selection, capacity
+credit debit and ordinary quota admission commit atomically. Dispatch still rechecks
+current grants, membership and capacity evidence before claiming once.
+
+Each entry includes `config`, `routes`, optional `poll_interval` (default 100ms) and
+`expected_digest` for evidence renewal. Routes contain `resource_id`, `operation_id`,
+optional `payer_id` and `flow_id`; overlapping routes fail startup. Queue `max_wait`
+bounds how long managed requests wait. Cancellation aborts only definitely
+undispatched holds. The scheduler inventory exposes the previous scheduler digest.
+Evidence renewal and quantity-only quota revisions preserve queue history and spent
+credits; changes to funding eligibility, flow mapping or capacity structure require
+explicit migration. Protected admission credits are not upstream reserved capacity,
+stream token pacing or a minimum decode-throughput guarantee.
+
+[Production qualification](production-qualification.md) includes real-emulator CI,
+reference benchmarks and exact local billing-evidence comparison.
+
+## Native cloud-agent exchanges
+
+The native Google Runtime, Bedrock/AgentCore, Foundry and Copilot invoker uses the
+same acknowledged execution lifecycle under an explicit `request-count` binding.
+Set plane `a2aplex`, exact connection `resource_id`, native invocation
+`operation_id` and provider identifier. The profile maps `requests`; it does not
+accept token estimates for the opaque agent. Scope, saved target/governance/network
+records and independent caller/actor memberships are rechecked before dispatch.
+AWS credential acquisition and signing-account attestation occur after admission.
+
+HTTP exchange completion settles one request. Native binary/SSE data streams
+without transformation; the bounded transport tail/EOF waits for acknowledgement.
+This is transport finality, not a guarantee that every earlier native business
+final event is withheld or that an upstream background job is complete. Truncated
+or cancelled exchanges retain unknown exposure. Controlled sessions separate
+different actors delegated by the same human; legacy unprotected session
+namespaces remain compatible.

@@ -40,7 +40,7 @@ func TestScopesDTOAnd204UpdateRoundTrip(t *testing.T) {
 	defer server.Close()
 	client := aiplex.NewClient(server.URL)
 	result, err := client.SetUserScopes(context.Background(), principal, []string{"llm:model:test"})
-	if err != nil || result.UserID != principal || len(result.Scopes) != 1 || len(result.ByPlane["llmplex"]) != 1 || strings.Join(requests, ",") != "PUT,GET" {
+	if err != nil || result.UserID != principal || len(result.Scopes) != 1 || len(result.ByPlane["llmplex"]) != 1 || strings.Join(requests, ",") != "GET,PUT,GET" {
 		t.Fatal(result, err, requests)
 	}
 	if cleared, err := client.SetUserScopes(context.Background(), principal, nil); err != nil || len(cleared.Scopes) != 0 {

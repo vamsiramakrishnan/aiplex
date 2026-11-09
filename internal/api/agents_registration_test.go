@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,8 +35,8 @@ func TestConfiguredHydraFailureDoesNotRegisterActiveAgent(t *testing.T) {
 	if response.Code != 502 {
 		t.Fatal(response.Code, response.Body.String())
 	}
-	if _, e := store.GetAgent(context.Background(), "client"); e == nil {
-		t.Fatal("agent persisted despite issuance failure")
+	if pending, e := store.GetAgent(context.Background(), "client"); e != nil || pending.Status != "provisioning" || pending.ClientSecret != "" {
+		t.Fatal("issuance failure did not retain a non-active reconciliation claim", pending, e)
 	}
 }
 func TestAgentSecretReturnedOnceAndRevocationFailureRetainsRecord(t *testing.T) {
@@ -62,6 +63,7 @@ func TestAgentSecretReturnedOnceAndRevocationFailureRetainsRecord(t *testing.T) 
 	}
 	request = httptest.NewRequest("DELETE", "/api/v1/agents/client", nil)
 	request.SetPathValue("clientId", "client")
+	request.Header.Set("If-Match", strconv.FormatInt(stored.Revision, 10))
 	response = httptest.NewRecorder()
 	handler.Delete(response, request)
 	if response.Code != 502 {

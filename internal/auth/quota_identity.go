@@ -86,7 +86,7 @@ func constrainRequestEvidence(r *http.Request, evidence *models.IdentityEvidence
 // Called only after the configured TokenVerifier has accepted the credential.
 // Evidence validation is intentionally stricter than existing role extraction.
 func verifiedIdentityEvidence(claims map[string]any, identity *models.WIFIdentity) *models.IdentityEvidence {
-	evidence := &models.IdentityEvidence{Issuer: identity.Provider, PoolID: identity.PoolID, Subject: identity.Subject}
+	evidence := &models.IdentityEvidence{Issuer: identity.Provider, PoolID: identity.PoolID, Subject: identity.Subject, ActorSubject: identity.ActorSubject}
 	iat, iatOK := evidenceNumericDate(claims["iat"])
 	exp, expOK := evidenceNumericDate(claims["exp"])
 	if iatOK {

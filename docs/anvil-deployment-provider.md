@@ -11,8 +11,8 @@ or a replacement for the existing native networking plans.
 3. Execute a previously reviewed infrastructure operation only when a host
    explicitly supplies verified approval and durable journal adapters.
 
-The Aiplex HTTP integration exposes planning, not execution. No cloud resource
-is created by enabling the provider or registering a connection.
+The HTTP host exposes planning plus explicitly operator-enabled reviewed execution.
+No cloud resource is created by enabling the provider or registering a connection.
 
 ## Objects and references
 
@@ -152,3 +152,49 @@ Sources:
 - [Plan-only deployment commands](https://github.com/vamsiramakrishnan/anvil/blob/c2d31108e2b02d8a543a7c1b01e8246f546bd6c9/packages/cli/src/commands/deploy.ts)
 - [Anvil build identity](https://github.com/vamsiramakrishnan/anvil/blob/c2d31108e2b02d8a543a7c1b01e8246f546bd6c9/packages/cli/src/build-identity.ts)
 - [Canonical bundle identity](https://github.com/vamsiramakrishnan/anvil/blob/c2d31108e2b02d8a543a7c1b01e8246f546bd6c9/packages/generators/src/certify.ts)
+
+## Managed HTTP apply and observations
+
+When `config.allow_execute` is true, production requires durable resource storage.
+The API stores the saved plan and intent/network revisions. An authorized caller
+creates an approval with `POST /api/v1/network/plans/{digest}/approve`, supplying
+that exact `digest` and a bounded `reason`. This requires
+`aiplex:deployment:approve:<resource>`. Approval records bind the original executor,
+actor, plan revision and expiry. An approval is not a request-body boolean.
+
+The original principal and actor execute with `POST .../{digest}/execute`, passing
+`digest` and `approval_id`, under a current
+`aiplex:deployment:execute:<resource>` grant. The host rechecks approval grants and
+saved source revisions, and the provider rechecks bundle/runtime identity. It
+journals once before native execution. Repeat requests inspect the original
+receipt; unknown operations are never automatically reissued. `GET .../receipt`
+returns the invocation outcome, with readiness still unverified.
+
+With QuotaPlex enabled, Anvil commands require explicit request-count bindings on
+plane `mcplex`, provider `anvil`, the intent resource ID and operation
+`tools/call:anvil.<phase>:<native-operation-id>`, where phase is `plan`, `execute`
+or `observe`. Each command counts independently. Quota claims happen after local
+preparation immediately before the operation can start. This meters the managed
+command, not every internal action or dollar billed by its upstream system.
+
+Optional provider `readiness` entries configure a read-only HTTP observation:
+`tenant_id`, `binding_id`, `identity_ref`, `url`, `target_ref`, `resource_field`,
+`ready_field`, `ready_value` and bounded `ttl`. The credential destination and
+endpoint must pass existing policy. `POST .../{digest}/observe` requires a stable
+`Idempotency-Key` and `aiplex:deployment:observe:<resource>`. It fetches native JSON,
+requires the exact configured target, evaluates the configured state, and stores
+a short-lived observation with response/configuration/receipt digests. Caller
+assertions cannot mark a resource ready.
+
+This observation establishes configured native health criteria. It does not prove
+that every desired input was applied or that private DNS/routes are correct; a
+pre-existing healthy target does not prove the write happened. It never changes
+an unknown invocation into a successful write. Production must qualify the actual
+probe semantics and native desired-state convergence. Approval grant refresh uses
+the registry's current grants with the saved verified approver identity; it does
+not silently obtain a new IdP sign-in or directory observation for that approver.
+
+SDK methods and `aiplex infra approve|execute|receipt|observe` expose the same
+workflow. No apply was performed against a live cloud during implementation.
+
+`GET .../{digest}/observation` with the original `Idempotency-Key` recovers a saved observation after response loss. Repeating the completed observation key returns that observation rather than probing again. Check its expiry before using it as current health. Fund recovery/observation capacity independently when production permits can remain held by unknown work.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -87,6 +88,7 @@ func TestLLM_RouteConfig_CRUD(t *testing.T) {
 
 	// Delete
 	req = httptest.NewRequest("DELETE", "/api/v1/llm/routes/gemini-2.5-flash", nil)
+	req.Header.Set("If-Match", strconv.FormatInt(rc.Revision, 10))
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != 204 {

@@ -234,7 +234,7 @@ func TestQuotaHostModelUnboundOperationRejectsBeforeCredentialLookup(t *testing.
 	t.Setenv("QUOTA_HOST_MODEL_TOKEN", "")
 	rec := httptest.NewRecorder()
 	f.handler.NativeModel(rec, f.request("countTokens", "unsupported", `{"contents":[]}`, false))
-	if rec.Code != 501 || !strings.Contains(rec.Body.String(), "QUOTA_OPERATION_UNSUPPORTED") || f.calls.Load() != 0 || len(quotaHostTestAttempts(t, f.store)) != 0 {
+	if rec.Code != 503 || !strings.Contains(rec.Body.String(), "QUOTA_COVERAGE_UNAVAILABLE") || f.calls.Load() != 0 || len(quotaHostTestAttempts(t, f.store)) != 0 {
 		t.Fatal("unsupported operation reached credentials or reserved capacity", rec.Code, rec.Body.String(), f.calls.Load())
 	}
 }

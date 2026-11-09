@@ -115,21 +115,23 @@ var ErrNotFound = fmt.Errorf("not found")
 
 // MemoryStore is an in-memory Store implementation for development and testing.
 type MemoryStore struct {
-	mu                 sync.RWMutex
-	instances          map[string]*models.Instance
-	templates          map[string]*models.Template
-	agents             map[string]*models.Agent
-	history            []models.DeployHistory
-	userScopes         map[string][]string
-	routeConfigs       map[string]*models.LLMRouteConfig
-	providerConfigs    map[string]*models.ProviderConfig
-	usageRecords       []models.UsageRecord
-	delegations        map[string]*models.Delegation
-	delegationList     []models.Delegation
-	skillInvocations   []models.SkillInvocation
-	skillInvocationIDs map[string]struct{}
-	policyDenials      []models.PolicyDenial
-	roleBindings       map[string]*models.RoleBinding
+	configurationRevisions  map[string]configurationRevision
+	configurationGeneration int64
+	mu                      sync.RWMutex
+	instances               map[string]*models.Instance
+	templates               map[string]*models.Template
+	agents                  map[string]*models.Agent
+	history                 []models.DeployHistory
+	userScopes              map[string][]string
+	routeConfigs            map[string]*models.LLMRouteConfig
+	providerConfigs         map[string]*models.ProviderConfig
+	usageRecords            []models.UsageRecord
+	delegations             map[string]*models.Delegation
+	delegationList          []models.Delegation
+	skillInvocations        []models.SkillInvocation
+	skillInvocationIDs      map[string]struct{}
+	policyDenials           []models.PolicyDenial
+	roleBindings            map[string]*models.RoleBinding
 	// Execution audit (AIPlex ↔ Tape integration PR 6 + PR 11).
 	executionEvents     map[string][]models.ExecutionEvent // runID → events (append-only)
 	executionEventKeys  map[string]struct{}                // "<runID>/<seq>" idempotency set
@@ -273,21 +275,15 @@ func (m *MemoryStore) ListAgents(_ context.Context) ([]models.Agent, error) {
 	return out, nil
 }
 
-func (m *MemoryStore) PutAgent(_ context.Context, a *models.Agent) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.agents[a.ClientID] = cloneAuthAgent(a)
-	return nil
+func (m *MemoryStore) PutAgent(ctx context.Context, a *models.Agent) error {
+	if a == nil {
+		return fmt.Errorf("configuration required")
+	}
+	return PutLegacyConfiguration(ctx, m, ConfigAgent, a.ClientID, a)
 }
 
-func (m *MemoryStore) DeleteAgent(_ context.Context, clientID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.agents[clientID]; !ok {
-		return ErrNotFound
-	}
-	delete(m.agents, clientID)
-	return nil
+func (m *MemoryStore) DeleteAgent(ctx context.Context, clientID string) error {
+	return DeleteLegacyConfiguration(ctx, m, ConfigAgent, clientID)
 }
 
 func (m *MemoryStore) AppendHistory(_ context.Context, h *models.DeployHistory) error {
@@ -323,11 +319,9 @@ func (m *MemoryStore) GetUserScopes(_ context.Context, userID string) ([]string,
 	return cloneAuthScopes(scopes), nil
 }
 
-func (m *MemoryStore) SetUserScopes(_ context.Context, userID string, scopes []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.userScopes[userID] = cloneAuthScopes(scopes)
-	return nil
+func (m *MemoryStore) SetUserScopes(ctx context.Context, userID string, scopes []string) error {
+	value := &configurationScopes{Scopes: scopes}
+	return PutLegacyConfiguration(ctx, m, ConfigUserScopes, userID, value)
 }
 
 // ── LLM Route Configs ──
@@ -352,28 +346,15 @@ func (m *MemoryStore) ListRouteConfigs(_ context.Context) ([]models.LLMRouteConf
 	return out, nil
 }
 
-func (m *MemoryStore) PutRouteConfig(_ context.Context, rc *models.LLMRouteConfig) error {
-	if rc == nil || rc.ModelID == "" {
-		return fmt.Errorf("route model identity required")
+func (m *MemoryStore) PutRouteConfig(ctx context.Context, rc *models.LLMRouteConfig) error {
+	if rc == nil {
+		return fmt.Errorf("configuration required")
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	rc.UpdatedAt = time.Now()
-	if rc.CreatedAt.IsZero() {
-		rc.CreatedAt = time.Now()
-	}
-	m.routeConfigs[rc.ModelID] = memorySnapshot(rc)
-	return nil
+	return PutLegacyConfiguration(ctx, m, ConfigRoute, rc.ModelID, rc)
 }
 
-func (m *MemoryStore) DeleteRouteConfig(_ context.Context, modelID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.routeConfigs[modelID]; !ok {
-		return ErrNotFound
-	}
-	delete(m.routeConfigs, modelID)
-	return nil
+func (m *MemoryStore) DeleteRouteConfig(ctx context.Context, modelID string) error {
+	return DeleteLegacyConfiguration(ctx, m, ConfigRoute, modelID)
 }
 
 // ── Provider Configs ──
@@ -398,14 +379,11 @@ func (m *MemoryStore) ListProviderConfigs(_ context.Context) ([]models.ProviderC
 	return out, nil
 }
 
-func (m *MemoryStore) PutProviderConfig(_ context.Context, pc *models.ProviderConfig) error {
-	if pc == nil || pc.Provider == "" {
-		return fmt.Errorf("provider identity required")
+func (m *MemoryStore) PutProviderConfig(ctx context.Context, pc *models.ProviderConfig) error {
+	if pc == nil {
+		return fmt.Errorf("configuration required")
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.providerConfigs[pc.Provider] = memorySnapshot(pc)
-	return nil
+	return PutLegacyConfiguration(ctx, m, ConfigProvider, pc.Provider, pc)
 }
 
 // ── Usage Tracking ──
@@ -649,21 +627,15 @@ func (m *MemoryStore) ListRoleBindingsByGroup(_ context.Context, group string) (
 	return out, nil
 }
 
-func (m *MemoryStore) PutRoleBinding(_ context.Context, rb *models.RoleBinding) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.roleBindings[rb.ID] = cloneAuthRoleBinding(rb)
-	return nil
+func (m *MemoryStore) PutRoleBinding(ctx context.Context, rb *models.RoleBinding) error {
+	if rb == nil {
+		return fmt.Errorf("configuration required")
+	}
+	return PutLegacyConfiguration(ctx, m, ConfigRoleBinding, rb.ID, rb)
 }
 
-func (m *MemoryStore) DeleteRoleBinding(_ context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.roleBindings[id]; !ok {
-		return ErrNotFound
-	}
-	delete(m.roleBindings, id)
-	return nil
+func (m *MemoryStore) DeleteRoleBinding(ctx context.Context, id string) error {
+	return DeleteLegacyConfiguration(ctx, m, ConfigRoleBinding, id)
 }
 
 // ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────

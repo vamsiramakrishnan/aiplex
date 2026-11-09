@@ -62,3 +62,25 @@ Official contracts:
 - https://learn.microsoft.com/en-us/azure/foundry/agents/how-to/virtual-networks
 - https://learn.microsoft.com/en-us/microsoft-copilot-studio/publication-connect-bot-to-custom-application
 - https://learn.microsoft.com/en-us/azure/bot-service/rest-api/bot-framework-rest-direct-line-3-0-api-reference
+
+## Managed request accounting
+
+`WithExecutionPreparer` optionally binds native HTTP invocation to the shared
+acknowledged execution lease. Preparation follows request/scope/session validation
+and precedes credentials. The adapter rechecks authorization/session ownership and
+claims dispatch immediately before provider I/O. Failed pre-claim work aborts;
+post-claim uncertainty never becomes an undispatched refund.
+
+The controlled response reader streams native bytes with a bounded one-byte tail.
+A clean HTTP EOF acknowledges one request before releasing that tail/EOF. Early
+close, cancellation, truncation or failed acknowledgement retains uncertain
+exposure. JSON, SSE and AWS binary event streams retain their bytes. This contract
+counts the managed HTTP RPC, not the provider agent's internal model/tool work or
+its asynchronous job lifetime. It does not promise that a native final event
+already present in an earlier chunk waits for accounting; completion is defined
+as the HTTP exchange's EOF.
+
+Controlled AWS session namespaces and Copilot conversation ownership include the
+verified delegated actor as well as the human. Uncontrolled clients keep their
+legacy principal namespace. Copilot conversation creation still pins the observed
+session ID and persists ownership before returning its body.

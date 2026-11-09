@@ -32,6 +32,17 @@ func (s *lifecycleStore) SetUserScopes(ctx context.Context, owner string, scopes
 	return s.MemoryStore.SetUserScopes(ctx, owner, scopes)
 }
 
+func (s *lifecycleStore) ModifyUserScopes(ctx context.Context, owner string, modify func([]string) ([]string, error)) error {
+	if s.getScopesErr {
+		return errors.New("owner scopes unavailable")
+	}
+	s.scopeWrites++
+	if s.setScopesErr {
+		return errors.New("owner scopes write unavailable")
+	}
+	return s.MemoryStore.ModifyUserScopes(ctx, owner, modify)
+}
+
 func (s *lifecycleStore) PutInstance(ctx context.Context, instance *models.Instance) error {
 	if err := ctx.Err(); err != nil {
 		return err

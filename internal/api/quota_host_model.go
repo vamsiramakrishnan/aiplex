@@ -60,7 +60,7 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 		return nil
 	}
 	return modelapi.ExecutionPreparerFunc(func(ctx context.Context, input modelapi.ExecutionRequest) (execution.Lease, error) {
-		if input.Operation.ID != "models.generateContent" && input.Operation.ID != "models.streamGenerateContent" {
+		if !modelapi.Coverage(input.Operation).RequestCount {
 			return nil, quotaStatus(501, "QUOTA_OPERATION_UNSUPPORTED", "this model operation has no managed execution adapter")
 		}
 		if input.Metadata.Transport == modelapi.WebSocket {
@@ -117,25 +117,31 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 			if digest != pinnedDigest || !reflect.DeepEqual(input.Surface, latest.Surface) {
 				return fmt.Errorf("resolved provider configuration changed")
 			}
-			if err = h.authorizeCurrent(callCtx, r, "llm:surface:"+record.ID+":"+input.Operation.ID); err != nil {
-				return err
-			}
+			required := []string{"llm:surface:" + record.ID + ":" + input.Operation.ID}
 			if input.Metadata.Agent != "" {
-				if err = h.authorizeCurrent(callCtx, r, "llm:agent:"+input.Metadata.Agent); err != nil {
-					return err
-				}
+				required = append(required, "llm:agent:"+input.Metadata.Agent)
 			}
 			if model != "" {
-				return h.authorizeCurrent(callCtx, r, "llm:model:"+model)
+				required = append(required, "llm:model:"+model)
 			}
-			return nil
+			return h.authorizeAllCurrent(callCtx, r, required...)
 		}
-		if input.Operation.ID == "models.streamGenerateContent" {
+		if input.Operation.ID == "models.streamGenerateContent" || input.Operation.ID == "endpoints.streamGenerateContent" {
 			query, err := url.ParseQuery(input.RawQuery)
 			if err != nil || len(query["alt"]) != 1 || query.Get("alt") != "sse" {
 				return nil, quotaStatus(400, "QUOTA_STREAM_SHAPE_UNSUPPORTED", "protected Gemini streaming requires alt=sse")
 			}
 		}
-		return h.Quota.Prepare(ctx, r, QuotaInvocation{Context: input.Context, Plane: "llmplex", ResourceID: record.ID, OperationID: input.Operation.ID, Model: model, Target: target, Body: append([]byte(nil), input.Body...), Method: input.Method, Path: input.Path, RawQuery: input.RawQuery, Headers: input.Headers, Configuration: configuration, Reauthorize: reauthorize})
+		protocolHeaders := http.Header{}
+		for _, key := range []string{"Anthropic-Version", "Anthropic-Beta", "Last-Event-ID"} {
+			if values := input.Headers.Values(key); len(values) > 0 {
+				protocolHeaders[http.CanonicalHeaderKey(key)] = append([]string(nil), values...)
+			}
+		}
+		invocationConfiguration := struct {
+			Provider        quotaModelConfiguration
+			ProtocolHeaders http.Header
+		}{configuration, protocolHeaders}
+		return h.Quota.Prepare(ctx, r, QuotaInvocation{Context: input.Context, Plane: "llmplex", ResourceID: record.ID, OperationID: input.Operation.ID, Model: model, Target: target, Body: append([]byte(nil), input.Body...), Method: input.Method, Path: input.Path, RawQuery: input.RawQuery, Headers: input.Headers, Configuration: invocationConfiguration, Reauthorize: reauthorize})
 	})
 }

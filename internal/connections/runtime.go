@@ -177,6 +177,7 @@ type secretCredential struct {
 	Tenant, Issuer, Profile, ClientID, ClientSecret, RegistrationAccessToken, TokenEndpointAuthMethod string
 	SecretExpiresAt                                                                                   int64
 	RedirectURIs                                                                                      []string
+	GrantTypes                                                                                        []string
 }
 type SecretVersionStore interface {
 	GetLatestVersion(context.Context, string) ([]byte, string, error)
@@ -208,7 +209,7 @@ func (s SecretCredentials) Get(ctx context.Context, k toolauth.CredentialKey) (t
 	if doc.Tenant != k.TenantID || doc.Issuer != k.Issuer || doc.Profile != k.ProfileID {
 		return toolauth.Credential{}, "", fmt.Errorf("credential namespace mismatch")
 	}
-	return toolauth.Credential{ClientID: doc.ClientID, ClientSecret: doc.ClientSecret, RegistrationAccessToken: doc.RegistrationAccessToken, SecretExpiresAt: doc.SecretExpiresAt, TokenEndpointAuthMethod: doc.TokenEndpointAuthMethod, RedirectURIs: doc.RedirectURIs}, version, nil
+	return toolauth.Credential{ClientID: doc.ClientID, ClientSecret: doc.ClientSecret, RegistrationAccessToken: doc.RegistrationAccessToken, SecretExpiresAt: doc.SecretExpiresAt, TokenEndpointAuthMethod: doc.TokenEndpointAuthMethod, RedirectURIs: doc.RedirectURIs, GrantTypes: doc.GrantTypes}, version, nil
 }
 func (s SecretCredentials) Put(ctx context.Context, k toolauth.CredentialKey, c toolauth.Credential) (string, error) {
 	if s.Manager == nil {
@@ -218,7 +219,7 @@ func (s SecretCredentials) Put(ctx context.Context, k toolauth.CredentialKey, c 
 		return "", fmt.Errorf("credential namespace required")
 	}
 	id := credentialID(k)
-	payload, e := json.Marshal(secretCredential{k.TenantID, k.Issuer, k.ProfileID, c.ClientID, c.ClientSecret, c.RegistrationAccessToken, c.TokenEndpointAuthMethod, c.SecretExpiresAt, append([]string(nil), c.RedirectURIs...)})
+	payload, e := json.Marshal(secretCredential{Tenant: k.TenantID, Issuer: k.Issuer, Profile: k.ProfileID, ClientID: c.ClientID, ClientSecret: c.ClientSecret, RegistrationAccessToken: c.RegistrationAccessToken, TokenEndpointAuthMethod: c.TokenEndpointAuthMethod, SecretExpiresAt: c.SecretExpiresAt, RedirectURIs: append([]string(nil), c.RedirectURIs...), GrantTypes: append([]string(nil), c.GrantTypes...)})
 	if e != nil {
 		return "", e
 	}
@@ -245,6 +246,21 @@ func (r *Runtime) CheckDestination(tenant, ref, origin string) error {
 // DeploymentProvider is operator-owned. EnvironmentRefs names host variables;
 // their values never enter resource specs or public plan records.
 type DeploymentProvider struct {
-	Config          deployment.Config `json:"config"`
-	EnvironmentRefs []string          `json:"environment_refs,omitempty"`
+	Config          deployment.Config     `json:"config"`
+	EnvironmentRefs []string              `json:"environment_refs,omitempty"`
+	Readiness       []DeploymentReadiness `json:"readiness,omitempty"`
+}
+
+// DeploymentReadiness is an operator-owned read-only observation contract. Its
+// target and native state fields must match the deployed binding's actual API.
+type DeploymentReadiness struct {
+	TenantID      string        `json:"tenant_id"`
+	BindingID     string        `json:"binding_id"`
+	IdentityRef   string        `json:"identity_ref"`
+	URL           string        `json:"url"`
+	TargetRef     string        `json:"target_ref"`
+	ResourceField string        `json:"resource_field"`
+	ReadyField    string        `json:"ready_field"`
+	ReadyValue    string        `json:"ready_value"`
+	TTL           time.Duration `json:"ttl,omitempty"`
 }

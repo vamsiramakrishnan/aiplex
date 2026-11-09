@@ -41,8 +41,10 @@ type Key struct {
 
 // Store is QuotaPlex's multi-record atomic boundary. Update commits every staged
 // change together or none. View supplies one consistent read-only snapshot.
-// Callbacks may be retried: keep them deterministic and free of network calls,
-// clock reads and mutations outside the callback. Returned data is usable only
+// Callbacks may be retried: keep them free of network/producer calls and
+// externally visible mutations. The trusted accounting clock may be sampled
+// after a consistent snapshot read, so lock/retry delays cannot backdate a new
+// decision; genuine clock regression still fails closed. Returned data is usable only
 // after the method succeeds. Store implementations do not authenticate callers.
 type Store interface {
 	Update(context.Context, string, func(Tx) error) error

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -416,6 +417,7 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 
 	// 7. Delete agent
 	req, _ := http.NewRequest("DELETE", srv.URL+"/api/v1/agents/tutor-agent", nil)
+	req.Header.Set("If-Match", strconv.FormatInt(agent.Revision, 10))
 	resp, _ = client.Do(req)
 	if resp.StatusCode != 204 {
 		t.Errorf("delete agent: %d", resp.StatusCode)

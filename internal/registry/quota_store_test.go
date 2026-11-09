@@ -29,6 +29,7 @@ import (
 // Begin creates an isolated read snapshot; injected commit aborts exercise SDK
 // callback retries without a cloud deployment or emulator dependency.
 type quotaWireTransaction struct {
+	reads     map[string]bool
 	documents map[string]*pb.Document
 	readOnly  bool
 }
@@ -59,7 +60,7 @@ func (s *quotaWireServer) BeginTransaction(_ context.Context, r *pb.BeginTransac
 	if readOnly {
 		s.readOnlyViews++
 	}
-	s.transactions[id] = quotaWireTransaction{documents: docs, readOnly: readOnly}
+	s.transactions[id] = quotaWireTransaction{documents: docs, readOnly: readOnly, reads: map[string]bool{}}
 	return &pb.BeginTransactionResponse{Transaction: []byte(id)}, nil
 }
 func (s *quotaWireServer) Rollback(_ context.Context, r *pb.RollbackRequest) (*emptypb.Empty, error) {
@@ -78,6 +79,7 @@ func (s *quotaWireServer) BatchGetDocuments(r *pb.BatchGetDocumentsRequest, stre
 	s.reads++
 	s.readBatchSizes = append(s.readBatchSizes, len(r.Documents))
 	for _, name := range r.Documents {
+		tx.reads[name] = true
 		out := &pb.BatchGetDocumentsResponse{ReadTime: timestamppb.Now()}
 		if doc := tx.documents[name]; doc != nil {
 			out.Result = &pb.BatchGetDocumentsResponse_Found{Found: proto.Clone(doc).(*pb.Document)}
@@ -106,6 +108,13 @@ func (s *quotaWireServer) Commit(_ context.Context, r *pb.CommitRequest) (*pb.Co
 	if len(r.Writes) > 0 && s.abortCommits > 0 {
 		s.abortCommits--
 		return nil, status.Error(codes.Aborted, "fixture contention")
+	}
+	// Native Firestore rejects a transaction when any document it read changed.
+	// This lets multi-adapter CAS tests exercise actual SDK retry semantics.
+	for name := range tx.reads {
+		if !tx.readOnly && !proto.Equal(tx.documents[name], s.documents[name]) {
+			return nil, status.Error(codes.Aborted, "read version changed")
+		}
 	}
 	// Check every create condition before modifying any document.
 	for _, write := range r.Writes {

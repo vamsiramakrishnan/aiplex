@@ -20,11 +20,12 @@ type jsonObservation struct {
 	foreignCandidate bool
 	modelVersion     string
 	deferredVersion  bool
+	eventType        string
 }
 
 func cumulativeUsage(op Operation) bool {
 	switch op.ID {
-	case "models.generateContent", "models.streamGenerateContent", "endpoints.generateContent", "endpoints.streamGenerateContent", "openai.chat-completions", "response.create", "response.get", "interaction.create", "interaction.get":
+	case "models.generateContent", "models.streamGenerateContent", "endpoints.generateContent", "endpoints.streamGenerateContent", "openai.chat-completions", "response.create", "response.get", "interaction.create", "interaction.get", "anthropic.messages":
 		return true
 	default:
 		return false
@@ -47,11 +48,19 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 			}
 		}
 	}
+	_ = json.Unmarshal(root["type"], &result.eventType)
 	object := root
-	for _, key := range []string{"interaction", "response"} {
+	for _, key := range []string{"interaction", "response", "message"} {
 		if raw := root[key]; raw != nil {
 			if err := json.Unmarshal(raw, &object); err != nil || object == nil {
 				return result, fmt.Errorf("invalid native response object")
+			}
+		}
+	}
+	if includeUsage && result.modelVersion == "" {
+		if raw := object["model"]; raw != nil {
+			if json.Unmarshal(raw, &result.modelVersion) != nil {
+				return result, fmt.Errorf("invalid native model identity")
 			}
 		}
 	}
@@ -135,6 +144,7 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 	mappings := map[string]string{
 		"input_tokens": "input_tokens", "total_input_tokens": "input_tokens", "totalInputTokens": "input_tokens", "promptTokenCount": "input_tokens", "prompt_tokens": "input_tokens",
 		"output_tokens": "output_tokens", "total_output_tokens": "output_tokens", "totalOutputTokens": "output_tokens", "candidatesTokenCount": "output_tokens", "completion_tokens": "output_tokens",
+		"cache_read_input_tokens": "cached_tokens", "cache_creation_input_tokens": "cache_write_tokens",
 		"total_thought_tokens": "thought_tokens", "totalThoughtTokens": "thought_tokens", "thoughtsTokenCount": "thought_tokens",
 		"total_cached_tokens": "cached_tokens", "totalCachedTokens": "cached_tokens", "cachedContentTokenCount": "cached_tokens",
 		"total_tokens": "total_tokens", "totalTokens": "total_tokens", "totalTokenCount": "total_tokens", "total_tool_use_tokens": "tool_use_tokens", "totalToolUseTokens": "tool_use_tokens", "toolUsePromptTokenCount": "tool_use_tokens",
@@ -154,6 +164,34 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		if raw := usage[native]; raw != nil {
 			if err := setCounter(target, raw); err != nil {
 				return result, err
+			}
+		}
+	}
+	for _, key := range []string{"input_tokens_details", "prompt_tokens_details"} {
+		if raw := usage[key]; raw != nil {
+			var detail map[string]json.RawMessage
+			if json.Unmarshal(raw, &detail) != nil {
+				return result, fmt.Errorf("invalid input usage details")
+			}
+			if n := detail["cache_write_tokens"]; n != nil {
+				if err := setCounter("cache_write_tokens", n); err != nil {
+					return result, err
+				}
+			}
+		}
+	}
+	if raw := usage["server_tool_use"]; raw != nil {
+		var calls map[string]json.RawMessage
+		if json.Unmarshal(raw, &calls) != nil {
+			return result, fmt.Errorf("invalid native server-tool usage")
+		}
+		for _, quantity := range calls {
+			var n int64
+			if json.Unmarshal(quantity, &n) != nil || n < 0 {
+				return result, fmt.Errorf("invalid native server-tool quantity")
+			}
+			if n > 0 {
+				counters["server_tool_calls"] = 1
 			}
 		}
 	}
@@ -180,11 +218,30 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 	if root["event_type"] != nil || root["type"] != nil {
 		terminal = result.nativeTerminal
 	}
-	result.usage = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, ResourceID: id, Terminal: terminal, Counters: counters, Cumulative: cumulativeUsage(op), ModelVersion: result.modelVersion}
+	result.usage = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, ResourceID: id, Terminal: terminal, Counters: counters, Cumulative: cumulativeUsage(op) || (g.surface.Publisher == "anthropic" && anthropicOperation(op)), ModelVersion: result.modelVersion}
 	return result, nil
 }
 
 func nativeTerminal(root, object map[string]json.RawMessage) bool {
+	var nativeType string
+	_ = json.Unmarshal(root["type"], &nativeType)
+	if nativeType == "message_delta" {
+		var delta map[string]json.RawMessage
+		var reason string
+		if json.Unmarshal(root["delta"], &delta) == nil && json.Unmarshal(delta["stop_reason"], &reason) == nil && reason != "" {
+			return true
+		}
+	}
+	if nativeType == "message_stop" {
+		return true
+	}
+	if nativeType == "message" {
+		var reason string
+		if json.Unmarshal(object["stop_reason"], &reason) == nil && reason != "" {
+			return true
+		}
+	}
+
 	for _, key := range []string{"event_type", "type"} {
 		var value string
 		if json.Unmarshal(root[key], &value) == nil {

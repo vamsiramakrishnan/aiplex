@@ -118,6 +118,10 @@ type AdmissionReceipt interface {
 	Complete(context.Context, bool) error
 	Abort(context.Context) error
 }
+
+// DispatchAdmissionReceipt lets accounting commit its one-shot claim only after
+// local preparation, immediately before the provider operation can start.
+type DispatchAdmissionReceipt interface{ BeforeDispatch(context.Context) error }
 type Approval struct{ Reference, TenantID, PrincipalID, ResourceID, ActionDigest string }
 type ApprovalVerifier interface {
 	Verify(context.Context, Approval) error

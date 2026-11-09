@@ -12,7 +12,7 @@ import (
 )
 
 // ExecutionRequest contains an authorized, validated native request. Its body
-// and metadata are private snapshots. Headers contain only caller selection and
+// and metadata are private snapshots. Headers contain only caller protocol/selection and
 // idempotency fields; they are requests to validate, never identity evidence.
 type ExecutionRequest struct {
 	Context   contracts.RequestContext
@@ -40,9 +40,9 @@ func (g *Gateway) prepareExecution(r *http.Request, trusted contracts.RequestCon
 		return nil, nil
 	}
 	headers := http.Header{}
-	for _, key := range []string{"Idempotency-Key", "X-Aiplex-Funding-Account", "X-Aiplex-Operation-Id"} {
+	for _, key := range []string{"Idempotency-Key", "X-Aiplex-Funding-Account", "X-Aiplex-Operation-Id", "Anthropic-Version", "Anthropic-Beta", "Last-Event-ID"} {
 		if values := r.Header.Values(key); len(values) > 0 {
-			headers[key] = append([]string(nil), values...)
+			headers[http.CanonicalHeaderKey(key)] = append([]string(nil), values...)
 		}
 	}
 	query := r.URL.Query()

@@ -33,6 +33,7 @@ type BoundProvider struct {
 	engine    *Engine
 	demand    Demand
 	authorize DispatchAuthorizer
+	admit     func(context.Context, Demand) (Decision, error)
 	used      bool
 	admitted  bool
 	claim     *DispatchClaim
@@ -55,14 +56,21 @@ func copyDemand(d Demand) Demand {
 }
 
 func (e *Engine) Bind(d Demand, authorize DispatchAuthorizer) (*BoundProvider, error) {
-	if e == nil || authorize == nil {
+	return e.BindWithAdmission(d, authorize, e.Admit)
+}
+
+// BindWithAdmission lets a host compose atomic scheduling/admission with the
+// existing lifecycle. The callback must durably admit the original demand;
+// returning allow alone creates no claimable dispatch right.
+func (e *Engine) BindWithAdmission(d Demand, authorize DispatchAuthorizer, admit func(context.Context, Demand) (Decision, error)) (*BoundProvider, error) {
+	if e == nil || authorize == nil || admit == nil {
 		return nil, fmt.Errorf("engine and dispatch authorizer are required")
 	}
 	if err := d.Context.Validate(); err != nil {
 		return nil, err
 	}
 	d = copyDemand(d)
-	return &BoundProvider{engine: e, demand: d, authorize: authorize}, nil
+	return &BoundProvider{engine: e, demand: d, authorize: authorize, admit: admit}, nil
 }
 
 func (b *BoundProvider) Admit(ctx context.Context, request enforcement.Request) (enforcement.Receipt, error) {
@@ -75,9 +83,12 @@ func (b *BoundProvider) Admit(ctx context.Context, request enforcement.Request) 
 		return nil, ErrConflict
 	}
 	b.used = true
-	decision, err := b.engine.Admit(ctx, b.demand)
+	decision, err := b.admit(ctx, copyDemand(b.demand))
 	if err != nil {
 		return nil, err
+	}
+	if decision.TenantID != b.demand.Context.TenantID || decision.AttemptID != b.demand.AttemptID {
+		return nil, ErrConflict
 	}
 	if !decision.Allowed {
 		return nil, &AdmissionDenied{Decision: decision}

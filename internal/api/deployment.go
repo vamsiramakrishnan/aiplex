@@ -16,18 +16,19 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 )
 
-// ConfigureDeploymentProviders wires optional infrastructure providers. The
-// HTTP host exposes preparation only; enabling Execute requires a separate
-// trusted approval integration and is never inferred from a successful plan.
+// ConfigureDeploymentProviders wires optional infrastructure providers. Execute
+// remains operator-enabled and requires a persisted, separately granted approval.
 func (h *ConnectedHandler) ConfigureDeploymentProviders() error {
 	h.Deployments = map[string]*deployment.Anvil{}
 	authorize := deployment.AuthorizeFunc(func(ctx context.Context, a deployment.Action) error {
-		return deploymentGrant(ctx, a.Request.Context, "aiplex:deployment:plan:"+a.Request.Context.ResourceID)
+		return h.currentDeploymentGrant(ctx, a.Request.Context, "aiplex:deployment:"+a.Phase+":"+a.Request.Context.ResourceID)
 	})
 	for _, spec := range h.Runtime.Config.DeploymentProviders {
 		cfg := spec.Config
-		if cfg.AllowExecute {
-			return fmt.Errorf("API deployment provider exposes plans only; execution requires a host approval integration")
+		if cfg.AllowExecute && !h.Development {
+			if _, memory := h.Store.(*resources.MemoryStore); memory || h.Store == nil {
+				return fmt.Errorf("deployment execution requires durable resource storage")
+			}
 		}
 		for _, name := range spec.EnvironmentRefs {
 			value, ok := os.LookupEnv(name)
@@ -36,7 +37,7 @@ func (h *ConnectedHandler) ConfigureDeploymentProviders() error {
 			}
 			cfg.Environment = append(cfg.Environment, name+"="+value)
 		}
-		provider, e := deployment.NewAnvil(cfg, authorize, deploymentAdmission{}, nil, deployment.ResourceJournal{Store: h.Store})
+		provider, e := deployment.NewAnvil(cfg, authorize, deploymentHostAdmission{h: h}, deploymentApprovals{h: h}, deployment.ResourceJournal{Store: h.Store})
 		if e != nil {
 			return e
 		}
@@ -45,7 +46,7 @@ func (h *ConnectedHandler) ConfigureDeploymentProviders() error {
 		}
 		h.Deployments[cfg.ID] = provider
 	}
-	return nil
+	return h.validateReadiness()
 }
 func deploymentGrant(ctx context.Context, request contracts.RequestContext, scope string) error {
 	if e := request.Validate(); e != nil {
@@ -149,7 +150,7 @@ func (h *ConnectedHandler) PrepareDeployment(w http.ResponseWriter, r *http.Requ
 		Error(w, r, 400, "PLAN_REFUSED", e.Error())
 		return
 	}
-	spec, e := json.Marshal(map[string]any{"plan": plan, "intent_id": intent.ID, "intent_revision": intentRecord.Revision, "network_profile_ref": intent.NetworkProfileRef})
+	spec, e := json.Marshal(savedDeploymentPlan{Plan: plan, IntentID: intent.ID, IntentRevision: intentRecord.Revision, NetworkProfileRef: intent.NetworkProfileRef, NetworkRevision: networkRevision})
 	if e != nil {
 		Error(w, r, 500, "PLAN_ERROR", "plan serialization failed")
 		return

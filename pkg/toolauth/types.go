@@ -37,6 +37,8 @@ type ClientProfile struct {
 	RedirectURIs    []string `json:"redirect_uris"`
 	ApplicationType string   `json:"application_type"`
 	MetadataURL     string   `json:"metadata_url,omitempty"`
+	Scopes          []string `json:"scopes,omitempty"`
+	RefreshTokens   bool     `json:"refresh_tokens,omitempty"`
 }
 
 type ClientMetadata struct {
@@ -56,13 +58,14 @@ type ProtectedResourceMetadata struct {
 }
 
 type AuthorizationServerMetadata struct {
-	Issuer                            string   `json:"issuer"`
-	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
-	TokenEndpoint                     string   `json:"token_endpoint"`
-	RegistrationEndpoint              string   `json:"registration_endpoint,omitempty"`
-	CIMDSupported                     bool     `json:"client_id_metadata_document_supported,omitempty"`
-	CodeChallengeMethodsSupported     []string `json:"code_challenge_methods_supported"`
-	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported,omitempty"`
+	Issuer                               string   `json:"issuer"`
+	AuthorizationEndpoint                string   `json:"authorization_endpoint"`
+	TokenEndpoint                        string   `json:"token_endpoint"`
+	RegistrationEndpoint                 string   `json:"registration_endpoint,omitempty"`
+	CIMDSupported                        bool     `json:"client_id_metadata_document_supported,omitempty"`
+	CodeChallengeMethodsSupported        []string `json:"code_challenge_methods_supported"`
+	TokenEndpointAuthMethodsSupported    []string `json:"token_endpoint_auth_methods_supported,omitempty"`
+	AuthorizationResponseIssuerSupported bool     `json:"authorization_response_iss_parameter_supported,omitempty"`
 }
 
 type CredentialKey struct{ TenantID, Issuer, ProfileID string }
@@ -76,6 +79,7 @@ type Credential struct {
 	SecretExpiresAt         int64    `json:"client_secret_expires_at,omitempty"`
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 	RedirectURIs            []string `json:"redirect_uris"`
+	GrantTypes              []string `json:"grant_types,omitempty"`
 }
 
 func (c Credential) String() string { return "OAuthCredential(" + c.ClientID + ", secrets=redacted)" }
@@ -100,6 +104,8 @@ type Registration struct {
 	TokenEndpoint         string   `json:"token_endpoint"`
 	ResourceParameter     string   `json:"resource_parameter"`
 	PKCEMethod            string   `json:"pkce_method"`
+	RequireIssuer         bool     `json:"require_issuer,omitempty"`
+	AllowRefresh          bool     `json:"allow_refresh,omitempty"`
 }
 
 // RegistrationAuthorizer supplies an optional initial-access token for a

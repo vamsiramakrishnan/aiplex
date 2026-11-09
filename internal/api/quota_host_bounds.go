@@ -255,22 +255,31 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 	if binding.Profile == quotaProfileRequests {
 		return counts, nil, nil
 	}
-	if binding.Profile != quotaProfileGemini || in.Plane != "llmplex" || binding.Provider != "google" || in.Model != binding.Model || (in.OperationID != "models.generateContent" && in.OperationID != "models.streamGenerateContent") {
+	if !quotaStrictProfile(binding.Profile) || in.Plane != "llmplex" || in.Model != binding.Model || !quotaProfileOperation(binding) {
 		return nil, nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "operation has no supported exposure contract")
+	}
+	if len(in.Headers.Values("Anthropic-Beta")) > 0 || len(in.Headers.Values("Last-Event-ID")) > 0 {
+		return nil, nil, quotaStatus(400, "QUOTA_PROTOCOL_UNSUPPORTED", "beta features and stream resumption require their own exposure profile")
 	}
 	query, queryErr := url.ParseQuery(in.RawQuery)
 	if queryErr != nil {
 		return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "request query is outside the protected profile")
 	}
 	for key, values := range query {
-		if key != "alt" || len(values) != 1 || (values[0] != "json" && values[0] != "sse") {
+		if binding.Profile != quotaProfileGemini || key != "alt" || len(values) != 1 || (values[0] != "json" && values[0] != "sse") {
 			return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "partial responses and unknown query options are unsupported")
 		}
 	}
 	if (in.OperationID == "models.streamGenerateContent" && query.Get("alt") != "sse") || (in.OperationID == "models.generateContent" && query.Get("alt") == "sse") {
 		return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "request transport does not match protected native response semantics")
 	}
-	output, err := quotaGeminiTextOutput(in.Body)
+	var output int64
+	var err error
+	if binding.Profile == quotaProfileGemini {
+		output, err = quotaGeminiTextOutput(in.Body)
+	} else {
+		output, err = quotaProviderTextOutput(binding, in.Body)
+	}
 	if err != nil {
 		return nil, nil, quotaStatus(400, "QUOTA_UNBOUNDED_REQUEST", "request is outside the protected text profile")
 	}
@@ -291,10 +300,10 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 	proof.NativeBounds = copyBounds
 	// This profile encodes the shared input ceiling in both disjoint input
 	// reservations and the enforced combined-output limit in both output subsets.
-	if copyBounds["uncached_input_tokens"] <= 0 || copyBounds["cached_tokens"] != copyBounds["uncached_input_tokens"] || copyBounds["output_tokens"] != output || copyBounds["thought_tokens"] != output {
+	if copyBounds["uncached_input_tokens"] <= 0 || copyBounds["cached_tokens"] != copyBounds["uncached_input_tokens"] || copyBounds["output_tokens"] != output || ((binding.Profile == quotaProfileGemini || binding.Profile == quotaProfileInteraction) && copyBounds["thought_tokens"] != output) {
 		return nil, nil, quotaStatus(503, "QUOTA_BOUNDS_UNAVAILABLE", "provider exposure proof omits a conservative token bound")
 	}
-	for _, native := range []string{"uncached_input_tokens", "cached_tokens", "output_tokens", "thought_tokens"} {
+	for _, native := range quotaProfileCounters(binding.Profile) {
 		counts[native] = copyBounds[native]
 	}
 	return counts, &proof, nil

@@ -171,7 +171,7 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 	if !contains(metadata.CodeChallengeMethodsSupported, "S256") {
 		return Registration{}, fmt.Errorf("authorization server does not advertise PKCE S256")
 	}
-	result := Registration{TenantID: connection.TenantID, ProfileID: profile.ID, Issuer: issuer, Resource: connection.ResourceURL, RedirectURIs: append([]string(nil), profile.RedirectURIs...), AuthorizationEndpoint: metadata.AuthorizationEndpoint, TokenEndpoint: metadata.TokenEndpoint, ResourceParameter: connection.ResourceURL, PKCEMethod: "S256"}
+	result := Registration{TenantID: connection.TenantID, ProfileID: profile.ID, Issuer: issuer, Resource: connection.ResourceURL, RedirectURIs: append([]string(nil), profile.RedirectURIs...), AuthorizationEndpoint: metadata.AuthorizationEndpoint, TokenEndpoint: metadata.TokenEndpoint, ResourceParameter: connection.ResourceURL, PKCEMethod: "S256", RequireIssuer: metadata.AuthorizationResponseIssuerSupported, AllowRefresh: profile.RefreshTokens}
 	key := CredentialKey{connection.TenantID, issuer, profile.ID}
 	if existing, ok := s.preRegistered[key]; ok {
 		if !sameStrings(existing.RedirectURIs, profile.RedirectURIs) {
@@ -189,6 +189,9 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 		}
 		if !sameStrings(document.RedirectURIs, profile.RedirectURIs) || document.ClientName != profile.Name {
 			return Registration{}, fmt.Errorf("CIMD metadata does not match client profile")
+		}
+		if profile.RefreshTokens && !contains(document.GrantTypes, "refresh_token") {
+			return Registration{}, fmt.Errorf("refresh-token use requires matching CIMD grant_types")
 		}
 		result.Mode = CIMD
 		result.ClientID = document.ClientID
@@ -212,6 +215,9 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 		if !sameStrings(credential.RedirectURIs, profile.RedirectURIs) {
 			return Registration{}, fmt.Errorf("stored registration redirect URI mismatch")
 		}
+		if profile.RefreshTokens && !contains(credential.GrantTypes, "refresh_token") {
+			return Registration{}, fmt.Errorf("stored DCR registration lacks refresh_token grant; configure a newly registered client profile")
+		}
 		if credential.SecretExpiresAt == 0 || credential.SecretExpiresAt > time.Now().Unix() {
 			result.Mode = DCR
 			result.ClientID = credential.ClientID
@@ -222,6 +228,9 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 		return Registration{}, fmt.Errorf("registration credential lookup failed")
 	}
 	clientMetadata := ClientMetadata{ClientName: profile.Name, RedirectURIs: append([]string(nil), profile.RedirectURIs...), GrantTypes: []string{"authorization_code"}, ResponseTypes: []string{"code"}, TokenEndpointAuthMethod: "none", ApplicationType: profile.ApplicationType}
+	if profile.RefreshTokens {
+		clientMetadata.GrantTypes = append(clientMetadata.GrantTypes, "refresh_token")
+	}
 	if len(metadata.TokenEndpointAuthMethodsSupported) > 0 && !contains(metadata.TokenEndpointAuthMethodsSupported, "none") {
 		return Registration{}, fmt.Errorf("authorization server does not support public-client registration")
 	}
@@ -259,7 +268,7 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 	if registered.ClientSecretExpiresAt < 0 || (registered.ClientSecretExpiresAt > 0 && registered.ClientSecretExpiresAt <= time.Now().Unix()) {
 		return Registration{}, fmt.Errorf("invalid registration credential expiry")
 	}
-	credential := Credential{ClientID: registered.ClientID, ClientSecret: registered.ClientSecret, RegistrationAccessToken: registered.RegistrationAccessToken, SecretExpiresAt: registered.ClientSecretExpiresAt, TokenEndpointAuthMethod: registered.TokenEndpointAuthMethod, RedirectURIs: append([]string(nil), registered.RedirectURIs...)}
+	credential := Credential{ClientID: registered.ClientID, ClientSecret: registered.ClientSecret, RegistrationAccessToken: registered.RegistrationAccessToken, SecretExpiresAt: registered.ClientSecretExpiresAt, TokenEndpointAuthMethod: registered.TokenEndpointAuthMethod, RedirectURIs: append([]string(nil), registered.RedirectURIs...), GrantTypes: append([]string(nil), registered.GrantTypes...)}
 	ref, e := s.credentials.Put(ctx, key, credential)
 	if e != nil || ref == "" {
 		return Registration{}, fmt.Errorf("dynamic registration credential storage failed")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -56,6 +57,29 @@ func (k *llmK8sRecorder) Delete(_ context.Context, version, kind, name, namespac
 func llmCohesionRouter(store registry.LLMPlexStore, k8s deploy.K8sClient) chi.Router {
 	h := api.NewLLMHandler(store, k8s, "gateway", nil)
 	r := chi.NewRouter()
+	// Existing workflow fixtures act as revision-aware clients. Dedicated CAS
+	// tests use the raw handlers to exercise missing/stale preconditions.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if (r.Method == "PUT" || r.Method == "DELETE") && r.Header.Get("If-Match") == "" {
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				if len(parts) == 2 {
+					kind := ""
+					if parts[0] == "routes" {
+						kind = registry.ConfigRoute
+					}
+					if parts[0] == "providers" {
+						kind = registry.ConfigProvider
+					}
+					if versioned, ok := store.(registry.VersionedConfigurationStore); ok && kind != "" {
+						record, _ := versioned.GetConfiguration(r.Context(), kind, parts[1])
+						r.Header.Set("If-Match", strconv.FormatInt(record.Revision, 10))
+					}
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
 	r.Get("/routes/{modelId}", h.GetRouteConfig)
 	r.Put("/routes/{modelId}", h.PutRouteConfig)
 	r.Delete("/routes/{modelId}", h.DeleteRouteConfig)
@@ -235,21 +259,26 @@ func TestLLMCohesionTwoHostsUseDistinctBackendIDsForAmbiguousLegacyTuples(t *tes
 	store := registry.NewMemoryStore()
 	k8s := &llmK8sRecorder{}
 	first, second := llmCohesionRouter(store, k8s), llmCohesionRouter(store, k8s)
-	// Both independent hosts must reach backend submission concurrently. A
-	// handler-local mutex or preflight inventory check cannot solve this race.
-	var submissions sync.WaitGroup
-	submissions.Add(2)
-	k8s.beforeApply = func(m deploy.Manifest) {
-		if m.Kind == "AIServiceBackend" {
-			submissions.Done()
-			submissions.Wait()
-		}
+	// Independent hosts may conflict while validating the shared dependency
+	// generation. Retry that known-undispatched conflict using a fresh read.
+	type result struct {
+		path, provider string
+		response       *httptest.ResponseRecorder
 	}
-	results := make(chan *httptest.ResponseRecorder, 2)
-	go func() { results <- llmCohesionRequest(first, "PUT", "/routes/foo", llmCohesionBody("bar-baz")) }()
-	go func() { results <- llmCohesionRequest(second, "PUT", "/routes/foo-bar", llmCohesionBody("baz")) }()
+	results := make(chan result, 2)
+	go func() {
+		results <- result{"/routes/foo", "bar-baz", llmCohesionRequest(first, "PUT", "/routes/foo", llmCohesionBody("bar-baz"))}
+	}()
+	go func() {
+		results <- result{"/routes/foo-bar", "baz", llmCohesionRequest(second, "PUT", "/routes/foo-bar", llmCohesionBody("baz"))}
+	}()
 	for range 2 {
-		if w := <-results; w.Code != 200 {
+		result := <-results
+		w := result.response
+		if w.Code == 412 {
+			w = llmCohesionRequest(first, "PUT", result.path, llmCohesionBody(result.provider))
+		}
+		if w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}

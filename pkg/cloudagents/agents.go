@@ -14,7 +14,9 @@ import (
 	"regexp"
 	"strings"
 
+	"errors"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
 type Provider string
@@ -118,6 +120,7 @@ type Invoker struct {
 	client     *http.Client
 	auth       Authenticator
 	sessions   SessionStore
+	execution  ExecutionPreparer
 }
 
 func NewInvoker(c Connection, a Authorizer, client *http.Client, credentials Authenticator, options ...Option) (*Invoker, error) {
@@ -135,6 +138,9 @@ func NewInvoker(c Connection, a Authorizer, client *http.Client, credentials Aut
 			option(v)
 		}
 	}
+	if v.execution != nil && isNil(v.execution) {
+		return nil, fmt.Errorf("typed-nil managed execution preparer is invalid")
+	}
 	if c.Provider == CopilotStudio && isNil(v.sessions) {
 		return nil, fmt.Errorf("DirectLine session ownership store required")
 	}
@@ -151,38 +157,95 @@ func NewInvoker(c Connection, a Authorizer, client *http.Client, credentials Aut
 // Invoke authorizes the exact connection/resource/session before credentials or
 // network activity. The returned native response body is never buffered or
 // flattened; the caller owns closing it, including AWS event streams and SSE.
-func (v *Invoker) Invoke(ctx context.Context, request contracts.RequestContext, in Invocation) (*http.Response, error) {
+func (v *Invoker) Invoke(ctx context.Context, request contracts.RequestContext, in Invocation) (result *http.Response, resultErr error) {
+	in.Payload = append(json.RawMessage(nil), in.Payload...)
+	request = cloneExecutionContext(request)
 	if e := request.Validate(); e != nil {
 		return nil, e
 	}
 	if request.TenantID != v.connection.TenantID || request.ResourceID != v.connection.ID {
 		return nil, fmt.Errorf("agent connection tenant/resource mismatch")
 	}
+	sessionOwner := request.PrincipalID
+	if v.execution != nil {
+		sessionOwner = agentSessionPrincipal(request)
+	}
 	logicalSession := in.SessionID
 	if v.connection.Provider == BedrockAgent || v.connection.Provider == AgentCoreRuntime {
 		if logicalSession == "" {
 			return nil, fmt.Errorf("logical session id required")
 		}
-		in.SessionID = scopedSession(request.TenantID, request.PrincipalID, v.connection.ID, logicalSession)
+		in.SessionID = scopedSession(request.TenantID, sessionOwner, v.connection.ID, logicalSession)
 	}
 	req, e := v.build(ctx, in)
 	if e != nil {
 		return nil, e
 	}
-	if e = v.authorize.Authorize(ctx, Action{request, v.connection.ID, v.connection.ResourceID, in.Operation, logicalSession}); e != nil {
+	if e = v.authorize.Authorize(ctx, Action{cloneExecutionContext(request), v.connection.ID, v.connection.ResourceID, in.Operation, logicalSession}); e != nil {
 		return nil, e
 	}
 	if v.connection.Provider == CopilotStudio && in.Operation != "start-conversation" {
-		if e = v.sessions.Check(ctx, request.TenantID, request.PrincipalID, v.connection.ID, in.SessionID); e != nil {
+		if e = v.sessions.Check(ctx, request.TenantID, sessionOwner, v.connection.ID, in.SessionID); e != nil {
 			return nil, e
 		}
+	}
+
+	var run *agentExecution
+	if v.execution != nil {
+		body := append([]byte(nil), in.Payload...)
+		if req.GetBody != nil {
+			native, err := req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			body, err = io.ReadAll(native)
+			native.Close()
+			if err != nil {
+				return nil, err
+			}
+		} else if req.Body == nil {
+			body = nil
+		}
+		snapshot := ExecutionRequest{Context: cloneExecutionContext(request), Connection: v.connection, Invocation: in, Method: req.Method, Path: req.URL.EscapedPath(), RawQuery: req.URL.RawQuery, Body: body, Headers: req.Header.Clone()}
+		snapshot.Invocation.Payload = append(json.RawMessage(nil), in.Payload...)
+		lease, err := v.execution.Prepare(ctx, snapshot)
+		if err != nil {
+			return nil, err
+		}
+		if isNil(lease) {
+			return nil, &execution.StatusError{Status: 503, Code: "AGENT_EXECUTION_UNAVAILABLE", Message: "managed agent execution lease unavailable"}
+		}
+		run = &agentExecution{ctx: ctx, lease: lease}
+		defer func() {
+			if resultErr != nil {
+				resultErr = errors.Join(resultErr, run.finish(false, resultErr))
+			}
+		}()
 	}
 	if e = v.auth.Authenticate(ctx, req); e != nil {
 		return nil, fmt.Errorf("agent credentials unavailable: %w", e)
 	}
+
+	if run != nil {
+		if e = v.authorize.Authorize(ctx, Action{cloneExecutionContext(request), v.connection.ID, v.connection.ResourceID, in.Operation, logicalSession}); e != nil {
+			return nil, e
+		}
+		if v.connection.Provider == CopilotStudio && in.Operation != "start-conversation" {
+			if e = v.sessions.Check(ctx, request.TenantID, sessionOwner, v.connection.ID, in.SessionID); e != nil {
+				return nil, e
+			}
+		}
+		if e = run.lease.BeforeDispatch(ctx); e != nil {
+			return nil, e
+		}
+		run.claimed = true
+	}
 	response, err := v.client.Do(req)
 	if err != nil {
 		return nil, err
+	}
+	if run != nil {
+		run.status = response.StatusCode
 	}
 	if v.connection.Provider == CopilotStudio && in.Operation == "start-conversation" && response.StatusCode >= 200 && response.StatusCode < 300 {
 		data, err := io.ReadAll(io.LimitReader(response.Body, (1<<20)+1))
@@ -199,10 +262,25 @@ func (v *Invoker) Invoke(ctx context.Context, request contracts.RequestContext, 
 		if json.Unmarshal(data, &conversation) != nil || !segment.MatchString(conversation.ID) {
 			return nil, fmt.Errorf("invalid DirectLine conversation response")
 		}
-		if err = v.sessions.Bind(ctx, request.TenantID, request.PrincipalID, v.connection.ID, conversation.ID); err != nil {
+		if err = run.resource(conversation.ID); err != nil {
+			return nil, err
+		}
+		if err = v.sessions.Bind(ctx, request.TenantID, sessionOwner, v.connection.ID, conversation.ID); err != nil {
 			return nil, err
 		}
 		response.Body = io.NopCloser(bytes.NewReader(data))
+	}
+
+	if run != nil {
+		response.Body = &acknowledgedAgentBody{source: response.Body, run: run, expected: response.ContentLength}
+		if response.Header == nil {
+			response.Header = http.Header{}
+		}
+		if receipt, ok := run.lease.(execution.Receipt); ok {
+			if id := receipt.AttemptID(); id != "" && len(id) <= 1024 && !strings.ContainsAny(id, "\r\n") {
+				response.Header.Set(execution.AttemptHeader, id)
+			}
+		}
 	}
 	return response, nil
 }

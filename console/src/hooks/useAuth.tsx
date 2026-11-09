@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { ResolvedAccess } from '../api/client'
 
 const TOKEN_KEY = 'aiplex_token'
-interface AuthUser { sub: string; email: string; azp?: string; scope?: string }
+interface AuthUser { sub: string; email: string; azp?: string; scope?: string; actor_id?: string }
 interface AuthContextValue {
   isAuthenticated: boolean
   verifying: boolean
@@ -22,7 +22,7 @@ async function verifyToken(token: string, signal?: AbortSignal): Promise<AuthUse
   if (!response.ok) throw new Error(response.status === 401 ? 'The server rejected this credential. Sign in with a valid identity.' : 'Identity verification unavailable. Check your server access and configuration.')
   const access = await response.json() as ResolvedAccess
   if (!/^principal-[0-9a-f]{64}$/.test(access.identity?.principal_id ?? '') || !Array.isArray(access.scopes)) throw new Error('The server returned an invalid verified identity.')
-  return { sub: access.identity.principal_id, email: access.identity.email || access.identity.subject || access.identity.principal_id, azp: access.identity.authorized_party, scope: access.scopes.join(' ') }
+  return { sub: access.identity.principal_id, email: access.identity.email || access.identity.subject || access.identity.principal_id, azp: access.identity.authorized_party, scope: access.scopes.join(' '), ...(access.identity.actor_id ? { actor_id: access.identity.actor_id } : {}) }
 }
 export function AuthProvider({ children }: { children: ReactNode }) {
   const cache = useQueryClient()

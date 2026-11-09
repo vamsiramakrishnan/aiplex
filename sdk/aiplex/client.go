@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -276,6 +277,7 @@ func (c *Client) GetHistory(ctx context.Context, instanceID string) ([]DeployHis
 // --- Agents ---
 
 type Agent struct {
+	Revision      int64     `json:"revision"`
 	ClientID      string    `json:"client_id"`
 	DisplayName   string    `json:"display_name"`
 	Description   string    `json:"description,omitempty"`
@@ -328,13 +330,17 @@ func (c *Client) GetAgent(ctx context.Context, clientID string) (*Agent, error) 
 // RegisterAgent registers a new agent.
 func (c *Client) RegisterAgent(ctx context.Context, req *RegisterAgentRequest) (*Agent, error) {
 	var a Agent
-	err := c.do(ctx, "POST", "/api/v1/agents", req, &a)
+	err := c.doWithHeaders(ctx, "POST", "/api/v1/agents", req, &a, map[string]string{"If-Match": "0"})
 	return &a, err
 }
 
 // DeleteAgent removes an agent.
 func (c *Client) DeleteAgent(ctx context.Context, clientID string) error {
-	return c.do(ctx, "DELETE", "/api/v1/agents/"+url.PathEscape(clientID), nil, nil)
+	current, err := c.GetAgent(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	return c.DeleteAgentAtRevision(ctx, clientID, current.Revision)
 }
 
 // GetAgentPermissions returns the cross-plane permission view for an agent.
@@ -347,6 +353,7 @@ func (c *Client) GetAgentPermissions(ctx context.Context, clientID string) (*Age
 // --- LLMPlex ---
 
 type LLMRouteConfig struct {
+	Revision  int64           `json:"revision"`
 	ID        string          `json:"id"`
 	ModelID   string          `json:"model_id"`
 	Owner     string          `json:"owner"`
@@ -413,6 +420,7 @@ type UsageSummary struct {
 }
 
 type ProviderConfig struct {
+	Revision    int64  `json:"revision"`
 	Provider    string `json:"provider"`
 	DisplayName string `json:"display_name"`
 	BaseURL     string `json:"base_url,omitempty"`
@@ -439,13 +447,20 @@ func (c *Client) GetLLMRoute(ctx context.Context, modelID string) (*LLMRouteConf
 // PutLLMRoute creates or updates a route config.
 func (c *Client) PutLLMRoute(ctx context.Context, modelID string, rc *LLMRouteConfig) (*LLMRouteConfig, error) {
 	var out LLMRouteConfig
-	err := c.do(ctx, "PUT", "/api/v1/llm/routes/"+url.PathEscape(modelID), rc, &out)
+	if rc == nil {
+		return nil, fmt.Errorf("route configuration required")
+	}
+	err := c.doWithHeaders(ctx, "PUT", "/api/v1/llm/routes/"+url.PathEscape(modelID), rc, &out, map[string]string{"If-Match": strconv.FormatInt(rc.Revision, 10)})
 	return &out, err
 }
 
 // DeleteLLMRoute deletes a route config.
 func (c *Client) DeleteLLMRoute(ctx context.Context, modelID string) error {
-	return c.do(ctx, "DELETE", "/api/v1/llm/routes/"+url.PathEscape(modelID), nil, nil)
+	current, err := c.GetLLMRoute(ctx, modelID)
+	if err != nil {
+		return err
+	}
+	return c.DeleteLLMRouteAtRevision(ctx, modelID, current.Revision)
 }
 
 // ListProviders returns all LLM provider configurations.
@@ -458,7 +473,10 @@ func (c *Client) ListProviders(ctx context.Context) ([]ProviderConfig, error) {
 // PutProvider creates or updates a provider config.
 func (c *Client) PutProvider(ctx context.Context, provider string, cfg *ProviderConfig) (*ProviderConfig, error) {
 	var out ProviderConfig
-	err := c.do(ctx, "PUT", "/api/v1/llm/providers/"+url.PathEscape(provider), cfg, &out)
+	if cfg == nil {
+		return nil, fmt.Errorf("provider configuration required")
+	}
+	err := c.doWithHeaders(ctx, "PUT", "/api/v1/llm/providers/"+url.PathEscape(provider), cfg, &out, map[string]string{"If-Match": strconv.FormatInt(cfg.Revision, 10)})
 	return &out, err
 }
 
@@ -732,6 +750,7 @@ func (c *Client) RecordPolicyDenial(ctx context.Context, d *PolicyDenial) (*Poli
 // --- Auth / User Scopes ---
 
 type UserScopes struct {
+	Revision    int64               `json:"revision"`
 	UserID      string              `json:"user_id"`
 	PrincipalID string              `json:"principal_id,omitempty"`
 	Scopes      []string            `json:"scopes"`
@@ -757,10 +776,11 @@ func (c *Client) SetUserScopes(ctx context.Context, principalID string, scopes [
 	if err := validatePrincipalID(principalID); err != nil {
 		return nil, err
 	}
-	if err := c.do(ctx, http.MethodPut, "/auth/users/"+url.PathEscape(principalID)+"/scopes", map[string][]string{"scopes": scopes}, nil); err != nil {
+	current, err := c.GetUserScopes(ctx, principalID)
+	if err != nil {
 		return nil, err
 	}
-	return c.GetUserScopes(ctx, principalID)
+	return c.SetUserScopesAtRevision(ctx, principalID, scopes, current.Revision)
 }
 
 // Health checks the server health.
@@ -921,4 +941,33 @@ func (c *Client) CompensateRun(ctx context.Context, runID string) error {
 // the manual override for ops who want to free payload bytes early.
 func (c *Client) CompactRun(ctx context.Context, runID string) error {
 	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/compact", struct{}{}, nil)
+}
+
+// Explicit revision methods preserve a selection made by an earlier read.
+func (c *Client) DeleteAgentAtRevision(ctx context.Context, id string, revision int64) error {
+	if revision <= 0 {
+		return fmt.Errorf("positive revision required")
+	}
+	return c.doWithHeaders(ctx, http.MethodDelete, "/api/v1/agents/"+url.PathEscape(id), nil, nil, map[string]string{"If-Match": strconv.FormatInt(revision, 10)})
+}
+func (c *Client) DeleteLLMRouteAtRevision(ctx context.Context, id string, revision int64) error {
+	if revision <= 0 {
+		return fmt.Errorf("positive revision required")
+	}
+	return c.doWithHeaders(ctx, http.MethodDelete, "/api/v1/llm/routes/"+url.PathEscape(id), nil, nil, map[string]string{"If-Match": strconv.FormatInt(revision, 10)})
+}
+func (c *Client) SetUserScopesAtRevision(ctx context.Context, id string, scopes []string, revision int64) (*UserScopes, error) {
+	if err := validatePrincipalID(id); err != nil {
+		return nil, err
+	}
+	if revision < 0 {
+		return nil, fmt.Errorf("nonnegative revision required")
+	}
+	if scopes == nil {
+		scopes = []string{}
+	}
+	if err := c.doWithHeaders(ctx, http.MethodPut, "/auth/users/"+url.PathEscape(id)+"/scopes", map[string][]string{"scopes": scopes}, nil, map[string]string{"If-Match": strconv.FormatInt(revision, 10)}); err != nil {
+		return nil, err
+	}
+	return c.GetUserScopes(ctx, id)
 }

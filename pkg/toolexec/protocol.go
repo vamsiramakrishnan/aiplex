@@ -19,6 +19,9 @@ import (
 )
 
 const StatelessJSON = "stateless-json"
+const StatelessStreamableHTTP = "stateless-streamable-http"
+const OperatorBearer = "operator-bearer"
+const DelegatedOAuth = "delegated-oauth"
 
 var toolName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 var protocolVersion = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
@@ -30,6 +33,7 @@ type Connection struct {
 	ID              string   `json:"id"`
 	Endpoint        string   `json:"endpoint"`
 	IdentityRef     string   `json:"identity_ref"`
+	CredentialMode  string   `json:"credential_mode,omitempty"`
 	AllowedTools    []string `json:"allowed_tools"`
 	ProtocolVersion string   `json:"protocol_version"`
 	Mode            string   `json:"mode"`
@@ -37,7 +41,9 @@ type Connection struct {
 
 func (c Connection) Validate() error {
 	_, versionErr := time.Parse("2006-01-02", c.ProtocolVersion)
-	if !validIdentifier(c.ID) || !validIdentifier(c.IdentityRef) || c.Mode != StatelessJSON || !protocolVersion.MatchString(c.ProtocolVersion) || versionErr != nil || len(c.AllowedTools) == 0 || len(c.AllowedTools) > 1024 {
+	credentialValid := (c.CredentialMode == "" || c.CredentialMode == OperatorBearer) && validIdentifier(c.IdentityRef)
+	credentialValid = credentialValid || (c.CredentialMode == DelegatedOAuth && c.IdentityRef == "")
+	if !validIdentifier(c.ID) || !credentialValid || (c.Mode != StatelessJSON && c.Mode != StatelessStreamableHTTP) || !protocolVersion.MatchString(c.ProtocolVersion) || versionErr != nil || len(c.AllowedTools) == 0 || len(c.AllowedTools) > 1024 {
 		return fmt.Errorf("bounded identity, explicit stateless mode, protocol version and tools are required")
 	}
 	u, err := url.Parse(c.Endpoint)

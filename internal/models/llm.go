@@ -4,14 +4,17 @@ import "time"
 
 // LLMRouteConfig defines routing rules for a model — weights, failover, budgets.
 type LLMRouteConfig struct {
-	ID        string          `json:"id"`
-	ModelID   string          `json:"model_id"`
-	Owner     string          `json:"owner"`
-	Backends  []LLMBackend    `json:"backends"`
-	Fallbacks []string        `json:"fallbacks,omitempty"` // ordered fallback model IDs
-	CacheTTL  int             `json:"cache_ttl_seconds,omitempty"`
-	Budget    *UsageBudget    `json:"budget,omitempty"`
-	RateLimit *ModelRateLimit `json:"rate_limit,omitempty"`
+	ActivationPending bool            `json:"activation_pending,omitempty"`
+	DeletionPending   bool            `json:"deletion_pending,omitempty"`
+	Revision          int64           `json:"revision"`
+	ID                string          `json:"id"`
+	ModelID           string          `json:"model_id"`
+	Owner             string          `json:"owner"`
+	Backends          []LLMBackend    `json:"backends"`
+	Fallbacks         []string        `json:"fallbacks,omitempty"` // ordered fallback model IDs
+	CacheTTL          int             `json:"cache_ttl_seconds,omitempty"`
+	Budget            *UsageBudget    `json:"budget,omitempty"`
+	RateLimit         *ModelRateLimit `json:"rate_limit,omitempty"`
 	// RetiredBackends is server-owned cleanup inventory. PUT derives it from
 	// previously saved route ownership, never from caller-supplied values.
 	RetiredBackends []string `json:"retired_backends,omitempty"`
@@ -78,6 +81,7 @@ type UsageSummary struct {
 
 // ProviderConfig holds provider-level settings.
 type ProviderConfig struct {
+	Revision    int64  `json:"revision"`
 	Provider    string `json:"provider"`
 	DisplayName string `json:"display_name"`
 	BaseURL     string `json:"base_url,omitempty"`

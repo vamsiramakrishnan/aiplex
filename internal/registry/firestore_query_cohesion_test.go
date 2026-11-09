@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -30,13 +29,15 @@ import (
 // actual SDK RunQuery filters/order/limit against those same field paths. It
 // deliberately does not reinterpret json tags or normalize field-name casing.
 type queryWireServer struct {
-	pb.UnimplementedFirestoreServer
-	mu        sync.Mutex
-	documents map[string]*pb.Document
-	queries   []*pb.StructuredQuery
+	*quotaWireServer
+	queries                  []*pb.StructuredQuery
+	beforeTransactionalQuery func(*queryWireServer)
 }
 
-func (s *queryWireServer) Commit(_ context.Context, request *pb.CommitRequest) (*pb.CommitResponse, error) {
+func (s *queryWireServer) Commit(ctx context.Context, request *pb.CommitRequest) (*pb.CommitResponse, error) {
+	if len(request.Transaction) > 0 {
+		return s.quotaWireServer.Commit(ctx, request)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	response := &pb.CommitResponse{CommitTime: timestamppb.Now()}
@@ -135,9 +136,22 @@ func (s *queryWireServer) RunQuery(request *pb.RunQueryRequest, stream pb.Firest
 		return status.Error(codes.InvalidArgument, "one collection required")
 	}
 	s.queries = append(s.queries, proto.Clone(query).(*pb.StructuredQuery))
+	source := s.documents
+	if len(request.GetTransaction()) > 0 {
+		tx, ok := s.transactions[string(request.GetTransaction())]
+		if !ok {
+			return status.Error(codes.InvalidArgument, "query escaped transaction")
+		}
+		if s.beforeTransactionalQuery != nil {
+			hook := s.beforeTransactionalQuery
+			s.beforeTransactionalQuery = nil
+			hook(s)
+		}
+		source = tx.documents
+	}
 	prefix := request.Parent + "/" + query.From[0].CollectionId + "/"
 	var documents []*pb.Document
-	for name, doc := range s.documents {
+	for name, doc := range source {
 		if !strings.HasPrefix(name, prefix) || strings.Contains(strings.TrimPrefix(name, prefix), "/") {
 			continue
 		}
@@ -180,7 +194,7 @@ func queryWireFixture(t *testing.T) (*FirestoreStore, *queryWireServer) {
 	t.Helper()
 	listener := bufconn.Listen(1 << 20)
 	server := grpc.NewServer()
-	backend := &queryWireServer{documents: map[string]*pb.Document{}}
+	backend := &queryWireServer{quotaWireServer: &quotaWireServer{documents: map[string]*pb.Document{}, transactions: map[string]quotaWireTransaction{}}}
 	pb.RegisterFirestoreServer(server, backend)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)

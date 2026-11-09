@@ -16,5 +16,6 @@ func quotaCmd() *cobra.Command {
 		}
 		return nil
 	}})
+	cmd.AddCommand(quotaAdminCommands()...)
 	return cmd
 }

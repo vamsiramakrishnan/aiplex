@@ -139,6 +139,8 @@ Built-in Plex modules can be selected independently; external services register 
 
 The [QuotaPlex core guide](docs/quotaplex-core.md) documents the Go library, exact accounting, atomic admission, Firestore adapter, budget loans and weighted queue primitive. The [opt-in managed execution guide](docs/quotaplex-integration.md) covers supported model/tool dispatch, terminal usage and recovery. Broader provider coverage and throughput guarantees retain explicit integration gates.
 
+[Foundation completion](docs/foundation-completion.md) connects revisioned configuration, directory membership, native model profiles, delegated MCP authorization, quota operations, atomic scheduling and reviewed infrastructure execution. [Production qualification](docs/production-qualification.md) supplies emulator CI, reference benchmarks and billing-evidence comparison.
+
 The [feature cohesion bugbash](docs/feature-cohesion-bugbash.md) records repairs to existing OAuth, routing, persistence, audit, SDK/CLI and Console handoffs, including deployment compatibility.
 
 ## Local Development

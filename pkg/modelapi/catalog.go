@@ -219,7 +219,7 @@ func GoogleOperations() []Operation {
 
 func SelectOperations(ids ...string) ([]Operation, error) {
 	all := map[string]Operation{}
-	for _, o := range GoogleOperations() {
+	for _, o := range Operations() {
 		all[o.ID] = o
 	}
 	out := make([]Operation, 0, len(ids))

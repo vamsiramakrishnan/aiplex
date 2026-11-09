@@ -288,10 +288,31 @@ func (h *AuthHandler) GetUserScopes(w http.ResponseWriter, r *http.Request) {
 		scopes = []string{}
 	}
 
+	revision := int64(0)
+	if versioned, ok := h.store.(registry.VersionedConfigurationStore); ok {
+		record, readErr := versioned.GetConfiguration(r.Context(), registry.ConfigUserScopes, userID)
+		if readErr != nil && !errors.Is(readErr, registry.ErrNotFound) {
+			configurationError(w, r, readErr)
+			return
+		}
+		revision = record.Revision
+		if len(record.Spec) > 0 {
+			var stored struct {
+				Scopes []string `json:"scopes"`
+			}
+			if json.Unmarshal(record.Spec, &stored) != nil {
+				Error(w, r, 503, "CONFIGURATION_UNAVAILABLE", "scope configuration unavailable")
+				return
+			}
+			scopes = stored.Scopes
+		}
+	}
+	configurationETag(w, revision)
 	// Group by plane for easier display
 	grouped := auth.ScopesByPlane(scopes)
 	JSON(w, http.StatusOK, map[string]any{
 		"user_id":  userID,
+		"revision": revision,
 		"scopes":   scopes,
 		"by_plane": grouped,
 	})
@@ -321,8 +342,23 @@ func (h *AuthHandler) SetUserScopes(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 400, "INVALID_SCOPE", err.Error())
 		return
 	}
-	if err := h.store.SetUserScopes(r.Context(), userID, normalized); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
+	current, err := versioned.GetConfiguration(r.Context(), registry.ConfigUserScopes, userID)
+	if err != nil && !errors.Is(err, registry.ErrNotFound) {
+		configurationError(w, r, err)
+		return
+	}
+	expected, ok := configurationExpected(w, r, current.Revision)
+	if !ok {
+		return
+	}
+	value := struct {
+		Scopes []string `json:"scopes"`
+	}{normalized}
+	if !putConfiguration(w, r, versioned, registry.ConfigUserScopes, userID, &value, expected, generation) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

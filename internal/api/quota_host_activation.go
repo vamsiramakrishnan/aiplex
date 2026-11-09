@@ -28,7 +28,7 @@ func (h *QuotaHost) configureHeads(ctx context.Context, cfg QuotaHostConfig) err
 	authorityDigest := ""
 	needsBounds := false
 	for _, binding := range h.bindings {
-		if binding.Profile == quotaProfileGemini {
+		if quotaStrictProfile(binding.Profile) {
 			needsBounds = true
 		}
 	}
@@ -52,11 +52,21 @@ func (h *QuotaHost) configureHeads(ctx context.Context, cfg QuotaHostConfig) err
 			}
 		}
 		sort.Slice(bindings, func(i, j int) bool { return bindings[i].ID < bindings[j].ID })
+		membershipAuthority := ""
+		if h.membership != nil {
+			membershipAuthority = h.membership.ConfigurationDigest()
+		}
+		admissionController := ""
+		if h.admission != nil {
+			admissionController = h.admission.ConfigurationDigest()
+		}
 		digest, err := quotaDigest(struct {
-			Bindings        []QuotaBinding
-			MembershipAge   time.Duration
-			BoundsAuthority string
-		}{bindings, h.maxMembershipAge, authorityDigest})
+			Bindings            []QuotaBinding
+			MembershipAge       time.Duration
+			BoundsAuthority     string
+			MembershipAuthority string `json:",omitempty"`
+			AdmissionController string `json:",omitempty"`
+		}{bindings, h.maxMembershipAge, authorityDigest, membershipAuthority, admissionController})
 		if err != nil {
 			return err
 		}

@@ -49,6 +49,7 @@ type UsageAcknowledgement struct {
 	EventID        string    `json:"event_id"`
 	EvidenceDigest string    `json:"evidence_digest"`
 	Status         string    `json:"status"`
+	ResolutionID   string    `json:"resolution_id,omitempty"`
 	AcceptedAt     time.Time `json:"accepted_at"`
 	SettledAt      time.Time `json:"settled_at,omitempty"`
 	NextAttemptAt  time.Time `json:"next_attempt_at,omitempty"`

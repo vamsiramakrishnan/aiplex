@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/vamsiramakrishnan/aiplex/internal/connections"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
@@ -24,6 +23,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/deployment"
 	"github.com/vamsiramakrishnan/aiplex/pkg/endpointpolicy"
+	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/governance"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
@@ -45,6 +45,7 @@ type ToolConnection struct {
 	NetworkProfileRef     string                 `json:"network_profile_ref,omitempty"`
 }
 type ConnectedHandler struct {
+	ToolSessions    *toolauth.Runtime
 	Quota           *QuotaHost
 	ResolveAccess   func(context.Context, *models.WIFIdentity) (*models.ResolvedAccess, error)
 	EnabledModules  map[string]bool
@@ -326,7 +327,7 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			// Developer application identity and issuer-scoped OAuth profile
 			// identity are distinct. Linking them does not require equal IDs.
 		}
-		if c.Execution == nil || c.Issuer != "" || !reflect.DeepEqual(c.Client, toolauth.ClientProfile{}) {
+		if c.Execution == nil || c.Issuer != "" || !reflect.DeepEqual(c.Client, toolauth.ClientProfile{}) || c.Execution.CredentialMode == toolexec.DelegatedOAuth {
 			if e := toolauth.ValidateClientProfile(c.Client); e != nil {
 				return e
 			}
@@ -335,18 +336,23 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			}
 		}
 		if c.Execution != nil {
+			if c.Execution.CredentialMode == toolexec.DelegatedOAuth && c.Issuer == "" {
+				return fmt.Errorf("delegated OAuth requires an exact issuer")
+			}
 			if c.Execution.ID != id || c.Execution.Endpoint != c.ResourceURL {
 				return fmt.Errorf("execution identity and endpoint must match the saved connection")
 			}
 			if e := c.Execution.Validate(); e != nil {
 				return e
 			}
-			if e := h.Runtime.CheckDestination(tenant, c.Execution.IdentityRef, c.ResourceURL); e != nil {
-				return e
-			}
-			identity, e := h.Runtime.Identity(tenant, c.Execution.IdentityRef)
-			if e != nil || identity.Type == "aws-default" {
-				return fmt.Errorf("managed tool execution requires an approved bearer credential adapter")
+			if c.Execution.CredentialMode != toolexec.DelegatedOAuth {
+				if e := h.Runtime.CheckDestination(tenant, c.Execution.IdentityRef, c.ResourceURL); e != nil {
+					return e
+				}
+				identity, e := h.Runtime.Identity(tenant, c.Execution.IdentityRef)
+				if e != nil || identity.Type == "aws-default" {
+					return fmt.Errorf("managed tool execution requires an approved bearer credential adapter")
+				}
 			}
 		}
 		p, e := endpointpolicy.New(h.Runtime.Config.Network)
@@ -431,7 +437,7 @@ func (h *ConnectedHandler) RegisterTool(w http.ResponseWriter, r *http.Request) 
 	JSON(w, 200, saved)
 }
 func (h *ConnectedHandler) ModelOperations(w http.ResponseWriter, r *http.Request) {
-	JSON(w, 200, modelapi.GoogleOperations())
+	JSON(w, 200, modelapi.Operations())
 }
 func (h *ConnectedHandler) trusted(r *http.Request, resource string) (contracts.RequestContext, error) {
 	tenant, e := h.Tenant(r)
@@ -466,19 +472,35 @@ func (h *ConnectedHandler) authorize(r *http.Request, required string) error {
 // authorizeCurrent re-resolves grants at the dispatch boundary. Quota-protected
 // hosts must supply their authoritative resolver rather than reuse ingress grants.
 func (h *ConnectedHandler) authorizeCurrent(ctx context.Context, r *http.Request, required string) error {
+	return h.authorizeAllCurrent(ctx, r, required)
+}
+
+// Resolve one coherent authority snapshot for an intersection of required
+// grants. Separate refreshes could combine permissions that never coexisted.
+func (h *ConnectedHandler) authorizeAllCurrent(ctx context.Context, r *http.Request, required ...string) error {
 	if h.ResolveAccess == nil {
 		if h.Quota != nil {
 			return fmt.Errorf("current access resolver unavailable")
 		}
-		return h.authorize(r, required)
+		for _, scope := range required {
+			if err := h.authorize(r, scope); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	identity := GetWIFIdentity(r.Context())
 	if identity == nil {
 		return fmt.Errorf("verified identity required")
 	}
 	access, err := h.ResolveAccess(ctx, identity)
-	if err != nil || access == nil || access.Identity.PrincipalID != identity.PrincipalID || access.Identity.ActorID != identity.ActorID || !scopeAllowed(access.Scopes, required) {
+	if err != nil || access == nil || access.Identity.PrincipalID != identity.PrincipalID || access.Identity.ActorID != identity.ActorID {
 		return fmt.Errorf("current execution grant required")
+	}
+	for _, scope := range required {
+		if !scopeAllowed(access.Scopes, scope) {
+			return fmt.Errorf("current execution grant required")
+		}
 	}
 	return nil
 }
@@ -581,10 +603,6 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 403, "ACTION_DENIED", e.Error())
 		return
 	}
-	if h.Quota != nil {
-		Error(w, r, http.StatusNotImplemented, "QUOTA_AGENT_COVERAGE_UNAVAILABLE", "native agent execution requires a supported quota and metering adapter")
-		return
-	}
 	if e = h.checkAgentGovernanceRef(r.Context(), tenant, c); e != nil {
 		Error(w, r, 503, "GOVERNANCE_BINDING_UNAVAILABLE", "native governance binding is unavailable or targets another runtime")
 		return
@@ -609,26 +627,24 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var credential cloudagents.Authenticator
 	if identity.Type == "aws-default" {
-		cfg, e := awsconfig.LoadDefaultConfig(r.Context(), awsconfig.WithRegion(c.Region))
-		if e != nil {
-			Error(w, r, 503, "CREDENTIAL_UNAVAILABLE", "AWS credential chain unavailable")
-			return
-		}
-		if e = h.verifyLinkedBedrockAccount(r.Context(), tenant, c, cfg.Credentials); e != nil {
-			Error(w, r, 503, "GOVERNANCE_ACCOUNT_UNVERIFIED", "linked Bedrock signing account could not be verified")
-			return
-		}
 		service := "bedrock"
 		if c.Provider == cloudagents.AgentCoreRuntime {
 			service = "bedrock-agentcore"
 		}
-		credential = cloudagents.SigV4Credentials{Source: cfg.Credentials, Region: c.Region, Service: service}
+		credential = lazyAWSAgentCredentials{handler: h, tenant: tenant, connection: c, service: service}
 	} else {
 		credential = cloudagents.BearerCredentials{Token: func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, c.IdentityRef) }}
 	}
+	options := []cloudagents.Option{cloudagents.WithSessionStore(cloudSessions{h.Store})}
+	if h.Quota != nil {
+		options = append(options, cloudagents.WithExecutionPreparer(h.AgentExecutionPreparer(w, r, record, c)))
+	}
 	invoker, e := cloudagents.NewInvoker(c, cloudagents.AuthorizeFunc(func(ctx context.Context, a cloudagents.Action) error {
-		return h.authorize(r, "a2a:agent:"+id+":"+a.Operation)
-	}), h.Runtime.Streaming, credential, cloudagents.WithSessionStore(cloudSessions{h.Store}))
+		if err := h.authorizeCurrent(ctx, r, "a2a:agent:"+id+":"+a.Operation); err != nil {
+			return quotaStatus(403, "ACTION_DENIED", "current native agent action grant required")
+		}
+		return nil
+	}), h.Runtime.Streaming, credential, options...)
 	if e != nil {
 		Error(w, r, 503, "AGENT_UNAVAILABLE", e.Error())
 		return
@@ -637,6 +653,18 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	response, e := invoker.Invoke(invokeCtx, trusted, in)
 	if e != nil {
+		var failure *execution.StatusError
+		if errors.As(e, &failure) {
+			if failure.RetryAfter > 0 {
+				seconds := failure.RetryAfter / time.Second
+				if failure.RetryAfter%time.Second != 0 {
+					seconds++
+				}
+				w.Header().Set("Retry-After", strconv.FormatInt(int64(seconds), 10))
+			}
+			Error(w, r, failure.Status, failure.Code, failure.Message)
+			return
+		}
 		Error(w, r, 502, "INVOCATION_FAILED", e.Error())
 		return
 	}

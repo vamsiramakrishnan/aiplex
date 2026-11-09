@@ -209,6 +209,7 @@ func (f *FirestoreStore) GetAgent(ctx context.Context, clientID string) (*models
 	if err := doc.DataTo(&a); err != nil {
 		return nil, fmt.Errorf("firestore decode agent: %w", err)
 	}
+	normalizeConfigurationVersion(&a)
 	return &a, nil
 }
 
@@ -227,28 +228,21 @@ func (f *FirestoreStore) ListAgents(ctx context.Context) ([]models.Agent, error)
 		if err := doc.DataTo(&a); err != nil {
 			return nil, fmt.Errorf("firestore decode agent: %w", err)
 		}
+		normalizeConfigurationVersion(&a)
 		agents = append(agents, a)
 	}
 	return agents, nil
 }
 
 func (f *FirestoreStore) PutAgent(ctx context.Context, a *models.Agent) error {
-	_, err := f.client.Collection("agents").Doc(a.ClientID).Set(ctx, a)
-	if err != nil {
-		return fmt.Errorf("firestore put agent: %w", err)
+	if a == nil {
+		return fmt.Errorf("configuration required")
 	}
-	return nil
+	return PutLegacyConfiguration(ctx, f, ConfigAgent, a.ClientID, a)
 }
 
 func (f *FirestoreStore) DeleteAgent(ctx context.Context, clientID string) error {
-	_, err := f.client.Collection("agents").Doc(clientID).Delete(ctx)
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return ErrNotFound
-		}
-		return fmt.Errorf("firestore delete agent: %w", err)
-	}
-	return nil
+	return DeleteLegacyConfiguration(ctx, f, ConfigAgent, clientID)
 }
 
 // ── Deploy History ──
@@ -318,11 +312,8 @@ func (f *FirestoreStore) GetUserScopes(ctx context.Context, userID string) ([]st
 }
 
 func (f *FirestoreStore) SetUserScopes(ctx context.Context, userID string, scopes []string) error {
-	_, err := f.client.Collection("user_scopes").Doc(userID).Set(ctx, userScopesDoc{Scopes: scopes})
-	if err != nil {
-		return fmt.Errorf("firestore set user scopes: %w", err)
-	}
-	return nil
+	value := &configurationScopes{Scopes: scopes}
+	return PutLegacyConfiguration(ctx, f, ConfigUserScopes, userID, value)
 }
 
 // ── LLM Route Configs ──
@@ -339,6 +330,7 @@ func (f *FirestoreStore) GetRouteConfig(ctx context.Context, modelID string) (*m
 	if err := doc.DataTo(&rc); err != nil {
 		return nil, fmt.Errorf("firestore decode route config: %w", err)
 	}
+	normalizeConfigurationVersion(&rc)
 	return &rc, nil
 }
 
@@ -357,32 +349,21 @@ func (f *FirestoreStore) ListRouteConfigs(ctx context.Context) ([]models.LLMRout
 		if err := doc.DataTo(&rc); err != nil {
 			return nil, fmt.Errorf("firestore decode route config: %w", err)
 		}
+		normalizeConfigurationVersion(&rc)
 		configs = append(configs, rc)
 	}
 	return configs, nil
 }
 
 func (f *FirestoreStore) PutRouteConfig(ctx context.Context, rc *models.LLMRouteConfig) error {
-	rc.UpdatedAt = time.Now()
-	if rc.CreatedAt.IsZero() {
-		rc.CreatedAt = time.Now()
+	if rc == nil {
+		return fmt.Errorf("configuration required")
 	}
-	_, err := f.client.Collection("route_configs").Doc(rc.ModelID).Set(ctx, rc)
-	if err != nil {
-		return fmt.Errorf("firestore put route config: %w", err)
-	}
-	return nil
+	return PutLegacyConfiguration(ctx, f, ConfigRoute, rc.ModelID, rc)
 }
 
 func (f *FirestoreStore) DeleteRouteConfig(ctx context.Context, modelID string) error {
-	_, err := f.client.Collection("route_configs").Doc(modelID).Delete(ctx)
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return ErrNotFound
-		}
-		return fmt.Errorf("firestore delete route config: %w", err)
-	}
-	return nil
+	return DeleteLegacyConfiguration(ctx, f, ConfigRoute, modelID)
 }
 
 // ── Provider Configs ──
@@ -399,6 +380,7 @@ func (f *FirestoreStore) GetProviderConfig(ctx context.Context, provider string)
 	if err := doc.DataTo(&pc); err != nil {
 		return nil, fmt.Errorf("firestore decode provider config: %w", err)
 	}
+	normalizeConfigurationVersion(&pc)
 	return &pc, nil
 }
 
@@ -417,17 +399,17 @@ func (f *FirestoreStore) ListProviderConfigs(ctx context.Context) ([]models.Prov
 		if err := doc.DataTo(&pc); err != nil {
 			return nil, fmt.Errorf("firestore decode provider config: %w", err)
 		}
+		normalizeConfigurationVersion(&pc)
 		configs = append(configs, pc)
 	}
 	return configs, nil
 }
 
 func (f *FirestoreStore) PutProviderConfig(ctx context.Context, pc *models.ProviderConfig) error {
-	_, err := f.client.Collection("provider_configs").Doc(pc.Provider).Set(ctx, pc)
-	if err != nil {
-		return fmt.Errorf("firestore put provider config: %w", err)
+	if pc == nil {
+		return fmt.Errorf("configuration required")
 	}
-	return nil
+	return PutLegacyConfiguration(ctx, f, ConfigProvider, pc.Provider, pc)
 }
 
 // ── Usage Tracking ──
@@ -834,6 +816,7 @@ func (f *FirestoreStore) GetRoleBinding(ctx context.Context, id string) (*models
 	if err := doc.DataTo(&rb); err != nil {
 		return nil, fmt.Errorf("firestore decode role binding: %w", err)
 	}
+	normalizeConfigurationVersion(&rb)
 	return &rb, nil
 }
 
@@ -852,6 +835,7 @@ func (f *FirestoreStore) ListRoleBindings(ctx context.Context) ([]models.RoleBin
 		if err := doc.DataTo(&rb); err != nil {
 			return nil, fmt.Errorf("firestore decode role binding: %w", err)
 		}
+		normalizeConfigurationVersion(&rb)
 		bindings = append(bindings, rb)
 	}
 	return bindings, nil
@@ -872,28 +856,21 @@ func (f *FirestoreStore) ListRoleBindingsByGroup(ctx context.Context, group stri
 		if err := doc.DataTo(&rb); err != nil {
 			return nil, fmt.Errorf("firestore decode role binding: %w", err)
 		}
+		normalizeConfigurationVersion(&rb)
 		bindings = append(bindings, rb)
 	}
 	return bindings, nil
 }
 
 func (f *FirestoreStore) PutRoleBinding(ctx context.Context, rb *models.RoleBinding) error {
-	_, err := f.client.Collection("role_bindings").Doc(rb.ID).Set(ctx, rb)
-	if err != nil {
-		return fmt.Errorf("firestore put role binding: %w", err)
+	if rb == nil {
+		return fmt.Errorf("configuration required")
 	}
-	return nil
+	return PutLegacyConfiguration(ctx, f, ConfigRoleBinding, rb.ID, rb)
 }
 
 func (f *FirestoreStore) DeleteRoleBinding(ctx context.Context, id string) error {
-	_, err := f.client.Collection("role_bindings").Doc(id).Delete(ctx)
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return ErrNotFound
-		}
-		return fmt.Errorf("firestore delete role binding: %w", err)
-	}
-	return nil
+	return DeleteLegacyConfiguration(ctx, f, ConfigRoleBinding, id)
 }
 
 // ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────

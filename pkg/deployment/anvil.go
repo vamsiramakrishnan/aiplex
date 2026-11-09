@@ -266,6 +266,11 @@ func (a *Anvil) Prepare(ctx context.Context, request Request) (plan Plan, err er
 	if e = os.WriteFile(input, request.Inputs, 0600); e != nil {
 		return Plan{}, e
 	}
+	if dispatch, ok := receipt.(DispatchAdmissionReceipt); ok {
+		if e = dispatch.BeforeDispatch(ctx); e != nil {
+			return Plan{}, e
+		}
+	}
 	result, e := a.command(ctx, root, a.args(binding, root, input, request, true), bindingEnvironment(request, binding)...)
 	if e != nil || result.ExitCode != 0 {
 		return Plan{}, processError(result, e)
@@ -383,6 +388,19 @@ func (a *Anvil) Execute(ctx context.Context, request Request, plan Plan, approva
 			return Receipt{}, ErrConflict
 		}
 		return prior, nil
+	}
+	if dispatch, ok := admission.(DispatchAdmissionReceipt); ok {
+		if e = dispatch.BeforeDispatch(ctx); e != nil {
+			pending.State = Refused
+			pending.ErrorCode = "dispatch_refused"
+			pending.FinishedAt = a.now().UTC()
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if finishErr := a.journal.Finish(cleanup, pending); finishErr != nil {
+				return pending, fmt.Errorf("dispatch refused; journal completion unknown")
+			}
+			return pending, e
+		}
 	}
 	result, runErr := a.command(ctx, root, a.args(binding, root, input, request, false), bindingEnvironment(request, binding)...)
 	pending.FinishedAt = a.now().UTC()

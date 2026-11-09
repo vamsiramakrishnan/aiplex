@@ -23,10 +23,10 @@ type AiplexManifest struct {
 }
 
 type ManifestInstance struct {
-	Name       string         `json:"name" yaml:"name"`
-	Plane      string         `json:"plane" yaml:"plane"`
-	Template   string         `json:"template" yaml:"template"`
-	Config     map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
+	Name     string         `json:"name" yaml:"name"`
+	Plane    string         `json:"plane" yaml:"plane"`
+	Template string         `json:"template" yaml:"template"`
+	Config   map[string]any `json:"config,omitempty" yaml:"config,omitempty"`
 }
 
 type ManifestAgent struct {
@@ -39,10 +39,11 @@ type ManifestAgent struct {
 }
 
 type ManifestRoute struct {
-	ModelID   string               `json:"model_id" yaml:"model_id"`
-	Backends  []aiplex.LLMBackend  `json:"backends" yaml:"backends"`
-	Fallbacks []string             `json:"fallbacks,omitempty" yaml:"fallbacks,omitempty"`
-	Budget    *aiplex.UsageBudget  `json:"budget,omitempty" yaml:"budget,omitempty"`
+	Revision  int64               `json:"revision,omitempty" yaml:"revision,omitempty"`
+	ModelID   string              `json:"model_id" yaml:"model_id"`
+	Backends  []aiplex.LLMBackend `json:"backends" yaml:"backends"`
+	Fallbacks []string            `json:"fallbacks,omitempty" yaml:"fallbacks,omitempty"`
+	Budget    *aiplex.UsageBudget `json:"budget,omitempty" yaml:"budget,omitempty"`
 }
 
 func applyCmd() *cobra.Command {
@@ -142,6 +143,7 @@ Usage:
 				fmt.Printf("Configuring route %s... ", route.ModelID)
 				_, err := c.PutLLMRoute(ctx, route.ModelID, &aiplex.LLMRouteConfig{
 					ModelID:   route.ModelID,
+					Revision:  route.Revision,
 					Backends:  route.Backends,
 					Fallbacks: route.Fallbacks,
 					Budget:    route.Budget,

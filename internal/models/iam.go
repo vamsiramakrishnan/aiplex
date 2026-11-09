@@ -16,6 +16,7 @@ const (
 // RoleBinding maps an external identity group (from WIF) to an AIPlex role
 // and a set of default scopes (Dimension B ceiling).
 type RoleBinding struct {
+	Revision    int64     `json:"revision"`
 	Provider    string    `json:"provider,omitempty"` // Optional issuer restriction for this binding.
 	PoolID      string    `json:"pool_id,omitempty"`  // Optional pool restriction for this binding.
 	ID          string    `json:"id"`
@@ -54,6 +55,7 @@ type IdentityEvidence struct {
 	Issuer              string
 	PoolID              string
 	Subject             string
+	ActorSubject        string
 	IssuedAt            time.Time
 	ExpiresAt           time.Time
 	CredentialExpiresAt time.Time
@@ -67,12 +69,13 @@ type IdentityEvidence struct {
 // ResolvedAccess is the result of resolving a WIF identity against role bindings.
 // It contains the effective AIPlex roles and merged Dimension B scopes.
 type ResolvedAccess struct {
-	Identity        WIFIdentity `json:"identity"`
-	Roles           []IAMRole   `json:"roles"`
-	Scopes          []string    `json:"scopes"` // effective union, evaluated for this request
-	GroupScopes     []string    `json:"group_scopes,omitempty"`
-	ManualScopes    []string    `json:"manual_scopes,omitempty"`
-	MatchedBindings []string    `json:"matched_bindings,omitempty"`
+	ConfigurationRevision int64       `json:"configuration_revision,omitempty"`
+	Identity              WIFIdentity `json:"identity"`
+	Roles                 []IAMRole   `json:"roles"`
+	Scopes                []string    `json:"scopes"` // effective union, evaluated for this request
+	GroupScopes           []string    `json:"group_scopes,omitempty"`
+	ManualScopes          []string    `json:"manual_scopes,omitempty"`
+	MatchedBindings       []string    `json:"matched_bindings,omitempty"`
 }
 
 // DefaultRoleScopes defines the built-in scope patterns per role.

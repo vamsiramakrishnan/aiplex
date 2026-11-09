@@ -20,7 +20,7 @@ export default function Agents() {
   const [showSecret, setShowSecret] = useState(false)
 
   const remove = useMutation({
-    mutationFn: deleteAgent,
+    mutationFn: (id: string) => deleteAgent(id, agents.data?.find(agent => agent.client_id === id)?.revision),
     onSuccess: (_data, id) => { if (issued?.clientId === id) setIssued(null); queryClient.invalidateQueries({ queryKey: ['agents'] }) },
   })
 

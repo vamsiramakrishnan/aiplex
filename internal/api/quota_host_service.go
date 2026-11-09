@@ -77,7 +77,7 @@ func quotaInterfacePresent(value any) bool {
 
 // NewQuotaHost validates every item before explicit operator activation. Its
 // persistent host configuration head prevents stale bindings across replicas.
-func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Store, clock func() time.Time, actor QuotaActorResolver, bounds TrustedBoundsAuthority) (*QuotaHost, error) {
+func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Store, clock func() time.Time, actor QuotaActorResolver, bounds TrustedBoundsAuthority, options ...QuotaHostOption) (*QuotaHost, error) {
 	if ctx == nil || !quotaInterfacePresent(store) || len(cfg.Tenants) == 0 || len(cfg.Tenants) > 64 || len(cfg.Bindings) == 0 || len(cfg.Bindings) > 1024 {
 		return nil, fmt.Errorf("quota host needs bounded tenants, bindings and transactional storage")
 	}
@@ -91,6 +91,14 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 		return nil, fmt.Errorf("quota membership age must be between one second and 24 hours")
 	}
 	h := &QuotaHost{tenants: map[string]quotaTenant{}, bindings: map[string]QuotaBinding{}, clock: clock, actor: actor, bounds: bounds, maxMembershipAge: cfg.MaxMembershipAge, store: store, configurationDigests: map[string]string{}}
+	for _, option := range options {
+		if option == nil {
+			return nil, fmt.Errorf("quota host option is nil")
+		}
+		if err := option(h); err != nil {
+			return nil, err
+		}
+	}
 	for _, tenant := range cfg.Tenants {
 		compiled, err := quotaplex.Compile(tenant.Policy)
 		if err != nil {
@@ -124,7 +132,7 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 				return nil, fmt.Errorf("quota bindings require exact selectors, not wildcard patterns")
 			}
 		}
-		if binding.Plane != "llmplex" && binding.Plane != "mcplex" {
+		if binding.Plane != "llmplex" && binding.Plane != "mcplex" && binding.Plane != "a2aplex" {
 			return nil, fmt.Errorf("quota binding plane is unsupported")
 		}
 		idKey := binding.TenantID + "\x00" + binding.ID
@@ -136,14 +144,14 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 		if !ok {
 			return nil, fmt.Errorf("quota binding references an unconfigured tenant")
 		}
-		if binding.Profile != quotaProfileRequests && binding.Profile != quotaProfileGemini {
+		if binding.Profile != quotaProfileRequests && !quotaStrictProfile(binding.Profile) {
 			return nil, fmt.Errorf("quota binding profile is unsupported")
 		}
-		if binding.Profile == quotaProfileGemini && (!quotaInterfacePresent(bounds) || binding.Plane != "llmplex" || binding.Model == "" || binding.ModelVersion == "") {
+		if quotaStrictProfile(binding.Profile) && (!quotaInterfacePresent(bounds) || binding.Plane != "llmplex" || binding.Model == "" || binding.ModelVersion == "") {
 			return nil, fmt.Errorf("Gemini quota profile needs a trusted bounds authority and exact model version")
 		}
-		if binding.Profile == quotaProfileGemini && (binding.Provider != "google" || (binding.OperationID != "models.generateContent" && binding.OperationID != "models.streamGenerateContent")) {
-			return nil, fmt.Errorf("Gemini quota profile supports only native Google generation operations")
+		if quotaStrictProfile(binding.Profile) && !quotaProfileOperation(binding) {
+			return nil, fmt.Errorf("token quota profile does not support this native operation")
 		}
 		if len(binding.Limits) > 0 {
 			return nil, fmt.Errorf("binding limits are not an exposure authority; configure provider-limit evidence")
@@ -163,8 +171,12 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 					unit = "calls"
 				}
 			case "uncached_input_tokens", "cached_tokens", "output_tokens", "thought_tokens":
-				if binding.Profile == quotaProfileGemini {
-					unit = "tokens"
+				if quotaStrictProfile(binding.Profile) {
+					for _, required := range quotaProfileCounters(binding.Profile) {
+						if native == required {
+							unit = "tokens"
+						}
+					}
 				}
 			}
 			meter, known := policy.Meters[meterID]
@@ -173,8 +185,8 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 			}
 			seenMeters[meterID] = true
 		}
-		if binding.Profile == quotaProfileGemini {
-			for _, native := range []string{"uncached_input_tokens", "cached_tokens", "output_tokens", "thought_tokens"} {
+		if quotaStrictProfile(binding.Profile) {
+			for _, native := range quotaProfileCounters(binding.Profile) {
 				if binding.Meters[native] == "" {
 					return nil, fmt.Errorf("Gemini profile requires complete disjoint token mappings")
 				}
@@ -236,6 +248,28 @@ func (h *QuotaHost) subjects(ctx context.Context, r *http.Request, tenant string
 	identity := GetWIFIdentity(r.Context())
 	if identity == nil {
 		return quotaplex.Subject{}, nil, quotaStatus(401, "QUOTA_IDENTITY_REQUIRED", "verified quota identity required")
+	}
+	if h.membership != nil {
+		principal, err := h.membership.ResolveQuotaSubject(ctx, tenant, identity, "principal", now)
+		now = h.clock().UTC()
+		kind := "agent"
+		if identity.IsWorkforce {
+			kind = "human"
+		}
+		if err != nil || !quotaResolvedSubjectValid(principal, tenant, identity.PrincipalID, kind, now, h.maxMembershipAge) {
+			return quotaplex.Subject{}, nil, quotaStatus(503, "QUOTA_MEMBERSHIP_UNAVAILABLE", "authoritative principal membership unavailable")
+		}
+		quotaClampSubjectExpiry(&principal, h.maxMembershipAge)
+		if identity.ActorID == "" {
+			return principal, nil, nil
+		}
+		actor, err := h.membership.ResolveQuotaSubject(ctx, tenant, identity, "actor", now)
+		now = h.clock().UTC()
+		if err != nil || !quotaResolvedSubjectValid(principal, tenant, identity.PrincipalID, kind, now, h.maxMembershipAge) || !quotaResolvedSubjectValid(actor, tenant, identity.ActorID, "agent", now, h.maxMembershipAge) {
+			return quotaplex.Subject{}, nil, quotaStatus(503, "QUOTA_ACTOR_MEMBERSHIP_UNAVAILABLE", "independent agent membership unavailable")
+		}
+		quotaClampSubjectExpiry(&actor, h.maxMembershipAge)
+		return principal, &actor, nil
 	}
 	snapshot, err := auth.PrincipalMembership(identity, tenant, now)
 	if err != nil {
@@ -443,10 +477,15 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 	if err != nil {
 		return nil, err
 	}
-	demand := quotaplex.Demand{Version: quotaplex.Version, Context: request, Principal: principal, Actor: actor, LogicalOperationID: logical, AttemptID: attempt, PayloadDigest: payloadDigest, Target: target, FundingAccountID: requestedFunding, Bounds: bounds, RequireModelVersion: binding.Profile == quotaProfileGemini}
+	demand := quotaplex.Demand{Version: quotaplex.Version, Context: request, Principal: principal, Actor: actor, LogicalOperationID: logical, AttemptID: attempt, PayloadDigest: payloadDigest, Target: target, FundingAccountID: requestedFunding, Bounds: bounds, RequireModelVersion: quotaStrictProfile(binding.Profile)}
 	authorize := func(callCtx context.Context, pinned quotaplex.Demand) error {
 		if err := h.assertBindingActive(callCtx, request.TenantID, binding.ID); err != nil {
 			return quotaStatus(503, "QUOTA_CONFIGURATION_INACTIVE", "quota host configuration changed")
+		}
+		if h.admission != nil {
+			if err := h.admission.Recheck(callCtx, tenant.engine, pinned); err != nil {
+				return quotaStatus(503, "QUOTA_SCHEDULER_INACTIVE", "assigned capacity or scheduling policy changed before dispatch")
+			}
 		}
 		if err := in.Reauthorize(callCtx); err != nil {
 			return quotaStatus(403, "QUOTA_EXECUTION_REVOKED", "execution authority or configuration changed")
@@ -455,7 +494,11 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 		if err != nil {
 			return err
 		}
-		if !reflect.DeepEqual(freshPrincipal, pinned.Principal) || !reflect.DeepEqual(freshActor, pinned.Actor) {
+		sameMembership := reflect.DeepEqual(freshPrincipal, pinned.Principal) && reflect.DeepEqual(freshActor, pinned.Actor)
+		if h.membership != nil {
+			sameMembership = quotaSameSubjectEligibility(freshPrincipal, pinned.Principal) && quotaSameActorEligibility(freshActor, pinned.Actor)
+		}
+		if !sameMembership {
 			return quotaStatus(409, "QUOTA_MEMBERSHIP_CHANGED", "execution membership changed after admission")
 		}
 		if proof != nil {
@@ -471,7 +514,13 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 		}
 		return nil
 	}
-	bound, err := tenant.engine.Bind(demand, authorize)
+	admit := tenant.engine.Admit
+	if h.admission != nil {
+		admit = func(callCtx context.Context, admitted quotaplex.Demand) (quotaplex.Decision, error) {
+			return h.admission.Admit(callCtx, tenant.engine, admitted)
+		}
+	}
+	bound, err := tenant.engine.BindWithAdmission(demand, authorize, admit)
 	if err != nil {
 		return nil, quotaAdmissionError(err)
 	}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"sync"
 )
 
@@ -52,3 +54,15 @@ func scopedSession(tenant, principal, connection, logical string) string {
 type Option func(*Invoker)
 
 func WithSessionStore(store SessionStore) Option { return func(v *Invoker) { v.sessions = store } }
+
+// A delegated actor may not adopt another actor's provider conversation merely
+// because both were delegated by the same human. Empty-actor identities retain
+// their existing session namespace for compatibility.
+func agentSessionPrincipal(request contracts.RequestContext) string {
+	if request.ActorID == "" {
+		return request.PrincipalID
+	}
+	raw, _ := json.Marshal([]string{request.PrincipalID, request.ActorID})
+	digest := sha256.Sum256(raw)
+	return "actor-" + hex.EncodeToString(digest[:])
+}

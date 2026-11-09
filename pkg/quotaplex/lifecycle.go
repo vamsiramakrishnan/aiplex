@@ -26,6 +26,12 @@ func (e *Engine) ClaimDispatch(ctx context.Context, tenant, attempt string) (Dis
 		if err := tx.Get(attemptKind, attempt, &record); err != nil {
 			return err
 		}
+		// Dispatch authority must still be current after transaction contention,
+		// not merely when the caller first tried to acquire this claim.
+		now := e.clock().UTC()
+		if !validAccountingTime(now) {
+			return fmt.Errorf("valid quota clock required")
+		}
 		if !record.Decision.Allowed || record.Decision.State != "admitted" {
 			return fmt.Errorf("attempt is not undispatched admission: %w", ErrDispatchClaimed)
 		}

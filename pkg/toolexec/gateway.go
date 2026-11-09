@@ -42,6 +42,7 @@ type Options struct {
 	Context           func(*http.Request) (contracts.RequestContext, error)
 	Authorize         func(context.Context, contracts.RequestContext, Connection, Request) error
 	Prepare           func(context.Context, Invocation) (execution.Lease, error)
+	BeforeDispatch    func(context.Context) error
 	AllowHTTPForTests bool
 	MaxBodyBytes      int64
 	MaxResponseBytes  int64
@@ -195,8 +196,17 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	upstream.Header.Set("Content-Type", "application/json")
 	upstream.Header.Set("Accept", "application/json")
+	if g.connection.Mode == StatelessStreamableHTTP {
+		upstream.Header.Set("Accept", "application/json, text/event-stream")
+	}
 	upstream.Header.Set("MCP-Protocol-Version", g.connection.ProtocolVersion)
 	upstream.Header.Set("Authorization", "Bearer "+token)
+	if g.options.BeforeDispatch != nil {
+		if err = g.options.BeforeDispatch(r.Context()); err != nil {
+			executionError(w, err, "tool authorization changed")
+			return
+		}
+	}
 	if lease != nil {
 		if err = lease.BeforeDispatch(r.Context()); err != nil {
 			executionError(w, err, "tool dispatch denied")
@@ -213,7 +223,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	uncertainStatus = response.StatusCode
 	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, g.options.MaxResponseBytes+1))
 	media, _, mediaErr := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	terminal := readErr == nil && int64(len(responseBody)) <= g.options.MaxResponseBytes && response.StatusCode >= 200 && response.StatusCode < 300 && mediaErr == nil && media == "application/json" && response.Header.Get("MCP-Session-Id") == "" && ValidateResponse(responseBody, request.ID) == nil
+	validResponse := media == "application/json" && ValidateResponse(responseBody, request.ID) == nil
+	if media == "text/event-stream" && g.connection.Mode == StatelessStreamableHTTP {
+		validResponse = validateStreamResponse(responseBody, request.ID) == nil
+	}
+	terminal := readErr == nil && int64(len(responseBody)) <= g.options.MaxResponseBytes && response.StatusCode >= 200 && response.StatusCode < 300 && mediaErr == nil && response.Header.Get("MCP-Session-Id") == "" && validResponse
 	if !terminal {
 		http.Error(w, "tool response did not establish terminal usage", http.StatusBadGateway)
 		return

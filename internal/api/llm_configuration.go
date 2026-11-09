@@ -112,7 +112,7 @@ func (h *LLMHandler) routeManifests(ctx context.Context, c *models.LLMRouteConfi
 			return nil, fmt.Errorf("fallbacks must be distinct valid route model identifiers")
 		}
 		f, err := h.store.GetRouteConfig(ctx, id)
-		if err != nil || f == nil {
+		if err != nil || f == nil || f.ActivationPending || f.DeletionPending {
 			return nil, fmt.Errorf("fallback model requires a saved route configuration")
 		}
 		copy := *f
@@ -123,24 +123,6 @@ func (h *LLMHandler) routeManifests(ctx context.Context, c *models.LLMRouteConfi
 		fallbacks[id] = &copy
 	}
 	return deploy.GenerateRoutesWithFallbacksChecked(c, h.gatewayName, fallbacks)
-}
-
-func (h *LLMHandler) saveRoute(ctx context.Context, c *models.LLMRouteConfig) error {
-	// Some legacy in-memory adapters retain the supplied pointer. Keep the
-	// submitted snapshot separate from subsequent cleanup bookkeeping changes.
-	raw, err := json.Marshal(c)
-	if err != nil {
-		return err
-	}
-	var saved models.LLMRouteConfig
-	if err := json.Unmarshal(raw, &saved); err != nil {
-		return err
-	}
-	if err := h.store.PutRouteConfig(ctx, &saved); err != nil {
-		return err
-	}
-	c.CreatedAt, c.UpdatedAt = saved.CreatedAt, saved.UpdatedAt
-	return nil
 }
 
 func backendNames(c *models.LLMRouteConfig) []string {

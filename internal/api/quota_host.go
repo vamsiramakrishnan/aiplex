@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
@@ -48,6 +50,42 @@ type QuotaActorResolver interface {
 	ResolveActor(context.Context, string, string, time.Time) (quotaplex.Subject, error)
 }
 
+// QuotaMembershipResolver resolves principal and actor independently against
+// an operator-pinned authoritative directory. Configuration is part of the
+// durable host epoch, so an old replica cannot keep using replaced trust keys.
+type QuotaMembershipResolver interface {
+	ResolveQuotaSubject(context.Context, string, *models.WIFIdentity, string, time.Time) (quotaplex.Subject, error)
+	ConfigurationDigest() string
+}
+
+type QuotaAdmissionController interface {
+	Admit(context.Context, *quotaplex.Engine, quotaplex.Demand) (quotaplex.Decision, error)
+	Recheck(context.Context, *quotaplex.Engine, quotaplex.Demand) error
+	ConfigurationDigest() string
+}
+
+type QuotaHostOption func(*QuotaHost) error
+
+func WithQuotaMembershipResolver(resolver QuotaMembershipResolver) QuotaHostOption {
+	return func(h *QuotaHost) error {
+		if !quotaInterfacePresent(resolver) || !quotaCanonicalDigest(resolver.ConfigurationDigest()) {
+			return fmt.Errorf("authoritative membership resolver manifest required")
+		}
+		h.membership = resolver
+		return nil
+	}
+}
+
+func WithQuotaAdmissionController(controller QuotaAdmissionController) QuotaHostOption {
+	return func(h *QuotaHost) error {
+		if !quotaInterfacePresent(controller) || !quotaCanonicalDigest(controller.ConfigurationDigest()) {
+			return fmt.Errorf("quota admission controller required")
+		}
+		h.admission = controller
+		return nil
+	}
+}
+
 type QuotaBoundsRequest struct {
 	TenantID        string
 	BindingID       string
@@ -84,6 +122,8 @@ type QuotaHost struct {
 	bindings             map[string]QuotaBinding
 	clock                func() time.Time
 	actor                QuotaActorResolver
+	membership           QuotaMembershipResolver
+	admission            QuotaAdmissionController
 	bounds               TrustedBoundsAuthority
 	maxMembershipAge     time.Duration
 	store                quotaplex.Store

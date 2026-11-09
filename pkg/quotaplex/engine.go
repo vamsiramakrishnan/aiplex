@@ -307,6 +307,13 @@ func (e *Engine) Admit(ctx context.Context, demand Demand) (Decision, error) {
 		} else if head != e.policy.Reference() {
 			return persistDenial("policy_inactive", 0)
 		}
+		// A request may wait behind another transaction after its ingress clock
+		// sample. Observe accounting time after the consistent read so contention
+		// cannot make a healthy clock appear to precede a committed rate debit.
+		now := e.clock().UTC()
+		if !validAccountingTime(now) {
+			return fmt.Errorf("quota clock returned invalid accounting time")
+		}
 		plan, err := e.policy.Resolve(demand, now)
 		if err != nil {
 			var denied *ResolveError

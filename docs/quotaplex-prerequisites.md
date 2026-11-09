@@ -6,10 +6,10 @@ foundation and the [implemented QuotaPlex core](quotaplex-core.md), including th
 This checklist preserves the existing architecture and distinguishes pending
 quota work from implemented reporting behavior.
 
-Aiplex has the module, identity, policy and provider seams needed to start
-QuotaPlex. Hard token or monetary enforcement additionally needs accounting
-contracts, durable state, trusted usage and host integration. The existing
-foundation tests establish those seams; they do not prove a quota allocator.
+Aiplex now includes the shared allocator, durable accounting, acknowledged usage
+and opt-in managed host integrations. Their mechanism tests cover explicit
+profiles; hard token or monetary claims still depend on verified provider bounds,
+commercial prices, deployed routing and operation-specific qualification.
 
 The [foundation design](quotaplex-foundation-design.md) extends the implementation
 baseline to uneven group sizes, tool work, rates, concurrency and scheduling.
@@ -51,26 +51,26 @@ before enabling enforcement. None of the pending rows changes module ownership.
 | --- | --- | --- | --- |
 | Q01 | Independent module boundary | Present: library lifecycle and opt-in Go API module with startup/readiness/recovery ownership | Configure explicit module/file and shared backend; authenticated remote admission RPC remains pending |
 | Q02 | Trusted tenant, principal and agent actor | Present: managed host binds verified canonical subjects, target/configuration digest and funding | Configure trusted sources and independent actor evidence; no payer from email, sponsor or unchecked headers |
-| Q03 | Multiple-group membership at admission | Present: signed principal group/lifetime evidence and separate configured actor snapshots; host attaches both to admission | Live directory synchronization and revocation freshness need their configured authority; request time never fabricates membership |
+| Q03 | Multiple-group membership at admission | Present: signed-claim mode or configured signed HTTP authority with complete expanded source-qualified independent principal/actor snapshots | Install a real native directory synchronizer/authority, signing keys and bounded freshness/revocation policy |
 | Q04 | Funding and overlapping limits | Present: one eligible selected/highest-priority payer plus all matched mandatory constraints; ambiguous selection denied | Configure tenant funding rules; split charging and implicit group-balance union remain unsupported |
 | Q05 | Nonuniform allocations and periods | Present: explicit quantities, fixed/anchored/calendar windows, effective revisions and frozen population strategies | Rolling budgets and structural window migrations remain unsupported; host validates trusted population evidence |
-| Q06 | Admission and receipt lifecycle | Present: actual managed generation/tool dispatch uses typed bound admission, one-shot claims and explicit terminal evidence | Additional operations/transports and direct routes need their own covered dispatch/usage adapters |
+| Q06 | Admission and receipt lifecycle | Present: actual managed model/tool/native-agent RPC dispatch uses typed bound admission, one-shot claims and explicit terminal evidence | Additional operations/transports and direct routes need their own covered dispatch/usage adapters |
 | Q07 | Stable accounting identities | Present: host-derived subject-scoped attempt/logical IDs, native payload/configuration digests and durable resource/outbox linkage | Clients retain idempotency keys for transport retries; new billable attempts use new keys and preserve causal linkage |
 | Q08 | Immutable decision provenance | Present: policy activation CAS, immutable meter/price revisions, pinned membership/demand/plan and stable reason codes | Authorized publication, retention and production recovery/administration integration |
 | Q09 | Atomic ledger and balance storage | Present: quota-owned [transaction contract](../pkg/quotaplex/store.go), memory reference and [Firestore adapter](../internal/registry/quota_store.go) | Live multi-replica, restore, contention, IAM and deployment validation; single-resource CAS is not the ledger implementation |
-| Q10 | Reservation exposure bounds | Present: request-count profile and strict Gemini-text profile with versioned provider-limit authority; unknown exposure retained | Verify real provider-enforced ceilings for each version/account/region; broader media/tool/async/renewal bounds remain pending |
+| Q10 | Reservation exposure bounds | Present: request-count profile and strict supported native text profiles with versioned provider-limit authority; unknown exposure retained | Verify real provider-enforced ceilings for each version/account/region; broader media/tool/async/renewal bounds remain pending |
 | Q11 | Trusted metering | Present: acknowledged terminal outbox and supported native/model/tool producer normalization | Prove provider-specific billable composition and live billing equivalence; add uncovered cumulative/delta/async producers |
 | Q12 | Exact monetary accounting | Present: integer meters/currency scale, rational prices, one aggregate rounding boundary, overflow checks and immutable prices | Verify actual commercial rates and billable composition; no implicit currency conversion or trust in legacy floating reports |
-| Q13 | Sharing unused allocation | Present: explicit loans, protected allocation floors, expiry guards and opt-in bounded unused-loan maintenance | Authorized loan administration and operational reconciliation; automatic lending allocation and throughput sharing remain separate work |
-| Q14 | Failure and recovery behavior | Present: fenced/backoff terminal settlement, durable evidence/work state and restart-safe bounded scans | Built-in worker cursors are process-local and rescan after restart; no native job resolver is installed, uncertain dispatched work remains held and corrections remain pending |
-| Q15 | Enforcement coverage | Partial: native generation JSON/SSE, same client facade and explicit stateless tool invoke path have managed profiles | Use the exact coverage matrix; opaque managed agents fail501 when enabled; direct/native/Envoy/other specialized paths need separate proof |
-| Q16 | Balance and decision APIs | Present: SDK/CLI and owner/admin attempt-status API, plus library GetAttempt/GetLoan/BudgetBalance | Broader tenant-authorized allocation/balance/loan administration and current-policy/as-of explanations |
-| Q17 | Reconciliation and operations | Partial: lifecycle-owned bounded worker and immutable evidence/quarantine mechanisms | Deploy alerts/runbooks, trusted native resolvers, authorized correction/repricing, backup/restore and outage validation |
-| Q18 | Performance and rollout | Production | Measured latency/QPS/contention bounds, multi-replica tests, shadow comparisons and rollback preserving in-flight accounting |
+| Q13 | Sharing unused allocation | Present: explicit loans, protected floors, expiry guards, audited scoped APIs/SDK/CLI/Console and bounded unused-loan maintenance | Automatic allocation of lending and native throughput sharing remain separate work |
+| Q14 | Failure and recovery behavior | Present: fenced terminal settlement, durable evidence/work, bounded scans and reviewed atomic reconciliation preserving original facts/prices | Native job lookup resolvers and actual provider outage/recovery qualification; arbitrary repricing remains unsupported |
+| Q15 | Enforcement coverage | Partial: explicit native model coverage/profiles, managed client facades, delegated stateless JSON/finite-SSE tools, native agent RPCs and configured Anvil commands | Direct/native/Envoy paths, opaque agent-internal work and unsupported billable dimensions need covered adapters; use the exact profile matrix |
+| Q16 | Balance and decision APIs | Present: scoped policy/preview/inventory/balance/loan/evidence/reconciliation APIs, SDK/CLI and module-owned Console | Policy validation exports a reviewed artifact; coordinated live publication and broader allocation editing remain deployment workflows |
+| Q17 | Reconciliation and operations | Present: workers, immutable evidence, reviewed state-bound correction, atomic approval/audit and original-price settlement | Trusted native lookup, operator alerts, restore/outage evidence and cross-model repricing remain deployment/capability work |
+| Q18 | Performance and rollout | Partial: real-emulator CI, concurrent replica/CAS/restart/rollback tests, reference benchmarks and exact billing-evidence comparator | Measure real-store/provider latency and contention, verify actual billing, backup restore and shadow rollout; reference timings are not production SLOs |
 | Q19 | Rate and burst controls | Present: shared-backend atomic admitted-demand buckets integrated with supported managed dispatch | Verify configured limits across production replicas; no observed-only or provider-decoding-rate guarantee |
 | Q20 | Concurrency permits | Present: managed dispatch retains scoped permits through unknown work and releases only known terminal/undispatched exposure | Long-running ownership renewal/native cancellation contracts and live recovery validation remain operation-specific |
-| Q21 | Scheduling and assigned QoS | Partial: bounded serializable weighted DRR selection with deadlines/cancel/replay limits | Atomic scheduling/admission, priority/protected shares, feasible capacity pools and verified provider capacity; selection grants no dispatch right |
-| Q22 | Tool and other resource meters | Present: explicit stateless JSON HTTP tools/call path produces acknowledged request/tool-call counts | Sessions, SSE, delegated OAuth runtime credentials, duration/row/byte billing and further tool operations need verified adapters |
+| Q21 | Scheduling and assigned QoS | Present: atomic queue selection/admission/capacity debit, protected admission partitions, weighted residual service, deadlines/cancellation and safe proof renewal | Verify actual provider capacity; no upstream minimum-throughput, token pacing, preemption or implicit structural queue migration |
+| Q22 | Tool and other resource meters | Present: explicit stateless JSON/finite SSE tools/call, owner-bound delegated OAuth, request/call counts and configured Anvil-command accounting | Legacy sessions/bidirectional calls, remote revocation and duration/row/byte/server-internal billing need explicit adapters |
 | Q23 | Group population allocation | Present: explicit frozen per-member strategy bound to a source-qualified group snapshot; no implicit headcount normalization | Host-authorized population snapshots and effective-boundary operations; no automatic live rebalance |
 
 The evidence links describe current code. A versioned schema, registry entry or
@@ -406,3 +406,5 @@ These checks preserve the present flow. Remaining automation, capacity schedulin
 recovery and enforcement integration stay with QuotaPlex and its explicit host
 adapters. Identity, LLMPlex, A2APlex, ClientPlex, networking and Anvil retain their
 existing responsibilities.
+
+The [foundation completion guide](foundation-completion.md) links the new configuration, membership, administration, scheduling, MCP, model and infrastructure mechanisms with their qualification evidence.

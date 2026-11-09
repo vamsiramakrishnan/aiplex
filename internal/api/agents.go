@@ -56,6 +56,7 @@ func (h *AgentHandler) Get(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
+	configurationETag(w, agent.Revision)
 	JSON(w, http.StatusOK, agent)
 }
 
@@ -142,6 +143,14 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
+	expected, ok := configurationExpected(w, r, 0)
+	if !ok {
+		return
+	}
 	// Check if agent already exists
 	if _, err := h.store.GetAgent(r.Context(), agent.ClientID); err == nil {
 		Error(w, r, http.StatusConflict, "CONFLICT", "agent already exists")
@@ -164,6 +173,16 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 	agent.Status = "active"
 	agent.ResourceVersion = 1
 
+	// Reserve this identity before an external write. Another replica cannot
+	// create the same client or delete credentials belonging to the winning call.
+	if h.hydra != nil {
+		agent.Status = "provisioning"
+	}
+	persisted := agent
+	if !putConfiguration(w, r, versioned, registry.ConfigAgent, agent.ClientID, &persisted, expected, generation) {
+		return
+	}
+	agent.Revision, agent.ResourceVersion = persisted.Revision, persisted.ResourceVersion
 	// A configured authorization server must successfully issue the OAuth client
 	// before an active local registration can be persisted.
 	if h.hydra != nil {
@@ -186,33 +205,24 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if resp == nil || resp.ClientID != agent.ClientID || resp.ClientSecret == "" {
-			cleanup, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
-			cleanupErr := h.hydra.DeleteClient(cleanup, agent.ClientID)
-			cancel()
-			if cleanupErr != nil {
-				zerolog.Ctx(r.Context()).Error().Err(cleanupErr).Str("client_id", agent.ClientID).Msg("invalid OAuth issuance rollback failed")
-			}
-			Error(w, r, http.StatusBadGateway, "OAUTH_REGISTRATION_FAILED", "authorization server returned incomplete client credentials")
+			Error(w, r, http.StatusBadGateway, "OAUTH_REGISTRATION_FAILED", "authorization server returned incomplete credentials; provisioning claim retained for reconciliation")
 			return
 		}
 		agent.ClientSecret = resp.ClientSecret
 	}
 
-	// Secrets are returned once, never stored even by the in-memory backend.
-	persisted := agent
-	persisted.ClientSecret = ""
-	if err := h.store.PutAgent(r.Context(), &persisted); err != nil {
-		if h.hydra != nil {
-			cleanup, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
-			cleanupErr := h.hydra.DeleteClient(cleanup, agent.ClientID)
-			cancel()
-			if cleanupErr != nil {
-				zerolog.Ctx(r.Context()).Error().Err(cleanupErr).Str("client_id", agent.ClientID).Msg("OAuth registration rollback failed")
-			}
+	// Secrets are returned once, never stored even by the memory backend.
+	if h.hydra != nil {
+		persisted = agent
+		persisted.ClientSecret = ""
+		persisted.Status = "active"
+		if !putConfiguration(w, r, versioned, registry.ConfigAgent, agent.ClientID, &persisted, agent.Revision, -1) {
+			return
 		}
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "failed to persist agent registration")
-		return
+		agent.Status = "active"
+		agent.Revision, agent.ResourceVersion = persisted.Revision, persisted.ResourceVersion
 	}
+	configurationETag(w, agent.Revision)
 	JSON(w, http.StatusCreated, agent)
 }
 
@@ -220,12 +230,26 @@ func (h *AgentHandler) Register(w http.ResponseWriter, r *http.Request) {
 // DELETE /api/v1/agents/{clientId}
 func (h *AgentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	clientID := r.PathValue("clientId")
-	if _, err := h.store.GetAgent(r.Context(), clientID); err != nil {
+	versioned, generation, ok := configurationStore(w, r, h.store)
+	if !ok {
+		return
+	}
+	agent, err := h.store.GetAgent(r.Context(), clientID)
+	if err != nil {
 		if errors.Is(err, registry.ErrNotFound) {
 			Error(w, r, 404, "NOT_FOUND", "agent not found")
 		} else {
 			Error(w, r, 500, "STORE_ERROR", "agent registry unavailable")
 		}
+		return
+	}
+
+	expected, ok := configurationExpected(w, r, agent.Revision)
+	if !ok {
+		return
+	}
+	agent.Status = "deleting"
+	if !putConfiguration(w, r, versioned, registry.ConfigAgent, clientID, agent, expected, generation) {
 		return
 	}
 
@@ -238,12 +262,8 @@ func (h *AgentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.store.DeleteAgent(r.Context(), clientID); err != nil {
-		if errors.Is(err, registry.ErrNotFound) {
-			Error(w, r, http.StatusNotFound, "NOT_FOUND", "agent not found")
-			return
-		}
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+	if err := versioned.DeleteConfiguration(r.Context(), registry.ConfigAgent, clientID, agent.Revision, -1); err != nil {
+		configurationError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

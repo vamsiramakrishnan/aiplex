@@ -264,6 +264,9 @@ func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFId
 		return nil, fmt.Errorf("failed to list role bindings: %w", err)
 	}
 
+	return v.resolveBindings(identity, bindings), nil
+}
+func (v *WIFValidator) resolveBindings(identity *models.WIFIdentity, bindings []models.RoleBinding) *models.ResolvedAccess {
 	groupSet := make(map[string]bool, len(identity.Groups))
 	for _, g := range identity.Groups {
 		groupSet[g] = true
@@ -305,23 +308,43 @@ func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFId
 	sort.Slice(access.Roles, func(i, j int) bool { return access.Roles[i] < access.Roles[j] })
 	sort.Strings(access.Scopes)
 	sort.Strings(access.MatchedBindings)
-	return access, nil
+	return access
 }
 
 // SyncUserScopes computes fresh effective scopes without persisting derived
 // grants. Historical versions mixed group grants into manual scopes; those
 // records require an explicit migration because their provenance was lost.
 func (v *WIFValidator) SyncUserScopes(ctx context.Context, identity *models.WIFIdentity) (*models.ResolvedAccess, error) {
-	access, err := v.ResolveAccess(ctx, identity)
-	if err != nil {
-		return nil, err
+	if identity == nil || identity.Subject == "" || identity.Provider == "" || v.store == nil {
+		return nil, fmt.Errorf("verified identity and policy store required")
 	}
 	principalID := CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.Subject)
-	access.Identity.PrincipalID = principalID
-	manual, err := v.store.GetUserScopes(ctx, principalID)
-	if err != nil {
-		return nil, fmt.Errorf("resolve manual scopes: %w", err)
+	var access *models.ResolvedAccess
+	var manual []string
+	if snapshot, ok := v.store.(interface {
+		ReadIdentityAccess(context.Context, string) ([]models.RoleBinding, []string, int64, error)
+	}); ok {
+		bindings, grants, revision, err := snapshot.ReadIdentityAccess(ctx, principalID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve coherent identity policy: %w", err)
+		}
+		access = v.resolveBindings(identity, bindings)
+		manual = grants
+		access.ConfigurationRevision = revision
+	} else {
+		// Compatibility for custom read-only adapters. Production bundled stores
+		// implement the coherent snapshot capability.
+		var err error
+		access, err = v.ResolveAccess(ctx, identity)
+		if err != nil {
+			return nil, err
+		}
+		manual, err = v.store.GetUserScopes(ctx, principalID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve manual scopes: %w", err)
+		}
 	}
+	access.Identity.PrincipalID = principalID
 	access.GroupScopes = append([]string(nil), access.Scopes...)
 	access.ManualScopes = mergeScopes(nil, manual)
 	access.Scopes = mergeScopes(manual, access.GroupScopes)

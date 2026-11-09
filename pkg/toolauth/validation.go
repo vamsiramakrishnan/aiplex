@@ -38,6 +38,9 @@ func validateURL(raw string, allowLoopback bool) error {
 	return fmt.Errorf("OAuth endpoint requires HTTPS")
 }
 func validateProfile(p ClientProfile) error {
+	if _, err := validScopes(p.Scopes); err != nil {
+		return err
+	}
 	if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.Name) == "" || len(p.RedirectURIs) == 0 {
 		return fmt.Errorf("client profile requires id, name and redirects")
 	}
@@ -73,7 +76,7 @@ func validateMetadata(m ClientMetadata) error {
 		}
 		seen[r] = true
 	}
-	if len(m.GrantTypes) > 0 && !sameStrings(m.GrantTypes, []string{"authorization_code"}) {
+	if len(m.GrantTypes) > 0 && !sameStrings(m.GrantTypes, []string{"authorization_code"}) && !sameStrings(m.GrantTypes, []string{"authorization_code", "refresh_token"}) {
 		return fmt.Errorf("unsupported CIMD grant types")
 	}
 	if len(m.ResponseTypes) > 0 && !sameStrings(m.ResponseTypes, []string{"code"}) {

@@ -3,7 +3,7 @@ const TOKEN_KEY = 'aiplex_token'
 
 // Shared transport for API and authentication endpoints. Credentials stay in
 // headers; callers get consistent non-2xx handling.
-export async function authenticatedRequest<T>(path: string, init?: RequestInit): Promise<T> {
+export async function authenticatedRequest<T>(path: string, init?: RequestInit, decode?: (response: Response) => Promise<T>): Promise<T> {
   const token = (() => {
     try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
   })()
@@ -26,7 +26,7 @@ export async function authenticatedRequest<T>(path: string, init?: RequestInit):
     throw new Error(err.message ?? `HTTP ${res.status}`)
   }
   if (res.status === 204) return undefined as T
-  return res.json()
+  return decode ? decode(res) : res.json()
 }
 
 function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -87,6 +87,7 @@ export interface Template {
 }
 
 export interface Agent {
+ revision?: number
   client_id: string
   display_name: string
   description?: string
@@ -143,8 +144,11 @@ export const registerAgent = (body: {
   allowed_scopes: string[]
   redirect_uris?: string[]
 }) => request<Agent>('/agents', { method: 'POST', body: JSON.stringify(body) })
-export const deleteAgent = (id: string) =>
-  request<void>(`/agents/${id}`, { method: 'DELETE' })
+export const deleteAgent = async (id: string, revision?: number) => {
+ const current = revision ?? (await getAgent(id)).revision
+ if (!current) throw new Error("Reload the agent before deleting it")
+ return request<void>(`/agents/${id}`, { method: "DELETE", headers: { "If-Match": String(current) } })
+}
 
 // LLM Routes
 export interface LLMBackend {
@@ -163,6 +167,7 @@ export interface UsageBudget {
 }
 
 export interface LLMRouteConfig {
+ revision?: number
   id: string
   model_id: string
   backends: LLMBackend[]
@@ -173,10 +178,13 @@ export interface LLMRouteConfig {
 export const listLLMRoutes = () => request<LLMRouteConfig[]>('/llm/routes')
 export const putLLMRoute = (modelId: string, body: Partial<LLMRouteConfig>) =>
   request<LLMRouteConfig>(`/llm/routes/${modelId}`, {
-    method: 'PUT', body: JSON.stringify(body)
+    method: 'PUT', body: JSON.stringify(body), headers: { 'If-Match': String(body.revision ?? 0) }
   })
-export const deleteLLMRoute = (modelId: string) =>
-  request<void>(`/llm/routes/${modelId}`, { method: 'DELETE' })
+export const deleteLLMRoute = async (modelId: string, revision?: number) => {
+ const current = revision ?? (await request<LLMRouteConfig>(`/llm/routes/${modelId}`)).revision
+ if (!current) throw new Error("Reload the route before deleting it")
+ return request<void>(`/llm/routes/${modelId}`, { method: "DELETE", headers: { "If-Match": String(current) } })
+}
 
 // Manifest (apply YAML/JSON from UI)
 export interface Manifest {
@@ -188,6 +196,7 @@ export interface Manifest {
     redirect_uris?: string[]
   }>
   routes?: Array<{
+    revision?: number
     model_id: string; backends: LLMBackend[]; fallbacks?: string[]
     budget?: UsageBudget
   }>
@@ -264,6 +273,7 @@ export const getDashboardStats = () =>
 
 // Role bindings
 export interface RoleBinding {
+ revision?: number
   id: string
   group: string
   role: 'admin' | 'deployer' | 'viewer' | 'agent'

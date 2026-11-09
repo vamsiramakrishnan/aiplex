@@ -4,6 +4,7 @@ import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, authenticatedRe
 import StatusBadge from '../components/StatusBadge'
 
 interface RouteConfig {
+ revision?: number
   model_id: string
   backends: { provider: string; model_id: string; weight: number; enabled: boolean }[]
   fallbacks?: string[]
@@ -74,7 +75,7 @@ export default function LLMPlex() {
   })
 
   const deleteRouteMutation = useMutation({
-    mutationFn: (modelId: string) => deleteLLMRoute(modelId),
+    mutationFn: (modelId: string) => deleteLLMRoute(modelId, routes.data?.find(route => route.model_id === modelId)?.revision),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['llm-routes'] })
       setFeedback({ type: 'success', message: 'Route deleted successfully' })
@@ -161,6 +162,7 @@ export default function LLMPlex() {
     putRouteMutation.mutate({
       modelId: formData.model_id,
       config: {
+        revision: editingRoute?.revision ?? 0,
         model_id: formData.model_id,
         backends: formData.backends,
         fallbacks: formData.fallbacks.length > 0 ? formData.fallbacks : undefined,

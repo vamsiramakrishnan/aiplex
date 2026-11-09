@@ -123,6 +123,8 @@ Get started:
 		resourcesCmd(),
 		nativeCmd(),
 		quotaCmd(),
+		toolAuthCmd(),
+		infrastructureCmd(),
 
 		// Onboarding
 		quickstartCmd(),

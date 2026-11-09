@@ -260,13 +260,24 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 	if err := ctx.Err(); err != nil {
 		return nil, e.failedDeployment(ctx, inst, owner, config, start, err)
 	}
-	ownerScopes, err := e.store.GetUserScopes(ctx, owner)
-	if err != nil {
-		return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("failed to resolve owner scopes: %w", err))
-	}
-	grantedScopes := append(append([]string(nil), ownerScopes...), inst.Scopes...)
-	if err := e.store.SetUserScopes(ctx, owner, grantedScopes); err != nil {
-		return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("failed to grant owner scopes: %w", err))
+	if atomic, ok := e.store.(interface {
+		ModifyUserScopes(context.Context, string, func([]string) ([]string, error)) error
+	}); ok {
+		if err := atomic.ModifyUserScopes(ctx, owner, func(scopes []string) ([]string, error) {
+			seen := map[string]bool{}
+			out := []string{}
+			for _, scope := range append(scopes, inst.Scopes...) {
+				if !seen[scope] {
+					seen[scope] = true
+					out = append(out, scope)
+				}
+			}
+			return out, nil
+		}); err != nil {
+			return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("failed to grant owner scopes: %w", err))
+		}
+	} else {
+		return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("atomic owner-grant storage is unavailable"))
 	}
 
 	// Mark as running (in production, this transitions after health check passes)
