@@ -58,8 +58,14 @@ type Preset struct {
 	// ConfirmedAgainstDocs lists what was checked against vendor documentation;
 	// OperatorSupplied lists the values the preset refuses to guess.
 	OperatorSupplied []string `json:"operator_supplied,omitempty"`
-	derive           func(in map[string]string) (Trust, error)
-	defaultGroupName string // default group claim when groups_from=claim ("" = must be explicit)
+	// ClientClaimDefault documents the preset's default client_claim, or why
+	// there is none. DirectoryKinds lists the directory kinds the preset accepts.
+	ClientClaimDefault string   `json:"client_claim_default,omitempty"`
+	DirectoryKinds     []string `json:"directory_kinds,omitempty"`
+	derive             func(in map[string]string) (Trust, error)
+	defaultGroupName   string // default group claim when groups_from=claim ("" = must be explicit)
+	// defaultClientClaim returns the vendor-documented client claim ("" = none confirmed).
+	defaultClientClaim func(in map[string]string) string
 }
 
 // Trust is the derived, exact trust tuple a provider pins.
@@ -74,6 +80,14 @@ type Trust struct {
 	GroupsFrom string `json:"groups_from"`
 	// GroupClaim names the verified claim carrying groups (GroupsFrom=claim only).
 	GroupClaim string `json:"group_claim,omitempty"`
+	// ClientClaim names the verified claim that identifies the client
+	// application the token was issued to. Its verified value becomes the
+	// identity's authorized party. Empty: requests are not attributed to a client.
+	ClientClaim string `json:"client_claim,omitempty"`
+	// ClientIDs, when set, is the exhaustive list of client applications whose
+	// tokens are accepted; a token without the client claim, or with a value
+	// outside the list, is rejected.
+	ClientIDs []string `json:"client_ids,omitempty"`
 }
 
 var supportedAlgorithms = []string{"RS256", "ES256"}
@@ -152,6 +166,9 @@ func Derive(presetID string, inputs map[string]string, extraClaims map[string]st
 	}
 	trust.Audience = clean["audience"]
 	trust.GroupsFrom = clean["groups_from"]
+	if preset.defaultClientClaim != nil {
+		trust.ClientClaim = preset.defaultClientClaim(clean)
+	}
 	switch trust.GroupsFrom {
 	case GroupsFromClaim:
 		if !agentfederation.Contains(preset.GroupSources, GroupsFromClaim) {
@@ -193,6 +210,15 @@ func Derive(presetID string, inputs map[string]string, extraClaims map[string]st
 // reservedGroupClaims are identity or control claims that can never carry groups.
 var reservedGroupClaims = map[string]bool{"iss": true, "sub": true, "aud": true, "exp": true, "nbf": true, "iat": true, "jti": true, "act": true, "azp": true, "cnf": true, "scope": true, "scp": true, "tid": true, "oid": true, "hd": true, "email": true}
 
+// reservedClientClaims can never identify a client application: they are the
+// subject, lifetime, confirmation or delegation of the token. azp, appid, cid
+// and aud are allowed.
+var reservedClientClaims = map[string]bool{"iss": true, "sub": true, "exp": true, "nbf": true, "iat": true, "jti": true, "act": true, "cnf": true, "oid": true, "tid": true, "groups": true, "scope": true, "scp": true, "roles": true}
+
+func validClientClaim(name string) bool {
+	return groupPath.MatchString(name) && !reservedClientClaims[name] && !strings.Contains(name, ".")
+}
+
 func validGroupClaim(name string) bool {
 	return groupPath.MatchString(name) && !reservedGroupClaims[name] && !reservedGroupClaims[strings.SplitN(name, ".", 2)[0]]
 }
@@ -220,6 +246,20 @@ func (t Trust) Validate() error {
 			return fmt.Errorf("required claim name %q is invalid or reserved (issuer, subject, audience and lifetime are checked separately)", name)
 		}
 		if err := agentfederation.ExactValue("required claim "+name, value); err != nil {
+			return err
+		}
+	}
+	if t.ClientClaim != "" && !validClientClaim(t.ClientClaim) {
+		return fmt.Errorf("client_claim %q is not a valid claim name or is reserved", t.ClientClaim)
+	}
+	if len(t.ClientIDs) > 0 && t.ClientClaim == "" {
+		return fmt.Errorf("client_ids requires a client_claim")
+	}
+	if len(t.ClientIDs) > 64 {
+		return fmt.Errorf("at most 64 client_ids")
+	}
+	for _, id := range t.ClientIDs {
+		if err := agentfederation.ExactValue("client_ids entry", id); err != nil {
 			return err
 		}
 	}
@@ -285,7 +325,9 @@ func presetList() []Preset {
 				{Name: "hosted_domain", Label: "Workspace domain", Description: "Primary Workspace domain (lower-case). Pinned as the hd claim, so personal Google accounts and other organisations are rejected.", Required: true, Example: "example.com"},
 				audienceField("OAuth client ID of the Google Cloud OAuth client your users sign in with for AIPlex (the aud of the ID token). No default.", "1234567890-abc.apps.googleusercontent.com"),
 			}, groupFields("Not used: Google ID tokens carry no group claim. Leave empty.")[0]),
-			Notes: []string{"Google ID tokens do not carry group membership; groups_from must be membership-authority."},
+			Notes:              []string{"Google ID tokens do not carry group membership; groups_from must be membership-authority. Add a google-cloud-identity directory to resolve groups through Cloud Identity."},
+			ClientClaimDefault: "none: Google documents azp as present only when the requesting party differs from the audience, and aud is the provider's pinned OAuth client ID",
+			DirectoryKinds:     []string{"google-cloud-identity"},
 			derive: func(in map[string]string) (Trust, error) {
 				d := in["hosted_domain"]
 				if !dnsDomain.MatchString(d) {
@@ -307,7 +349,17 @@ func presetList() []Preset {
 				audienceField("Exact `aud`: for v2.0 tokens the client ID of the Entra application representing AIPlex; for v1.0 tokens the Application ID URI or client ID. No default.", "11112222-bbbb-3333-cccc-4444dddd5555"),
 				{Name: "token_version", Label: "Token version", Description: "Access token version the AIPlex application issues (requestedAccessTokenVersion). Determines the issuer. ID tokens are v2.0.", Enum: []string{"2.0", "1.0"}, Default: "2.0"},
 			}, groupFields("Claim carrying groups. Defaults to `groups` (group object IDs); `roles` carries app roles. Entra omits the claim and sends hasgroups or _claim_names instead when a user has too many groups; AIPlex then treats groups as unavailable, not empty.")...),
-			Notes:                []string{"Configure the groups claim on the application (Token configuration > Groups claim). 'Groups assigned to the application' avoids most overage.", "Entra limits groups to 200 per JWT; beyond that the token carries an overage indicator and AIPlex reports groups as unavailable. Use groups_from membership-authority if overage is expected."},
+			Notes:                []string{"Configure the groups claim on the application (Token configuration > Groups claim). 'Groups assigned to the application' avoids most overage.", "Entra limits groups to 200 per JWT; beyond that the token carries an overage indicator. Add an entra-graph directory (mode fallback) to resolve those users' groups through Microsoft Graph; without one AIPlex reports their groups as unavailable."},
+			ClientClaimDefault:   "azp for v2.0 tokens, appid for v1.0 tokens (Microsoft access token claims reference)",
+			DirectoryKinds:       []string{"entra-graph"},
+			// https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference:
+			// azp (v2.0 only) and appid (v1.0 only) are "the application ID of the client using the token".
+			defaultClientClaim: func(in map[string]string) string {
+				if in["token_version"] == "1.0" {
+					return "appid"
+				}
+				return "azp"
+			},
 			AllowsRequiredClaims: true,
 			derive: func(in map[string]string) (Trust, error) {
 				tenant := in["tenant_id"]
@@ -334,7 +386,12 @@ func presetList() []Preset {
 				{Name: "jwks_url", Label: "JWKS URL", Description: "Exact `jwks_uri` from the same discovery document.", Required: true, Example: "https://acme.okta.com/oauth2/default/v1/keys"},
 				audienceField("Exact `aud`: for custom authorization servers the audience configured on the server; for ID tokens the client ID. No default.", "api://aiplex"),
 			}, groupFields("Claim carrying groups. Defaults to `groups`. Okta does not emit it by default: add a groups claim with a filter to the ID token or authorization server, and request the groups scope.")...),
-			Notes:                []string{"Okta documents that groups are included only when the groups scope is requested and a groups claim is configured, limited by the claim's filter."},
+			Notes:                []string{"Okta documents that groups are included only when the groups scope is requested and a groups claim is configured, limited by the claim's filter. An okta directory resolves groups through the Users API instead."},
+			ClientClaimDefault:   "cid (access tokens; Okta documents it as the client ID of the client that requested the token). ID tokens carry no cid.",
+			DirectoryKinds:       []string{"okta"},
+			// https://developer.okta.com/docs/reference/api/oidc/: access token cid is the
+			// "Client ID of the client that requested the access token".
+			defaultClientClaim: func(map[string]string) string { return "cid" },
 			AllowsRequiredClaims: true,
 			derive: func(in map[string]string) (Trust, error) {
 				if err := issuerOrigin(in["issuer"]); err != nil {
@@ -368,6 +425,9 @@ func presetList() []Preset {
 	}
 	for i := range presets {
 		presets[i].Algorithms = append([]string(nil), supportedAlgorithms...)
+		if presets[i].ClientClaimDefault == "" {
+			presets[i].ClientClaimDefault = "none: set client_claim explicitly if the issuer names the client application in a claim"
+		}
 	}
 	return presets
 }

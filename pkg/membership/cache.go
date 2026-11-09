@@ -112,7 +112,9 @@ func (c *Cache) Resolve(ctx context.Context, q Query, now time.Time) (Snapshot, 
 		c.mu.Unlock()
 		snapshot, err := c.source.Resolve(ctx, q, now)
 		c.mu.Lock()
-		if c.generation[key] != generation || snapshot.IssuedAt.Before(c.notBefore[key]) {
+		// A fenced result is discarded; an authority error is kept as is (it is
+		// already a failure, and its reason helps operators).
+		if err == nil && (c.generation[key] != generation || snapshot.IssuedAt.Before(c.notBefore[key])) {
 			err = ErrUnavailable
 		}
 		if err == nil {

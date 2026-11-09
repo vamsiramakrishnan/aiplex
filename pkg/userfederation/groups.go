@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -17,7 +18,21 @@ type Groups struct {
 	List      []string
 	// Reason explains why groups are unavailable (or where they come from).
 	Reason string
+	// Source is "token", "directory:<kind>" or "unavailable".
+	Source string
+	// ObservedAt and ExpiresAt bound a directory observation (zero for token groups).
+	ObservedAt time.Time
+	ExpiresAt  time.Time
 }
+
+// Group sources reported by verification.
+const (
+	GroupSourceToken       = "token"
+	GroupSourceUnavailable = "unavailable"
+)
+
+// GroupSourceDirectory is the source of groups resolved through a directory kind.
+func GroupSourceDirectory(kind string) string { return "directory:" + kind }
 
 // ExtractGroups reads the provider's pinned group claim from signature-verified
 // claims. A missing, null, malformed or overage-flagged claim yields

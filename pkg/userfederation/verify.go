@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/agentfederation"
+	"github.com/vamsiramakrishnan/aiplex/pkg/directory"
 )
 
 // Check names, in evaluation order. They are part of the API contract.
@@ -21,6 +22,7 @@ const (
 	CheckSubject           = "subject"
 	CheckRequiredClaims    = "required_claims"
 	CheckProofOfPossession = "proof_of_possession"
+	CheckClient            = "client"
 	CheckGroups            = "groups"
 	CheckProvider          = "provider"
 )
@@ -45,6 +47,21 @@ type SignatureVerifier = agentfederation.SignatureVerifier
 // honour the operator's outbound endpoint policy.
 type KeyResolver interface {
 	ForProvider(context.Context, Provider) (SignatureVerifier, error)
+}
+
+// DirectoryLookup carries the verified facts a directory lookup may use.
+type DirectoryLookup struct {
+	// Subject is the verified immutable subject (sub or oid).
+	Subject string
+	// Email is the verified email (email claim with email_verified true), or "".
+	Email string
+}
+
+// DirectoryResolver resolves a verified user's groups through the provider's
+// directory. It returns an Available view, or an error whose message is safe
+// to show to an operator (no directory bodies, no credentials).
+type DirectoryResolver interface {
+	ResolveGroups(ctx context.Context, tenant string, p Provider, lookup DirectoryLookup, now time.Time) (Groups, error)
 }
 
 // ProviderFinder locates providers within one tenant.
@@ -72,11 +89,18 @@ type Result struct {
 	GroupsAvailable bool      `json:"groups_available"`
 	Groups          *[]string `json:"groups,omitempty"`
 	GroupsNote      string    `json:"groups_note,omitempty"`
+	// GroupsSource says where the groups came from: "token",
+	// "directory:<kind>" or "unavailable".
+	GroupsSource string `json:"groups_source,omitempty"`
+	// ClientID is the verified client application the token was issued to
+	// (from the provider's client_claim); empty when not configured or absent.
+	ClientID string `json:"client_id,omitempty"`
 
 	claims   map[string]any
 	provider *Provider
 	subject  string
 	groups   Groups
+	client   string
 }
 
 // VerifiedClaims returns signature-verified claims only when every check passed.
@@ -111,6 +135,14 @@ func (r *Result) VerifiedGroups() Groups {
 	return r.groups
 }
 
+// VerifiedClient returns the verified client application of a valid result.
+func (r *Result) VerifiedClient() string {
+	if r == nil || !r.Valid {
+		return ""
+	}
+	return r.client
+}
+
 // Failed returns the first failing check, if any.
 func (r *Result) Failed() *Check {
 	for i := range r.Checks {
@@ -124,7 +156,10 @@ func (r *Result) Failed() *Check {
 // Engine evaluates presented tokens against providers.
 type Engine struct {
 	Keys KeyResolver
-	Now  func() time.Time
+	// Directory resolves groups for providers with a directory block. Without
+	// it such providers report groups as unavailable.
+	Directory DirectoryResolver
+	Now       func() time.Time
 	// Skew tolerated for nbf and iat (not for exp). Defaults to 30s.
 	Skew time.Duration
 }
@@ -136,6 +171,8 @@ type Input struct {
 	Pinned *Provider
 	Finder ProviderFinder
 	Live   bool
+	// Tenant is the AIPlex tenant the provider belongs to (directory lookups).
+	Tenant string
 }
 
 // SelectProvider picks, among the providers of an issuer, the one whose audience
@@ -180,7 +217,7 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 	add := func(name string, status CheckStatus, reason string) {
 		res.Checks = append(res.Checks, Check{Name: name, Status: status, Reason: reason})
 	}
-	order := []string{CheckTokenShape, CheckIssuer, CheckSignature, CheckAudience, CheckLifetime, CheckSubject, CheckRequiredClaims, CheckProofOfPossession, CheckGroups, CheckProvider}
+	order := []string{CheckTokenShape, CheckIssuer, CheckSignature, CheckAudience, CheckLifetime, CheckSubject, CheckRequiredClaims, CheckProofOfPossession, CheckClient, CheckGroups, CheckProvider}
 	skipRest := func(from int, reason string) {
 		for _, name := range order[from:] {
 			add(name, StatusSkipped, reason)
@@ -343,6 +380,30 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 		add(CheckProofOfPossession, StatusPass, "bearer token (no cnf confirmation claim)")
 	}
 
+	// 9. Client application. Only the verified claim is ever carried.
+	client := ""
+	switch {
+	case reference.ClientClaim == "":
+		add(CheckClient, StatusPass, "provider has no client_claim; requests are not attributed to a client application")
+	default:
+		raw, present := claims[reference.ClientClaim]
+		value, isString := raw.(string)
+		valid := present && isString && agentfederation.ExactValue("client", value) == nil
+		if valid {
+			client = value
+		}
+		switch {
+		case len(reference.ClientIDs) > 0 && !valid:
+			add(CheckClient, StatusFail, fmt.Sprintf("token has no usable %s claim, and provider %s accepts only its listed client_ids", reference.ClientClaim, reference.ID)+unverified)
+		case len(reference.ClientIDs) > 0 && !agentfederation.Contains(reference.ClientIDs, value):
+			add(CheckClient, StatusFail, fmt.Sprintf("client application %q (claim %s) is not in the provider's client_ids", agentfederation.Clip(value), reference.ClientClaim)+unverified)
+		case !valid:
+			add(CheckClient, StatusPass, fmt.Sprintf("token has no usable %s claim; the request is not attributed to a client application", reference.ClientClaim)+unverified)
+		default:
+			add(CheckClient, StatusPass, fmt.Sprintf("issued to client application %q (claim %s)", agentfederation.Clip(value), reference.ClientClaim)+unverified)
+		}
+	}
+
 	// Everything so far must hold before groups are read from claims.
 	trusted := verifiedClaims != nil
 	for _, c := range res.Checks {
@@ -351,24 +412,25 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 		}
 	}
 
-	// 9. Groups. Unavailable groups do not fail authentication: they are simply absent.
+	// 10. Groups. Unavailable groups do not fail authentication: they are simply
+	// absent, so every group-based rule fails closed.
 	var groups Groups
 	switch {
 	case !trusted:
 		add(CheckGroups, StatusSkipped, "groups are read only from a fully verified token")
 	default:
-		groups = ExtractGroups(claims, reference.Trust)
+		groups = e.groups(ctx, in.Tenant, reference, candidate, claims, subject)
 		switch {
-		case reference.GroupsFrom == GroupsFromMembershipAuthority:
-			add(CheckGroups, StatusSkipped, groups.Reason)
+		case groups.Available && groups.Source == GroupSourceToken:
+			add(CheckGroups, StatusPass, fmt.Sprintf("source token: %d group(s) read from verified claim %q", len(groups.List), reference.GroupClaim))
 		case groups.Available:
-			add(CheckGroups, StatusPass, fmt.Sprintf("%d group(s) read from verified claim %q", len(groups.List), reference.GroupClaim))
+			add(CheckGroups, StatusPass, fmt.Sprintf("source %s: %d group(s) resolved transitively, observed %s, valid until %s", groups.Source, len(groups.List), groups.ObservedAt.UTC().Format(time.RFC3339), groups.ExpiresAt.UTC().Format(time.RFC3339)))
 		default:
-			add(CheckGroups, StatusSkipped, "groups unavailable: "+groups.Reason)
+			add(CheckGroups, StatusSkipped, "source unavailable: "+groups.Reason)
 		}
 	}
 
-	// 10. Provider.
+	// 11. Provider.
 	switch {
 	case candidate == nil:
 		add(CheckProvider, StatusFail, "no user identity provider matches this issuer and audience")
@@ -385,7 +447,9 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 		}
 	}
 	if res.Valid {
-		res.claims, res.provider, res.subject, res.groups = verifiedClaims, candidate, subject, groups
+		res.claims, res.provider, res.subject, res.groups, res.client = verifiedClaims, candidate, subject, groups, client
+		res.ClientID = client
+		res.GroupsSource = groups.Source
 		if groups.Available {
 			list := append([]string{}, groups.List...)
 			res.GroupsAvailable, res.Groups = true, &list
@@ -394,4 +458,54 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 		}
 	}
 	return res
+}
+
+// groups computes the group view of a fully verified token: token groups, or
+// the provider's directory when token groups are unavailable (mode fallback)
+// or always (mode always). A directory failure leaves groups unavailable; it
+// never falls back to an empty list, and in mode always never to token groups.
+// Directory lookups use the engine clock, so dry-runs and live requests share
+// one cache timeline.
+func (e *Engine) groups(ctx context.Context, tenant string, reference, candidate *Provider, claims map[string]any, subject string) Groups {
+	groups := ExtractGroups(claims, reference.Trust)
+	if groups.Available {
+		groups.Source = GroupSourceToken
+	} else {
+		groups.Source = GroupSourceUnavailable
+	}
+	dir := reference.Directory
+	if dir == nil || (dir.Mode != directory.ModeAlways && groups.Available) {
+		return groups
+	}
+	unavailable := func(reason string) Groups {
+		return Groups{Source: GroupSourceUnavailable, Reason: reason}
+	}
+	source := GroupSourceDirectory(dir.Kind)
+	switch {
+	case candidate == nil || candidate.Disabled:
+		return unavailable(source + " not consulted: no enabled provider matches this token")
+	case e.Directory == nil:
+		return unavailable(source + " lookups are not configured on this server")
+	case tenant == "":
+		return unavailable(source + " not consulted: tenant unknown")
+	}
+	lookup := DirectoryLookup{Subject: subject}
+	if email, _ := claims["email"].(string); email != "" {
+		if verified, _ := claims["email_verified"].(bool); verified {
+			lookup.Email = email
+		}
+	}
+	now := time.Now()
+	if e.Now != nil {
+		now = e.Now()
+	}
+	resolved, err := e.Directory.ResolveGroups(ctx, tenant, *candidate, lookup, now)
+	if err != nil {
+		return unavailable(source + " lookup failed: " + err.Error())
+	}
+	if !resolved.Available || resolved.List == nil {
+		return unavailable(source + " returned no complete view")
+	}
+	resolved.Source = source
+	return resolved
 }

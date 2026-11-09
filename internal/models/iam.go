@@ -64,6 +64,11 @@ type IdentityEvidence struct {
 	GroupsValid         bool
 	GroupsSource        string
 	Groups              []string
+	// GroupsObservedAt and GroupsExpiresAt bound a group view resolved from a
+	// directory after authentication (zero when groups came from the token).
+	// Membership snapshots never outlive them.
+	GroupsObservedAt time.Time
+	GroupsExpiresAt  time.Time
 }
 
 // ResolvedAccess is the result of resolving a WIF identity against role bindings.
