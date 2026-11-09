@@ -252,7 +252,7 @@ records and the command says so.`,
 
 // ---- rendering ----------------------------------------------------------
 
-func dash(v string) string {
+func usageDash(v string) string {
 	if v == "" {
 		return "—"
 	}
@@ -288,7 +288,7 @@ func usageRecordRows(records []usageledger.Record) ([]string, [][]string) {
 	rows := make([][]string, 0, len(records))
 	for _, r := range records {
 		rows = append(rows, []string{
-			r.ID, r.StartedAt.UTC().Format("2006-01-02T15:04:05Z"), r.Plane, usageTarget(r), dash(r.ActorID), dash(r.PrincipalID), dash(r.ClientID), r.Status,
+			r.ID, r.StartedAt.UTC().Format("2006-01-02T15:04:05Z"), r.Plane, usageTarget(r), usageDash(r.ActorID), usageDash(r.PrincipalID), usageDash(r.ClientID), r.Status,
 			usageCounter(r.Usage, usageledger.CounterInput), usageCounter(r.Usage, usageledger.CounterOutput), usageCost(r.Cost), fmt.Sprintf("%dms", r.LatencyMS),
 		})
 	}
@@ -302,11 +302,11 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 	}
 	rows := [][2]string{
 		{"id", r.ID}, {"started_at", r.StartedAt.UTC().Format(time.RFC3339Nano)}, {"finished_at", r.FinishedAt.UTC().Format(time.RFC3339Nano)},
-		{"latency", fmt.Sprintf("%dms", r.LatencyMS)}, {"plane", r.Plane}, {"provider", dash(r.Provider)}, {"resource_id", dash(r.ResourceID)},
-		{"operation", dash(r.Operation)}, {"model_id", dash(r.ModelID)}, {"model_version", dash(r.ModelVersion)}, {"tool_name", dash(r.ToolName)},
-		{"principal_id", dash(r.PrincipalID)}, {"actor_id", dash(r.ActorID)}, {"client_id", dash(r.ClientID)}, {"request_id", dash(r.RequestID)},
-		{"trace_id", dash(r.TraceID)}, {"quota_attempt_id", dash(r.QuotaAttemptID)}, {"streaming", strconv.FormatBool(r.Streaming)},
-		{"status", r.Status}, {"http_status", httpStatus}, {"error_class", dash(r.ErrorClass)}, {"source", r.Source},
+		{"latency", fmt.Sprintf("%dms", r.LatencyMS)}, {"plane", r.Plane}, {"provider", usageDash(r.Provider)}, {"resource_id", usageDash(r.ResourceID)},
+		{"operation", usageDash(r.Operation)}, {"model_id", usageDash(r.ModelID)}, {"model_version", usageDash(r.ModelVersion)}, {"tool_name", usageDash(r.ToolName)},
+		{"principal_id", usageDash(r.PrincipalID)}, {"actor_id", usageDash(r.ActorID)}, {"client_id", usageDash(r.ClientID)}, {"request_id", usageDash(r.RequestID)},
+		{"trace_id", usageDash(r.TraceID)}, {"quota_attempt_id", usageDash(r.QuotaAttemptID)}, {"streaming", strconv.FormatBool(r.Streaming)},
+		{"status", r.Status}, {"http_status", httpStatus}, {"error_class", usageDash(r.ErrorClass)}, {"source", r.Source},
 		{"requests", strconv.FormatInt(r.Requests, 10)},
 	}
 	for _, name := range usageledger.TokenCounters {
@@ -370,7 +370,7 @@ func usageSummaryRows(s *usageledger.Summary) ([]string, [][]string) {
 	for _, g := range s.Groups {
 		var row []string
 		for _, field := range s.GroupBy {
-			row = append(row, dash(g.Key[field]))
+			row = append(row, usageDash(g.Key[field]))
 		}
 		if s.Bucket != "" {
 			start := "—"
@@ -452,7 +452,7 @@ func usagePricesListCmd() *cobra.Command {
 			}
 			rows := make([][]string, 0, len(prices))
 			for _, p := range prices {
-				rows = append(rows, []string{p.ID, p.Price.ModelID, dash(p.Price.Provider), p.Price.Currency, strconv.Itoa(int(p.Price.Scale)), usagePriceMeters(p.Price), usageEffective(p.Price), strconv.FormatUint(p.Revision, 10)})
+				rows = append(rows, []string{p.ID, p.Price.ModelID, usageDash(p.Price.Provider), p.Price.Currency, strconv.Itoa(int(p.Price.Scale)), usagePriceMeters(p.Price), usageEffective(p.Price), strconv.FormatUint(p.Revision, 10)})
 			}
 			printTable([]string{"ID", "MODEL", "PROVIDER", "CURRENCY", "SCALE", "METERS (units per denominator)", "EFFECTIVE", "REVISION"}, rows)
 			return nil
