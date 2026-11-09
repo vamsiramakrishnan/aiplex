@@ -1,0 +1,10 @@
+{
+  "name": "cachedContents/synthcache0001",
+  "model": "models/synthetic-model-001",
+  "createTime": "2026-01-01T00:00:00Z",
+  "updateTime": "2026-01-01T00:00:00Z",
+  "expireTime": "2026-01-01T01:00:00Z",
+  "usageMetadata": {
+    "totalTokenCount": 4096
+  }
+}

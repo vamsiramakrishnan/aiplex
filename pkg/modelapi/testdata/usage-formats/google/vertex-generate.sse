@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Syn"}]}}],"modelVersion":"synthetic-model-001","responseId":"resp-synth-v-0002"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"thetic "}]}}],"modelVersion":"synthetic-model-001","responseId":"resp-synth-v-0002"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"text."}]},"finishReason":"STOP"}],"modelVersion":"synthetic-model-001","responseId":"resp-synth-v-0002","usageMetadata":{"promptTokenCount":3100,"candidatesTokenCount":77,"totalTokenCount":3377,"thoughtsTokenCount":200,"cachedContentTokenCount":2048,"trafficType":"PROVISIONED_THROUGHPUT"}}
+

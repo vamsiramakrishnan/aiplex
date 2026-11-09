@@ -1,0 +1,13 @@
+{"setupComplete":{}}
+{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm;rate=24000","data":"AAAA"}}]}}}
+{"serverContent":{"outputTranscription":{"text":"Hello there."}}}
+{"serverContent":{"generationComplete":true}}
+{"serverContent":{"turnComplete":true}}
+{"usageMetadata":{"promptTokenCount":560,"cachedContentTokenCount":128,"responseTokenCount":212,"totalTokenCount":772,"promptTokensDetails":[{"modality":"AUDIO","tokenCount":400},{"modality":"TEXT","tokenCount":160}],"cacheTokensDetails":[{"modality":"TEXT","tokenCount":128}],"responseTokensDetails":[{"modality":"AUDIO","tokenCount":212}]}}
+{"sessionResumptionUpdate":{"newHandle":"synthetic-handle-001","resumable":true}}
+{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm;rate=24000","data":"BBBB"}}]}}}
+{"serverContent":{"generationComplete":true}}
+{"serverContent":{"turnComplete":true}}
+{"usageMetadata":{"promptTokenCount":1130,"cachedContentTokenCount":600,"responseTokenCount":455,"totalTokenCount":1585,"promptTokensDetails":[{"modality":"AUDIO","tokenCount":800},{"modality":"TEXT","tokenCount":330}],"cacheTokensDetails":[{"modality":"TEXT","tokenCount":600}],"responseTokensDetails":[{"modality":"AUDIO","tokenCount":455}]}}
+{"goAway":{"timeLeft":"50s"}}
+{"sessionResumptionUpdate":{"newHandle":"synthetic-handle-002","resumable":true}}

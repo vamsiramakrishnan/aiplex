@@ -1,0 +1,48 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "Synthetic answer."
+          }
+        ]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 2048,
+    "candidatesTokenCount": 120,
+    "totalTokenCount": 2424,
+    "thoughtsTokenCount": 256,
+    "cachedContentTokenCount": 1536,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1848
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 200
+      }
+    ],
+    "cacheTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1536
+      }
+    ],
+    "candidatesTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 120
+      }
+    ],
+    "trafficType": "ON_DEMAND"
+  },
+  "modelVersion": "synthetic-model-001",
+  "createTime": "2026-01-01T00:00:00.123Z",
+  "responseId": "resp-synth-v-0001"
+}

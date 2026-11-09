@@ -1,0 +1,12 @@
+event: interaction.created
+data: {"interaction":{"id":"v1_synthetic_interaction_0002","status":"in_progress","object":"interaction","model":"synthetic-model-001"},"event_type":"interaction.created","event_id":"evt_1"}
+
+event: interaction.status_update
+data: {"interaction_id":"v1_synthetic_interaction_0002","status":"in_progress","usage":{"total_input_tokens":733,"total_output_tokens":0,"total_thought_tokens":96,"total_tokens":829},"event_type":"interaction.status_update","event_id":"evt_2"}
+
+event: step.start
+data: {"index":0,"step":{"type":"thought"},"event_type":"step.start"}
+
+event: error
+data: {"error":{"code":"service_unavailable","message":"Synthetic: service temporarily unavailable."},"event_type":"error"}
+

@@ -1,0 +1,48 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "Synthetic answer text."
+          }
+        ]
+      },
+      "index": 0,
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 1200,
+    "cachedContentTokenCount": 1024,
+    "candidatesTokenCount": 85,
+    "thoughtsTokenCount": 342,
+    "totalTokenCount": 1627,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1100
+      },
+      {
+        "modality": "IMAGE",
+        "tokenCount": 100
+      }
+    ],
+    "cacheTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1024
+      }
+    ],
+    "candidatesTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 85
+      }
+    ],
+    "serviceTier": "standard"
+  },
+  "modelVersion": "synthetic-model-001",
+  "responseId": "resp-synth-0001"
+}

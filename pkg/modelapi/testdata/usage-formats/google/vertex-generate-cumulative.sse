@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Syn"}]}}],"modelVersion":"synthetic-model-001","responseId":"resp-synth-v-0002","usageMetadata":{"promptTokenCount":3100,"candidatesTokenCount":3,"totalTokenCount":3303,"thoughtsTokenCount":200,"cachedContentTokenCount":2048,"trafficType":"ON_DEMAND"}}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"thetic "}]}}],"modelVersion":"synthetic-model-001","responseId":"resp-synth-v-0002","usageMetadata":{"promptTokenCount":3100,"candidatesTokenCount":30,"totalTokenCount":3330,"thoughtsTokenCount":200,"cachedContentTokenCount":2048,"trafficType":"ON_DEMAND"}}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"text."}]},"finishReason":"STOP"}],"modelVersion":"synthetic-model-001","responseId":"resp-synth-v-0002","usageMetadata":{"promptTokenCount":3100,"candidatesTokenCount":77,"totalTokenCount":3377,"thoughtsTokenCount":200,"cachedContentTokenCount":2048,"trafficType":"ON_DEMAND"}}
+

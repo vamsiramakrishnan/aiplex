@@ -1,0 +1,21 @@
+event: interaction.created
+data: {"interaction":{"id":"v1_synthetic_vertex_interaction_0002","status":"in_progress","object":"interaction"},"event_type":"interaction.created"}
+
+event: interaction.status_update
+data: {"interaction_id":"v1_synthetic_vertex_interaction_0002","status":"in_progress","event_type":"interaction.status_update"}
+
+event: step.start
+data: {"index":0,"step":{"type":"model_output"},"event_type":"step.start"}
+
+event: step.delta
+data: {"index":0,"delta":{"text":"Synthetic.","type":"text"},"event_type":"step.delta"}
+
+event: step.stop
+data: {"index":0,"event_type":"step.stop"}
+
+event: interaction.completed
+data: {"interaction":{"id":"v1_synthetic_vertex_interaction_0002","status":"completed","usage":{"total_tokens":790,"total_input_tokens":533,"input_tokens_by_modality":[{"modality":"text","tokens":533}],"total_output_tokens":27,"output_tokens_by_modality":[{"modality":"text","tokens":27}],"total_thought_tokens":230},"created":"2026-01-01T00:00:00Z","updated":"2026-01-01T00:00:01Z","object":"interaction"},"event_type":"interaction.completed"}
+
+event: done
+data: [DONE]
+

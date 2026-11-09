@@ -1,0 +1,4 @@
+data: {"choices":[{"delta":{"role":"assistant","content":"Syn"},"index":0,"logprobs":null}],"created":1770850461,"id":"synthetic-id-0002","model":"google/synthetic-model-001","object":"chat.completion.chunk","system_fingerprint":""}
+
+data: {"choices":[{"delta":{"role":"assistant","content":"thetic"},"index":0,"logprobs":null}],"created":1770850461,"id":"synthetic-id-0002","model":"google/synthetic-model-001","object":"chat.completion.chunk","system_fingerprint":""}
+
