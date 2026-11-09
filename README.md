@@ -4,32 +4,40 @@ AIPlex is a control plane for agent interactions. It puts MCP, A2A, and model tr
 
 | Plane | Protocol | Governs | Route CRD | First integration |
 | --- | --- | --- | --- | --- |
-| MCPlex | MCP (JSON-RPC) | Agent to tool | `MCPRoute` | [Deploy a tool](docs-site/docs/guides/mcplex.md#deploy-an-mcp-server) |
-| A2APlex | A2A (HTTP/JSON) | Agent to agent | `HTTPRoute` | [Delegate a task](docs-site/docs/guides/a2aplex.md#task-delegation) |
-| LLMPlex | Provider APIs | Agent to model | `LLMRoute` | [Configure model routing](docs-site/docs/guides/llmplex.md#configure-providers) |
+| MCPlex | MCP (JSON-RPC) | Agent to tool | `MCPRoute` | [Deploy a tool](#quick-start) |
+| A2APlex | A2A (HTTP/JSON) | Agent to agent | `HTTPRoute` | [Connect a native agent](docs/connected-plexes.md) |
+| LLMPlex | Provider APIs | Agent to model | `LLMRoute` | [Configure model routing](#declarative-deployment) |
 
 These three planes carry traffic. ClientPlex configures developer clients, SkillsPlex exposes skill discovery and reported history, QuotaPlex governs shared consumption, and Networking prepares connectivity and infrastructure plans. They share identity, permissions, revisioned storage and audit. See [how the modules fit together](#how-the-plex-modules-fit-together).
 
 ## Choose a first-use path
 
-Start with one interaction and its identity policy. Use [local development](#local-development) to build and test AIPlex locally. [Declarative deployment](#declarative-deployment) applies configuration to a target environment; it requires configured infrastructure, credentials and provider access. Model IDs in examples must match the models enabled in that environment.
+Start with one interaction and its identity policy. Use [local development](#local-development) for a local API and Console, or [quick start](#quick-start) to deploy a platform. [Declarative deployment](#declarative-deployment) adds tools, agent permissions and model routes to an existing platform.
 
-For an existing developer client, start with [ClientPlex setup](#developer-setup-with-clientplex). For shared budgets and admission, start with [QuotaPlex](#shared-quotas-with-quotaplex) and its execution coverage matrix. Local tests and rendered plans cover the exercised paths; live enforcement requires separate verification in the target environment.
+For an existing developer client, start with [ClientPlex setup](#developer-setup-with-clientplex). For optional shared budgets and admission, read [QuotaPlex](#shared-quotas-with-quotaplex) and its [execution coverage matrix](docs/quotaplex-execution-coverage.md).
 
 ## Quick start
 
-```bash
-curl -fsSL https://get.aiplex.dev | sh
+Use Go 1.25+ and Node 22, and prepare [operator-values.yaml](docs/helm-identity-config.md) with your verified identity configuration. This path provisions GCP infrastructure and requires project credentials and the deployment tools installed by `aiplex init`.
 
-aiplex quickstart
+```bash
+git clone https://github.com/vamsiramakrishnan/aiplex.git
+cd aiplex
+make console
+make build
+export PATH="$PWD/bin:$PATH"
+
+aiplex init
+aiplex platform apply --values operator-values.yaml
 ```
 
-Or run the setup steps yourself:
+On an existing platform, deploy a tool from its catalog. Replace `TEMPLATE_ID` with a listed template and `INSTANCE_ID` with the ID returned by deployment:
 
 ```bash
 aiplex login
-aiplex deploy
-aiplex status my-tool
+aiplex catalog list --plane mcplex
+aiplex deploy TEMPLATE_ID --plane mcplex --name my-tool
+aiplex get instance INSTANCE_ID
 ```
 
 Operator surfaces:
@@ -72,40 +80,45 @@ A JWT carries scopes across the three planes:
 
 ## Declarative deployment
 
-```yaml
-# aiplex.yaml
-version: v1
-instances:
-  - name: kb-search
-    template: kb-search-server
-    plane: mcplex
-    config:
-      INDEX_PATH: "/data/curriculum"
+Save this as `aiplex.json`. Choose templates and their configuration from the target catalog, and use model IDs and provider credentials enabled in that environment:
 
-routes:
-  llm:
-    - name: default
-      backends:
-        - provider: google
-          model: gemini-2.5-flash
-          weight: 80
-        - provider: anthropic
-          model: claude-sonnet-4-20250514
-          weight: 20
-
-agents:
-  - name: tutor-agent
-    grant:
-      - mcp:tools:search_curriculum
-      - a2a:task:research
-      - llm:model:gemini-2.5-flash
+```json
+{
+  "version": "v1",
+  "instances": [{
+    "name": "kb-search",
+    "template": "kb-search-server",
+    "plane": "mcplex",
+    "config": { "INDEX_PATH": "/data/curriculum" }
+  }],
+  "routes": [{
+    "model_id": "gemini-2.5-flash",
+    "backends": [
+      { "provider": "google", "model_id": "gemini-2.5-flash", "weight": 80, "enabled": true },
+      { "provider": "anthropic", "model_id": "claude-sonnet-4-20250514", "weight": 20, "enabled": true }
+    ]
+  }],
+  "agents": [{
+    "client_id": "tutor-agent",
+    "display_name": "Tutor Agent",
+    "auth_method": "client_credentials",
+    "grant_types": ["client_credentials"],
+    "allowed_scopes": [
+      "mcp:tools:search_curriculum",
+      "a2a:task:research",
+      "llm:model:gemini-2.5-flash"
+    ]
+  }]
+}
 ```
 
 Apply it with:
 
 ```bash
-aiplex apply -f aiplex.yaml
+aiplex apply -f aiplex.json
 ```
+
+These model routes configure Envoy. A ClientPlex gateway registration references a separately saved [LLMPlex model surface](docs/connected-plexes.md#client-compatibility); applying a route does not create that surface. Managed tool authorization and invocation follow the [MCP runtime guide](docs/mcp-runtime-authorization.md).
 
 ## Components
 
@@ -230,6 +243,8 @@ The latest [Plex cohesion bugbash](docs/plex-cohesion-bugbash.md) covers client 
 
 ## Local Development
 
+`setup.sh` installs development tools and runs the GCP configuration wizard:
+
 ```bash
 git clone https://github.com/vamsiramakrishnan/aiplex.git
 cd aiplex
@@ -237,15 +252,26 @@ cd aiplex
 ./setup.sh
 ```
 
-Manual setup:
+For a local API and Console, use Go 1.25+, Node 22 and Docker Compose. From a checkout:
 
 ```bash
 make deps
 make docker-up
 make build
+export PATH="$PWD/bin:$PATH"
+
+export AIPLEX_DEV_MODE=true HOST=127.0.0.1
+export FIRESTORE_EMULATOR_HOST=127.0.0.1:8086 GCP_PROJECT=aiplex-dev
+export HYDRA_ADMIN_URL=http://127.0.0.1:4445 HYDRA_PUBLIC_URL=http://127.0.0.1:4444
+export KRATOS_ADMIN_URL=http://127.0.0.1:4434 KRATOS_PUBLIC_URL=http://127.0.0.1:4433
 make run-local
-make console-dev
+
+# In another terminal, from the repository root:
+npm --prefix console ci
+npm --prefix console run dev -- --host 127.0.0.1
 ```
+
+Development mode requires a loopback listener and uses development authentication. Outside a cluster, Kubernetes deployment is a no-op; local success does not establish cloud routing or provider access.
 
 Useful CLI commands:
 
@@ -254,7 +280,7 @@ aiplex whoami
 aiplex completion bash >> ~/.bashrc
 ```
 
-Go, Terraform, Helm, kubectl, and Node versions are pinned in `.mise.toml`.
+The Go requirement is in `go.mod`; it takes precedence over the older Go entry in `.mise.toml`. Terraform, Helm, kubectl and Node versions are pinned in `.mise.toml`.
 
 See [Installation](https://docs.aiplex.dev/docs/getting-started/installation) for the full setup path.
 
