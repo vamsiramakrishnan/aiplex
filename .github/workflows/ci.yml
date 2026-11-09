@@ -18,7 +18,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
           cache: true
 
       - name: Go vet
@@ -52,6 +52,59 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  firestore:
+    name: Firestore emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Check exact billing evidence comparison
+        run: python3 -m unittest discover -s tools/qualification -p 'test_*.py'
+      - uses: google-github-actions/setup-gcloud@v3
+        with:
+          version: '592.0.0'
+          install_components: cloud-firestore-emulator
+      - name: Exercise real emulator transactions and recovery
+        env:
+          FIRESTORE_EMULATOR_HOST: 127.0.0.1:8787
+          CLOUDSDK_CORE_DISABLE_PROMPTS: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud emulators firestore start --host-port="$FIRESTORE_EMULATOR_HOST" --project=aiplex-emulator --quiet > "$RUNNER_TEMP/firestore-emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'curl --silent --max-time 2 -X POST "http://$FIRESTORE_EMULATOR_HOST/shutdown" >/dev/null || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import os, socket, time
+          address, port = os.environ['FIRESTORE_EMULATOR_HOST'].split(':')
+          deadline = time.monotonic() + 60
+          while time.monotonic() < deadline:
+              try:
+                  with socket.create_connection((address, int(port)), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(0.25)
+          else:
+              raise SystemExit('Firestore emulator did not become ready within 60 seconds')
+          PY
+          go test -race ./internal/registry -count=1 -timeout=4m -json -run '^(TestFirestore(Instance|Agent|Template|DeployHistory|UserScopes|LLMRouteConfig|RoleBinding)|TestQuotaEmulator.*)$' | tee "$RUNNER_TEMP/firestore-tests.jsonl"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: firestore-qualification
+          path: |
+            ${{ runner.temp }}/firestore-emulator.log
+            ${{ runner.temp }}/firestore-tests.jsonl
+          retention-days: 7
+
   helm:
     name: Helm Lint
     runs-on: ubuntu-latest
@@ -65,3 +118,29 @@ jobs:
       - run: helm lint deploy/helm/aiplex
       - run: helm lint deploy/helm/aiplex --values deploy/helm/aiplex/values-dev.yaml
       - run: helm lint deploy/helm/aiplex --values deploy/helm/aiplex/values-prod.yaml
+
+  authz:
+    name: Rust authorization
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: authz
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+
+  contracts:
+    name: Public contract schemas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r schemas/requirements.txt
+      - run: python schemas/check.py

@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,6 +57,13 @@ func (e *Error) Error() string {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
+	return c.doWithHeaders(ctx, method, path, body, out, nil)
+}
+
+func (c *Client) doWithHeaders(ctx context.Context, method, path string, body, out any, headers map[string]string) error {
+	if err := validateAPIPath(path); err != nil {
+		return err
+	}
 	u := c.BaseURL + path
 
 	var reqBody io.Reader
@@ -78,13 +86,16 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("aiplex: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		var apiErr Error
 		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
 			return &Error{Code: "unknown", Message: resp.Status, StatusCode: resp.StatusCode}
@@ -119,22 +130,22 @@ type SourceError struct {
 }
 
 type Template struct {
-	ID           string            `json:"id"`
-	Source       string            `json:"source"`
-	Plane        string            `json:"plane"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	Image        string            `json:"image,omitempty"`
-	Version      string            `json:"version,omitempty"`
-	Tools        []ToolInfo        `json:"tools,omitempty"`
-	TaskTypes    []string          `json:"task_types,omitempty"`
-	ModelID      string            `json:"model_id,omitempty"`
-	Provider     string            `json:"provider,omitempty"`
-	Capabilities []string          `json:"capabilities,omitempty"`
-	Category     string            `json:"category"`
-	Verified     bool              `json:"verified"`
-	Tags         []string          `json:"tags,omitempty"`
-	Pricing      *Pricing          `json:"pricing,omitempty"`
+	ID           string     `json:"id"`
+	Source       string     `json:"source"`
+	Plane        string     `json:"plane"`
+	Name         string     `json:"name"`
+	Description  string     `json:"description"`
+	Image        string     `json:"image,omitempty"`
+	Version      string     `json:"version,omitempty"`
+	Tools        []ToolInfo `json:"tools,omitempty"`
+	TaskTypes    []string   `json:"task_types,omitempty"`
+	ModelID      string     `json:"model_id,omitempty"`
+	Provider     string     `json:"provider,omitempty"`
+	Capabilities []string   `json:"capabilities,omitempty"`
+	Category     string     `json:"category"`
+	Verified     bool       `json:"verified"`
+	Tags         []string   `json:"tags,omitempty"`
+	Pricing      *Pricing   `json:"pricing,omitempty"`
 }
 
 type ToolInfo struct {
@@ -266,23 +277,24 @@ func (c *Client) GetHistory(ctx context.Context, instanceID string) ([]DeployHis
 // --- Agents ---
 
 type Agent struct {
-	ClientID      string   `json:"client_id"`
-	DisplayName   string   `json:"display_name"`
-	Description   string   `json:"description,omitempty"`
-	AuthMethod    string   `json:"auth_method"`
-	GrantTypes    []string `json:"grant_types"`
-	AllowedScopes []string `json:"allowed_scopes"`
-	WIFPrincipal  string   `json:"wif_principal,omitempty"`
-	SpiffeID      string   `json:"spiffe_id,omitempty"`
-	RedirectURIs  []string `json:"redirect_uris,omitempty"`
+	Revision      int64     `json:"revision"`
+	ClientID      string    `json:"client_id"`
+	DisplayName   string    `json:"display_name"`
+	Description   string    `json:"description,omitempty"`
+	AuthMethod    string    `json:"auth_method"`
+	GrantTypes    []string  `json:"grant_types"`
+	AllowedScopes []string  `json:"allowed_scopes"`
+	WIFPrincipal  string    `json:"wif_principal,omitempty"`
+	SpiffeID      string    `json:"spiffe_id,omitempty"`
+	RedirectURIs  []string  `json:"redirect_uris,omitempty"`
 	RegisteredAt  time.Time `json:"registered_at"`
-	RegisteredBy  string   `json:"registered_by"`
-	Status        string   `json:"status"`
+	RegisteredBy  string    `json:"registered_by"`
+	Status        string    `json:"status"`
 }
 
 type AgentPermissions struct {
-	AgentID string                       `json:"agent_id"`
-	Ceiling map[string][]ScopeInfo       `json:"ceiling"`
+	AgentID string                 `json:"agent_id"`
+	Ceiling map[string][]ScopeInfo `json:"ceiling"`
 }
 
 type ScopeInfo struct {
@@ -318,13 +330,17 @@ func (c *Client) GetAgent(ctx context.Context, clientID string) (*Agent, error) 
 // RegisterAgent registers a new agent.
 func (c *Client) RegisterAgent(ctx context.Context, req *RegisterAgentRequest) (*Agent, error) {
 	var a Agent
-	err := c.do(ctx, "POST", "/api/v1/agents", req, &a)
+	err := c.doWithHeaders(ctx, "POST", "/api/v1/agents", req, &a, map[string]string{"If-Match": "0"})
 	return &a, err
 }
 
 // DeleteAgent removes an agent.
 func (c *Client) DeleteAgent(ctx context.Context, clientID string) error {
-	return c.do(ctx, "DELETE", "/api/v1/agents/"+url.PathEscape(clientID), nil, nil)
+	current, err := c.GetAgent(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	return c.DeleteAgentAtRevision(ctx, clientID, current.Revision)
 }
 
 // GetAgentPermissions returns the cross-plane permission view for an agent.
@@ -337,15 +353,21 @@ func (c *Client) GetAgentPermissions(ctx context.Context, clientID string) (*Age
 // --- LLMPlex ---
 
 type LLMRouteConfig struct {
-	ID        string       `json:"id"`
-	ModelID   string       `json:"model_id"`
-	Owner     string       `json:"owner"`
-	Backends  []LLMBackend `json:"backends"`
-	Fallbacks []string     `json:"fallbacks,omitempty"`
-	CacheTTL  int          `json:"cache_ttl_seconds,omitempty"`
-	Budget    *UsageBudget `json:"budget,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	Revision  int64           `json:"revision"`
+	ID        string          `json:"id"`
+	ModelID   string          `json:"model_id"`
+	Owner     string          `json:"owner"`
+	Backends  []LLMBackend    `json:"backends"`
+	Fallbacks []string        `json:"fallbacks,omitempty"`
+	CacheTTL  int             `json:"cache_ttl_seconds,omitempty"`
+	Budget    *UsageBudget    `json:"budget,omitempty"`
+	RateLimit *ModelRateLimit `json:"rate_limit,omitempty"`
+	// BackendNamingVersion is server-owned native resource naming metadata.
+	BackendNamingVersion int `json:"backend_naming_version,omitempty"`
+	// RetiredBackends is server-owned cleanup inventory.
+	RetiredBackends []string  `json:"retired_backends,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type LLMBackend struct {
@@ -361,6 +383,11 @@ type UsageBudget struct {
 	MaxMonthlyCostUSD float64 `json:"max_monthly_cost_usd,omitempty"`
 	MaxDailyTokens    int64   `json:"max_daily_tokens,omitempty"`
 	AlertThreshold    float64 `json:"alert_threshold_pct,omitempty"`
+}
+
+type ModelRateLimit struct {
+	RequestsPerMinute int `json:"requests_per_minute"`
+	TokensPerMinute   int `json:"tokens_per_minute,omitempty"`
 }
 
 type UsageRecord struct {
@@ -379,6 +406,8 @@ type UsageRecord struct {
 }
 
 type UsageSummary struct {
+	Provider     string  `json:"provider,omitempty"`
+	AgentID      string  `json:"agent_id,omitempty"`
 	ModelID      string  `json:"model_id,omitempty"`
 	Period       string  `json:"period"`
 	InputTokens  int64   `json:"input_tokens"`
@@ -391,6 +420,7 @@ type UsageSummary struct {
 }
 
 type ProviderConfig struct {
+	Revision    int64  `json:"revision"`
 	Provider    string `json:"provider"`
 	DisplayName string `json:"display_name"`
 	BaseURL     string `json:"base_url,omitempty"`
@@ -417,13 +447,20 @@ func (c *Client) GetLLMRoute(ctx context.Context, modelID string) (*LLMRouteConf
 // PutLLMRoute creates or updates a route config.
 func (c *Client) PutLLMRoute(ctx context.Context, modelID string, rc *LLMRouteConfig) (*LLMRouteConfig, error) {
 	var out LLMRouteConfig
-	err := c.do(ctx, "PUT", "/api/v1/llm/routes/"+url.PathEscape(modelID), rc, &out)
+	if rc == nil {
+		return nil, fmt.Errorf("route configuration required")
+	}
+	err := c.doWithHeaders(ctx, "PUT", "/api/v1/llm/routes/"+url.PathEscape(modelID), rc, &out, map[string]string{"If-Match": strconv.FormatInt(rc.Revision, 10)})
 	return &out, err
 }
 
 // DeleteLLMRoute deletes a route config.
 func (c *Client) DeleteLLMRoute(ctx context.Context, modelID string) error {
-	return c.do(ctx, "DELETE", "/api/v1/llm/routes/"+url.PathEscape(modelID), nil, nil)
+	current, err := c.GetLLMRoute(ctx, modelID)
+	if err != nil {
+		return err
+	}
+	return c.DeleteLLMRouteAtRevision(ctx, modelID, current.Revision)
 }
 
 // ListProviders returns all LLM provider configurations.
@@ -436,7 +473,10 @@ func (c *Client) ListProviders(ctx context.Context) ([]ProviderConfig, error) {
 // PutProvider creates or updates a provider config.
 func (c *Client) PutProvider(ctx context.Context, provider string, cfg *ProviderConfig) (*ProviderConfig, error) {
 	var out ProviderConfig
-	err := c.do(ctx, "PUT", "/api/v1/llm/providers/"+url.PathEscape(provider), cfg, &out)
+	if cfg == nil {
+		return nil, fmt.Errorf("provider configuration required")
+	}
+	err := c.doWithHeaders(ctx, "PUT", "/api/v1/llm/providers/"+url.PathEscape(provider), cfg, &out, map[string]string{"If-Match": strconv.FormatInt(cfg.Revision, 10)})
 	return &out, err
 }
 
@@ -449,26 +489,27 @@ func (c *Client) RecordUsage(ctx context.Context, rec *UsageRecord) (*UsageRecor
 
 // GetUsageSummary returns aggregated usage for a time period.
 func (c *Client) GetUsageSummary(ctx context.Context, period string) (*UsageSummary, error) {
-	var s UsageSummary
-	err := c.do(ctx, "GET", "/api/v1/llm/usage/summary?period="+url.QueryEscape(period), nil, &s)
-	return &s, err
+	return c.GetUsageSummaryWithOpts(ctx, &UsageSummaryOpts{Period: period})
 }
 
 // --- A2APlex ---
 
 type AgentCard struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	URL         string           `json:"url"`
-	Version     string           `json:"version,omitempty"`
-	TaskTypes   []TaskTypeInfo   `json:"task_types"`
-	AuthSchemes []AuthSchemeInfo `json:"auth_schemes,omitempty"`
+	Capabilities []string         `json:"capabilities,omitempty"`
+	Metadata     map[string]any   `json:"metadata,omitempty"`
+	Name         string           `json:"name"`
+	Description  string           `json:"description"`
+	URL          string           `json:"url"`
+	Version      string           `json:"version,omitempty"`
+	TaskTypes    []TaskTypeInfo   `json:"task_types"`
+	AuthSchemes  []AuthSchemeInfo `json:"auth_schemes,omitempty"`
 }
 
 type TaskTypeInfo struct {
-	Type        string         `json:"type"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"input_schema,omitempty"`
+	OutputSchema map[string]any `json:"output_schema,omitempty"`
+	Type         string         `json:"type"`
+	Description  string         `json:"description"`
+	InputSchema  map[string]any `json:"input_schema,omitempty"`
 }
 
 type AuthSchemeInfo struct {
@@ -477,6 +518,13 @@ type AuthSchemeInfo struct {
 }
 
 type Delegation struct {
+	ReportedBy       string     `json:"reported_by,omitempty"`
+	ReportedAt       time.Time  `json:"reported_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	TraceID          string     `json:"trace_id,omitempty"`
+	SpanID           string     `json:"span_id,omitempty"`
+	ParentSpanID     string     `json:"parent_span_id,omitempty"`
 	ID               string     `json:"id"`
 	CallerAgentID    string     `json:"caller_agent_id"`
 	CalleeAgentID    string     `json:"callee_agent_id"`
@@ -486,9 +534,7 @@ type Delegation struct {
 	Status           string     `json:"status"`
 	UserID           string     `json:"user_id"`
 	StartedAt        time.Time  `json:"started_at"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty"`
 	DurationMs       int64      `json:"duration_ms,omitempty"`
-	Error            string     `json:"error,omitempty"`
 	ParentID         string     `json:"parent_id,omitempty"`
 }
 
@@ -500,14 +546,22 @@ type DelegationChain struct {
 }
 
 type RecordDelegationRequest struct {
-	ID               string `json:"id"`
-	CallerAgentID    string `json:"caller_agent_id"`
-	CalleeAgentID    string `json:"callee_agent_id"`
-	CallerInstanceID string `json:"caller_instance_id"`
-	CalleeInstanceID string `json:"callee_instance_id"`
-	TaskType         string `json:"task_type"`
-	UserID           string `json:"user_id"`
-	ParentID         string `json:"parent_id,omitempty"`
+	Status           string     `json:"status,omitempty"`
+	StartedAt        time.Time  `json:"started_at,omitempty"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	DurationMs       int64      `json:"duration_ms,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	TraceID          string     `json:"trace_id,omitempty"`
+	SpanID           string     `json:"span_id,omitempty"`
+	ParentSpanID     string     `json:"parent_span_id,omitempty"`
+	ID               string     `json:"id"`
+	CallerAgentID    string     `json:"caller_agent_id"`
+	CalleeAgentID    string     `json:"callee_agent_id"`
+	CallerInstanceID string     `json:"caller_instance_id"`
+	CalleeInstanceID string     `json:"callee_instance_id"`
+	TaskType         string     `json:"task_type"`
+	UserID           string     `json:"user_id"`
+	ParentID         string     `json:"parent_id,omitempty"`
 }
 
 type UpdateDelegationRequest struct {
@@ -578,6 +632,8 @@ type SkillServerSummary struct {
 
 // SkillInvocation mirrors models.SkillInvocation for SDK consumers.
 type SkillInvocation struct {
+	ReportedBy   string    `json:"reported_by,omitempty"`
+	ReportedAt   time.Time `json:"reported_at"`
 	ID           string    `json:"id"`
 	AgentID      string    `json:"agent_id"`
 	InstanceID   string    `json:"instance_id"`
@@ -594,14 +650,17 @@ type SkillInvocation struct {
 
 // RecordSkillInvocationRequest is the body sent to POST /api/v1/skills/invocations.
 type RecordSkillInvocationRequest struct {
-	AgentID    string `json:"agent_id"`
-	InstanceID string `json:"instance_id"`
-	SkillName  string `json:"skill_name"`
-	UserID     string `json:"user_id,omitempty"`
-	Status     string `json:"status,omitempty"`
-	DurationMs int64  `json:"duration_ms,omitempty"`
-	Error      string `json:"error,omitempty"`
-	TraceID    string `json:"trace_id,omitempty"`
+	StartedAt    time.Time `json:"started_at,omitempty"`
+	SpanID       string    `json:"span_id,omitempty"`
+	ParentSpanID string    `json:"parent_span_id,omitempty"`
+	AgentID      string    `json:"agent_id"`
+	InstanceID   string    `json:"instance_id"`
+	SkillName    string    `json:"skill_name"`
+	UserID       string    `json:"user_id,omitempty"`
+	Status       string    `json:"status,omitempty"`
+	DurationMs   int64     `json:"duration_ms,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	TraceID      string    `json:"trace_id,omitempty"`
 }
 
 // ListSkillServers returns running SkillsPlex instances.
@@ -639,19 +698,20 @@ func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName st
 // --- Dashboard ---
 
 type DashboardStats struct {
-	TotalInstances   int     `json:"total_instances"`
-	RunningInstances int     `json:"running_instances"`
-	RegisteredAgents int     `json:"registered_agents"`
-	ActivePlanes     int     `json:"active_planes"`
-	MCPlexInstances  int     `json:"mcplex_instances"`
-	A2APlexInstances int     `json:"a2aplex_instances"`
-	LLMPlexInstances int     `json:"llmplex_instances"`
-	DailyCostUSD     float64 `json:"daily_cost_usd"`
-	DailyTokens      int64   `json:"daily_tokens"`
-	DailyRequests    int64   `json:"daily_requests"`
-	ToolCalls        int64   `json:"tool_calls_24h"`
-	A2ADelegations   int64   `json:"a2a_delegations_24h"`
-	PolicyDenials    int64   `json:"policy_denials_24h"`
+	TotalInstances      int     `json:"total_instances"`
+	RunningInstances    int     `json:"running_instances"`
+	RegisteredAgents    int     `json:"registered_agents"`
+	ActivePlanes        int     `json:"active_planes"`
+	MCPlexInstances     int     `json:"mcplex_instances"`
+	A2APlexInstances    int     `json:"a2aplex_instances"`
+	SkillsPlexInstances int     `json:"skillsplex_instances"`
+	LLMPlexInstances    int     `json:"llmplex_instances"`
+	DailyCostUSD        float64 `json:"daily_cost_usd"`
+	DailyTokens         int64   `json:"daily_tokens"`
+	DailyRequests       int64   `json:"daily_requests"`
+	ToolCalls           int64   `json:"tool_calls_24h"`
+	A2ADelegations      int64   `json:"a2a_delegations_24h"`
+	PolicyDenials       int64   `json:"policy_denials_24h"`
 }
 
 type PolicyDenial struct {
@@ -690,23 +750,37 @@ func (c *Client) RecordPolicyDenial(ctx context.Context, d *PolicyDenial) (*Poli
 // --- Auth / User Scopes ---
 
 type UserScopes struct {
-	UserID string              `json:"user_id"`
-	Scopes map[string][]string `json:"scopes"` // plane → scopes
+	Revision    int64               `json:"revision"`
+	UserID      string              `json:"user_id"`
+	PrincipalID string              `json:"principal_id,omitempty"`
+	Scopes      []string            `json:"scopes"`
+	ByPlane     map[string][]string `json:"by_plane"`
 }
 
-// GetUserScopes returns the Dimension B scopes for a user.
-func (c *Client) GetUserScopes(ctx context.Context, userID string) (*UserScopes, error) {
-	var s UserScopes
-	err := c.do(ctx, "GET", "/auth/users/"+url.PathEscape(userID)+"/scopes", nil, &s)
-	return &s, err
+// GetUserScopes returns manually assigned scopes for a canonical principal.
+func (c *Client) GetUserScopes(ctx context.Context, principalID string) (*UserScopes, error) {
+	if err := validatePrincipalID(principalID); err != nil {
+		return nil, err
+	}
+	var result UserScopes
+	err := c.do(ctx, http.MethodGet, "/auth/users/"+url.PathEscape(principalID)+"/scopes", nil, &result)
+	return &result, err
 }
 
-// SetUserScopes sets the Dimension B scopes for a user.
-func (c *Client) SetUserScopes(ctx context.Context, userID string, scopes []string) (*UserScopes, error) {
-	body := map[string][]string{"scopes": scopes}
-	var s UserScopes
-	err := c.do(ctx, "PUT", "/auth/users/"+url.PathEscape(userID)+"/scopes", body, &s)
-	return &s, err
+// SetUserScopes updates manual grants. The API returns204; read the authoritative
+// representation afterward rather than decoding a nonexistent response body.
+func (c *Client) SetUserScopes(ctx context.Context, principalID string, scopes []string) (*UserScopes, error) {
+	if scopes == nil {
+		scopes = []string{}
+	} // explicit empty grant set, never JSON null
+	if err := validatePrincipalID(principalID); err != nil {
+		return nil, err
+	}
+	current, err := c.GetUserScopes(ctx, principalID)
+	if err != nil {
+		return nil, err
+	}
+	return c.SetUserScopesAtRevision(ctx, principalID, scopes, current.Revision)
 }
 
 // Health checks the server health.
@@ -718,22 +792,22 @@ func (c *Client) Health(ctx context.Context) error {
 
 // ExecutionRun is the projected per-run summary returned by /api/v1/runs.
 type ExecutionRun struct {
-	RunID            string    `json:"run_id"`
-	TenantID         string    `json:"tenant_id"`
-	AgentID          string    `json:"agent_id"`
-	Plane            string    `json:"plane"`
-	Actor            string    `json:"actor"`
-	Subject          string    `json:"subject"`
-	AIPlexInstanceID string    `json:"aiplex_instance_id,omitempty"`
-	Status           string    `json:"status"`
-	StartedAt        time.Time `json:"started_at"`
+	RunID            string     `json:"run_id"`
+	TenantID         string     `json:"tenant_id"`
+	AgentID          string     `json:"agent_id"`
+	Plane            string     `json:"plane"`
+	Actor            string     `json:"actor"`
+	Subject          string     `json:"subject"`
+	AIPlexInstanceID string     `json:"aiplex_instance_id,omitempty"`
+	Status           string     `json:"status"`
+	StartedAt        time.Time  `json:"started_at"`
 	EndedAt          *time.Time `json:"ended_at,omitempty"`
-	DecisionsCount   int64     `json:"decisions_count"`
-	EffectsCount     int64     `json:"effects_count"`
-	UnknownEffects   int64     `json:"unknown_effects"`
-	Obligations      int64     `json:"obligations"`
-	PolicyViolations int64     `json:"policy_violations"`
-	BudgetUSDCharged float64   `json:"budget_usd_charged"`
+	DecisionsCount   int64      `json:"decisions_count"`
+	EffectsCount     int64      `json:"effects_count"`
+	UnknownEffects   int64      `json:"unknown_effects"`
+	Obligations      int64      `json:"obligations"`
+	PolicyViolations int64      `json:"policy_violations"`
+	BudgetUSDCharged float64    `json:"budget_usd_charged"`
 }
 
 // ExecutionEvent is one journaled row in a run's timeline.
@@ -867,4 +941,33 @@ func (c *Client) CompensateRun(ctx context.Context, runID string) error {
 // the manual override for ops who want to free payload bytes early.
 func (c *Client) CompactRun(ctx context.Context, runID string) error {
 	return c.do(ctx, "POST", "/api/v1/runs/"+url.PathEscape(runID)+"/compact", struct{}{}, nil)
+}
+
+// Explicit revision methods preserve a selection made by an earlier read.
+func (c *Client) DeleteAgentAtRevision(ctx context.Context, id string, revision int64) error {
+	if revision <= 0 {
+		return fmt.Errorf("positive revision required")
+	}
+	return c.doWithHeaders(ctx, http.MethodDelete, "/api/v1/agents/"+url.PathEscape(id), nil, nil, map[string]string{"If-Match": strconv.FormatInt(revision, 10)})
+}
+func (c *Client) DeleteLLMRouteAtRevision(ctx context.Context, id string, revision int64) error {
+	if revision <= 0 {
+		return fmt.Errorf("positive revision required")
+	}
+	return c.doWithHeaders(ctx, http.MethodDelete, "/api/v1/llm/routes/"+url.PathEscape(id), nil, nil, map[string]string{"If-Match": strconv.FormatInt(revision, 10)})
+}
+func (c *Client) SetUserScopesAtRevision(ctx context.Context, id string, scopes []string, revision int64) (*UserScopes, error) {
+	if err := validatePrincipalID(id); err != nil {
+		return nil, err
+	}
+	if revision < 0 {
+		return nil, fmt.Errorf("nonnegative revision required")
+	}
+	if scopes == nil {
+		scopes = []string{}
+	}
+	if err := c.doWithHeaders(ctx, http.MethodPut, "/auth/users/"+url.PathEscape(id)+"/scopes", map[string][]string{"scopes": scopes}, nil, map[string]string{"If-Match": strconv.FormatInt(revision, 10)}); err != nil {
+		return nil, err
+	}
+	return c.GetUserScopes(ctx, id)
 }

@@ -2,26 +2,49 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"sort"
+	"strconv"
 	"strings"
-	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
-	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
 // WIFValidator validates Workload Identity Federation and Workforce Identity
 // Federation tokens, extracts identity claims, and resolves AIPlex roles
 // from group memberships.
 type WIFValidator struct {
-	store              registry.Store
-	workforcePoolID    string
-	workloadPoolID     string
-	trustedIssuers     map[string]bool
-	httpClient         *http.Client
+	store           IdentityStore
+	workforcePoolID string
+	workloadPoolID  string
+	trustedIssuers  map[string]bool
+	verifier        TokenVerifier
+	isWorkforce     bool
+	sources         []IdentitySource
+	configErr       error
+}
+
+// IdentityStore is the persistence surface required by identity resolution.
+// Stored user scopes are manual grants only, keyed by canonical principal ID.
+type IdentityStore interface {
+	ListRoleBindings(context.Context) ([]models.RoleBinding, error)
+	GetUserScopes(context.Context, string) ([]string, error)
+}
+
+// IdentitySource pins one verified identity domain. Tokens may select a source
+// by issuer/audience for dispatch, but only verified claims establish identity.
+type IdentitySource struct {
+	Issuer      string
+	Audience    string
+	Verifier    TokenVerifier
+	PoolID      string
+	IsWorkforce bool
 }
 
 // WIFConfig configures the WIF validator.
@@ -29,27 +52,56 @@ type WIFConfig struct {
 	WorkforcePoolID string
 	WorkloadPoolID  string
 	TrustedIssuers  []string
+	Verifier        TokenVerifier
+	IsWorkforce     bool
+	Sources         []IdentitySource
 }
 
 // NewWIFValidator creates a WIF validator.
-func NewWIFValidator(store registry.Store, cfg WIFConfig) *WIFValidator {
+func NewWIFValidator(store IdentityStore, cfg WIFConfig) *WIFValidator {
 	issuers := make(map[string]bool, len(cfg.TrustedIssuers))
 	for _, iss := range cfg.TrustedIssuers {
 		issuers[iss] = true
 	}
-	return &WIFValidator{
+	v := &WIFValidator{
 		store:           store,
 		workforcePoolID: cfg.WorkforcePoolID,
 		workloadPoolID:  cfg.WorkloadPoolID,
 		trustedIssuers:  issuers,
-		httpClient:      &http.Client{Timeout: 10 * time.Second},
+		verifier:        cfg.Verifier,
+		isWorkforce:     cfg.IsWorkforce,
+		sources:         append([]IdentitySource(nil), cfg.Sources...),
 	}
+	v.configErr = validateSources(v.sources)
+	return v
 }
 
-// ExtractIdentity parses a JWT from an Authorization header and extracts
-// the WIF identity claims. The JWT has already been verified by IAP/Envoy
-// before reaching AIPlex API, so we decode without re-verifying the signature.
-// IAP sets x-goog-iap-jwt-assertion; Envoy ext_authz verifies the token.
+func NewWIFValidatorFromSources(store IdentityStore, sources []IdentitySource) (*WIFValidator, error) {
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("at least one identity source is required")
+	}
+	if err := validateSources(sources); err != nil {
+		return nil, err
+	}
+	return NewWIFValidator(store, WIFConfig{Sources: sources}), nil
+}
+
+func validateSources(sources []IdentitySource) error {
+	for i, source := range sources {
+		if source.Issuer == "" || source.PoolID == "" || source.Verifier == nil {
+			return fmt.Errorf("identity source requires issuer, pool and verifier")
+		}
+		for _, previous := range sources[:i] {
+			if previous.Issuer == source.Issuer && (previous.Audience == source.Audience || previous.Audience == "" || source.Audience == "") {
+				return fmt.Errorf("ambiguous identity sources for issuer %q", source.Issuer)
+			}
+		}
+	}
+	return nil
+}
+
+// ExtractIdentity accepts identity facts only after cryptographic verification.
+// A proxy assertion header does not by itself establish a trusted boundary.
 func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, error) {
 	// Try IAP JWT first, then standard Authorization header
 	token := r.Header.Get("X-Goog-Iap-Jwt-Assertion")
@@ -61,9 +113,50 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 		token = strings.TrimPrefix(auth, "Bearer ")
 	}
 
-	claims, err := decodeJWTClaims(token)
+	if v.configErr != nil {
+		return nil, v.configErr
+	}
+	verifier := v.verifier
+	poolID, isWorkforce := v.workloadPoolID, v.isWorkforce
+	if isWorkforce {
+		poolID = v.workforcePoolID
+	}
+	var selected *IdentitySource
+	if len(v.sources) > 0 {
+		routing, err := routingClaims(token)
+		if err != nil {
+			return nil, err
+		}
+		for i := range v.sources {
+			source := &v.sources[i]
+			if routing["iss"] == source.Issuer && (source.Audience == "" || hasAudience(routing["aud"], source.Audience)) {
+				if selected != nil {
+					return nil, fmt.Errorf("ambiguous identity token source")
+				}
+				selected = source
+			}
+		}
+		if selected == nil {
+			return nil, fmt.Errorf("no trusted identity source matches token")
+		}
+		verifier, poolID, isWorkforce = selected.Verifier, selected.PoolID, selected.IsWorkforce
+	}
+	if verifier == nil {
+		return nil, fmt.Errorf("identity token verifier is not configured")
+	}
+	var claims map[string]any
+	var err error
+	requestVerifier, requestBound := verifier.(RequestTokenVerifier)
+	if requestBound {
+		claims, err = requestVerifier.VerifyRequest(r, token)
+	} else {
+		claims, err = verifier.Verify(r.Context(), token)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode token: %w", err)
+		return nil, fmt.Errorf("verify identity token: %w", err)
+	}
+	if selected != nil && (claims["iss"] != selected.Issuer || (selected.Audience != "" && !hasAudience(claims["aud"], selected.Audience))) {
+		return nil, fmt.Errorf("verified identity source does not match configuration")
 	}
 
 	identity := &models.WIFIdentity{}
@@ -106,36 +199,74 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 		identity.Domain = hd
 	}
 
-	// Determine pool type from issuer
-	if iss, ok := claims["iss"].(string); ok {
-		identity.Provider = iss
-		// Workforce tokens come through IAP/goog-iap; workload tokens are
-		// STS-issued with the workload pool audience
-		if strings.Contains(iss, "accounts.google.com") ||
-			strings.Contains(iss, "login.microsoftonline.com") {
-			identity.IsWorkforce = true
-			identity.PoolID = v.workforcePoolID
-		} else {
-			identity.IsWorkforce = false
-			identity.PoolID = v.workloadPoolID
-		}
+	// Provider type is trusted deployment configuration, never guessed from
+	// substrings in an issuer supplied by the request.
+	issuer, _ := claims["iss"].(string)
+	if issuer == "" || (len(v.trustedIssuers) > 0 && !v.trustedIssuers[issuer]) {
+		return nil, fmt.Errorf("untrusted identity issuer")
 	}
-
-	if identity.Subject == "" && identity.Email == "" {
-		return nil, fmt.Errorf("token contains no identifiable subject or email")
+	identity.Provider = issuer
+	identity.IsWorkforce = isWorkforce
+	identity.PoolID = poolID
+	if identity.Subject == "" {
+		return nil, fmt.Errorf("token contains no immutable subject")
+	}
+	identity.PrincipalID = CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.Subject)
+	identity.Groups = mergeScopes(nil, identity.Groups)
+	identity.AuthorizedParty, _ = claims["azp"].(string)
+	if actor, ok := claims["act"].(map[string]any); ok {
+		identity.ActorSubject, _ = actor["sub"].(string)
+		if identity.ActorSubject == "" {
+			return nil, fmt.Errorf("delegated actor requires immutable subject")
+		}
+		identity.ActorID = CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.ActorSubject)
+	}
+	identity.VerifiedEvidence = verifiedIdentityEvidence(claims, identity)
+	if requestBound {
+		constrainRequestEvidence(r, identity.VerifiedEvidence)
 	}
 
 	return identity, nil
 }
 
+// routingClaims decodes only enough unverified data to select a configured
+// verifier. These claims must never be used as identity facts.
+func routingClaims(token string) (map[string]any, error) {
+	if len(token) > 64*1024 {
+		return nil, fmt.Errorf("identity token exceeds size limit")
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("identity source requires JWT token")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid identity token encoding")
+	}
+	var claims map[string]any
+	if json.Unmarshal(payload, &claims) != nil {
+		return nil, fmt.Errorf("invalid identity token payload")
+	}
+	return claims, nil
+}
+
 // ResolveAccess takes a WIF identity, looks up role bindings for the
 // identity's groups, and returns the merged roles and Dimension B scopes.
 func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFIdentity) (*models.ResolvedAccess, error) {
+	if identity == nil || identity.Subject == "" || identity.Provider == "" {
+		return nil, fmt.Errorf("verified identity is required")
+	}
+	if v.store == nil {
+		return nil, fmt.Errorf("identity store is not configured")
+	}
 	bindings, err := v.store.ListRoleBindings(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list role bindings: %w", err)
 	}
 
+	return v.resolveBindings(identity, bindings), nil
+}
+func (v *WIFValidator) resolveBindings(identity *models.WIFIdentity, bindings []models.RoleBinding) *models.ResolvedAccess {
 	groupSet := make(map[string]bool, len(identity.Groups))
 	for _, g := range identity.Groups {
 		groupSet[g] = true
@@ -146,14 +277,20 @@ func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFId
 	access := &models.ResolvedAccess{Identity: *identity}
 
 	for _, binding := range bindings {
-		if !groupSet[binding.Group] {
+		// Bare group labels are not globally unique. Multi-domain deployments must
+		// scope each binding to its identity source to prevent cross-IdP collisions.
+		if len(v.sources) > 1 && (binding.Provider == "" || binding.PoolID == "") {
+			continue
+		}
+		if !groupSet[binding.Group] || (binding.Provider != "" && binding.Provider != identity.Provider) || (binding.PoolID != "" && binding.PoolID != identity.PoolID) {
 			continue
 		}
 		roleSet[binding.Role] = true
+		access.MatchedBindings = append(access.MatchedBindings, binding.ID)
 
 		// Use binding-specific scopes if provided, otherwise use role defaults
 		scopes := binding.Scopes
-		if len(scopes) == 0 {
+		if scopes == nil {
 			scopes = models.DefaultRoleScopes[binding.Role]
 		}
 		for _, s := range scopes {
@@ -168,38 +305,57 @@ func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFId
 		access.Scopes = append(access.Scopes, scope)
 	}
 
+	sort.Slice(access.Roles, func(i, j int) bool { return access.Roles[i] < access.Roles[j] })
+	sort.Strings(access.Scopes)
+	sort.Strings(access.MatchedBindings)
+	return access
+}
+
+// SyncUserScopes computes fresh effective scopes without persisting derived
+// grants. Historical versions mixed group grants into manual scopes; those
+// records require an explicit migration because their provenance was lost.
+func (v *WIFValidator) SyncUserScopes(ctx context.Context, identity *models.WIFIdentity) (*models.ResolvedAccess, error) {
+	if identity == nil || identity.Subject == "" || identity.Provider == "" || v.store == nil {
+		return nil, fmt.Errorf("verified identity and policy store required")
+	}
+	principalID := CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.Subject)
+	var access *models.ResolvedAccess
+	var manual []string
+	if snapshot, ok := v.store.(interface {
+		ReadIdentityAccess(context.Context, string) ([]models.RoleBinding, []string, int64, error)
+	}); ok {
+		bindings, grants, revision, err := snapshot.ReadIdentityAccess(ctx, principalID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve coherent identity policy: %w", err)
+		}
+		access = v.resolveBindings(identity, bindings)
+		manual = grants
+		access.ConfigurationRevision = revision
+	} else {
+		// Compatibility for custom read-only adapters. Production bundled stores
+		// implement the coherent snapshot capability.
+		var err error
+		access, err = v.ResolveAccess(ctx, identity)
+		if err != nil {
+			return nil, err
+		}
+		manual, err = v.store.GetUserScopes(ctx, principalID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve manual scopes: %w", err)
+		}
+	}
+	access.Identity.PrincipalID = principalID
+	access.GroupScopes = append([]string(nil), access.Scopes...)
+	access.ManualScopes = mergeScopes(nil, manual)
+	access.Scopes = mergeScopes(manual, access.GroupScopes)
 	return access, nil
 }
 
-// SyncUserScopes resolves a WIF identity's access and updates Dimension B
-// in the store. This is called on each authenticated request so that
-// Dimension B stays in sync with group membership changes in the IdP.
-func (v *WIFValidator) SyncUserScopes(ctx context.Context, identity *models.WIFIdentity) (*models.ResolvedAccess, error) {
-	access, err := v.ResolveAccess(ctx, identity)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(access.Scopes) == 0 {
-		return access, nil
-	}
-
-	// Use email as user ID, falling back to subject
-	userID := identity.Email
-	if userID == "" {
-		userID = identity.Subject
-	}
-
-	// Merge with any manually-assigned scopes (don't overwrite manual grants)
-	existing, _ := v.store.GetUserScopes(ctx, userID)
-	merged := mergeScopes(existing, access.Scopes)
-
-	if err := v.store.SetUserScopes(ctx, userID, merged); err != nil {
-		return nil, fmt.Errorf("failed to sync user scopes: %w", err)
-	}
-
-	access.Scopes = merged
-	return access, nil
+// CanonicalPrincipalID is stable across email changes, scoped by issuer and
+// pool, and safe as a document key. Cross-provider linking must be explicit.
+func CanonicalPrincipalID(issuer, pool, subject string) string {
+	sum := sha256.Sum256([]byte(issuer + "\x00" + pool + "\x00" + subject))
+	return "principal-" + hex.EncodeToString(sum[:])
 }
 
 // ValidateWIFPrincipal checks that a WIF principal string is well-formed.
@@ -209,38 +365,38 @@ func (v *WIFValidator) SyncUserScopes(ctx context.Context, identity *models.WIFI
 //   - principalSet://iam.googleapis.com/projects/{project}/locations/global/workloadIdentityPools/{pool}/attribute.{attr}/{value}
 func ValidateWIFPrincipal(principal string) error {
 	if principal == "" {
-		return nil // optional field
+		return nil
 	}
-	if !strings.HasPrefix(principal, "principal://iam.googleapis.com/") &&
-		!strings.HasPrefix(principal, "principalSet://iam.googleapis.com/") {
-		return fmt.Errorf("WIF principal must start with principal:// or principalSet://iam.googleapis.com/")
+	uri, err := url.Parse(principal)
+	if err != nil || (uri.Scheme != "principal" && uri.Scheme != "principalset") || uri.Host != "iam.googleapis.com" || uri.User != nil || uri.RawQuery != "" || uri.Fragment != "" || strings.ContainsAny(principal, " \t\r\n") {
+		return fmt.Errorf("invalid WIF principal URI")
 	}
-	if !strings.Contains(principal, "workloadIdentityPools/") &&
-		!strings.Contains(principal, "workforcePools/") {
-		return fmt.Errorf("WIF principal must reference a workloadIdentityPools or workforcePools resource")
+	parts := strings.Split(strings.TrimPrefix(uri.Path, "/"), "/")
+	var tail []string
+	switch {
+	case len(parts) >= 7 && parts[0] == "projects" && parts[2] == "locations" && parts[3] == "global" && parts[4] == "workloadIdentityPools" && parts[5] != "":
+		if _, err := strconv.ParseUint(parts[1], 10, 64); err != nil {
+			return fmt.Errorf("WIF workload principal requires numeric project number")
+		}
+		tail = parts[6:]
+	case len(parts) >= 5 && parts[0] == "locations" && parts[1] == "global" && parts[2] == "workforcePools" && parts[3] != "":
+		tail = parts[4:]
+	default:
+		return fmt.Errorf("WIF principal requires a complete workforce or workload pool resource")
 	}
-	return nil
-}
-
-// decodeJWTClaims decodes the payload of a JWT without verifying the signature.
-// Signature verification is handled upstream by IAP or Envoy ext_authz.
-func decodeJWTClaims(token string) (map[string]any, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid JWT format")
+	if len(tail) == 1 && tail[0] == "*" && uri.Scheme == "principalset" {
+		return nil
 	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("invalid JWT payload encoding: %w", err)
+	if len(tail) < 2 || strings.Join(tail[1:], "/") == "" {
+		return fmt.Errorf("WIF principal selector requires a value")
 	}
-
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return nil, fmt.Errorf("invalid JWT payload JSON: %w", err)
+	if uri.Scheme == "principal" && tail[0] == "subject" {
+		return nil
 	}
-
-	return claims, nil
+	if uri.Scheme == "principalset" && (tail[0] == "group" || (strings.HasPrefix(tail[0], "attribute.") && len(tail[0]) > len("attribute."))) {
+		return nil
+	}
+	return fmt.Errorf("WIF principal scheme and selector do not match")
 }
 
 // mergeScopes combines two scope lists, deduplicating entries.
@@ -249,14 +405,19 @@ func decodeJWTClaims(token string) (map[string]any, error) {
 func mergeScopes(existing, additional []string) []string {
 	set := make(map[string]bool, len(existing)+len(additional))
 	for _, s := range existing {
-		set[s] = true
+		if strings.TrimSpace(s) != "" {
+			set[s] = true
+		}
 	}
 	for _, s := range additional {
-		set[s] = true
+		if strings.TrimSpace(s) != "" {
+			set[s] = true
+		}
 	}
 	merged := make([]string, 0, len(set))
 	for s := range set {
 		merged = append(merged, s)
 	}
+	sort.Strings(merged)
 	return merged
 }

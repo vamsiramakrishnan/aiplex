@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -114,40 +115,43 @@ var ErrNotFound = fmt.Errorf("not found")
 
 // MemoryStore is an in-memory Store implementation for development and testing.
 type MemoryStore struct {
-	mu              sync.RWMutex
-	instances       map[string]*models.Instance
-	templates       map[string]*models.Template
-	agents          map[string]*models.Agent
-	history         []models.DeployHistory
-	userScopes      map[string][]string
-	routeConfigs    map[string]*models.LLMRouteConfig
-	providerConfigs map[string]*models.ProviderConfig
-	usageRecords    []models.UsageRecord
-	delegations     map[string]*models.Delegation
-	delegationList  []models.Delegation
-	skillInvocations []models.SkillInvocation
-	policyDenials   []models.PolicyDenial
-	roleBindings    map[string]*models.RoleBinding
+	configurationRevisions  map[string]configurationRevision
+	configurationGeneration int64
+	mu                      sync.RWMutex
+	instances               map[string]*models.Instance
+	templates               map[string]*models.Template
+	agents                  map[string]*models.Agent
+	history                 []models.DeployHistory
+	userScopes              map[string][]string
+	routeConfigs            map[string]*models.LLMRouteConfig
+	providerConfigs         map[string]*models.ProviderConfig
+	usageRecords            []models.UsageRecord
+	delegations             map[string]*models.Delegation
+	delegationList          []models.Delegation
+	skillInvocations        []models.SkillInvocation
+	skillInvocationIDs      map[string]struct{}
+	policyDenials           []models.PolicyDenial
+	roleBindings            map[string]*models.RoleBinding
 	// Execution audit (AIPlex ↔ Tape integration PR 6 + PR 11).
-	executionEvents      map[string][]models.ExecutionEvent             // runID → events (append-only)
-	executionEventKeys   map[string]struct{}                            // "<runID>/<seq>" idempotency set
-	executionRuns        map[string]*models.ExecutionRun                // runID → projected summary
-	executionQuarantine  []models.QuarantinedExecutionEvent             // unknown-agent quarantine
-	lastIngest           time.Time                                       // PR 11 item 13
-	operatorAudit        map[string][]models.OperatorAudit               // runID → audit rows (PR 11 item 8)
+	executionEvents     map[string][]models.ExecutionEvent // runID → events (append-only)
+	executionEventKeys  map[string]struct{}                // "<runID>/<seq>" idempotency set
+	executionRuns       map[string]*models.ExecutionRun    // runID → projected summary
+	executionQuarantine []models.QuarantinedExecutionEvent // unknown-agent quarantine
+	lastIngest          time.Time                          // PR 11 item 13
+	operatorAudit       map[string][]models.OperatorAudit  // runID → audit rows (PR 11 item 8)
 }
 
 // NewMemoryStore creates an empty in-memory store.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		instances:       make(map[string]*models.Instance),
-		templates:       make(map[string]*models.Template),
-		agents:          make(map[string]*models.Agent),
-		userScopes:      make(map[string][]string),
-		routeConfigs:    make(map[string]*models.LLMRouteConfig),
-		providerConfigs: make(map[string]*models.ProviderConfig),
-		delegations:     make(map[string]*models.Delegation),
-		roleBindings:    make(map[string]*models.RoleBinding),
+		instances:          make(map[string]*models.Instance),
+		templates:          make(map[string]*models.Template),
+		agents:             make(map[string]*models.Agent),
+		userScopes:         make(map[string][]string),
+		routeConfigs:       make(map[string]*models.LLMRouteConfig),
+		providerConfigs:    make(map[string]*models.ProviderConfig),
+		delegations:        make(map[string]*models.Delegation),
+		roleBindings:       make(map[string]*models.RoleBinding),
 		executionEvents:    make(map[string][]models.ExecutionEvent),
 		executionEventKeys: make(map[string]struct{}),
 		executionRuns:      make(map[string]*models.ExecutionRun),
@@ -162,7 +166,7 @@ func (m *MemoryStore) GetInstance(_ context.Context, id string) (*models.Instanc
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return inst, nil
+	return memorySnapshot(inst), nil
 }
 
 func (m *MemoryStore) ListInstances(_ context.Context, plane models.Plane) ([]models.Instance, error) {
@@ -171,17 +175,20 @@ func (m *MemoryStore) ListInstances(_ context.Context, plane models.Plane) ([]mo
 	var out []models.Instance
 	for _, inst := range m.instances {
 		if plane == "" || inst.Plane == plane {
-			out = append(out, *inst)
+			out = append(out, *memorySnapshot(inst))
 		}
 	}
 	return out, nil
 }
 
 func (m *MemoryStore) PutInstance(_ context.Context, inst *models.Instance) error {
+	if inst == nil || inst.ID == "" {
+		return fmt.Errorf("instance identity required")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inst.UpdatedAt = time.Now()
-	m.instances[inst.ID] = inst
+	m.instances[inst.ID] = memorySnapshot(inst)
 	return nil
 }
 
@@ -202,34 +209,49 @@ func (m *MemoryStore) GetTemplate(_ context.Context, id string) (*models.Templat
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return t, nil
+	return memorySnapshot(t), nil
 }
 
 func (m *MemoryStore) ListTemplates(_ context.Context, plane models.Plane, page, pageSize int) ([]models.Template, int, error) {
+	if page < 0 || pageSize <= 0 {
+		return nil, 0, fmt.Errorf("valid template pagination required")
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var filtered []models.Template
 	for _, t := range m.templates {
 		if plane == "" || t.Plane == plane {
-			filtered = append(filtered, *t)
+			filtered = append(filtered, *memorySnapshot(t))
 		}
 	}
 	total := len(filtered)
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].Name != filtered[j].Name {
+			return filtered[i].Name < filtered[j].Name
+		}
+		return filtered[i].ID < filtered[j].ID
+	})
+	if page > total/pageSize {
+		return nil, total, nil
+	}
 	start := page * pageSize
 	if start >= total {
 		return nil, total, nil
 	}
-	end := start + pageSize
-	if end > total {
-		end = total
+	end := total
+	if pageSize < total-start {
+		end = start + pageSize
 	}
 	return filtered[start:end], total, nil
 }
 
 func (m *MemoryStore) PutTemplate(_ context.Context, t *models.Template) error {
+	if t == nil || t.ID == "" {
+		return fmt.Errorf("template identity required")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.templates[t.ID] = t
+	m.templates[t.ID] = memorySnapshot(t)
 	return nil
 }
 
@@ -240,7 +262,7 @@ func (m *MemoryStore) GetAgent(_ context.Context, clientID string) (*models.Agen
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return a, nil
+	return cloneAuthAgent(a), nil
 }
 
 func (m *MemoryStore) ListAgents(_ context.Context) ([]models.Agent, error) {
@@ -248,32 +270,26 @@ func (m *MemoryStore) ListAgents(_ context.Context) ([]models.Agent, error) {
 	defer m.mu.RUnlock()
 	out := make([]models.Agent, 0, len(m.agents))
 	for _, a := range m.agents {
-		out = append(out, *a)
+		out = append(out, *cloneAuthAgent(a))
 	}
 	return out, nil
 }
 
-func (m *MemoryStore) PutAgent(_ context.Context, a *models.Agent) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.agents[a.ClientID] = a
-	return nil
+func (m *MemoryStore) PutAgent(ctx context.Context, a *models.Agent) error {
+	if a == nil {
+		return fmt.Errorf("configuration required")
+	}
+	return PutLegacyConfiguration(ctx, m, ConfigAgent, a.ClientID, a)
 }
 
-func (m *MemoryStore) DeleteAgent(_ context.Context, clientID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.agents[clientID]; !ok {
-		return ErrNotFound
-	}
-	delete(m.agents, clientID)
-	return nil
+func (m *MemoryStore) DeleteAgent(ctx context.Context, clientID string) error {
+	return DeleteLegacyConfiguration(ctx, m, ConfigAgent, clientID)
 }
 
 func (m *MemoryStore) AppendHistory(_ context.Context, h *models.DeployHistory) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.history = append(m.history, *h)
+	m.history = append(m.history, *memorySnapshot(h))
 	return nil
 }
 
@@ -284,7 +300,7 @@ func (m *MemoryStore) ListHistory(_ context.Context, instanceID string, limit in
 	// Walk backwards for most-recent-first
 	for i := len(m.history) - 1; i >= 0; i-- {
 		if m.history[i].InstanceID == instanceID {
-			out = append(out, m.history[i])
+			out = append(out, memorySnapshot(m.history[i]))
 			if limit > 0 && len(out) >= limit {
 				break
 			}
@@ -300,14 +316,12 @@ func (m *MemoryStore) GetUserScopes(_ context.Context, userID string) ([]string,
 	if !ok {
 		return nil, nil
 	}
-	return scopes, nil
+	return cloneAuthScopes(scopes), nil
 }
 
-func (m *MemoryStore) SetUserScopes(_ context.Context, userID string, scopes []string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.userScopes[userID] = scopes
-	return nil
+func (m *MemoryStore) SetUserScopes(ctx context.Context, userID string, scopes []string) error {
+	value := &configurationScopes{Scopes: scopes}
+	return PutLegacyConfiguration(ctx, m, ConfigUserScopes, userID, value)
 }
 
 // ── LLM Route Configs ──
@@ -319,7 +333,7 @@ func (m *MemoryStore) GetRouteConfig(_ context.Context, modelID string) (*models
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return rc, nil
+	return memorySnapshot(rc), nil
 }
 
 func (m *MemoryStore) ListRouteConfigs(_ context.Context) ([]models.LLMRouteConfig, error) {
@@ -327,30 +341,20 @@ func (m *MemoryStore) ListRouteConfigs(_ context.Context) ([]models.LLMRouteConf
 	defer m.mu.RUnlock()
 	out := make([]models.LLMRouteConfig, 0, len(m.routeConfigs))
 	for _, rc := range m.routeConfigs {
-		out = append(out, *rc)
+		out = append(out, *memorySnapshot(rc))
 	}
 	return out, nil
 }
 
-func (m *MemoryStore) PutRouteConfig(_ context.Context, rc *models.LLMRouteConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	rc.UpdatedAt = time.Now()
-	if rc.CreatedAt.IsZero() {
-		rc.CreatedAt = time.Now()
+func (m *MemoryStore) PutRouteConfig(ctx context.Context, rc *models.LLMRouteConfig) error {
+	if rc == nil {
+		return fmt.Errorf("configuration required")
 	}
-	m.routeConfigs[rc.ModelID] = rc
-	return nil
+	return PutLegacyConfiguration(ctx, m, ConfigRoute, rc.ModelID, rc)
 }
 
-func (m *MemoryStore) DeleteRouteConfig(_ context.Context, modelID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.routeConfigs[modelID]; !ok {
-		return ErrNotFound
-	}
-	delete(m.routeConfigs, modelID)
-	return nil
+func (m *MemoryStore) DeleteRouteConfig(ctx context.Context, modelID string) error {
+	return DeleteLegacyConfiguration(ctx, m, ConfigRoute, modelID)
 }
 
 // ── Provider Configs ──
@@ -362,7 +366,7 @@ func (m *MemoryStore) GetProviderConfig(_ context.Context, provider string) (*mo
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return pc, nil
+	return memorySnapshot(pc), nil
 }
 
 func (m *MemoryStore) ListProviderConfigs(_ context.Context) ([]models.ProviderConfig, error) {
@@ -370,16 +374,16 @@ func (m *MemoryStore) ListProviderConfigs(_ context.Context) ([]models.ProviderC
 	defer m.mu.RUnlock()
 	out := make([]models.ProviderConfig, 0, len(m.providerConfigs))
 	for _, pc := range m.providerConfigs {
-		out = append(out, *pc)
+		out = append(out, *memorySnapshot(pc))
 	}
 	return out, nil
 }
 
-func (m *MemoryStore) PutProviderConfig(_ context.Context, pc *models.ProviderConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.providerConfigs[pc.Provider] = pc
-	return nil
+func (m *MemoryStore) PutProviderConfig(ctx context.Context, pc *models.ProviderConfig) error {
+	if pc == nil {
+		return fmt.Errorf("configuration required")
+	}
+	return PutLegacyConfiguration(ctx, m, ConfigProvider, pc.Provider, pc)
 }
 
 // ── Usage Tracking ──
@@ -465,8 +469,11 @@ func (m *MemoryStore) ListUsageRecords(_ context.Context, modelID, agentID strin
 func (m *MemoryStore) AppendDelegation(_ context.Context, d *models.Delegation) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.delegations[d.ID] = d
-	m.delegationList = append(m.delegationList, *d)
+	if _, ok := m.delegations[d.ID]; ok {
+		return ErrAlreadyExists
+	}
+	m.delegations[d.ID] = cloneDelegation(d)
+	m.delegationList = append(m.delegationList, *cloneDelegation(d))
 	return nil
 }
 
@@ -477,22 +484,23 @@ func (m *MemoryStore) GetDelegation(_ context.Context, id string) (*models.Deleg
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return d, nil
+	return cloneDelegation(d), nil
 }
 
 func (m *MemoryStore) ListDelegations(_ context.Context, agentID string, limit int) ([]models.Delegation, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var out []models.Delegation
+	out := make([]models.Delegation, 0)
 	for i := len(m.delegationList) - 1; i >= 0; i-- {
-		d := m.delegationList[i]
+		d := *cloneDelegation(m.delegations[m.delegationList[i].ID])
 		if agentID != "" && d.CallerAgentID != agentID && d.CalleeAgentID != agentID {
 			continue
 		}
 		out = append(out, d)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
+	}
+	sortDelegations(out)
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
@@ -500,10 +508,14 @@ func (m *MemoryStore) ListDelegations(_ context.Context, agentID string, limit i
 func (m *MemoryStore) UpdateDelegation(_ context.Context, d *models.Delegation) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.delegations[d.ID]; !ok {
+	previous, ok := m.delegations[d.ID]
+	if !ok {
 		return ErrNotFound
 	}
-	m.delegations[d.ID] = d
+	if e := delegationTransition(previous, d); e != nil {
+		return e
+	}
+	m.delegations[d.ID] = cloneDelegation(d)
 	return nil
 }
 
@@ -512,6 +524,16 @@ func (m *MemoryStore) UpdateDelegation(_ context.Context, d *models.Delegation) 
 func (m *MemoryStore) AppendSkillInvocation(_ context.Context, inv *models.SkillInvocation) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.skillInvocationIDs == nil {
+		m.skillInvocationIDs = map[string]struct{}{}
+		for _, stored := range m.skillInvocations {
+			m.skillInvocationIDs[stored.ID] = struct{}{}
+		}
+	}
+	if _, ok := m.skillInvocationIDs[inv.ID]; ok {
+		return ErrAlreadyExists
+	}
+	m.skillInvocationIDs[inv.ID] = struct{}{}
 	m.skillInvocations = append(m.skillInvocations, *inv)
 	return nil
 }
@@ -519,7 +541,7 @@ func (m *MemoryStore) AppendSkillInvocation(_ context.Context, inv *models.Skill
 func (m *MemoryStore) ListSkillInvocations(_ context.Context, agentID, skillName string, limit int) ([]models.SkillInvocation, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var out []models.SkillInvocation
+	out := make([]models.SkillInvocation, 0)
 	for i := len(m.skillInvocations) - 1; i >= 0; i-- {
 		inv := m.skillInvocations[i]
 		if agentID != "" && inv.AgentID != agentID {
@@ -529,9 +551,10 @@ func (m *MemoryStore) ListSkillInvocations(_ context.Context, agentID, skillName
 			continue
 		}
 		out = append(out, inv)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
+	}
+	sortSkillInvocations(out)
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
@@ -579,7 +602,7 @@ func (m *MemoryStore) GetRoleBinding(_ context.Context, id string) (*models.Role
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return rb, nil
+	return cloneAuthRoleBinding(rb), nil
 }
 
 func (m *MemoryStore) ListRoleBindings(_ context.Context) ([]models.RoleBinding, error) {
@@ -587,7 +610,7 @@ func (m *MemoryStore) ListRoleBindings(_ context.Context) ([]models.RoleBinding,
 	defer m.mu.RUnlock()
 	out := make([]models.RoleBinding, 0, len(m.roleBindings))
 	for _, rb := range m.roleBindings {
-		out = append(out, *rb)
+		out = append(out, *cloneAuthRoleBinding(rb))
 	}
 	return out, nil
 }
@@ -598,27 +621,21 @@ func (m *MemoryStore) ListRoleBindingsByGroup(_ context.Context, group string) (
 	var out []models.RoleBinding
 	for _, rb := range m.roleBindings {
 		if rb.Group == group {
-			out = append(out, *rb)
+			out = append(out, *cloneAuthRoleBinding(rb))
 		}
 	}
 	return out, nil
 }
 
-func (m *MemoryStore) PutRoleBinding(_ context.Context, rb *models.RoleBinding) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.roleBindings[rb.ID] = rb
-	return nil
+func (m *MemoryStore) PutRoleBinding(ctx context.Context, rb *models.RoleBinding) error {
+	if rb == nil {
+		return fmt.Errorf("configuration required")
+	}
+	return PutLegacyConfiguration(ctx, m, ConfigRoleBinding, rb.ID, rb)
 }
 
-func (m *MemoryStore) DeleteRoleBinding(_ context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.roleBindings[id]; !ok {
-		return ErrNotFound
-	}
-	delete(m.roleBindings, id)
-	return nil
+func (m *MemoryStore) DeleteRoleBinding(ctx context.Context, id string) error {
+	return DeleteLegacyConfiguration(ctx, m, ConfigRoleBinding, id)
 }
 
 // ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────
@@ -782,4 +799,31 @@ func (m *MemoryStore) CountInstancesWithRuntime(_ context.Context, engine models
 		}
 	}
 	return n, nil
+}
+
+// Authentication records never share caller-owned mutable scopes/maps with the
+// store. Preserve nil versus an explicit empty scope list for role defaults.
+func cloneAuthScopes(scopes []string) []string {
+	if scopes == nil {
+		return nil
+	}
+	return append(make([]string, 0, len(scopes)), scopes...)
+}
+func cloneAuthAgent(agent *models.Agent) *models.Agent {
+	cloned := *agent
+	cloned.GrantTypes = cloneAuthScopes(agent.GrantTypes)
+	cloned.AllowedScopes = cloneAuthScopes(agent.AllowedScopes)
+	cloned.RedirectURIs = cloneAuthScopes(agent.RedirectURIs)
+	if agent.Labels != nil {
+		cloned.Labels = make(map[string]string, len(agent.Labels))
+		for key, value := range agent.Labels {
+			cloned.Labels[key] = value
+		}
+	}
+	return &cloned
+}
+func cloneAuthRoleBinding(binding *models.RoleBinding) *models.RoleBinding {
+	cloned := *binding
+	cloned.Scopes = cloneAuthScopes(binding.Scopes)
+	return &cloned
 }

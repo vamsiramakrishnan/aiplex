@@ -210,6 +210,7 @@ func TestAgentRegisterAndGet(t *testing.T) {
 
 	// Delete
 	req = httptest.NewRequest("DELETE", "/api/v1/agents/tutor-agent", nil)
+	req.Header.Set("If-Match", "1")
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != 204 {

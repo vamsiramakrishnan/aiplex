@@ -65,8 +65,8 @@ func TestA2A_AgentCard(t *testing.T) {
 	if len(card.TaskTypes) != 2 {
 		t.Errorf("expected 2 task types, got %d", len(card.TaskTypes))
 	}
-	if len(card.AuthSchemes) != 2 {
-		t.Errorf("expected 2 auth schemes (bearer, spiffe), got %d", len(card.AuthSchemes))
+	if len(card.AuthSchemes) != 0 {
+		t.Errorf("unconfigured gateway must not fabricate auth schemes, got %+v", card.AuthSchemes)
 	}
 }
 

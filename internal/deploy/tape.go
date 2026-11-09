@@ -44,11 +44,15 @@ func tapeRuntimeManifests(inst *models.Instance) []Manifest {
 		return nil
 	}
 	rc := inst.Runtime
-	return []Manifest{
+	manifests := []Manifest{
 		tapeServerDeployment(rc),
 		tapeServerService(),
 		tapeReactorsDeployment(rc),
 	}
+	for i := range manifests {
+		manifests[i].Shared = true
+	}
+	return manifests
 }
 
 // tapeAgentEnv returns the AIPLEX_* + TAPE_URL env vars that get

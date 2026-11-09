@@ -34,10 +34,11 @@ func TestTokenHook_InjectsActClaim(t *testing.T) {
 
 	// Register an agent with SPIFFE ID
 	store.PutAgent(context.Background(), &models.Agent{
-		ClientID:    "tutor-agent",
-		DisplayName: "Tutor",
-		SpiffeID:    "spiffe://test.local/ns/a2aplex/sa/tutor-agent",
-		Status:      "active",
+		ClientID:      "tutor-agent",
+		DisplayName:   "Tutor",
+		SpiffeID:      "spiffe://test.local/ns/a2aplex/sa/tutor-agent",
+		Status:        "active",
+		AllowedScopes: []string{"mcp:tools:search"},
 	})
 
 	body := `{
@@ -79,9 +80,9 @@ func TestTokenHook_UnknownAgent(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	// Should still succeed — just without act claim
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d", w.Code)
+	// Unknown OAuth clients cannot bypass the current agent ceiling.
+	if w.Code != 403 {
+		t.Fatalf("expected 403, got %d", w.Code)
 	}
 }
 
@@ -90,7 +91,7 @@ func TestUserScopes_SetAndGet(t *testing.T) {
 
 	// Set scopes
 	body := `{"scopes": ["mcp:tools:search", "llm:model:gemini-2.5-flash", "a2a:task:research"]}`
-	req := httptest.NewRequest("PUT", "/auth/users/admin@test.com/scopes", strings.NewReader(body))
+	req := httptest.NewRequest("PUT", "/auth/users/principal-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/scopes", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -99,7 +100,7 @@ func TestUserScopes_SetAndGet(t *testing.T) {
 	}
 
 	// Get scopes
-	req = httptest.NewRequest("GET", "/auth/users/admin@test.com/scopes", nil)
+	req = httptest.NewRequest("GET", "/auth/users/principal-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/scopes", nil)
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

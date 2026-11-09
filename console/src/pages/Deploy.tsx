@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { deployInstance, getCatalog, type Template, type Manifest, applyManifest } from '../api/client'
+import { useModules } from '../hooks/useModules'
 
 type Step = 'plane' | 'template' | 'config' | 'review'
 
@@ -23,7 +24,7 @@ export default function Deploy() {
             onClick={() => setMode('yaml')}
             className={`px-3 py-1 text-sm rounded ${mode === 'yaml' ? 'bg-white shadow' : ''}`}
           >
-            YAML / JSON
+            JSON manifest
           </button>
         </div>
       </div>
@@ -35,9 +36,13 @@ export default function Deploy() {
 
 function DeployWizard() {
   const queryClient = useQueryClient()
+  const { enabled, loading: modulesLoading, error: modulesError } = useModules()
+  const deployable = enabled.filter((module) => ['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].includes(module.name))
+  const availablePlanes = deployable.map((module) => module.name)
+  const availableKey = availablePlanes.join(',')
   const [searchParams] = useSearchParams()
   const [step, setStep] = useState<Step>('plane')
-  const [plane, setPlane] = useState('mcplex')
+  const [plane, setPlane] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [config, setConfig] = useState<Record<string, string>>({})
@@ -45,6 +50,7 @@ function DeployWizard() {
   const { data: catalog, isLoading } = useQuery({
     queryKey: ['catalog', plane],
     queryFn: () => getCatalog(plane),
+    enabled: availablePlanes.includes(plane),
   })
 
   // Pre-populate from URL params
@@ -52,14 +58,19 @@ function DeployWizard() {
     const urlPlane = searchParams.get('plane')
     const urlTemplate = searchParams.get('template')
 
-    if (urlPlane && ['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].includes(urlPlane)) {
+    const available = availableKey.split(',').filter(Boolean)
+    if (urlPlane && available.includes(urlPlane)) {
       setPlane(urlPlane)
       if (urlTemplate) {
         // Move to template step and wait for catalog to load
         setStep('template')
       }
+    } else {
+      setPlane((current) => available.includes(current) ? current : available[0] ?? '')
+      setStep('plane')
+      setSelectedTemplate(null)
     }
-  }, [searchParams])
+  }, [searchParams, availableKey])
 
   // Auto-select template when catalog loads if template param is present
   useEffect(() => {
@@ -74,7 +85,10 @@ function DeployWizard() {
   }, [catalog, searchParams, selectedTemplate])
 
   const deploy = useMutation({
-    mutationFn: deployInstance,
+    mutationFn: (request: Parameters<typeof deployInstance>[0]) => {
+      if (!availablePlanes.includes(request.plane)) throw new Error('Selected module is not enabled')
+      return deployInstance(request)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['instances'] })
       setStep('plane')
@@ -98,8 +112,13 @@ function DeployWizard() {
     skillsplex: 'Deploy skill servers that host invokable skill bundles for agents',
   }
 
+  if (modulesLoading) return <p role="status">Loading modules…</p>
+  if (modulesError) return <p role="alert">Module discovery unavailable: {modulesError}</p>
+  if (deployable.length === 0) return <p role="status">No deployable modules are enabled.</p>
+
   return (
     <div>
+      {deploy.isSuccess && deploy.data && <p role="status" className="mb-4 text-sm">Deployment request completed for <a className="underline" href={`/instances/${encodeURIComponent(deploy.data.id)}`}>{deploy.data.id}</a>. Reported status: {deploy.data.status}.</p>}
       {/* Step indicator */}
       <div className="flex gap-2 mb-6">
         {steps.map((s, i) => (
@@ -123,7 +142,7 @@ function DeployWizard() {
         <div className="space-y-4">
           <p className="text-sm text-gray-600">What do you want to deploy?</p>
           <div className="grid gap-3">
-            {['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].map(p => (
+            {deployable.map(({ name: p, label }) => (
               <button
                 key={p}
                 onClick={() => { setPlane(p); setStep('template') }}
@@ -131,10 +150,7 @@ function DeployWizard() {
                   ${plane === p ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}
               >
                 <div className="font-medium">
-                  {p === 'mcplex' ? 'MCPlex \u2014 Tools' :
-                   p === 'a2aplex' ? 'A2APlex \u2014 Agents' :
-                   p === 'llmplex' ? 'LLMPlex \u2014 Models' :
-                   'SkillsPlex \u2014 Skills'}
+                  {label}
                 </div>
                 <div className="text-sm text-gray-500 mt-1">{planeDescriptions[p]}</div>
               </button>
@@ -261,14 +277,10 @@ function DeployWizard() {
           {/* Show equivalent YAML */}
           <details className="text-sm">
             <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
-              View as YAML
+              View as JSON
             </summary>
             <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto">
-{`version: v1
-instances:
-  - name: ${displayName || selectedTemplate.name}
-    plane: ${plane}
-    template: ${selectedTemplate.id}`}
+{JSON.stringify({ version: 'v1', instances: [{ name: displayName || selectedTemplate.name, plane, template: selectedTemplate.id, config: Object.keys(config).length > 0 ? config : undefined }] }, null, 2)}
             </pre>
           </details>
 
@@ -289,11 +301,6 @@ instances:
             {deploy.isPending ? 'Deploying...' : 'Deploy'}
           </button>
 
-          {deploy.isSuccess && (
-            <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-700">
-              Deployed successfully! View it in the instances list.
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -302,6 +309,7 @@ instances:
 
 function ManifestApply() {
   const queryClient = useQueryClient()
+  const { enabled } = useModules()
   const [yamlInput, setYamlInput] = useState('')
   const [result, setResult] = useState<{ applied: number; failed: string[] } | null>(null)
 
@@ -311,8 +319,13 @@ function ManifestApply() {
       try {
         manifest = JSON.parse(yamlInput) as Manifest
       } catch {
-        throw new Error('Invalid JSON. Paste a valid manifest (use the examples below as a starting point).')
+        throw new Error('Invalid JSON. Paste a valid JSON manifest.')
       }
+      if (!manifest || typeof manifest !== 'object') throw new Error('A JSON manifest object is required.')
+      const planes = enabled.map((module) => module.name)
+      if (Array.isArray(manifest.instances) && manifest.instances.some((instance) => !planes.includes(instance.plane))) throw new Error('The manifest selects a deployment module that is not enabled.')
+      if (Array.isArray(manifest.routes) && manifest.routes.length > 0 && !planes.includes('llmplex')) throw new Error('LLMPlex is not enabled for route configuration.')
+      if (Array.isArray(manifest.agents) && manifest.agents.some((agent) => agent.auth_method === 'client_credentials')) throw new Error('Register client-credentials agents on the Agents page so you can securely receive their one-time issued secret.')
       return applyManifest(manifest)
     },
     onSuccess: (data) => {
@@ -321,34 +334,14 @@ function ManifestApply() {
     },
   })
 
-  const examples: { name: string; description: string; file: string }[] = [
-    { name: 'Quickstart', description: 'Tools + agents + models', file: 'quickstart' },
-    { name: 'MCPlex Only', description: 'Just MCP servers', file: 'mcplex-only' },
-    { name: 'LLM Routing', description: 'Model failover + budgets', file: 'llm-routing' },
-    { name: 'Multi-Agent', description: 'Full agent ecosystem', file: 'multi-agent' },
-  ]
-
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-600">
-        Paste a manifest to deploy instances, register agents, and configure routes in one step.
+        Paste a JSON manifest to request deployments, register public OAuth clients, and configure routes. Resources are applied sequentially; each failure is reported.
       </p>
 
       <div className="flex gap-2 flex-wrap">
-        {examples.map(ex => (
-          <button
-            key={ex.file}
-            className="px-3 py-1 text-xs border rounded hover:bg-gray-50"
-            onClick={() => {
-              // In production, fetch from /examples/${ex.file}.json
-              // For now, show a helpful message
-              setYamlInput(`{\n  "version": "v1",\n  "instances": [],\n  "agents": [],\n  "routes": []\n}`)
-            }}
-          >
-            {ex.name}
-            <span className="text-gray-400 ml-1">{ex.description}</span>
-          </button>
-        ))}
+        <button className="px-3 py-1 text-xs border rounded" onClick={() => { setYamlInput(JSON.stringify({ version: 'v1', instances: [], agents: [], routes: [] }, null, 2)); setResult(null) }}>Insert empty schema</button>
       </div>
 
       <textarea
@@ -356,22 +349,7 @@ function ManifestApply() {
         onChange={e => setYamlInput(e.target.value)}
         rows={16}
         className="w-full font-mono text-xs border rounded p-3 bg-gray-50"
-        placeholder={`Paste JSON manifest here. Example:
-{
-  "version": "v1",
-  "instances": [
-    { "name": "Knowledge Base", "plane": "mcplex", "template": "kb-search-server" }
-  ],
-  "agents": [
-    {
-      "client_id": "tutor-agent",
-      "display_name": "Tutor Agent",
-      "auth_method": "client_credentials",
-      "grant_types": ["client_credentials"],
-      "allowed_scopes": ["mcp:tools:search_curriculum", "llm:model:gemini-2.5-flash"]
-    }
-  ]
-}`}
+        placeholder="Paste a JSON manifest using template IDs and modules available on this server."
       />
 
       {apply.error && (

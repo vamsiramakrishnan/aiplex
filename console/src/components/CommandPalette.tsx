@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useModules } from '../hooks/useModules'
 
 interface Command {
   id: string
@@ -14,16 +15,14 @@ export default function CommandPalette() {
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
+  const { enabled } = useModules()
 
   const commands: Command[] = [
     { id: 'nav-dashboard', label: 'Go to Dashboard', section: 'Navigation', action: () => navigate('/dashboard') },
-    { id: 'nav-mcplex', label: 'Go to MCPlex', section: 'Navigation', action: () => navigate('/mcplex') },
-    { id: 'nav-a2aplex', label: 'Go to A2APlex', section: 'Navigation', action: () => navigate('/a2aplex') },
-    { id: 'nav-llmplex', label: 'Go to LLMPlex', section: 'Navigation', action: () => navigate('/llmplex') },
+    ...enabled.map((module) => ({ id: `nav-${module.name}`, label: `Go to ${module.label}`, section: 'Navigation', action: () => navigate(module.path) })),
     { id: 'nav-agents', label: 'Go to Agents', section: 'Navigation', action: () => navigate('/agents') },
     { id: 'nav-permissions', label: 'Go to Permissions', section: 'Navigation', action: () => navigate('/permissions') },
     { id: 'action-deploy', label: 'Deploy new instance', section: 'Actions', action: () => navigate('/deploy') },
-    { id: 'action-instances', label: 'List all instances', section: 'Actions', action: () => navigate('/mcplex') },
   ]
 
   const filtered = query

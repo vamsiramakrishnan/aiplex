@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aiplex.dev/schemas/v1/request-context.schema.json",
+  "title": "AIPlex request context v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "v1"
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "principal_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor_id": {
+      "type": "string"
+    },
+    "membership_snapshot_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ]
+    },
+    "application_id": {
+      "type": "string"
+    },
+    "resource_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "purpose": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "tenant_id",
+    "request_id",
+    "principal_id",
+    "resource_id"
+  ]
+}
