@@ -16,7 +16,7 @@ func agentsCmd() *cobra.Command {
 		Short: "Manage registered agents",
 	}
 
-	cmd.AddCommand(registerAgentCmd(), deleteAgentCmd(), grantScopesCmd(), userScopesCmd())
+	cmd.AddCommand(registerAgentCmd(), deleteAgentCmd(), grantScopesCmd(), userScopesCmd(), agentIdentityCmd())
 	return cmd
 }
 
