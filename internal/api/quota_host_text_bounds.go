@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 )
 
 func quotaFalse(object map[string]json.RawMessage, key string, required bool) bool {
@@ -55,7 +57,7 @@ func quotaProviderTextOutput(binding QuotaBinding, body []byte) (int64, error) {
 	}
 	switch binding.Profile {
 	case quotaProfileOpenAI:
-		if binding.OperationID == "response.create" {
+		if modelapi.ResponsesOperation(binding.OperationID) {
 			if !quotaOnlyFields(object, "model", "input", "instructions", "max_output_tokens", "stream", "store", "background", "temperature", "top_p", "reasoning", "text") || !quotaFalse(object, "store", true) {
 				return 0, fmt.Errorf("stateless text responses required")
 			}

@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
 )
 
 type Transport string
@@ -54,12 +56,18 @@ type Surface struct {
 	Agents       []string    `json:"agents,omitempty"`
 	Endpoint     string      `json:"endpoint,omitempty"`
 	Operations   []Operation `json:"operations"`
+	// Provider selects a non-Google native provider. Nil keeps the Google
+	// Cloud surface contract (project/location/version/publisher) unchanged.
+	Provider *Provider `json:"provider,omitempty"`
 }
 
 var segmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]*$`)
 
 func validSegment(s string) bool { return segmentPattern.MatchString(s) && s != "." && s != ".." }
 func (s Surface) Validate() error {
+	if s.Provider != nil {
+		return s.validateProvider()
+	}
 	if !validSegment(s.ID) || s.Protocol == "" || !validSegment(s.Project) || !validSegment(s.Location) {
 		return fmt.Errorf("surface requires valid id, protocol, project and location")
 	}
@@ -269,6 +277,7 @@ func cloneSurface(s Surface) Surface {
 	s.Models = append([]string(nil), s.Models...)
 	s.Agents = append([]string(nil), s.Agents...)
 	s.Operations = append([]Operation(nil), s.Operations...)
+	s.Provider = cloneProvider(s.Provider)
 	return s
 }
 
@@ -289,4 +298,7 @@ type Connection struct {
 	IdentityRef       string  `json:"identity_ref"`
 	NetworkProfileRef string  `json:"network_profile_ref,omitempty"`
 	BillingProject    string  `json:"billing_project,omitempty"`
+	// Auth selects a tenant-scoped secret-reference credential for provider
+	// surfaces, using the same reference scheme as tool connections.
+	Auth *toolcredential.Auth `json:"auth,omitempty"`
 }

@@ -17,6 +17,8 @@ import (
 	"math/big"
 	"time"
 	"unicode/utf8"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 )
 
 const (
@@ -171,6 +173,9 @@ type Record struct {
 	Requests       int64     `json:"requests"`
 	Usage          *Usage    `json:"usage"`
 	Cost           Cost      `json:"cost"`
+	// ProviderLimits is the provider rate-limit metadata observed on the
+	// managed exchange's native response, when any was reported.
+	ProviderLimits *providerlimits.Limits `json:"provider_limits,omitempty"`
 }
 
 // NewID returns a random record identifier.

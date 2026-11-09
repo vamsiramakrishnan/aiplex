@@ -27,6 +27,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/governance"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
+	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
@@ -66,6 +67,8 @@ type ConnectedHandler struct {
 	Development     bool
 	PublicURL       string
 	Ledger          *usageledger.Recorder
+	// Capacity holds the last provider limit observation per tenant+surface.
+	Capacity *providerlimits.Store
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
@@ -237,6 +240,12 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 		}
 		if e := c.Surface.Validate(); e != nil {
 			return e
+		}
+		if c.Surface.Provider != nil {
+			return h.validateProviderConnection(ctx, tenant, c, validateNetworkRef)
+		}
+		if c.Auth != nil {
+			return fmt.Errorf("auth applies only to provider surfaces; Google surfaces use identity_ref")
 		}
 		if e := h.Runtime.CheckDestination(tenant, c.IdentityRef, c.Surface.Origin); e != nil {
 			return e
@@ -452,6 +461,15 @@ func (h *ConnectedHandler) RegisterTool(w http.ResponseWriter, r *http.Request) 
 	JSON(w, 200, saved)
 }
 func (h *ConnectedHandler) ModelOperations(w http.ResponseWriter, r *http.Request) {
+	if provider := r.URL.Query().Get("provider"); provider != "" {
+		descriptor, ok := modelapi.ProviderByID(provider)
+		if !ok {
+			Error(w, r, 404, "NOT_FOUND", "unknown model provider")
+			return
+		}
+		JSON(w, 200, descriptor)
+		return
+	}
 	JSON(w, 200, modelapi.Operations())
 }
 func (h *ConnectedHandler) trusted(r *http.Request, resource string) (contracts.RequestContext, error) {
@@ -541,7 +559,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 503, "NETWORK_PROFILE_UNAVAILABLE", "network profile unavailable")
 		return
 	}
-	if e = h.Runtime.CheckDestination(tenant, connection.IdentityRef, connection.Surface.Origin); e != nil {
+	if e = h.checkModelDestination(tenant, connection); e != nil {
 		Error(w, r, 503, "CREDENTIAL_DESTINATION_DENIED", e.Error())
 		return
 	}
@@ -581,6 +599,12 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	}, Ownership: resourceOwnership{store: h.Store, namespace: strconv.FormatUint(record.Revision, 10)}, LiveDialer: liveDialer, AllowHTTPForTests: h.Development}
 	if h.Quota != nil {
 		opts.Execution = h.ModelExecutionPreparer(r, record, connection)
+	}
+	if connection.Surface.Provider != nil {
+		if e = h.configureProviderOptions(r, tenant, id, record, connection, &opts, usage); e != nil {
+			Error(w, r, 503, "CREDENTIAL_UNAVAILABLE", "provider credential is unavailable")
+			return
+		}
 	}
 	usage.instrumentModel(&opts, connection)
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)

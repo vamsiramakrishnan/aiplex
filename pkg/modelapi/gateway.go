@@ -17,6 +17,7 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
+	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 )
 
 type Owner struct{ TenantID, PrincipalID, SurfaceID string }
@@ -73,6 +74,12 @@ type Options struct {
 	AllowHTTPForTests bool
 	MaxBodyBytes      int64
 	MaxStreamDuration time.Duration
+	// Credential presents the upstream credential on provider surfaces
+	// (Surface.Provider != nil), which do not use TokenSource.
+	Credential Credential
+	// ObserveLimits receives each provider response's normalized rate-limit
+	// metadata (provider surfaces only). It is advisory telemetry.
+	ObserveLimits func(context.Context, Owner, providerlimits.Limits)
 }
 type compiledOperation struct {
 	operation Operation
@@ -96,6 +103,12 @@ func NewGateway(s Surface, opts Options) (*Gateway, error) {
 		if !opts.AllowHTTPForTests || (origin.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback())) {
 			return nil, fmt.Errorf("model surface requires HTTPS")
 		}
+	}
+	if s.Provider != nil {
+		if opts.Credential == nil || len(opts.UpstreamHeaders) > 0 {
+			return nil, fmt.Errorf("provider surface requires an upstream credential and no Google trusted headers")
+		}
+		opts.TokenSource = TokenSourceFunc(func(context.Context) (string, error) { return "", fmt.Errorf("provider surfaces use Credential") })
 	}
 	if opts.HTTPClient == nil || opts.Context == nil || opts.Authorize == nil || opts.TokenSource == nil {
 		return nil, fmt.Errorf("native gateway requires safe HTTP client, trusted context, authorizer, and token source")
@@ -144,6 +157,12 @@ func NewGateway(s Surface, opts Options) (*Gateway, error) {
 }
 func compileOperation(s Surface, o Operation) (compiledOperation, error) {
 	fixed := map[string]string{"version": s.APIVersion, "project": s.Project, "location": s.Location, "publisher": s.Publisher, "endpoint": s.Endpoint}
+	if s.Provider != nil {
+		fixed = map[string]string{"base": s.Provider.BasePath}
+		if fixed["base"] == "" {
+			fixed["base"] = "/v1"
+		}
+	}
 	pattern := "^"
 	params := []string{}
 	remaining := o.Path
@@ -172,6 +191,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	bounded, cancel := context.WithTimeout(r.Context(), g.options.MaxStreamDuration)
 	defer cancel()
 	r = r.WithContext(bounded)
+	if g.surface.Provider != nil {
+		g.serveProvider(w, r)
+		return
+	}
 	op, params, ok := g.match(r.Method, r.URL.Path)
 	if !ok {
 		http.Error(w, "operation is not allowed by this surface", http.StatusNotFound)
@@ -390,6 +413,14 @@ func (g *Gateway) match(method, path string) (Operation, map[string]string, bool
 	return Operation{}, nil, false
 }
 func (g *Gateway) allowedModel(model string) bool {
+	if g.surface.Provider != nil {
+		for _, allowed := range g.surface.Models {
+			if model == allowed {
+				return true
+			}
+		}
+		return false
+	}
 	prefix := "projects/" + g.surface.Project + "/locations/" + g.surface.Location + "/publishers/" + g.surface.Publisher + "/models/"
 	relative := "publishers/" + g.surface.Publisher + "/models/"
 	if strings.HasPrefix(model, "projects/") && !strings.HasPrefix(model, prefix) {
@@ -632,6 +663,9 @@ func BoundedContext(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 func (g *Gateway) normalizeModel(model string) string {
+	if g.surface.Provider != nil {
+		return model
+	}
 	prefix := "projects/" + g.surface.Project + "/locations/" + g.surface.Location + "/publishers/" + g.surface.Publisher + "/models/"
 	model = strings.TrimPrefix(model, prefix)
 	model = strings.TrimPrefix(model, "publishers/"+g.surface.Publisher+"/models/")

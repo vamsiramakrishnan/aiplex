@@ -27,7 +27,12 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 	case quotaProfileGemini:
 		return binding.Provider == "google" && (binding.OperationID == "models.generateContent" || binding.OperationID == "models.streamGenerateContent" || binding.OperationID == "endpoints.generateContent" || binding.OperationID == "endpoints.streamGenerateContent")
 	case quotaProfileOpenAI:
-		return binding.OperationID == "openai.chat-completions" || binding.OperationID == "response.create"
+		// Provider operations share the OpenAI wire format and usage composition.
+		switch binding.OperationID {
+		case "openai.chat-completions", "response.create", "openai.v1.chat-completions", "openai.v1.responses", "azure.v1.chat-completions", "azure.v1.responses", "azure.deployments.chat-completions":
+			return true
+		}
+		return false
 	case quotaProfileAnthropic:
 		return binding.OperationID == "anthropic.messages" || ((binding.OperationID == "models.rawPredict" || binding.OperationID == "models.streamRawPredict") && binding.Provider == "anthropic")
 	case quotaProfileInteraction:

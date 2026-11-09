@@ -135,7 +135,10 @@ func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHa
 	llm := available["llmplex"].mount
 	available["llmplex"].mount = func(r chi.Router) {
 		llm(r)
-		r.Route("/llm/surfaces", func(r chi.Router) { resourceRoutes(r, h, "model-surface") })
+		r.Route("/llm/surfaces", func(r chi.Router) {
+			resourceRoutes(r, h, "model-surface")
+			r.Get("/{id}/capacity", h.SurfaceCapacity)
+		})
 		r.Get("/llm/operations", h.ModelOperations)
 		r.Handle("/llm/native/{id}/*", http.HandlerFunc(h.NativeModel))
 		r.Handle("/llm/gateway/{id}/*", http.HandlerFunc(h.ClientGateway))
