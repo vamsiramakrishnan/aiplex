@@ -6,6 +6,8 @@ import { useModules } from '../hooks/useModules'
 const navItems = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/agents', label: 'Agents' },
+  { to: '/access-points', label: 'Access points' },
+  { to: '/identity/users', label: 'User identity' },
   { to: '/runs', label: 'Runs' },
   { to: '/permissions', label: 'Permissions' },
 ]
@@ -19,6 +21,9 @@ const routeLabels: Record<string, string> = {
   quotaplex: 'QuotaPlex',
   usage: 'Usage',
   agents: 'Agents',
+  'access-points': 'Access points',
+  identity: 'Identity',
+  users: 'User identity',
   runs: 'Runs',
   permissions: 'Permissions',
   deploy: 'Deploy',

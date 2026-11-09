@@ -6,6 +6,8 @@ import Dashboard from './pages/Dashboard'
 import { consoleModules } from './modules'
 import { ModuleProvider, RequireModule } from './hooks/useModules'
 import Agents from './pages/Agents'
+import AccessPoints from './pages/AccessPoints'
+import UserIdentity from './pages/UserIdentity'
 import Deploy from './pages/Deploy'
 import Permissions from './pages/Permissions'
 import Login from './pages/Login'
@@ -46,6 +48,9 @@ function AppRoutes() {
           ))}
           <Route path="/quotaplex/usage" element={<RequireModule name="quotaplex"><QuotaUsage /></RequireModule>} />
           <Route path="/agents" element={<Agents />} />
+          <Route path="/access-points/*" element={<AccessPoints />} />
+          <Route path="/identity" element={<Navigate to="/identity/users" replace />} />
+          <Route path="/identity/users" element={<UserIdentity />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/deploy" element={<Deploy />} />
           <Route path="/permissions" element={<Permissions />} />
