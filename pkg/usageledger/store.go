@@ -26,16 +26,19 @@ type Filter struct {
 	ActorID     string
 	PrincipalID string
 	ClientID    string
-	Status      string
-	Source      string
-	Since       time.Time
-	Until       time.Time
-	Visibility  []string
+	// AccessPointID and CallerKind select access-point exchanges.
+	AccessPointID string
+	CallerKind    string
+	Status        string
+	Source        string
+	Since         time.Time
+	Until         time.Time
+	Visibility    []string
 }
 
 // Matches applies every filter field, including visibility and the window.
 func (f Filter) Matches(r Record) bool {
-	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.Status, r.Status}, {f.Source, r.Source}} {
+	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}} {
 		if c[0] != "" && c[0] != c[1] {
 			return false
 		}

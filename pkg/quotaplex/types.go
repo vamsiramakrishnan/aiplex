@@ -65,14 +65,21 @@ type Subject struct {
 }
 
 type Target struct {
-	Plane               string `json:"plane"`
-	Provider            string `json:"provider"`
-	ResourceID          string `json:"resource_id"`
-	Operation           string `json:"operation"`
-	PoolID              string `json:"pool_id,omitempty"`
-	BillingAccount      string `json:"billing_account,omitempty"`
-	Region              string `json:"region,omitempty"`
-	ModelVersion        string `json:"model_version,omitempty"`
+	Plane          string `json:"plane"`
+	Provider       string `json:"provider"`
+	ResourceID     string `json:"resource_id"`
+	Operation      string `json:"operation"`
+	PoolID         string `json:"pool_id,omitempty"`
+	BillingAccount string `json:"billing_account,omitempty"`
+	Region         string `json:"region,omitempty"`
+	ModelVersion   string `json:"model_version,omitempty"`
+	// AccessPointID, CallerKind and ClientID are host-derived facts for a
+	// request that entered through an access point. They are empty otherwise.
+	// ClientID is a registered client registration; a public OAuth client id
+	// is attribution, not a security boundary.
+	AccessPointID       string `json:"access_point_id,omitempty"`
+	CallerKind          string `json:"caller_kind,omitempty"`
+	ClientID            string `json:"client_id,omitempty"`
 	ConfigurationDigest string `json:"configuration_digest"`
 }
 
@@ -85,6 +92,9 @@ type Match struct {
 	BillingAccount string `json:"billing_account,omitempty"`
 	Region         string `json:"region,omitempty"`
 	ModelVersion   string `json:"model_version,omitempty"`
+	AccessPointID  string `json:"access_point_id,omitempty"`
+	CallerKind     string `json:"caller_kind,omitempty"` // agent, user or client
+	ClientID       string `json:"client_id,omitempty"`   // registered client registration id
 }
 
 type Eligibility struct {

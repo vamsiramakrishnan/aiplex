@@ -66,6 +66,7 @@ type ConnectedHandler struct {
 	Development     bool
 	PublicURL       string
 	Ledger          *usageledger.Recorder
+	AccessPoint     AccessPointOptions
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
@@ -215,6 +216,10 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 	}
 	if id == "" {
 		return fmt.Errorf("resource id required")
+	}
+	if kind == AccessPointKind {
+		_, e := h.validateAccessPoint(ctx, tenant, id, raw)
+		return e
 	}
 	validateNetworkRef := func(ref string) error {
 		if ref == "" {

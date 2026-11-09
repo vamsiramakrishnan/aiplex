@@ -106,19 +106,22 @@ func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	skills := deployedSkills(inst, tmpl)
+	JSON(w, http.StatusOK, skillsManifest(inst, tmpl, deployedSkills(inst, tmpl)))
+}
 
-	manifest := map[string]any{
-		"instance_id":  instanceID,
+// skillsManifest is the manifest shape shared by per-instance and
+// access-point skill discovery.
+func skillsManifest(inst *models.Instance, tmpl *models.Template, skills []models.SkillInfo) map[string]any {
+	return map[string]any{
+		"instance_id":  inst.ID,
 		"name":         tmpl.Name,
 		"description":  tmpl.Description,
 		"version":      tmpl.Version,
-		"url":          "/skills/" + instanceID,
+		"url":          "/skills/" + inst.ID,
 		"skill_bundle": tmpl.SkillBundle,
 		"skills":       skills,
 		"scopes":       inst.Scopes,
 	}
-	JSON(w, http.StatusOK, manifest)
 }
 
 // RecordInvocation appends caller-reported historical telemetry; it does not

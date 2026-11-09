@@ -145,32 +145,38 @@ func (c Cost) AmountInt() (*big.Int, bool) {
 
 // Record is one managed or reported exchange.
 type Record struct {
-	ID             string    `json:"id"`
-	TenantID       string    `json:"tenant_id"`
-	StartedAt      time.Time `json:"started_at"`
-	FinishedAt     time.Time `json:"finished_at"`
-	LatencyMS      int64     `json:"latency_ms"`
-	Plane          string    `json:"plane"`
-	Provider       string    `json:"provider,omitempty"`
-	ResourceID     string    `json:"resource_id,omitempty"`
-	Operation      string    `json:"operation,omitempty"`
-	ModelID        string    `json:"model_id,omitempty"`
-	ModelVersion   string    `json:"model_version,omitempty"`
-	ToolName       string    `json:"tool_name,omitempty"`
-	PrincipalID    string    `json:"principal_id,omitempty"`
-	ActorID        string    `json:"actor_id,omitempty"`
-	ClientID       string    `json:"client_id,omitempty"`
-	RequestID      string    `json:"request_id,omitempty"`
-	TraceID        string    `json:"trace_id,omitempty"`
-	QuotaAttemptID string    `json:"quota_attempt_id,omitempty"`
-	Streaming      bool      `json:"streaming"`
-	Status         string    `json:"status"`
-	HTTPStatus     int       `json:"http_status,omitempty"`
-	ErrorClass     string    `json:"error_class,omitempty"`
-	Source         string    `json:"source"`
-	Requests       int64     `json:"requests"`
-	Usage          *Usage    `json:"usage"`
-	Cost           Cost      `json:"cost"`
+	ID           string    `json:"id"`
+	TenantID     string    `json:"tenant_id"`
+	StartedAt    time.Time `json:"started_at"`
+	FinishedAt   time.Time `json:"finished_at"`
+	LatencyMS    int64     `json:"latency_ms"`
+	Plane        string    `json:"plane"`
+	Provider     string    `json:"provider,omitempty"`
+	ResourceID   string    `json:"resource_id,omitempty"`
+	Operation    string    `json:"operation,omitempty"`
+	ModelID      string    `json:"model_id,omitempty"`
+	ModelVersion string    `json:"model_version,omitempty"`
+	ToolName     string    `json:"tool_name,omitempty"`
+	PrincipalID  string    `json:"principal_id,omitempty"`
+	ActorID      string    `json:"actor_id,omitempty"`
+	// ClientID is the verified token's authorized party. A public OAuth client
+	// id is attribution, not a security boundary.
+	ClientID string `json:"client_id,omitempty"`
+	// AccessPointID and CallerKind are set only for exchanges that entered
+	// through an access point; CallerKind is agent, user or client.
+	AccessPointID  string `json:"access_point_id,omitempty"`
+	CallerKind     string `json:"caller_kind,omitempty"`
+	RequestID      string `json:"request_id,omitempty"`
+	TraceID        string `json:"trace_id,omitempty"`
+	QuotaAttemptID string `json:"quota_attempt_id,omitempty"`
+	Streaming      bool   `json:"streaming"`
+	Status         string `json:"status"`
+	HTTPStatus     int    `json:"http_status,omitempty"`
+	ErrorClass     string `json:"error_class,omitempty"`
+	Source         string `json:"source"`
+	Requests       int64  `json:"requests"`
+	Usage          *Usage `json:"usage"`
+	Cost           Cost   `json:"cost"`
 }
 
 // NewID returns a random record identifier.
@@ -221,10 +227,15 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "actor_id": r.ActorID, "client_id": r.ClientID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "actor_id": r.ActorID, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}
+	}
+	switch r.CallerKind {
+	case "", "agent", "user", "client":
+	default:
+		return invalid("caller_kind must be agent, user or client")
 	}
 	switch r.Plane {
 	case PlaneLLM, PlaneMCP, PlaneA2A:
