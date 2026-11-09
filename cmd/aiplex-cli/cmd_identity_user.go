@@ -120,6 +120,9 @@ func uipGetCmd() *cobra.Command {
 			if p.Disabled {
 				fmt.Fprintln(out, "  State:     disabled")
 			}
+			if p.Directory != nil {
+				fmt.Fprintf(out, "  Directory: %s (%s)\n", p.Directory.Kind, p.DirectoryMode())
+			}
 			if len(p.Extra) > 0 {
 				keys := make([]string, 0, len(p.Extra))
 				for k := range p.Extra {

@@ -99,7 +99,7 @@ func TestUserIdentityProviderRoutesAndExtraFields(t *testing.T) {
 		case strings.HasSuffix(r.URL.Path, "/plan"):
 			_, _ = w.Write([]byte(`{"vendor":"okta","issuer":"https://i","audience":"a","steps":[],"aiplex_steps":[],"principal_pool":"user-federation/t"}`))
 		case r.URL.Path == "/api/v1/identity/user-providers":
-			_, _ = w.Write([]byte(`[{"id":"okta","preset":"okta","issuer":"https://i","revision":2,"principal_pool":"user-federation/t","directory":{"kind":"scim"},"client_claim":"azp"}]`))
+			_, _ = w.Write([]byte(`[{"id":"okta","preset":"okta","issuer":"https://i","revision":2,"principal_pool":"user-federation/t","x_future":{"kind":"scim"},"x_note":"azp"}]`))
 		default:
 			_, _ = w.Write([]byte(`{"id":"okta","preset":"okta","revision":2,"principal_pool":"p","new_field":[1,2]}`))
 		}
@@ -116,7 +116,7 @@ func TestUserIdentityProviderRoutesAndExtraFields(t *testing.T) {
 	if err != nil || len(list) != 1 || list[0].Revision != 2 || list[0].PrincipalPool != "user-federation/t" || list[0].Issuer != "https://i" {
 		t.Fatal(list, err)
 	}
-	if string(list[0].Extra["directory"]) != `{"kind":"scim"}` || string(list[0].Extra["client_claim"]) != `"azp"` {
+	if string(list[0].Extra["x_future"]) != `{"kind":"scim"}` || string(list[0].Extra["x_note"]) != `"azp"` {
 		t.Fatalf("extra fields dropped: %v", list[0].Extra)
 	}
 	if _, ok := list[0].Extra["revision"]; ok {
@@ -124,7 +124,7 @@ func TestUserIdentityProviderRoutesAndExtraFields(t *testing.T) {
 	}
 	// A response re-encodes with its extras.
 	raw, _ := json.Marshal(list[0])
-	if !strings.Contains(string(raw), `"directory":{"kind":"scim"}`) || !strings.Contains(string(raw), `"principal_pool":"user-federation/t"`) {
+	if !strings.Contains(string(raw), `"x_future":{"kind":"scim"}`) || !strings.Contains(string(raw), `"principal_pool":"user-federation/t"`) {
 		t.Fatalf("round trip lost fields: %s", raw)
 	}
 	got, err := c.GetUserIdentityProvider(ctx, "okta")

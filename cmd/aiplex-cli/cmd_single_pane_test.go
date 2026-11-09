@@ -274,7 +274,7 @@ func TestWhoDetailShowsReasonsAndOmittedBalance(t *testing.T) {
 	}
 }
 
-const spProviderJSON = `{"id":"okta","preset":"okta","issuer":"https://i","audience":"a","subject_claim":"sub","revision":2,"principal_pool":"user-federation/t","directory":{"kind":"scim"}}`
+const spProviderJSON = `{"id":"okta","preset":"okta","issuer":"https://i","audience":"a","subject_claim":"sub","revision":2,"principal_pool":"user-federation/t","x_future":{"kind":"scim"}}`
 
 func TestUserProvidersCRUDKeepsUnknownFields(t *testing.T) {
 	var calls []spCall
@@ -299,7 +299,7 @@ func TestUserProvidersCRUDKeepsUnknownFields(t *testing.T) {
 		t.Fatal(out, err)
 	}
 	out, err = runSP(t, "", cmd(), "user-providers", "get", "okta")
-	if err != nil || !strings.Contains(out, "user-federation/t") || !strings.Contains(out, "directory") {
+	if err != nil || !strings.Contains(out, "user-federation/t") || !strings.Contains(out, "x_future") {
 		t.Fatal(out, err)
 	}
 	calls = nil
