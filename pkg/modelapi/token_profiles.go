@@ -55,7 +55,7 @@ func normalizeControlledFinal(op Operation, value *UsageObservation) error {
 	switch {
 	case geminiGeneration(op) || op.ID == "interaction.create":
 		return normalizeGeminiFinal(value)
-	case op.ID == "openai.chat-completions" || op.ID == "response.create":
+	case op.ID == "openai.chat-completions" || op.ID == "response.create" || providerOpenAITokenOperation(op):
 		return normalizeOutputInclusive(value, false)
 	case anthropicOperation(op):
 		return normalizeOutputInclusive(value, true)

@@ -18,6 +18,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
+	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
@@ -127,6 +128,14 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 		return
 	}
 	c.set(func(r *usageledger.Record) { r.Provider = connection.Surface.Publisher })
+	if connection.Surface.Provider != nil {
+		// Provider surfaces record their provider ID; native Anthropic usage
+		// is normalized to total input exactly as for Anthropic publishers.
+		c.mu.Lock()
+		c.record.Provider = connection.Surface.Provider.ID
+		c.anthropicRaw = connection.Surface.Provider.ID == modelapi.ProviderAnthropic
+		c.mu.Unlock()
+	}
 	authorize := opts.Authorize
 	opts.Authorize = func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
 		c.set(func(r *usageledger.Record) {
@@ -162,6 +171,15 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 			c.observe(value.Counters, value.Cumulative, value.ModelVersion)
 		}
 	}
+}
+
+// limits attaches the latest provider limit observation to the record.
+func (c *usageCapture) limits(value providerlimits.Limits) {
+	if c == nil || value.Empty() {
+		return
+	}
+	copy := value.Clone()
+	c.set(func(r *usageledger.Record) { r.ProviderLimits = &copy })
 }
 
 // instrumentTool wraps the tool gateway's authorization, dispatch recheck and

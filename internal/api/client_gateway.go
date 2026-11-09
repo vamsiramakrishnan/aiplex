@@ -57,6 +57,9 @@ func clientNativePath(s modelapi.Surface, r *http.Request, path string) (string,
 	if strings.ContainsAny(path, "%\\\r\n") || strings.Contains(path, "..") {
 		return "", nil, fmt.Errorf("invalid client path")
 	}
+	if s.Provider != nil {
+		return providerClientNativePath(s, r, path)
+	}
 	base := "/" + s.APIVersion + "/projects/" + s.Project + "/locations/" + s.Location
 	switch s.Protocol {
 	case "google-genai":

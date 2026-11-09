@@ -28,11 +28,16 @@ func (h *ConnectedHandler) quotaModelConfiguration(ctx context.Context, tenant s
 	if h.Runtime == nil || h.Store == nil || record.TenantID != tenant || record.Kind != "model-surface" || record.ID != connection.Surface.ID || record.Revision == 0 {
 		return quotaModelConfiguration{}, fmt.Errorf("model configuration identity is unavailable")
 	}
-	identity, err := h.Runtime.Identity(tenant, connection.IdentityRef)
-	if err != nil {
-		return quotaModelConfiguration{}, err
+	// Provider surfaces with a secret-reference credential have no identity
+	// profile; the auth block itself is pinned through the connection.
+	var identity connections.Identity
+	var err error
+	if connection.Surface.Provider == nil || connection.IdentityRef != "" {
+		if identity, err = h.Runtime.Identity(tenant, connection.IdentityRef); err != nil {
+			return quotaModelConfiguration{}, err
+		}
 	}
-	if err = h.Runtime.CheckDestination(tenant, connection.IdentityRef, connection.Surface.Origin); err != nil {
+	if err = h.checkModelDestination(tenant, connection); err != nil {
 		return quotaModelConfiguration{}, err
 	}
 	if h.Runtime.Policy == nil || h.Runtime.Policy.ValidateURL(connection.Surface.Origin) != nil {
@@ -85,15 +90,16 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 		if err != nil {
 			return nil, err
 		}
-		provider := connection.Surface.Publisher
-		if provider == "" {
-			provider = connection.Surface.Protocol
-		}
+		provider := connection.Surface.ProviderID()
 		billing := connection.BillingProject
 		if billing == "" {
 			billing = connection.Surface.Project
 		}
-		target := quotaplex.Target{Plane: "llmplex", Provider: provider, ResourceID: record.ID, Operation: input.Operation.ID, BillingAccount: billing, Region: connection.Surface.Location}
+		region := connection.Surface.Location
+		if connection.Surface.Provider != nil {
+			region = connection.Surface.Provider.Region
+		}
+		target := quotaplex.Target{Plane: "llmplex", Provider: provider, ResourceID: record.ID, Operation: input.Operation.ID, BillingAccount: billing, Region: region}
 		reauthorize := func(callCtx context.Context) error {
 			current, err := h.Store.Get(callCtx, input.Context.TenantID, "model-surface", record.ID)
 			if err != nil {

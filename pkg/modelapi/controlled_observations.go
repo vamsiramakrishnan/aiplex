@@ -288,7 +288,7 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 				finish(execution.Result{Err: r.Context().Err()})
 				return
 			}
-			markerComplete := seenFinal && (op.ID != "openai.chat-completions" || seenDone) && (!anthropic || (anthropicStarted && anthropicStopped && anthropicFinalUsage))
+			markerComplete := seenFinal && (!chatCompletionsOperation(op) || seenDone) && (!anthropic || (anthropicStarted && anthropicStopped && anthropicFinalUsage))
 			if markerComplete && latest == nil {
 				// Counter-only policies can acknowledge a complete native response
 				// without token usage. Strict metering leases reject this result.

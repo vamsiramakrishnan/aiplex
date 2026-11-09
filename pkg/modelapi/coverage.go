@@ -16,6 +16,12 @@ func Coverage(op Operation) ExecutionCoverage {
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "gemini-text"}
 	case "openai.chat-completions", "response.create":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "openai-text"}
+	// Provider surfaces: a token profile only where exact usage observation is
+	// implemented and tested for the operation's native format.
+	case "openai.v1.chat-completions", "openai.v1.responses", "azure.v1.chat-completions", "azure.v1.responses", "azure.deployments.chat-completions":
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "openai-text"}
+	case "compat.chat-completions", "bedrock.converse", "bedrock.converse-stream", "bedrock.invoke", "bedrock.invoke-stream":
+		return ExecutionCoverage{RequestCount: true}
 	case "anthropic.messages", "models.rawPredict", "models.streamRawPredict":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}
 	case "interaction.create":
