@@ -29,6 +29,12 @@ type FederatedVerifier interface {
 // identity source. Static sources always take precedence. Configure before
 // serving; it is not safe to call concurrently with ExtractIdentity.
 func (v *WIFValidator) WithFederation(f FederatedVerifier) *WIFValidator {
+	if chain, ok := v.federation.(*FederationChain); ok {
+		if agent, isAgent := f.(*AgentFederation); isAgent {
+			v.federation = &FederationChain{Agent: agent, User: chain.User}
+			return v
+		}
+	}
 	v.federation = f
 	return v
 }
@@ -57,13 +63,19 @@ func NewJWKSKeyResolver(network endpointpolicy.Config) *JWKSKeyResolver {
 }
 
 func (k *JWKSKeyResolver) ForBinding(_ context.Context, b agentfederation.Binding) (agentfederation.SignatureVerifier, error) {
-	cacheKey := b.Issuer + "\x00" + b.Audience + "\x00" + b.JWKSURL
+	return k.ForTrust(b.Issuer, b.Audience, b.JWKSURL)
+}
+
+// ForTrust resolves the signature verifier for one issuer, audience and JWKS
+// URL. Agent bindings and user identity providers share it.
+func (k *JWKSKeyResolver) ForTrust(issuer, audience, jwksURL string) (agentfederation.SignatureVerifier, error) {
+	cacheKey := issuer + "\x00" + audience + "\x00" + jwksURL
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if v := k.cache[cacheKey]; v != nil {
 		return v, nil
 	}
-	u, err := url.Parse(b.JWKSURL)
+	u, err := url.Parse(jwksURL)
 	if err != nil || u.Host == "" {
 		return nil, fmt.Errorf("invalid JWKS URL")
 	}
@@ -73,7 +85,7 @@ func (k *JWKSKeyResolver) ForBinding(_ context.Context, b agentfederation.Bindin
 	if err != nil {
 		return nil, fmt.Errorf("JWKS origin rejected by endpoint policy: %w", err)
 	}
-	verifier, err := NewJWKSVerifier(JWKSConfig{Issuer: b.Issuer, Audience: b.Audience, JWKSURL: b.JWKSURL, HTTPClient: client})
+	verifier, err := NewJWKSVerifier(JWKSConfig{Issuer: issuer, Audience: audience, JWKSURL: jwksURL, HTTPClient: client})
 	if err != nil {
 		return nil, err
 	}
@@ -108,34 +120,9 @@ func (f *AgentFederation) VerifyFederated(r *http.Request, token string) (map[st
 	if f == nil || f.Tenant == "" || f.Bindings == nil || f.Engine == nil {
 		return nil, "", ErrNoFederatedBinding
 	}
-	routing, err := routingClaims(token)
+	candidate, err := f.candidate(r.Context(), token)
 	if err != nil {
-		return nil, "", ErrNoFederatedBinding
-	}
-	issuer, _ := routing["iss"].(string)
-	if issuer == "" {
-		return nil, "", ErrNoFederatedBinding
-	}
-	// Routing only: the unverified issuer/subject select a candidate binding;
-	// the engine then verifies everything against that binding.
-	var candidate *agentfederation.Binding
-	for _, claim := range []string{"sub", "oid"} {
-		subject, _ := routing[claim].(string)
-		if subject == "" {
-			continue
-		}
-		b, err := f.Bindings.FindBySubject(r.Context(), f.Tenant, issuer, claim, subject)
-		if errors.Is(err, agentfederation.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, "", fmt.Errorf("agent identity bindings unavailable")
-		}
-		if candidate != nil {
-			return nil, "", fmt.Errorf("token matches more than one agent identity binding")
-		}
-		bound := b
-		candidate = &bound
+		return nil, "", err
 	}
 	if candidate == nil {
 		return nil, "", ErrNoFederatedBinding
@@ -181,6 +168,42 @@ func (f *AgentFederation) VerifyFederated(r *http.Request, token string) (map[st
 		}
 	}
 	return normalized, FederationPoolID(f.Tenant), nil
+}
+
+// candidate selects, from unverified routing claims only, the binding that
+// claims the token (nil when none). More than one match is an error.
+func (f *AgentFederation) candidate(ctx context.Context, token string) (*agentfederation.Binding, error) {
+	if f == nil || f.Tenant == "" || f.Bindings == nil || f.Engine == nil {
+		return nil, nil
+	}
+	routing, err := routingClaims(token)
+	if err != nil {
+		return nil, nil
+	}
+	issuer, _ := routing["iss"].(string)
+	if issuer == "" {
+		return nil, nil
+	}
+	var candidate *agentfederation.Binding
+	for _, claim := range []string{"sub", "oid"} {
+		subject, _ := routing[claim].(string)
+		if subject == "" {
+			continue
+		}
+		b, err := f.Bindings.FindBySubject(ctx, f.Tenant, issuer, claim, subject)
+		if errors.Is(err, agentfederation.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("agent identity bindings unavailable")
+		}
+		if candidate != nil {
+			return nil, fmt.Errorf("token matches more than one agent identity binding")
+		}
+		bound := b
+		candidate = &bound
+	}
+	return candidate, nil
 }
 
 func agentIdentityConfig(b agentfederation.Binding) (agentidentity.Config, error) {

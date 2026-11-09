@@ -160,11 +160,15 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 	case federated:
 		// Agent identity bindings: static sources did not claim the token.
 		requestBound = false
-		claims, poolID, err = v.federation.VerifyFederated(r, token)
+		if wf, ok := v.federation.(WorkforceFederatedVerifier); ok {
+			claims, poolID, isWorkforce, err = wf.VerifyFederatedIdentity(r, token)
+		} else {
+			claims, poolID, err = v.federation.VerifyFederated(r, token)
+			isWorkforce = false
+		}
 		if errors.Is(err, ErrNoFederatedBinding) {
 			return nil, fmt.Errorf("no trusted identity source matches token")
 		}
-		isWorkforce = false
 	case requestBound:
 		claims, err = requestVerifier.VerifyRequest(r, token)
 	default:
@@ -231,6 +235,11 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 	}
 	identity.PrincipalID = CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.Subject)
 	identity.Groups = mergeScopes(nil, identity.Groups)
+	if _, carried := claims["groups"]; federated && isWorkforce && !carried {
+		// Federated users without a verified group claim have no group view at
+		// all (never an empty one).
+		identity.Groups = nil
+	}
 	identity.AuthorizedParty, _ = claims["azp"].(string)
 	if actor, ok := claims["act"].(map[string]any); ok {
 		identity.ActorSubject, _ = actor["sub"].(string)
