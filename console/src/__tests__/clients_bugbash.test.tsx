@@ -19,7 +19,53 @@ function show() {
 }
 beforeEach(() => { request.mockReset() })
 
-describe('ClientPlex asynchronous plan ownership', () => {
+describe('ClientPlex asynchronous editor and plan ownership', () => {
+  it.each([
+    { kind: 'existing', id: 'alpha', initialRevision: 1 },
+    { kind: 'new', id: 'developer', initialRevision: 0 },
+  ])('saves newer edits to $kind registrations using the acknowledged revision', async ({ id, initialRevision }) => {
+    const pending = deferred<ReturnType<typeof registration>>()
+    let stored = initialRevision ? registration(id) : undefined
+    let writes = 0
+    request.mockImplementation(async (path, init) => {
+      if (path.endsWith('/profiles')) return []
+      if (init?.method === 'PUT') {
+        const currentRevision = stored?.revision ?? 0
+        const expectedRevision = new Headers(init.headers).get('If-Match')
+        if (expectedRevision !== (currentRevision ? `"${currentRevision}"` : null)) throw new Error('REVISION_CONFLICT')
+        const spec = JSON.parse(init.body as string) as ReturnType<typeof registration>['spec']
+        stored = { id: spec.id, revision: currentRevision + 1, spec }
+        writes++
+        return writes === 1 ? pending.promise : stored
+      }
+      return stored ? [stored] : []
+    })
+    show()
+    if (initialRevision) {
+      await screen.findByText(id)
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    }
+    const editor = screen.getByLabelText(/Use credential references/) as HTMLTextAreaElement
+    fireEvent.click(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(writes).toBe(1))
+
+    // The server has committed, but the acknowledgement is still in flight.
+    const draft = JSON.stringify({ ...JSON.parse(editor.value), principal_binding: 'principal:newer-edit' }, null, 2)
+    fireEvent.change(editor, { target: { value: draft } })
+    await act(async () => pending.resolve(stored!))
+    expect(await screen.findByRole('heading', { name: `Edit ${id}, revision ${initialRevision + 1}` })).toBeInTheDocument()
+    expect(editor).toHaveValue(draft)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save registration' }))
+    expect(await screen.findByRole('heading', { name: `Edit ${id}, revision ${initialRevision + 2}` })).toBeInTheDocument()
+    const saves = request.mock.calls.filter(([, init]) => init?.method === 'PUT')
+    expect(saves).toHaveLength(2)
+    expect(saves[1][1]?.headers).toEqual({ 'If-Match': `"${initialRevision + 1}"` })
+    expect(JSON.parse(saves[1][1]?.body as string)).toEqual(JSON.parse(draft))
+    expect(stored?.spec.principal_binding).toBe('principal:newer-edit')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('keeps the newest requested plan when responses arrive out of order', async () => {
     const first = deferred<ReturnType<typeof connectionPlan>>()
     const second = deferred<ReturnType<typeof connectionPlan>>()
@@ -64,6 +110,40 @@ describe('ClientPlex asynchronous plan ownership', () => {
     await act(async () => pending.resolve({ ...registration('alpha'), revision: 2 }))
     expect(screen.getByRole('heading', { name: 'New registration' })).toBeInTheDocument()
     expect((screen.getByLabelText(/Use credential references/) as HTMLTextAreaElement).value).toContain('developer')
+  })
+
+  it('does not apply a save acknowledgement to another registration', async () => {
+    const pending = deferred<ReturnType<typeof registration>>()
+    request.mockImplementation(async (path, init) => path.endsWith('/profiles') ? [] : init?.method === 'PUT' ? pending.promise : [registration('alpha'), registration('beta')])
+    show()
+    await screen.findByText('alpha')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Save registration' }))
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/clients/registrations/alpha', expect.objectContaining({ method: 'PUT' })))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[1])
+    const editor = screen.getByLabelText(/Use credential references/) as HTMLTextAreaElement
+    const draft = JSON.stringify({ ...registration('beta').spec, principal_binding: 'principal:newer-edit' }, null, 2)
+    fireEvent.change(editor, { target: { value: draft } })
+    await act(async () => pending.resolve({ ...registration('alpha'), revision: 2 }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save registration' })).toBeEnabled())
+    expect(screen.getByRole('heading', { name: 'Edit beta, revision 1' })).toBeInTheDocument()
+    expect(editor).toHaveValue(draft)
+  })
+
+  it('preserves text entered while the current registration is being deleted', async () => {
+    const pending = deferred<void>()
+    request.mockImplementation(async (path, init) => path.endsWith('/profiles') ? [] : init?.method === 'DELETE' ? pending.promise : [registration('alpha')])
+    show()
+    await screen.findByText('alpha')
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(request).toHaveBeenCalledWith('/api/v1/clients/registrations/alpha', expect.objectContaining({ method: 'DELETE' })))
+    const editor = screen.getByLabelText(/Use credential references/) as HTMLTextAreaElement
+    const draft = `${editor.value}\n `
+    fireEvent.change(editor, { target: { value: draft } })
+    await act(async () => pending.resolve())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Delete' })).toBeEnabled())
+    expect(editor).toHaveValue(draft)
   })
 
   it('keeps the current editor when another registration is deleted', async () => {
