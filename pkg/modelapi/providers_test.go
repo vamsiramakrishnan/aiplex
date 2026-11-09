@@ -528,7 +528,9 @@ func TestBedrockConverseUsageJSONAndEventStream(t *testing.T) {
 func bytesEqual(a, b []byte) bool { return string(a) == string(b) }
 
 func TestBedrockUsageCacheCompositionStaysUnknown(t *testing.T) {
-	counters, err := bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"totalTokens":1065,"cacheReadInputTokens":0,"cacheWriteInputTokens":1000}`))
+	// inputTokens >= the cache counters: inclusive and exclusive readings are
+	// both possible, so input and total stay unknown.
+	counters, err := bedrockUsageCounters([]byte(`{"inputTokens":1013,"outputTokens":52,"totalTokens":1065,"cacheReadInputTokens":0,"cacheWriteInputTokens":1000}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,6 +539,19 @@ func TestBedrockUsageCacheCompositionStaysUnknown(t *testing.T) {
 	}
 	if _, known := counters["total_tokens"]; known || counters["cache_write_tokens"] != 1000 || counters["cached_tokens"] != 0 || counters["output_tokens"] != 52 {
 		t.Fatal(counters)
+	}
+	// inputTokens < the cache counters cannot include them: exclusive is
+	// proven and the normalized total input includes cache reads and writes.
+	counters, _ = bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"totalTokens":1065,"cacheReadInputTokens":0,"cacheWriteInputTokens":1000}`))
+	if counters["input_tokens"] != 1013 || counters["uncached_input_tokens"] != 13 || counters["cache_write_tokens"] != 1000 {
+		t.Fatal("proven exclusive composition not normalized", counters)
+	}
+	if _, known := counters["total_tokens"]; known {
+		t.Fatal("total with cache composition reported", counters)
+	}
+	counters, _ = bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"totalTokens":65,"cacheDetails":[{"inputTokens":600,"ttl":"1h"},{"inputTokens":400,"ttl":"5m"}]}`))
+	if counters["cache_write_tokens"] != 1000 || counters["input_tokens"] != 1013 {
+		t.Fatal("per-TTL cache writes not summed", counters)
 	}
 	counters, _ = bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"totalTokens":99}`))
 	if _, known := counters["total_tokens"]; known || counters["input_tokens"] != 13 {

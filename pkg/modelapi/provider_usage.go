@@ -41,15 +41,24 @@ func bedrockConverse(op Operation) bool {
 	return op.ID == "bedrock.converse" || op.ID == "bedrock.converse-stream"
 }
 
+func bedrockInvoke(op Operation) bool {
+	return op.ID == "bedrock.invoke" || op.ID == "bedrock.invoke-stream"
+}
+
 // bedrockUsageCounters maps the Bedrock Converse TokenUsage object.
 //
 // Documented: inputTokens ("tokens sent in the request"), outputTokens,
 // totalTokens ("input tokens and tokens generated"), optional
-// cacheReadInputTokens and cacheWriteInputTokens. Whether inputTokens and
-// totalTokens include cache-read/write tokens is not stated by the reference,
-// so when any cache counter is positive the input/total composition is left
-// unknown rather than guessed; cache counters are still reported. Bedrock
-// reports no reasoning breakdown, so none is invented.
+// cacheReadInputTokens, cacheWriteInputTokens and cacheDetails (per-TTL
+// cache-write breakdown). Whether inputTokens and totalTokens include
+// cache-read/write tokens is not stated by the reference. An inclusive count
+// can never be smaller than the cache counters it would contain, so
+// inputTokens < cacheRead + cacheWrite proves the exclusive (Messages-style)
+// composition, and input_tokens is then reported with exclusive semantics,
+// like the Anthropic Messages counter. Otherwise, with positive cache
+// counters, input and total stay unknown rather than guessed. The reported
+// totalTokens is kept only when no cache counter is positive. Bedrock reports
+// no reasoning breakdown, so none is invented.
 func bedrockUsageCounters(raw json.RawMessage) (map[string]int64, error) {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil {
@@ -61,7 +70,7 @@ func bedrockUsageCounters(raw json.RawMessage) (map[string]int64, error) {
 			return 0, false, nil
 		}
 		var n int64
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &n) != nil || n < 0 {
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &n) != nil || n < 0 || n > 1<<53 {
 			return 0, false, fmt.Errorf("invalid Bedrock usage counter")
 		}
 		return n, true, nil
@@ -84,8 +93,31 @@ func bedrockUsageCounters(raw json.RawMessage) (map[string]int64, error) {
 	}
 	if known["cacheWriteInputTokens"] {
 		counters["cache_write_tokens"] = values["cacheWriteInputTokens"]
+	} else if raw := fields["cacheDetails"]; raw != nil {
+		var details []struct {
+			InputTokens *int64 `json:"inputTokens"`
+		}
+		if json.Unmarshal(raw, &details) != nil {
+			return nil, fmt.Errorf("invalid Bedrock cache details")
+		}
+		var sum int64
+		for _, d := range details {
+			if d.InputTokens == nil || *d.InputTokens < 0 || *d.InputTokens > 1<<53 {
+				return nil, fmt.Errorf("invalid Bedrock cache detail")
+			}
+			sum += *d.InputTokens
+		}
+		counters["cache_write_tokens"] = sum
+		values["cacheWriteInputTokens"] = sum
 	}
-	if values["cacheReadInputTokens"] == 0 && values["cacheWriteInputTokens"] == 0 {
+	cache := values["cacheReadInputTokens"] + counters["cache_write_tokens"]
+	if cache > 0 && known["inputTokens"] && values["inputTokens"] < cache {
+		// Normalized vocabulary: input_tokens is total input including cache
+		// reads and writes; uncached_input_tokens is the fresh remainder.
+		counters["uncached_input_tokens"] = values["inputTokens"]
+		counters["input_tokens"] = values["inputTokens"] + cache
+	}
+	if cache == 0 {
 		if known["inputTokens"] {
 			counters["input_tokens"] = values["inputTokens"]
 		}

@@ -126,14 +126,31 @@ func encodeEventMessage(headers [][2]string, payload []byte) []byte {
 
 // copyEventStream forwards verified Bedrock event-stream messages. For
 // ConverseStream, the messageStop/metadata tail is withheld under an execution
-// lease until the terminal metadata usage is acknowledged; InvokeModel
-// streams carry model-specific payloads whose usage stays unknown.
+// lease until the terminal metadata usage is acknowledged. InvokeModel chunks
+// carry model-native payloads ({"bytes": base64}); when the decoded payload is
+// the Anthropic Messages event shape its cumulative usage is observed exactly
+// as for Messages SSE (message_start input, cumulative message_delta,
+// message_stop), and any other payload's usage stays unknown.
 func (g *Gateway) copyEventStream(w http.ResponseWriter, r *http.Request, body io.Reader, owner Owner, op Operation, run *executionRun, status int) {
 	reader := bufio.NewReaderSize(body, 64<<10)
 	converse := bedrockConverse(op)
 	var tail bytes.Buffer
 	var latest *UsageObservation
 	stopped, exception, events := false, false, 0
+	// Anthropic-shaped InvokeModel stream state.
+	var merged *UsageObservation
+	invokeStarted, invokeStopped, invokeFinal := false, false, false
+	observe := func(value UsageObservation) error {
+		if run != nil {
+			if err := run.observe(value); err != nil {
+				return err
+			}
+			g.emitLegacy(run.ctx, owner, &value)
+			return nil
+		}
+		g.emitLegacy(r.Context(), owner, &value)
+		return nil
+	}
 	write := func(data []byte) error {
 		if _, err := w.Write(data); err != nil {
 			return err
@@ -191,7 +208,62 @@ func (g *Gateway) copyEventStream(w http.ResponseWriter, r *http.Request, body i
 				stopped = true
 			}
 		}
-		if run != nil && converse && stopped {
+		if !converse && kind == "event" && event == "chunk" {
+			if invokeStarted && invokeStopped {
+				fail(fmt.Errorf("native data followed stream completion"))
+				return
+			}
+			var wrapper struct {
+				Bytes []byte `json:"bytes"`
+			}
+			if json.Unmarshal(message.payload, &wrapper) == nil && anthropicShaped(wrapper.Bytes) {
+				value, err := g.inspectJSON(r.Context(), owner, op, wrapper.Bytes, false, true)
+				if err != nil {
+					fail(err)
+					return
+				}
+				switch value.eventType {
+				case "message_start":
+					invokeStarted = value.usage != nil
+				case "message_stop":
+					invokeStopped = invokeStarted
+				case "message_delta":
+					if value.nativeTerminal && value.usage != nil {
+						_, invokeFinal = value.usage.Counters["output_tokens"]
+					}
+				}
+				if value.usage != nil {
+					// Per-field last value wins: message_delta usage is cumulative
+					// and replaces message_start counters; never summed.
+					if merged == nil {
+						merged = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, Counters: map[string]int64{}, Cumulative: true}
+					}
+					for key, n := range value.usage.Counters {
+						if prior, ok := merged.Counters[key]; ok && n < prior {
+							fail(execution.ErrUsageRegression)
+							return
+						}
+						merged.Counters[key] = n
+					}
+					if value.usage.ModelVersion != "" {
+						merged.ModelVersion = value.usage.ModelVersion
+					}
+					if value.usage.ResourceID != "" {
+						merged.ResourceID = value.usage.ResourceID
+					}
+					snapshot := *merged
+					snapshot.Counters = map[string]int64{}
+					for key, n := range merged.Counters {
+						snapshot.Counters[key] = n
+					}
+					if err = observe(snapshot); err != nil {
+						fail(err)
+						return
+					}
+				}
+			}
+		}
+		if run != nil && ((converse && stopped) || invokeStopped) {
 			if tail.Len()+len(message.raw) > maxEventMessage {
 				fail(fmt.Errorf("event stream tail bound exceeded"))
 				return
@@ -201,6 +273,19 @@ func (g *Gateway) copyEventStream(w http.ResponseWriter, r *http.Request, body i
 		}
 		if err = write(message.raw); err != nil {
 			fail(err)
+			return
+		}
+	}
+	if !converse && invokeStarted {
+		// An Anthropic-shaped InvokeModel stream: final only with message_start,
+		// a final cumulative message_delta usage report and message_stop.
+		if invokeStopped && invokeFinal && merged != nil && !exception {
+			final := *merged
+			latest = &final
+		} else if !exception {
+			if run != nil {
+				_ = run.finish(execution.Result{StatusCode: status, ResponseComplete: true, Err: fmt.Errorf("native terminal usage unavailable")})
+			}
 			return
 		}
 	}

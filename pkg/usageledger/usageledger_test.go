@@ -342,6 +342,12 @@ func TestEstimateIsExactAndNeverInvented(t *testing.T) {
 	if c := Estimate([]Price{cache}, r); c.Amount != "64" {
 		t.Fatalf("6*10 + 4*1: %+v", c)
 	}
+	// Cache writes are inside total input too: charged once, at their rate.
+	writes := price("writes", map[string]Rational{MeterInput: {10, 1}, MeterCacheRead: {1, 1}, MeterCacheWrite: {20, 1}, MeterOutput: {0, 1}})
+	r.Usage = &Usage{InputTokens: Int64(10), CacheReadTokens: Int64(4), CacheWriteTokens: Int64(3), OutputTokens: Int64(0)}
+	if c := Estimate([]Price{writes}, r); c.Amount != "94" {
+		t.Fatalf("3*10 + 4*1 + 3*20: %+v", c)
+	}
 	// No usage at all: only a request-only price can estimate.
 	r.Usage = nil
 	if c := Estimate([]Price{list}, r); c.Basis != BasisUnknown {

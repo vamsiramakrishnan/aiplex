@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net"
 	"net/http"
@@ -128,14 +129,18 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 		return
 	}
 	c.set(func(r *usageledger.Record) { r.Provider = connection.Surface.Publisher })
+	// Messages-format usage (Anthropic provider, the anthropic publisher on
+	// Vertex, and Anthropic-shaped Bedrock InvokeModel bodies) counts cache
+	// reads and writes outside input_tokens; the ledger's input_tokens is total
+	// input. This holds with and without a quota lease (a request-count lease
+	// forwards the native counters unnormalized).
+	c.mu.Lock()
+	c.anthropicRaw = connection.Surface.Publisher == "anthropic"
 	if connection.Surface.Provider != nil {
-		// Provider surfaces record their provider ID; native Anthropic usage
-		// is normalized to total input exactly as for Anthropic publishers.
-		c.mu.Lock()
 		c.record.Provider = connection.Surface.Provider.ID
-		c.anthropicRaw = connection.Surface.Provider.ID == modelapi.ProviderAnthropic
-		c.mu.Unlock()
+		c.anthropicRaw = connection.Surface.Provider.ID == modelapi.ProviderAnthropic || connection.Surface.Provider.ID == modelapi.ProviderBedrock
 	}
+	c.mu.Unlock()
 	authorize := opts.Authorize
 	opts.Authorize = func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
 		c.set(func(r *usageledger.Record) {
@@ -163,9 +168,6 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 		})
 		return
 	}
-	c.mu.Lock()
-	c.anthropicRaw = connection.Surface.Publisher == "anthropic"
-	c.mu.Unlock()
 	opts.Observe = func(_ context.Context, _ modelapi.Owner, value modelapi.UsageObservation) {
 		if value.Source == "upstream" {
 			c.observe(value.Counters, value.Cumulative, value.ModelVersion)
@@ -409,16 +411,7 @@ func (c *usageCapture) finish() {
 		record.ErrorClass = code
 	}
 	if anthropicRaw {
-		// The native Anthropic usage object counts cached reads outside
-		// input_tokens; the ledger's input_tokens is total input.
-		if _, normalized := counters["uncached_input_tokens"]; !normalized {
-			if input, ok := counters["input_tokens"]; ok {
-				if cached, ok := counters["cached_tokens"]; ok {
-					counters["uncached_input_tokens"] = input
-					counters["input_tokens"] = input + cached
-				}
-			}
-		}
+		normalizeExclusiveInput(counters)
 	}
 	record.Usage = usageledger.FromCounters(counters)
 	record.Cost = usageledger.UnknownCost()
@@ -438,6 +431,34 @@ func (c *usageCapture) finish() {
 		}
 		return record, nil
 	})
+}
+
+// normalizeExclusiveInput converts native Messages-format counters, whose
+// input_tokens excludes cache reads and cache writes, to the ledger
+// vocabulary: input_tokens is total input (fresh + cache read + cache write)
+// and uncached_input_tokens the fresh part. Counters an adapter already
+// normalized (uncached_input_tokens present) are left alone. A missing cache
+// counter adds nothing; it is never reported as zero.
+func normalizeExclusiveInput(counters map[string]int64) {
+	if _, normalized := counters["uncached_input_tokens"]; normalized {
+		return
+	}
+	input, ok := counters["input_tokens"]
+	if !ok {
+		return
+	}
+	total := input
+	for _, key := range []string{"cached_tokens", "cache_write_tokens"} {
+		if n, known := counters[key]; known {
+			if n < 0 || total > math.MaxInt64-n {
+				delete(counters, "input_tokens")
+				return
+			}
+			total += n
+		}
+	}
+	counters["uncached_input_tokens"] = input
+	counters["input_tokens"] = total
 }
 
 // ModelPrices returns the tenant's valid model-price resources. Invalid stored
