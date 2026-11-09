@@ -124,6 +124,7 @@ Get started:
 		nativeCmd(),
 		quotaCmd(),
 		toolAuthCmd(),
+		toolsCmd(),
 		infrastructureCmd(),
 
 		// Onboarding
