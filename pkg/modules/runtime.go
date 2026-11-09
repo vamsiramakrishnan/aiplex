@@ -70,19 +70,45 @@ func (r *Runtime) Stop(ctx context.Context) error {
 func (r *Runtime) stop(ctx context.Context) error {
 	r.running = false
 	var errs []error
-	failed := make([]entry, 0)
+	pending := make([]entry, 0)
+	byName := make(map[string]entry, len(r.started))
+	for _, e := range r.started {
+		byName[e.descriptor.Name] = e
+	}
+	retained := map[string]bool{}
+	var retain func(string)
+	retain = func(name string) {
+		if retained[name] {
+			return
+		}
+		e, present := byName[name]
+		if !present {
+			return
+		}
+		retained[name] = true
+		for _, dependency := range e.descriptor.Dependencies {
+			retain(dependency.Name)
+		}
+	}
 	for i := len(r.started) - 1; i >= 0; i-- {
 		e := r.started[i]
+		if retained[e.descriptor.Name] {
+			pending = append(pending, e)
+			continue
+		}
 		if err := e.module.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("stop module %s: %w", e.descriptor.Name, err))
-			failed = append(failed, e)
+			// A failed consumer may still need its providers to finish cleanup.
+			// Retain their transitive graph while cleaning unrelated modules.
+			retain(e.descriptor.Name)
+			pending = append(pending, e)
 		}
 	}
 	// Restore dependency order for a later cleanup attempt.
-	for i, j := 0, len(failed)-1; i < j; i, j = i+1, j-1 {
-		failed[i], failed[j] = failed[j], failed[i]
+	for i, j := 0, len(pending)-1; i < j; i, j = i+1, j-1 {
+		pending[i], pending[j] = pending[j], pending[i]
 	}
-	r.started = failed
+	r.started = pending
 	return errors.Join(errs...)
 }
 

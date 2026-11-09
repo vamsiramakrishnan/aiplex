@@ -95,7 +95,7 @@ func (c *Client) doWithHeaders(ctx context.Context, method, path string, body, o
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		var apiErr Error
 		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
 			return &Error{Code: "unknown", Message: resp.Status, StatusCode: resp.StatusCode}

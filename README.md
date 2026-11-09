@@ -8,6 +8,8 @@ AIPlex is a control plane for agent interactions. It puts MCP, A2A, and model tr
 | A2APlex | A2A (HTTP/JSON) | Agent to agent | `HTTPRoute` |
 | LLMPlex | Provider APIs | Agent to model | `LLMRoute` |
 
+These three planes carry traffic. ClientPlex configures developer clients, SkillsPlex exposes skill discovery and reported history, QuotaPlex governs shared consumption, and Networking prepares connectivity and infrastructure plans. They share identity, permissions, revisioned storage and audit. See [how the modules fit together](#how-the-plex-modules-fit-together).
+
 ## Quick start
 
 ```bash
@@ -127,11 +129,45 @@ Agent ceiling ∩ user ceiling ∩ session consent = effective access
 
 The authorization path is implemented by [`policies/aiplex_authz.rego`](policies/aiplex_authz.rego) and the Rust `ext_authz` service.
 
-## Connected Plex modules
+## How the Plex modules fit together
 
-ClientPlex registers developer clients; LLMPlex preserves native model APIs; MCPlex handles OAuth registration and configured tool execution; A2APlex invokes native cloud agents. Shared networking plans can use an optional Anvil provider for missing infrastructure constructs. See [configuration and API ownership](docs/connected-plexes.md).
+| Module | What it does | Ownership and current boundary |
+| --- | --- | --- |
+| **MCPlex** | Connect tools, register OAuth clients, authorize users and invoke configured tools | Tool connections, delegated OAuth and stateless JSON/finite-SSE execution. Registration alone does not execute or meter a tool. |
+| **A2APlex** | Invoke native cloud agents and inspect delegation history | Google, AWS, Foundry and Copilot connections, actor-separated sessions and reported delegation chains. Opaque agent-internal model/tool calls need their own instrumentation. |
+| **LLMPlex** | Configure model routes/surfaces and forward native model operations | HTTP/SSE/Live protocols, client wire facades and stateful resource ownership. Available protocols and models are explicit operator configuration. |
+| **ClientPlex** | Connect Antigravity, Codex and Claude clients to supported model endpoints | Client profiles, saved registrations, protocol checks and reviewed configuration fragments. It does not install clients, issue credentials or grant model access. |
+| **SkillsPlex** | Discover deployed skills and inspect invocation history | Skill manifests, capabilities and attributed audit records. An invocation report does not execute a skill or prove authorization. |
+| **QuotaPlex** | Share budgets and admission controls across supported execution paths | Allocations, prices, funding, budget holds, admitted rates, permits, scheduling and settlement. Opt-in; only explicitly covered paths are protected. |
+| **Networking** | Prepare private connectivity, identity and egress configuration | Native network artifacts and optional reviewed Anvil execution. Saved intent, successful apply and observed readiness are separate states. |
+
+The shared identity layer verifies workforce/workload/native-agent credentials, resolves permissions and keeps principal/actor memberships separate. Modules use the same tenant-scoped resource store and credential-destination policy. See [configuration and API ownership](docs/connected-plexes.md), [module contracts](docs/modules.md), and [native networking/Anvil](docs/anvil-deployment-provider.md).
 
 Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity and Microsoft Entra Agent ID through scoped inventory, reviewed policy plans and durable apply receipts. See [native governance](docs/native-agent-governance.md) for credential brokers, provider limits and configuration.
+
+## Developer setup with ClientPlex
+
+ClientPlex answers: which client is being configured, which protocol can it speak, which tenant-owned destination can serve it, and what configuration does the developer need?
+
+```text
+Choose a client profile: Antigravity / Codex / Claude
+                         |
+                         v
+       Save registration + credential/network references
+                         |
+                         v
+       Resolve destination + check installed protocol
+                         |
+                         v
+       Review configuration fragments and required hosts
+                         |
+                         v
+       Developer merges configuration into native client
+```
+
+Use `aiplex clients profiles` to inspect supported clients. Registrations and plans are also available through the API, Go SDK and ClientPlex Console. A destination can be a managed LLMPlex facade or an explicitly configured external gateway; direct mode uses the client's native provider authentication. Credentials remain opaque references, and plans leave existing workstation files intact.
+
+Client setup and execution have different owners: ClientPlex produces the configuration; LLMPlex handles the resulting model request; identity authorizes it; QuotaPlex applies only when that request crosses a configured managed quota path. A rendered plan remains `configured-unverified` until the installed client, provider access and deployment have been qualified. See the [ClientPlex guide](docs/clientplex.md) for profile/mode compatibility and native Claude gateway artifacts.
 
 ## Shared quotas with QuotaPlex
 
@@ -184,6 +220,7 @@ Built-in Plex modules can be selected independently; external services register 
 [Foundation completion](docs/foundation-completion.md) connects revisioned configuration, directory membership, native model profiles, delegated MCP authorization, quota operations, atomic scheduling and reviewed infrastructure execution. [Production qualification](docs/production-qualification.md) supplies emulator CI, reference benchmarks and billing-evidence comparison.
 
 The [feature cohesion bugbash](docs/feature-cohesion-bugbash.md) records repairs to existing OAuth, routing, persistence, audit, SDK/CLI and Console handoffs, including deployment compatibility.
+The latest [Plex cohesion bugbash](docs/plex-cohesion-bugbash.md) covers client plans through protected execution, native protocol ambiguity, cleanup dependencies, SDK acknowledgements and Console response races.
 
 ## Local Development
 

@@ -16,7 +16,12 @@ func clientSurfaceReady(surface modelapi.Surface) bool {
 		ids = []string{"openai.chat-completions"}
 	case clientplex.Responses:
 		ids = []string{"response.create"}
-	case clientplex.Messages, clientplex.VertexAnthropic:
+	case clientplex.Messages:
+		if surface.Publisher != "anthropic" {
+			return false
+		}
+		ids = []string{"anthropic.messages", "models.rawPredict", "models.streamRawPredict"}
+	case clientplex.VertexAnthropic:
 		if surface.Publisher != "anthropic" {
 			return false
 		}
@@ -25,11 +30,22 @@ func clientSurfaceReady(surface modelapi.Surface) bool {
 		return false
 	}
 	for _, id := range ids {
-		known, _ := modelapi.SelectOperations(id)
-		for _, operation := range surface.Operations {
-			if operation.ID == id && operation.Method == known[0].Method && operation.Path == known[0].Path {
-				return true
-			}
+		if clientOperationReady(surface, id) {
+			return true
+		}
+	}
+	return false
+}
+
+func clientOperationReady(surface modelapi.Surface, id string) bool {
+	known, err := modelapi.SelectOperations(id)
+	if err != nil || len(known) != 1 {
+		return false
+	}
+	canonical := known[0]
+	for _, operation := range surface.Operations {
+		if operation.ID == canonical.ID && operation.Method == canonical.Method && operation.Path == canonical.Path && operation.Transport == canonical.Transport && operation.Action == canonical.Action && operation.ResourceKind == canonical.ResourceKind && operation.Stateful == canonical.Stateful {
+			return true
 		}
 	}
 	return false

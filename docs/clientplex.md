@@ -31,6 +31,16 @@ plan review. The SDK and `aiplex clients` commands use the same API.
 
 ## Client contracts
 
+An Anthropic Messages destination can expose an installed native Messages
+operation or explicit Vertex rawPredict operations. The native operation keeps
+its body/path/headers; Vertex translation validates the original JSON before
+re-encoding it. Protocol compatibility checks include transport, action and
+resource ownership semantics, not just an operation name.
+
+Console plan/save responses stay bound to their original review/editor intent.
+A late result cannot replace a newer plan or reopen a discarded editor. Completed
+mutations still refresh the saved registration inventory.
+
 | Profile | Direct Google Cloud | Gateway |
 |---|---|---|
 | Antigravity App/CLI | ADC or enterprise workforce sign-in | GenAI or Chat Completions |

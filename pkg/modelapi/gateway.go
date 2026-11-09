@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -307,7 +308,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	success := response.StatusCode >= 200 && response.StatusCode < 300
-	if success && strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
+	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	jsonResponse := mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+	if success && mediaType == "text/event-stream" {
 		copyResponseHeaders(w.Header(), response.Header)
 		w.WriteHeader(response.StatusCode)
 		if run != nil {
@@ -328,7 +331,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		terminal := false
-		if success && (op.Action == Create || strings.Contains(response.Header.Get("Content-Type"), "json")) {
+		if success && (op.Action == Create || jsonResponse) {
 			terminal, err = g.observeControlledJSON(owner, op, data, run)
 			if err != nil {
 				_ = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Err: err})
@@ -347,7 +350,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Creation responses must be examined and durably bound before delivery.
 	// Other potentially large bodies stream directly after headers are selected.
-	if success && (op.Action == Create || strings.Contains(response.Header.Get("Content-Type"), "json")) {
+	if success && (op.Action == Create || jsonResponse) {
 		data, e := io.ReadAll(io.LimitReader(response.Body, g.options.MaxBodyBytes+1))
 		if e != nil || int64(len(data)) > g.options.MaxBodyBytes {
 			http.Error(w, "upstream response exceeds observation bound", 502)
