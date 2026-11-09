@@ -223,8 +223,8 @@ Verify real provider limits/prices, identity refresh, required grants, endpoint
 coverage, shared-store permissions, recovery lag, unknown-hold alerts and restore
 behavior before enabling a path. The local tests exercise mechanisms and native
 protocol fixtures; they do not prove live billing equivalence or deployed routing.
-Rolling budgets, minimum-throughput guarantees, distributed capacity scheduling,
-native preemption, remote admission RPC, direct-route interception and additional
+Rolling budgets, minimum-throughput guarantees, native capacity reservation,
+preemption, remote admission RPC, direct-route interception and additional
 specialized model/tool/agent adapters remain explicit work.
 
 ## Additional foundational mechanisms
