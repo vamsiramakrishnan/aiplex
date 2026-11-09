@@ -1,0 +1,22 @@
+{
+  "id": "sesn_01Fixture",
+  "status": "idle",
+  "usage": {
+    "input_tokens": 5000,
+    "output_tokens": 3200,
+    "cache_read_input_tokens": 20000,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 2000,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "list_cost": {
+      "amount": "187",
+      "currency": "USD"
+    },
+    "active_seconds": 342.5,
+    "server_tool_use": {
+      "web_search_requests": 3,
+      "web_fetch_requests": 0
+    }
+  }
+}

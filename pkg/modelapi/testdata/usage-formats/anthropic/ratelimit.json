@@ -1,0 +1,61 @@
+{
+  "success_response_headers": {
+    "request-id": "req_FIXTURE0001",
+    "anthropic-ratelimit-requests-limit": "4000",
+    "anthropic-ratelimit-requests-remaining": "3999",
+    "anthropic-ratelimit-requests-reset": "2026-11-09T12:00:30Z",
+    "anthropic-ratelimit-tokens-limit": "2400000",
+    "anthropic-ratelimit-tokens-remaining": "2381000",
+    "anthropic-ratelimit-tokens-reset": "2026-11-09T12:00:31Z",
+    "anthropic-ratelimit-input-tokens-limit": "2000000",
+    "anthropic-ratelimit-input-tokens-remaining": "1990000",
+    "anthropic-ratelimit-input-tokens-reset": "2026-11-09T12:00:31Z",
+    "anthropic-ratelimit-output-tokens-limit": "400000",
+    "anthropic-ratelimit-output-tokens-remaining": "391000",
+    "anthropic-ratelimit-output-tokens-reset": "2026-11-09T12:00:30Z"
+  },
+  "http_429": {
+    "status": 429,
+    "headers": {
+      "retry-after": "17",
+      "request-id": "req_FIXTURE0002"
+    },
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "rate_limit_error",
+        "message": "Synthetic per-minute rate limit message"
+      },
+      "request_id": "req_FIXTURE0002"
+    }
+  },
+  "http_429_spend_cap": {
+    "status": 429,
+    "headers": {},
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "rate_limit_error",
+        "message": "You have reached your API usage limits: your organization has crossed its monthly API usage threshold. You will regain access on 2026-12-01 at 00:00 UTC.",
+        "details": {
+          "error_code": "enforced_spend_limit_reached"
+        }
+      },
+      "request_id": "req_FIXTURE0003"
+    }
+  },
+  "http_529": {
+    "status": 529,
+    "headers": {
+      "request-id": "req_FIXTURE0004"
+    },
+    "body": {
+      "type": "error",
+      "error": {
+        "type": "overloaded_error",
+        "message": "Overloaded"
+      },
+      "request_id": "req_FIXTURE0004"
+    }
+  }
+}

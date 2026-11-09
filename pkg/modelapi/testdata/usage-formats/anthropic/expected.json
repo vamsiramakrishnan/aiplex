@@ -1,0 +1,209 @@
+{
+  "messages.json": {
+    "input_tokens": 1203,
+    "output_tokens": 777,
+    "cache_read_tokens": 4096,
+    "cache_write_tokens": 2048,
+    "reasoning_tokens": 311,
+    "total_tokens": 8124,
+    "notes": "input_tokens is EXCLUSIVE of cache (tokens after last breakpoint). cache_write = cache_creation_input_tokens (= 1536+512 from cache_creation). thinking_tokens is a SUBSET of output_tokens: do not add. total_tokens is observer-derived (not reported by this API): input+cache_read+cache_write+output. server_tool_use (web_search 2, web_fetch 1) is a separate per-request meter, not tokens."
+  },
+  "messages.sse": {
+    "input_tokens": 2210,
+    "output_tokens": 415,
+    "cache_read_tokens": 8192,
+    "cache_write_tokens": 640,
+    "reasoning_tokens": 198,
+    "total_tokens": 11457,
+    "notes": "Take FINAL values from message_delta.usage (cumulative); message_start.output_tokens=3 is a placeholder, NOT additive. Summing start+delta double counts. message_delta fields are nullable/optional: fall back to message_start for any field absent in the delta. message_delta has no cache_creation per-TTL object (only message_start does). Terminal signal: message_stop. ping events carry no usage."
+  },
+  "messages-server-tool.sse": {
+    "input_tokens": 10682,
+    "output_tokens": 510,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": null,
+    "total_tokens": 11192,
+    "notes": "Mirrors the documented web-search stream: message_start.input_tokens=2679 but message_delta.input_tokens=10682 (server tool results add input). Final input is the DELTA value (cumulative, replaces), not 2679 and not the sum 13361. server_tool_use.web_search_requests=1 is a separate meter."
+  },
+  "messages-usage-absent.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Reproduces the documented streaming-thinking example, in which neither message_start nor message_delta carries a usage object. Observers must tolerate absent usage (emit null/unknown, not zero). Whether this is real API behavior or docs elision is UNCONFIRMED."
+  },
+  "messages-interrupted.sse": {
+    "input_tokens": 1840,
+    "output_tokens": null,
+    "cache_read_tokens": 6144,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Stream cut with no message_delta/message_stop. Input-side counters are known from message_start. output_tokens=2 in message_start is a placeholder (lower bound only), so output is null/unknown, not 2; total null. Billing for the true output is not observable from this stream."
+  },
+  "messages-error-midstream.sse": {
+    "input_tokens": 977,
+    "output_tokens": null,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "HTTP status was already 200; failure arrives as `event: error` (data has type=error, error.type=overloaded_error; no request_id shown in docs example). No message_delta/message_stop follows. Same handling as an interrupted stream: input known, output unknown."
+  },
+  "count-tokens.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "POST /v1/messages/count_tokens returns {input_tokens} - an ESTIMATE, free, no inference, not billed usage. A meter must NOT add it to consumption. (Its value, 403, is intentionally not mapped.)"
+  },
+  "messages-iterations.json": {
+    "input_tokens": 8,
+    "output_tokens": 0,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 5120,
+    "reasoning_tokens": null,
+    "total_tokens": 5128,
+    "notes": "From the documented max_tokens:0 cache pre-warm example. usage.iterations[] repeats the counters per sampling iteration (type=message). Use the TOP-LEVEL counters; summing top-level plus iterations double counts. Semantics of iterations for multi-iteration turns (sum vs. top-level) are UNCONFIRMED. output_tokens=0 is a real zero here, not absent."
+  },
+  "messages-code-execution.json": {
+    "input_tokens": 105,
+    "output_tokens": 239,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 344,
+    "notes": "Code execution: usage.server_tool_use.code_execution_requests (docs example). Execution time (container hours) is billed separately and is NOT in usage. Cache fields absent => null. NOTE the Messages usage schema lists only web_fetch_requests/web_search_requests under server_tool_use; code_execution_requests appears only in the code-execution doc example."
+  },
+  "batch-results.jsonl": {
+    "input_tokens": 1590,
+    "output_tokens": 910,
+    "cache_read_tokens": 2000,
+    "cache_write_tokens": 2000,
+    "reasoning_tokens": 370,
+    "total_tokens": 6500,
+    "notes": "Aggregate over the whole file (per custom_id line). Lines are in ARBITRARY order; key by custom_id. Only result.type=succeeded carries message.usage; errored/canceled/expired carry none and are not billed. service_tier=batch (50% price, same token fields). Line req-b omits cache_creation_input_tokens (absent, treat as 0 in sums). Fast mode unavailable on batches."
+  },
+  "batch-results-partial.jsonl": {
+    "input_tokens": 90,
+    "output_tokens": 310,
+    "cache_read_tokens": 2000,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 120,
+    "total_tokens": 2400,
+    "notes": "Interrupted download: only 1 complete line received (a line cut mid-JSON would not parse and must be discarded). Totals reflect only received lines; the other requests are UNKNOWN (not zero) - reconcile against request_counts or re-stream /results. cache_creation_input_tokens is absent on this line => cache_write null; total_tokens derivation treats absent as 0."
+  },
+  "managed-agents-session.json": {
+    "input_tokens": 5000,
+    "output_tokens": 3200,
+    "cache_read_tokens": 20000,
+    "cache_write_tokens": 2000,
+    "reasoning_tokens": null,
+    "total_tokens": 30200,
+    "notes": "Managed Agents session object usage = CUMULATIVE totals over all model calls in the session (fetch after idle). No cache_creation_input_tokens scalar: cache_write = sum of cache_creation.ephemeral_*. The same cumulative snapshot is emitted as a session.usage event; snapshot, not delta - never add successive snapshots. Event envelope and an interrupted-stream fixture: UNCONFIRMED (envelope not seen in docs)."
+  },
+  "ratelimit.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "No token usage; rate-limit metadata only. 429/529 bodies carry no usage: a failed request consumes nothing meterable. The spend-cap 429 has NO retry-after (distinguish via error.details.error_code). Header values and the plain-429 message text are synthetic (docs give no literal message for ITPM/OTPM 429s)."
+  },
+  "vertex-raw.json": {
+    "input_tokens": 512,
+    "output_tokens": 129,
+    "cache_read_tokens": 2048,
+    "cache_write_tokens": 256,
+    "reasoning_tokens": 40,
+    "total_tokens": 2945,
+    "notes": "POST .../publishers/anthropic/models/{model}:rawPredict ; model id is in the URL (omit `model` from body); body has anthropic_version (vertex-2023-10-16 or 2026-10-21). Docs say a request is 'nearly identical' to Messages; the exact RESPONSE body (whether `model` and output_tokens_details are present) is UNCONFIRMED - fixture assumes Messages shape."
+  },
+  "vertex-raw.sse": {
+    "input_tokens": 512,
+    "output_tokens": 129,
+    "cache_read_tokens": 2048,
+    "cache_write_tokens": 256,
+    "reasoning_tokens": null,
+    "total_tokens": 2945,
+    "notes": ":streamRawPredict. Event framing assumed to be Anthropic SSE (UNCONFIRMED for the Google-managed offering; Google's own docs not fetched). Delta here carries ONLY output_tokens (as in the documented simple stream): input/cache come from message_start, output from delta (cumulative, replaces the placeholder 4)."
+  },
+  "vertex-raw-interrupted.sse": {
+    "input_tokens": 512,
+    "output_tokens": null,
+    "cache_read_tokens": 2048,
+    "cache_write_tokens": 256,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Cut before message_delta. Input side known; output unknown (placeholder 4 is not final). Vertex-specific error/terminal framing for interrupted streams: UNCONFIRMED."
+  },
+  "bedrock-invoke.json": {
+    "input_tokens": 640,
+    "output_tokens": 211,
+    "cache_read_tokens": 1024,
+    "cache_write_tokens": 128,
+    "reasoning_tokens": null,
+    "total_tokens": 2003,
+    "notes": "POST /model/{modelId}/invoke ; modelId is in the PATH (never in body); body carries anthropic_version=bedrock-2023-05-31. AWS API reference lists only Content-Type / X-Amzn-Bedrock-PerformanceConfig-Latency / X-Amzn-Bedrock-Service-Tier response headers - NO token-count headers documented. Response body is model-native; that it is the Anthropic Messages shape incl. usage is UNCONFIRMED by the pages read (docs only show response_body.get('content'))."
+  },
+  "bedrock-invoke-stream.jsonl": {
+    "input_tokens": 640,
+    "output_tokens": 211,
+    "cache_read_tokens": 1024,
+    "cache_write_tokens": 128,
+    "reasoning_tokens": null,
+    "total_tokens": 2003,
+    "notes": "POST /model/{modelId}/invoke-with-response-stream. Wire = AWS event stream (application/vnd.amazon.eventstream); each frame :event-type=chunk with payload {\"bytes\": <base64>}; each line here is the base64-DECODED JSON, i.e. the Anthropic event. Same cumulative-delta semantics as Messages SSE. amazon-bedrock-invocationMetrics in the last chunk: UNCONFIRMED (not in AWS pages read), so not modeled."
+  },
+  "bedrock-invoke-stream-interrupted.jsonl": {
+    "input_tokens": 640,
+    "output_tokens": null,
+    "cache_read_tokens": 1024,
+    "cache_write_tokens": 128,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Stream ends with an exception frame (:message-type=exception, :exception-type=modelStreamErrorException; HTTP 424 in the API ref) instead of message_stop. The last line is a convention of this fixture (member-name key), not decoded chunk JSON. Input known from message_start; output unknown."
+  },
+  "bedrock-converse.json": {
+    "input_tokens": 410,
+    "output_tokens": 163,
+    "cache_read_tokens": 2560,
+    "cache_write_tokens": 384,
+    "reasoning_tokens": null,
+    "total_tokens": 3517,
+    "notes": "POST /model/{modelId}/converse. usage.{inputTokens,outputTokens,totalTokens} required; cacheReadInputTokens/cacheWriteInputTokens/cacheDetails optional. Per the AWS description totalTokens = input + generated (573 here). Whether real totalTokens includes cache tokens, and whether inputTokens is exclusive of cache for Claude, are UNCONFIRMED. total_tokens here is observer-derived, NOT the reported 573. cacheDetails ttl strings ('1h','5m') are UNCONFIRMED literals; cacheWrite = sum(cacheDetails.inputTokens). No reasoning counter in TokenUsage => null."
+  },
+  "bedrock-converse-stream.jsonl": {
+    "input_tokens": 388,
+    "output_tokens": 142,
+    "cache_read_tokens": 1792,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": null,
+    "total_tokens": 2322,
+    "notes": "POST /model/{modelId}/converse-stream. Union event frames (:event-type = messageStart|contentBlockStart|contentBlockDelta|contentBlockStop|messageStop|metadata); line key = member name. Usage ONLY in the final `metadata` event, which comes AFTER messageStop (ordering UNCONFIRMED: API ref lists members alphabetically). messageStop is NOT the usage-final signal; metadata is. Usage is one-shot (not cumulative deltas). Text blocks shown without contentBlockStart (whether the service emits one for text is UNCONFIRMED)."
+  },
+  "bedrock-converse-stream-interrupted.jsonl": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Interrupted AFTER messageStop but BEFORE metadata: no usage at all (even input is unknown - Converse stream has no early usage). A stream that ends with an exception member (throttlingException 429, modelStreamErrorException 424, validationException 400, serviceUnavailableException 503, internalServerException 500) is equivalent. messageStop alone must not be treated as final for metering."
+  },
+  "bedrock-mantle.sse": {
+    "input_tokens": 300,
+    "output_tokens": 88,
+    "cache_read_tokens": 1500,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 21,
+    "total_tokens": 1888,
+    "notes": "Newer Bedrock endpoint POST https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages: same body as the Claude API, standard SSE, anthropic.-prefixed model id IN BODY, anthropic-version header, SigV4 service bedrock-mantle. Usage assumed identical to Messages; any Bedrock-specific differences UNCONFIRMED."
+  }
+}

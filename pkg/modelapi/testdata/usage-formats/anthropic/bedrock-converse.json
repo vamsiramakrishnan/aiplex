@@ -1,0 +1,33 @@
+{
+  "output": {
+    "message": {
+      "role": "assistant",
+      "content": [
+        {
+          "text": "Synthetic answer."
+        }
+      ]
+    }
+  },
+  "stopReason": "end_turn",
+  "usage": {
+    "inputTokens": 410,
+    "outputTokens": 163,
+    "totalTokens": 573,
+    "cacheReadInputTokens": 2560,
+    "cacheWriteInputTokens": 384,
+    "cacheDetails": [
+      {
+        "inputTokens": 128,
+        "ttl": "1h"
+      },
+      {
+        "inputTokens": 256,
+        "ttl": "5m"
+      }
+    ]
+  },
+  "metrics": {
+    "latencyMs": 1275
+  }
+}
