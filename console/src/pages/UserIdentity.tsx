@@ -7,6 +7,7 @@ import {
 } from '../api/userIdentity'
 import { StepList } from '../components/SetupSteps'
 import UserProviderForm, { describeProviderError } from '../components/UserProviderForm'
+import RefreshGroups from '../components/RefreshGroups'
 import UserTokenTest from '../components/UserTokenTest'
 
 function PlanView({ plan, onClose }: { plan: UserPlan; onClose: () => void }) {
@@ -39,6 +40,8 @@ export default function UserIdentity() {
   const [plan, setPlan] = useState<UserPlan | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [refreshing, setRefreshing] = useState<UserProvider | null>(null)
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['user-providers'] })
 
   const planMutation = useMutation({ mutationFn: planUserProvider, onSuccess: setPlan })
@@ -77,6 +80,7 @@ export default function UserIdentity() {
         </p>
       )}
       {notice && <p role="status" className="text-sm text-green-700">{notice}</p>}
+      {warnings.length > 0 && <ul aria-label="Warnings" className="list-disc ml-5 text-sm text-amber-800 dark:text-amber-300">{warnings.map(w => <li key={w}>{w}</li>)}</ul>}
 
       {form && catalog && (
         <UserProviderForm
@@ -84,7 +88,7 @@ export default function UserIdentity() {
           presets={catalog.presets}
           existing={form.mode === 'edit' ? form.provider : undefined}
           onCancel={() => setForm(null)}
-          onDone={(saved) => { setForm(null); setNotice(`Saved provider ${saved.id}.`); void refresh() }}
+          onDone={(saved) => { setForm(null); setNotice(`Saved provider ${saved.id}.`); setWarnings(saved.warnings ?? []); void refresh() }}
         />
       )}
 
@@ -118,6 +122,7 @@ export default function UserIdentity() {
                   <td className="whitespace-nowrap space-x-2">
                     <button type="button" className="text-brand-600 hover:underline" aria-label={`Edit provider ${p.id}`} onClick={() => setForm({ mode: 'edit', provider: p })}>Edit</button>
                     <button type="button" className="text-brand-600 hover:underline" aria-label={`Show setup plan for ${p.id}`} onClick={() => planMutation.mutate(p.id)}>Plan</button>
+                    {p.directory && <button type="button" className="text-brand-600 hover:underline" aria-label={`Refresh groups for a user of ${p.id}`} onClick={() => setRefreshing(p)}>Refresh groups</button>}
                     <button type="button" className="text-brand-600 hover:underline" aria-label={`Test a token against ${p.id}`} onClick={() => setTesting(p.id)}>Test</button>
                     <button type="button" className="text-red-600 hover:underline" aria-label={`Remove provider ${p.id}`} onClick={() => setConfirming(p.id)}>Remove</button>
                     {confirming === p.id && (
@@ -135,6 +140,7 @@ export default function UserIdentity() {
         </div>
       )}
 
+      {refreshing && <RefreshGroups provider={refreshing} onClose={() => setRefreshing(null)} />}
       {plan && <PlanView plan={plan} onClose={() => setPlan(null)} />}
       {providers.data && !providers.error && (
         testing === null

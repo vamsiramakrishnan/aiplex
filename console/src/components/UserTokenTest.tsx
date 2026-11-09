@@ -74,6 +74,13 @@ export default function UserTokenTest({ providers, initialProvider = '' }: { pro
   )
 }
 
+function groupsSource(src: string): string {
+  if (src === 'token') return "the token's group claim"
+  if (src.startsWith('directory:')) return `the directory (${src.slice('directory:'.length)})`
+  if (src === 'unavailable') return 'nowhere: unavailable'
+  return src
+}
+
 export function VerifyResult({ result }: { result: UserVerifyResult }) {
   return (
     <div aria-label="Token test result" className="space-y-2">
@@ -91,6 +98,7 @@ export function VerifyResult({ result }: { result: UserVerifyResult }) {
         <dl className="text-xs grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
           <dt className="text-gray-500">Principal</dt>
           <dd>{result.principal_id ? <code className="break-all">{result.principal_id}</code> : 'unknown'}</dd>
+          {result.client_id && <><dt className="text-gray-500">Client application</dt><dd><code className="break-all">{result.client_id}</code></dd></>}
           <dt className="text-gray-500">Groups</dt>
           <dd>
             {result.groups_available
@@ -99,6 +107,7 @@ export function VerifyResult({ result }: { result: UserVerifyResult }) {
                 : 'The token carries an empty group list (verified: this user is in no groups).')
               : <span role="note" className="text-amber-800 dark:text-amber-300">Groups unavailable. {result.groups_note || 'This token did not provide verified group membership.'} Unavailable is not the same as empty: group-based access will not match.</span>}
           </dd>
+          {result.groups_source && <><dt className="text-gray-500">Groups came from</dt><dd>{groupsSource(result.groups_source)}</dd></>}
         </dl>
       )}
       {!result.live_authentication && <p className="text-xs text-yellow-800 dark:text-yellow-300">Live authentication is off: this is a dry run and the token would not yet authenticate real requests.</p>}

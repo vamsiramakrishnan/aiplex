@@ -1,20 +1,32 @@
-import { endpointGroups, type AccessPointSpec, type ModelSurfaceRecord } from '../api/accessPoints'
+import { endpointGroups, endpointGroupsFromConnect, type AccessPointSpec, type ModelSurfaceRecord } from '../api/accessPoints'
+import type { ConnectInfo } from '../api/overview'
 import CopyButton from './CopyButton'
 
 /** Endpoint URLs of an access point, grouped by protocol, each with a copy button. */
-export default function EndpointList({ spec, surfaces, origin }: {
+export default function EndpointList({ spec, surfaces, origin, connect, connectError, connectLoading }: {
   spec: AccessPointSpec
   surfaces: ModelSurfaceRecord[] | undefined
   origin?: string
+  /** Server-built URLs (preferred). When absent the URLs are derived from this browser's address. */
+  connect?: ConnectInfo | null
+  connectError?: string
+  connectLoading?: boolean
 }) {
-  const groups = endpointGroups(spec, origin ?? window.location.origin, surfaces)
+  const server = !!connect
+  const groups = connect ? endpointGroupsFromConnect(spec, connect) : endpointGroups(spec, origin ?? window.location.origin, surfaces)
   return (
     <section aria-label="Endpoints" className="space-y-3">
       <h3 className="text-lg font-medium">Endpoints</h3>
-      <p className="text-xs text-gray-500">
-        URLs use this console&apos;s origin. If clients reach AIPlex through a different public hostname, substitute it.
-        Callers authenticate with their AIPlex token; the access point decides what that token may reach.
-      </p>
+      {server ? (
+        <p className="text-xs text-gray-500">URLs are built by the server from its configured public URL. Callers authenticate with their AIPlex token; the access point decides what that token may reach.</p>
+      ) : connectLoading ? (
+        <p role="status" className="text-xs text-gray-500">Asking the server for its public URLs…</p>
+      ) : (
+        <p role="note" className="text-xs text-amber-700 dark:text-amber-400">
+          These URLs are derived from this console&apos;s address because the server could not provide its own{connectError ? `: ${connectError}` : ''}.
+          If clients reach AIPlex through a different public hostname, substitute it.
+        </p>
+      )}
       {groups.length === 0 && <p className="text-sm text-gray-500">This access point exposes no models, tools or skills yet.</p>}
       {groups.map(g => (
         <div key={g.id} role="group" aria-label={g.title} className="rounded border border-gray-200 dark:border-gray-800 p-3">

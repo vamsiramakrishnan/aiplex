@@ -3,8 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   deleteAgentIdentity, identityErrorCode, listAgentIdentities, listIdentityPresets, planAgentIdentity, putAgentIdentity,
   verifyAgentIdentityToken,
+  type IdentityBindingRequest,
   type IdentityBinding, type IdentityPlan, type IdentityPreset, type IdentityStep, type IdentityVerifyResult,
 } from '../api/agentIdentity'
+
+import { overlapConflict } from '../api/userIdentity'
 
 const BINDING_ID = /^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$/
 
@@ -17,6 +20,8 @@ function describeError(error: unknown, action: string): string {
       return `${action}: that external identity is already bound. ${message}`
     case 'AGENT_NOT_ACTIVE':
       return `${action}: the agent registration is not active. Activate it before binding an identity.`
+    case 'IDENTITY_OVERLAPS_USER_PROVIDER':
+      return `${action}: ${message}`
     case 'AGENT_NOT_FOUND':
       return `${action}: the agent is not registered.`
     default:
@@ -77,7 +82,7 @@ export default function AgentIdentities({ agentId }: { agentId: string }) {
         <AddIdentityForm
           agentId={agentId}
           presets={catalog.presets}
-          onDone={(binding) => { setAdding(false); setNotice(`Added identity ${binding.id}.`); refresh() }}
+          onDone={(binding) => { setAdding(false); setNotice(`Added identity ${binding.id}.${binding.warnings?.length ? ' Warning: ' + binding.warnings.join(' ') : ''}`); refresh() }}
         />
       )}
 
@@ -138,6 +143,11 @@ function AddIdentityForm({ agentId, presets, onDone }: { agentId: string; preset
   const [inputs, setInputs] = useState<Record<string, string>>({})
   const [claims, setClaims] = useState('')
   const [error, setError] = useState('')
+  // A 409 overlap names the user identity provider that trusts the same issuer
+  // and audience. Saving anyway is an explicit second step that sends
+  // acknowledge_overlap for this one request only.
+  const [overlap, setOverlap] = useState<ReturnType<typeof overlapConflict>>()
+  const [pending, setPending] = useState<IdentityBindingRequest | null>(null)
   const preset = presets.find(p => p.id === presetId)
 
   const choose = (id: string) => {
@@ -152,7 +162,12 @@ function AddIdentityForm({ agentId, presets, onDone }: { agentId: string; preset
   const save = useMutation({
     mutationFn: (body: Parameters<typeof putAgentIdentity>[2]) => putAgentIdentity(agentId, bindingId, body),
     onSuccess: onDone,
-    onError: (e) => setError(describeError(e, 'Could not add identity')),
+    onError: (e) => {
+      const o = overlapConflict(e)
+      if (o && o.code === 'IDENTITY_OVERLAPS_USER_PROVIDER') { setOverlap(o); setError(''); return }
+      setOverlap(undefined)
+      setError(describeError(e, 'Could not add identity'))
+    },
   })
 
   const missing = preset?.inputs.filter(f => f.required && !(inputs[f.name] ?? '').trim()) ?? []
@@ -170,12 +185,15 @@ function AddIdentityForm({ agentId, presets, onDone }: { agentId: string; preset
     const clean: Record<string, string> = {}
     for (const [k, v] of Object.entries(inputs)) if (v.trim()) clean[k] = v.trim()
     setError('')
-    save.mutate({
+    setOverlap(undefined)
+    const body: IdentityBindingRequest = {
       preset: preset.id,
       inputs: clean,
       ...(Object.keys(requiredClaims).length ? { required_claims: requiredClaims } : {}),
       ...(displayName.trim() ? { display_name: displayName.trim() } : {}),
-    })
+    }
+    setPending(body)
+    save.mutate(body)
   }
 
   return (
@@ -226,6 +244,14 @@ function AddIdentityForm({ agentId, presets, onDone }: { agentId: string; preset
             </div>
           )}
           {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+          {overlap && (
+            <div role="alert" className="text-xs border border-amber-400 bg-amber-50 text-amber-900 rounded p-2 space-y-1">
+              <p>{overlap.message}</p>
+              {overlap.conflict.id && <p>Conflicting {overlap.conflict.kind ?? 'resource'}: <code>{overlap.conflict.id}</code>{overlap.conflict.issuer && <> (issuer <code>{overlap.conflict.issuer}</code>)</>}</p>}
+              <p>Live authentication rejects tokens claimed by both an agent identity binding and a user identity provider. You can save anyway, knowing those tokens will be rejected.</p>
+              <button type="button" disabled={save.isPending || !pending} onClick={() => pending && save.mutate({ ...pending, acknowledge_overlap: true })} className="px-2 py-1 border border-amber-600 rounded">Save anyway (acknowledge overlap)</button>
+            </div>
+          )}
           <button type="submit" disabled={!idValid || missing.length > 0 || save.isPending} className="px-3 py-1 text-sm bg-brand-600 text-white rounded disabled:opacity-50">
             {save.isPending ? 'Saving…' : 'Save identity'}
           </button>

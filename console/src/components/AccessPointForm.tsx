@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  CALLER_KINDS, fieldForError, listAgents, listClientRegistrations, listModelSurfaces, listToolConnections, parseList,
+  CALLER_KINDS, fieldForError, surfaceOptionLabel, surfaceUnroutableReason, listAgents, listClientRegistrations, listModelSurfaces, listToolConnections, parseList,
   type AccessPointSpec, type CallerKind, type GroupRef,
 } from '../api/accessPoints'
 import { listInstances } from '../api/client'
@@ -174,7 +174,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
   const idValid = ID_PATTERN.test(d.id)
   const kindsOk = d.caller_kinds.length > 0
   const qosOk = !d.qosOn || CLASS_PATTERN.test(d.qosClass)
-  const modelsOk = d.models.every(m => m.name.trim() && m.surface_ref && m.native_model.trim())
+  const modelsOk = d.models.every(m => m.name.trim() && m.surface_ref && m.native_model.trim() && !(surfaces.data?.some(x => x.id === m.surface_ref && surfaceUnroutableReason(x.spec.surface))))
   const toolsOk = d.tools.every(t => t.connection_ref)
   const resources = d.models.length + d.tools.length + d.skills.length
   const canSave = idValid && kindsOk && qosOk && modelsOk && toolsOk && resources > 0 && !saving && !locked
@@ -262,7 +262,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
               <label htmlFor={`${uid}-m${i}-surface`} className="block text-xs mb-1">Model surface</label>
               <select id={`${uid}-m${i}-surface`} value={m.surface_ref} onChange={e => updateModel(i, { surface_ref: e.target.value })} className={input}>
                 <option value="">Choose a surface…</option>
-                {(surfaces.data ?? []).map(s => <option key={s.id} value={s.id}>{s.id} ({s.spec.surface.protocol})</option>)}
+                {(surfaces.data ?? []).map(s => <option key={s.id} value={s.id} disabled={!!surfaceUnroutableReason(s.spec.surface)}>{surfaceOptionLabel(s.spec.surface)}</option>)}
                 {m.surface_ref && !(surfaces.data ?? []).some(s => s.id === m.surface_ref) && <option value={m.surface_ref}>{m.surface_ref} (not found)</option>}
               </select>
             </div>
@@ -275,6 +275,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
               <label htmlFor={`${uid}-m${i}-name`} className="block text-xs mb-1">Name clients use</label>
               <input id={`${uid}-m${i}-name`} value={m.name} onChange={e => updateModel(i, { name: e.target.value })} className={`${input} font-mono`} />
             </div>
+            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); const why = surf && surfaceUnroutableReason(surf.spec.surface); return why ? <p role="alert" className="text-xs text-red-600 sm:col-span-4">Surface {m.surface_ref} is unavailable for access points: {why}. Choose another surface.</p> : null })()}
             <button type="button" className={btn} aria-label={`Remove model ${i + 1}`} onClick={() => patch({ models: d.models.filter((_, j) => j !== i) })}>Remove</button>
           </div>
         ))}

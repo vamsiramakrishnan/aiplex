@@ -48,6 +48,8 @@ export interface IdentityBinding {
   revision: number
   principal_id: string
   actor_id?: string
+  /** Response-only. Never sent back. */
+  warnings?: string[]
 }
 
 export interface IdentityBindingRequest {
@@ -56,6 +58,8 @@ export interface IdentityBindingRequest {
   required_claims?: Record<string, string>
   display_name?: string
   disabled?: boolean
+  /** Write-only: saves despite an overlap with a user identity provider. Never persisted. */
+  acknowledge_overlap?: boolean
 }
 
 export interface IdentityStep { title: string; description?: string; language?: string; content?: string }
