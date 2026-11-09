@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/userfederation"
 )
@@ -47,6 +48,17 @@ type UserFederation struct {
 	Engine    *userfederation.Engine
 }
 
+// directoryGroupsClaim carries directory provenance from verify to identity
+// extraction inside the normalized claim map. Its value is a Go type that no
+// JSON-decoded token can produce, so an external token cannot forge it.
+const directoryGroupsClaim = "\x00aiplex.directory_groups"
+
+type directoryGroups struct {
+	Source     string
+	ObservedAt time.Time
+	ExpiresAt  time.Time
+}
+
 // candidate selects the provider that claims the token from unverified routing
 // claims (issuer and audience). nil means no provider claims it.
 func (f *UserFederation) candidate(ctx context.Context, token string) (*userfederation.Provider, error) {
@@ -73,7 +85,7 @@ func (f *UserFederation) candidate(ctx context.Context, token string) (*userfede
 }
 
 func (f *UserFederation) verify(r *http.Request, token string, candidate *userfederation.Provider) (map[string]any, string, error) {
-	result := f.Engine.Evaluate(r.Context(), userfederation.Input{Token: token, Pinned: candidate, Live: true})
+	result := f.Engine.Evaluate(r.Context(), userfederation.Input{Token: token, Pinned: candidate, Live: true, Tenant: f.Tenant})
 	claims, provider := result.VerifiedClaims(), result.MatchedProvider()
 	if claims == nil || provider == nil {
 		failed := "verification"
@@ -95,13 +107,23 @@ func (f *UserFederation) verify(r *http.Request, token string, candidate *userfe
 		}
 	}
 	// Groups are carried only when read from the pinned claim of the verified
-	// token; unavailable groups leave the claim absent, never empty.
+	// token or resolved through the provider's directory after full
+	// verification; unavailable groups leave the claim absent, never empty.
 	if groups := result.VerifiedGroups(); groups.Available {
 		list := make([]any, len(groups.List))
 		for i, g := range groups.List {
 			list[i] = g
 		}
 		normalized["groups"] = list
+		if groups.Source != userfederation.GroupSourceToken {
+			normalized[directoryGroupsClaim] = directoryGroups{Source: groups.Source, ObservedAt: groups.ObservedAt.UTC(), ExpiresAt: groups.ExpiresAt.UTC()}
+		}
+	}
+	// The client application is carried only from the provider's configured
+	// client_claim of the fully verified token (never from an unverified or
+	// unconfigured azp). It becomes identity.AuthorizedParty.
+	if client := result.VerifiedClient(); client != "" {
+		normalized["azp"] = client
 	}
 	return normalized, UserFederationPoolID(f.Tenant), nil
 }

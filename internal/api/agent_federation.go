@@ -15,6 +15,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/agentfederation"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/userfederation"
 )
 
 // AgentFederationHandler serves cross-cloud agent identity presets, bindings,
@@ -32,6 +33,9 @@ type AgentFederationHandler struct {
 	LiveEnabled bool
 	// ValidateJWKS optionally checks a JWKS URL against outbound policy at write time.
 	ValidateJWKS func(string) error
+	// Providers are the tenant's user identity providers, consulted for overlap
+	// at write time and in dry-runs (nil = not checked).
+	Providers *userfederation.Store
 }
 
 // AgentLookup adapts the agent registry for the verification engine.
@@ -79,6 +83,8 @@ type BindingView struct {
 	agentfederation.Binding
 	PrincipalID string `json:"principal_id"`
 	ActorID     string `json:"actor_id,omitempty"`
+	// Warnings are returned on writes that succeeded with an acknowledged risk.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (h *AgentFederationHandler) view(ctx context.Context, tenant string, b agentfederation.Binding) BindingView {
@@ -223,6 +229,15 @@ func (h *AgentFederationHandler) Put(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 409, "AGENT_NOT_ACTIVE", "agent registration is not active")
 		return
 	}
+	overlap, err := auth.BindingOverlap(r.Context(), h.Providers, tenant, binding)
+	if err != nil {
+		Error(w, r, http.StatusInternalServerError, "RESOURCE_ERROR", "user identity provider store unavailable")
+		return
+	}
+	if overlap != nil && !req.AcknowledgeOverlap {
+		overlapConflict(w, r, auth.CodeOverlapsUserProvider, overlap)
+		return
+	}
 	saved, err := h.Bindings.Put(r.Context(), tenant, binding, expected)
 	if err != nil {
 		h.bindingError(w, r, err)
@@ -233,7 +248,11 @@ func (h *AgentFederationHandler) Put(w http.ResponseWriter, r *http.Request) {
 	if expected == 0 {
 		status = http.StatusCreated
 	}
-	JSON(w, status, h.view(r.Context(), tenant, saved))
+	view := h.view(r.Context(), tenant, saved)
+	if overlap != nil {
+		view.Warnings = append(view.Warnings, "acknowledged overlap: "+overlap.Error())
+	}
+	JSON(w, status, view)
 }
 
 // Delete DELETE /api/v1/agents/{clientId}/identities/{id} (If-Match required)
@@ -315,6 +334,10 @@ func (h *AgentFederationHandler) Verify(w http.ResponseWriter, r *http.Request) 
 		input.Pinned = &b
 	}
 	result := h.Engine.Evaluate(r.Context(), input)
+	if agent, user, err := auth.TokenClaimants(r.Context(), tenant, req.Token, h.Bindings, h.Providers); err == nil && agent != nil && user != nil {
+		result.Checks = append(result.Checks, overlapCheck(agent, user, "user"))
+		result.Valid = false
+	}
 	req.Token = ""
 	response := VerifyResponse{Result: result, LiveAuthentication: h.LiveEnabled}
 	if matched := result.MatchedBinding(); matched != nil {

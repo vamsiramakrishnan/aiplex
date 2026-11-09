@@ -68,3 +68,23 @@ func TestUserFederationWiring(t *testing.T) {
 		}
 	}
 }
+
+func TestUserDirectoriesWiring(t *testing.T) {
+	t.Setenv("AIPLEX_USER_DIRECTORY_CACHE_TTL", "")
+	// Without an outbound endpoint policy there is no resolver (directory providers fail closed).
+	dirs, secretName, err := userDirectories(nil, nil, false)
+	if err != nil || dirs != nil || secretName != nil {
+		t.Fatalf("no runtime: %v %v", dirs, err)
+	}
+	t.Setenv("AIPLEX_USER_DIRECTORY_CACHE_TTL", "10m")
+	if _, _, err := userDirectories(nil, nil, false); err == nil {
+		t.Fatal("cache TTL above five minutes accepted")
+	}
+	t.Setenv("AIPLEX_USER_DIRECTORY_CACHE_TTL", "")
+	tenant := func(*http.Request) (string, error) { return "development", nil }
+	wif := auth.NewWIFValidator(registry.NewMemoryStore(), auth.WIFConfig{})
+	h, err := userFederation(&config.Config{}, resources.NewMemoryStore(), endpointpolicy.Config{}, tenant, wif, &auth.UserDirectories{})
+	if err != nil || h.Directories == nil || h.Engine.Directory == nil {
+		t.Fatalf("directories not wired: %+v %v", h, err)
+	}
+}

@@ -2,11 +2,15 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/agentfederation"
+	"github.com/vamsiramakrishnan/aiplex/pkg/membership"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/userfederation"
 )
@@ -23,6 +27,16 @@ type UserIdentityProviderHandler struct {
 	LiveEnabled bool
 	// ValidateJWKS optionally checks a JWKS URL against outbound policy at write time.
 	ValidateJWKS func(string) error
+	// Bindings are the tenant's agent identity bindings, consulted for overlap
+	// at write time and in dry-runs (nil = not checked).
+	Bindings *agentfederation.Store
+	// Directories resolve and cache directory group views (nil = directory
+	// lookups unavailable; providers with a directory then report groups as unavailable).
+	Directories *auth.UserDirectories
+	// SecretName renders a tenant secret reference as a deployment secret name in plans.
+	SecretName func(tenant, ref string) string
+	// Now is the clock used for invalidation watermarks (default time.Now).
+	Now func() time.Time
 }
 
 // Mount registers the routes under /api/v1. Writes require the admin role;
@@ -36,6 +50,7 @@ func (h *UserIdentityProviderHandler) Mount(r chi.Router) {
 	r.With(RequireRole(models.RoleAdmin)).Put("/identity/user-providers/{id}", h.Put)
 	r.With(RequireRole(models.RoleAdmin)).Delete("/identity/user-providers/{id}", h.Delete)
 	r.With(readers).Post("/identity/user-providers/{id}/plan", h.Plan)
+	r.With(RequireRole(models.RoleAdmin)).Post("/identity/user-providers/{id}/membership/invalidate", h.InvalidateMembership)
 }
 
 type userPresetCatalog struct {
@@ -55,6 +70,23 @@ type UserProviderView struct {
 	// PrincipalPool is the pool ID to scope role bindings to; principal IDs are
 	// CanonicalPrincipalID(issuer, principal_pool, subject).
 	PrincipalPool string `json:"principal_pool"`
+	// Warnings are returned on writes that succeeded with an acknowledged risk.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// overlapConflict writes the 409 for an unacknowledged overlap, naming the
+// conflicting resource in the message and in details.conflict.
+func overlapConflict(w http.ResponseWriter, r *http.Request, code string, o *auth.OverlapError) {
+	JSON(w, http.StatusConflict, models.APIError{Code: code, Message: o.Error(), RequestID: GetRequestID(r.Context()), Details: map[string]any{"conflict": map[string]string{"kind": o.Kind, "id": o.ID, "issuer": o.Issuer, "audience": o.Audience}, "acknowledge_with": "acknowledge_overlap"}})
+}
+
+// overlapCheck is the failing dry-run check for a token claimed by both kinds.
+func overlapCheck(agent *agentfederation.Binding, user *userfederation.Provider, other string) agentfederation.Check {
+	reason := fmt.Sprintf("token is also claimed by agent identity binding %q (agent %s); live authentication rejects tokens claimed by both an agent identity binding and a user identity provider", agent.ClientID+"/"+agent.ID, agent.ClientID)
+	if other == "user" {
+		reason = fmt.Sprintf("token is also claimed by user identity provider %q; live authentication rejects tokens claimed by both an agent identity binding and a user identity provider", user.ID)
+	}
+	return agentfederation.Check{Name: auth.CheckFederationOverlap, Status: agentfederation.StatusFail, Reason: reason}
 }
 
 func (h *UserIdentityProviderHandler) view(tenant string, p userfederation.Provider) UserProviderView {
@@ -149,6 +181,15 @@ func (h *UserIdentityProviderHandler) Put(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	overlap, err := auth.ProviderOverlap(r.Context(), h.Bindings, tenant, provider)
+	if err != nil {
+		Error(w, r, http.StatusInternalServerError, "RESOURCE_ERROR", "agent identity binding store unavailable")
+		return
+	}
+	if overlap != nil && !req.AcknowledgeOverlap {
+		overlapConflict(w, r, auth.CodeOverlapsAgentBinding, overlap)
+		return
+	}
 	saved, err := h.Providers.Put(r.Context(), tenant, provider, expected)
 	if err != nil {
 		h.providerError(w, r, err)
@@ -159,7 +200,66 @@ func (h *UserIdentityProviderHandler) Put(w http.ResponseWriter, r *http.Request
 	if expected == 0 {
 		status = http.StatusCreated
 	}
-	JSON(w, status, h.view(tenant, saved))
+	view := h.view(tenant, saved)
+	if overlap != nil {
+		view.Warnings = append(view.Warnings, "acknowledged overlap: "+overlap.Error())
+	}
+	JSON(w, status, view)
+}
+
+// InvalidateRequest names the user whose cached directory membership is dropped.
+type InvalidateRequest struct {
+	// Subject is the provider's verified subject claim value (oid for Entra, sub otherwise).
+	Subject string `json:"subject"`
+}
+
+// InvalidateResponse reports the invalidated principal and watermark.
+type InvalidateResponse struct {
+	PrincipalID string    `json:"principal_id"`
+	NotBefore   time.Time `json:"not_before"`
+	// Scope reminds callers that the cache is per server process.
+	Scope string `json:"scope"`
+}
+
+// InvalidateMembership POST /api/v1/identity/user-providers/{id}/membership/invalidate
+//
+// Forces the next request (or dry-run) of the subject to resolve its groups
+// from the directory again, observed no earlier than now. Results of lookups
+// already in flight cannot repopulate the cache. The cache is process-local:
+// call every replica (or wait at most the cache TTL).
+func (h *UserIdentityProviderHandler) InvalidateMembership(w http.ResponseWriter, r *http.Request) {
+	tenant, ok := h.tenant(w, r)
+	if !ok {
+		return
+	}
+	var req InvalidateRequest
+	if err := strictJSON(r, 4<<10, &req); err != nil || !membership.Text(req.Subject) {
+		Error(w, r, 400, "INVALID_REQUEST", "body must be {\"subject\": \"<verified subject claim value>\"}")
+		return
+	}
+	p, err := h.Providers.Get(r.Context(), tenant, federationParam(r, "id"))
+	if err != nil {
+		h.providerError(w, r, err)
+		return
+	}
+	if p.Directory == nil {
+		Error(w, r, http.StatusConflict, "DIRECTORY_NOT_CONFIGURED", "user identity provider has no directory block; there is no cached directory membership to invalidate")
+		return
+	}
+	if h.Directories == nil {
+		Error(w, r, http.StatusServiceUnavailable, "DIRECTORY_UNAVAILABLE", "directory lookups are not configured on this server")
+		return
+	}
+	now := time.Now()
+	if h.Now != nil {
+		now = h.Now()
+	}
+	principal, err := h.Directories.Invalidate(tenant, p, req.Subject, now)
+	if err != nil {
+		Error(w, r, http.StatusServiceUnavailable, "INVALIDATION_FAILED", "membership cache invalidation failed; the cached view expires within the cache TTL")
+		return
+	}
+	JSON(w, http.StatusOK, InvalidateResponse{PrincipalID: principal, NotBefore: now.UTC(), Scope: "this server process"})
 }
 
 // Delete DELETE /api/v1/identity/user-providers/{id} (If-Match required)
@@ -191,7 +291,18 @@ func (h *UserIdentityProviderHandler) Plan(w http.ResponseWriter, r *http.Reques
 		h.providerError(w, r, err)
 		return
 	}
-	plan, err := userfederation.RenderPlan(p, userfederation.PlanContext{APIBaseURL: h.PublicURL, PrincipalPool: auth.UserFederationPoolID(tenant), FederationEnabled: h.LiveEnabled})
+	pc := userfederation.PlanContext{APIBaseURL: h.PublicURL, PrincipalPool: auth.UserFederationPoolID(tenant), FederationEnabled: h.LiveEnabled}
+	if h.SecretName != nil {
+		pc.SecretName = func(ref string) string { return h.SecretName(tenant, ref) }
+	}
+	if h.Directories != nil {
+		ttl := h.Directories.CacheTTL
+		if ttl == 0 {
+			ttl = time.Minute
+		}
+		pc.DirectoryCacheTTL = ttl.String()
+	}
+	plan, err := userfederation.RenderPlan(p, pc)
 	if err != nil {
 		Error(w, r, 400, "INVALID_PLAN", err.Error())
 		return
@@ -226,7 +337,7 @@ func (h *UserIdentityProviderHandler) Verify(w http.ResponseWriter, r *http.Requ
 		Error(w, r, 400, "INVALID_REQUEST", "body must be {\"token\": \"...\", \"provider_id\"?: \"...\"}")
 		return
 	}
-	input := userfederation.Input{Token: req.Token, Finder: h.Providers.Tenant(tenant)}
+	input := userfederation.Input{Token: req.Token, Finder: h.Providers.Tenant(tenant), Tenant: tenant}
 	if req.ProviderID != "" {
 		p, err := h.Providers.Get(r.Context(), tenant, req.ProviderID)
 		if err != nil {
@@ -236,6 +347,10 @@ func (h *UserIdentityProviderHandler) Verify(w http.ResponseWriter, r *http.Requ
 		input.Pinned = &p
 	}
 	result := h.Engine.Evaluate(r.Context(), input)
+	if agent, user, err := auth.TokenClaimants(r.Context(), tenant, req.Token, h.Bindings, h.Providers); err == nil && agent != nil && user != nil {
+		result.Checks = append(result.Checks, overlapCheck(agent, user, "agent"))
+		result.Valid, result.GroupsAvailable, result.Groups, result.ClientID = false, false, nil, ""
+	}
 	req.Token = ""
 	response := UserVerifyResponse{Result: result, LiveAuthentication: h.LiveEnabled}
 	if provider := result.MatchedProvider(); provider != nil {

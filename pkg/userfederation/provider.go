@@ -8,9 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/agentfederation"
+	"github.com/vamsiramakrishnan/aiplex/pkg/directory"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 )
 
@@ -48,7 +52,20 @@ type ProviderRequest struct {
 	RequiredClaims map[string]string `json:"required_claims,omitempty"`
 	DisplayName    string            `json:"display_name,omitempty"`
 	Disabled       bool              `json:"disabled,omitempty"`
+	// Directory optionally resolves groups from the IdP's directory.
+	Directory *directory.Spec `json:"directory,omitempty"`
+	// ClientClaim overrides the preset's default client claim; "none" disables it.
+	ClientClaim string `json:"client_claim,omitempty"`
+	// ClientIDs restricts accepted tokens to these client applications.
+	ClientIDs []string `json:"client_ids,omitempty"`
+	// AcknowledgeOverlap saves the provider even though an agent identity
+	// binding of the tenant trusts the same issuer and audience. It is not
+	// persisted: every write that keeps the overlap must acknowledge it again.
+	AcknowledgeOverlap bool `json:"acknowledge_overlap,omitempty"`
 }
+
+// ClientClaimNone disables the preset's default client claim.
+const ClientClaimNone = "none"
 
 // Provider is the persisted user-identity-provider resource: request plus the
 // derived trust tuple, which is always recomputed server-side.
@@ -59,9 +76,19 @@ type Provider struct {
 	DisplayName string            `json:"display_name,omitempty"`
 	Disabled    bool              `json:"disabled"`
 	Trust
+	// Directory resolves groups from the IdP's directory (see pkg/directory).
+	Directory *directory.Spec `json:"directory,omitempty"`
 	// ExtraClaims are the operator-added required claims (subset of RequiredClaims).
 	ExtraClaims map[string]string `json:"extra_claims,omitempty"`
 	Revision    uint64            `json:"revision"`
+}
+
+// DirectoryMode returns the effective directory mode ("" without a directory).
+func (p Provider) DirectoryMode() string {
+	if p.Directory == nil {
+		return ""
+	}
+	return p.Directory.Mode
 }
 
 // NewProvider derives and validates a provider from a request.
@@ -73,6 +100,26 @@ func NewProvider(id string, req ProviderRequest) (Provider, error) {
 		return Provider{}, fmt.Errorf("display_name is too long")
 	}
 	trust, err := Derive(req.Preset, req.Inputs, req.RequiredClaims)
+	if err != nil {
+		return Provider{}, err
+	}
+	preset, _ := Lookup(req.Preset)
+	switch req.ClientClaim {
+	case "":
+	case ClientClaimNone:
+		trust.ClientClaim = ""
+	default:
+		trust.ClientClaim = req.ClientClaim
+	}
+	if len(req.ClientIDs) > 0 {
+		ids := append([]string(nil), req.ClientIDs...)
+		sort.Strings(ids)
+		trust.ClientIDs = slices.Compact(ids)
+	}
+	if err := trust.Validate(); err != nil {
+		return Provider{}, err
+	}
+	dir, err := providerDirectory(preset, trust, req.Directory)
 	if err != nil {
 		return Provider{}, err
 	}
@@ -89,7 +136,57 @@ func NewProvider(id string, req ProviderRequest) (Provider, error) {
 			extra[k] = v
 		}
 	}
-	return Provider{ID: id, Preset: req.Preset, Inputs: inputs, DisplayName: req.DisplayName, Disabled: req.Disabled, Trust: trust, ExtraClaims: extra}, nil
+	return Provider{ID: id, Preset: req.Preset, Inputs: inputs, DisplayName: req.DisplayName, Disabled: req.Disabled, Trust: trust, Directory: dir, ExtraClaims: extra}, nil
+}
+
+// providerDirectory validates the directory block against the preset and the
+// group source:
+//
+//   - each preset accepts only its vendor's directory kind (entra-id:
+//     entra-graph, google-workspace: google-cloud-identity, okta: okta);
+//   - groups_from "membership-authority" with a directory means mode "always"
+//     (the directory is then the provider's membership authority);
+//   - groups_from "claim" defaults to mode "fallback";
+//   - an okta directory in fallback mode must state group_id explicitly,
+//     because Okta's groups claim carries group names while the directory's
+//     default identifier is the immutable group ID: mixing them would make the
+//     same binding match some users and not others.
+func providerDirectory(preset Preset, trust Trust, raw *directory.Spec) (*directory.Spec, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if !agentfederation.Contains(preset.DirectoryKinds, raw.Kind) {
+		if len(preset.DirectoryKinds) == 0 {
+			return nil, fmt.Errorf("preset %s does not support a directory", preset.ID)
+		}
+		return nil, fmt.Errorf("preset %s accepts directory kind %s only", preset.ID, strings.Join(preset.DirectoryKinds, ", "))
+	}
+	spec := *raw
+	if trust.GroupsFrom == GroupsFromMembershipAuthority {
+		if spec.Mode == directory.ModeFallback {
+			return nil, fmt.Errorf("directory.mode %q needs groups_from %q; with groups_from %q the directory is the only group authority (mode %q)", directory.ModeFallback, GroupsFromClaim, GroupsFromMembershipAuthority, directory.ModeAlways)
+		}
+		spec.Mode = directory.ModeAlways
+	}
+	explicitGroupID := spec.GroupID != ""
+	spec, err := spec.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	if spec.Kind == directory.KindOkta && spec.Mode == directory.ModeFallback && !explicitGroupID {
+		return nil, fmt.Errorf("an okta directory in fallback mode must set directory.group_id: %q matches Okta's default groups claim (group names), %q uses immutable group IDs", directory.GroupIDName, directory.GroupIDObjectID)
+	}
+	switch spec.Kind {
+	case directory.KindEntraGraph:
+		if trust.RequiredClaims["tid"] == "" {
+			return nil, fmt.Errorf("entra-graph directory requires the provider's pinned tid")
+		}
+	case directory.KindGoogleCloudIdentity:
+		if trust.RequiredClaims["hd"] == "" {
+			return nil, fmt.Errorf("google-cloud-identity directory requires the provider's pinned hd")
+		}
+	}
+	return &spec, nil
 }
 
 // SourceKey identifies one issuer+audience within a tenant.

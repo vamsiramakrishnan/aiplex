@@ -314,7 +314,7 @@ func TestUserProviderVerifyNeverExposesToken(t *testing.T) {
 		w := httptest.NewRecorder()
 		Logger(f.router).ServeHTTP(w, r)
 		var out resp
-		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || len(out.Checks) != 10 {
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || len(out.Checks) != 11 {
 			t.Fatalf("%s: %d %s", name, w.Code, w.Body)
 		}
 		for _, secret := range []string{good, bad, noGroups, strings.Split(good, ".")[1], strings.Split(good, ".")[2], "classified-claim-value", "platform-secret-org"} {

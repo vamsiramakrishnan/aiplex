@@ -133,7 +133,7 @@ func TestEvaluateHappyPath(t *testing.T) {
 	if !r.GroupsAvailable || r.Groups == nil || strings.Join(*r.Groups, ",") != "g-a,g-b" {
 		t.Fatalf("groups = %+v", r.Groups)
 	}
-	names := []string{CheckTokenShape, CheckIssuer, CheckSignature, CheckAudience, CheckLifetime, CheckSubject, CheckRequiredClaims, CheckProofOfPossession, CheckGroups, CheckProvider}
+	names := []string{CheckTokenShape, CheckIssuer, CheckSignature, CheckAudience, CheckLifetime, CheckSubject, CheckRequiredClaims, CheckProofOfPossession, CheckClient, CheckGroups, CheckProvider}
 	for i, c := range r.Checks {
 		if c.Name != names[i] || c.Status != StatusPass {
 			t.Fatalf("check %d = %+v", i, c)
@@ -195,7 +195,7 @@ func TestEvaluateFailingChecks(t *testing.T) {
 			if r.Groups != nil || r.GroupsAvailable {
 				t.Fatalf("groups exposed for invalid token: %+v", r)
 			}
-			if len(r.Checks) != 10 {
+			if len(r.Checks) != 11 {
 				t.Fatalf("expected the full ordered check list, got %d", len(r.Checks))
 			}
 			if st, _ := statusOf(r, CheckGroups); st == StatusPass {

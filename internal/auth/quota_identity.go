@@ -41,7 +41,18 @@ func PrincipalMembership(identity *models.WIFIdentity, tenant string, now time.T
 	if !evidence.CredentialExpiresAt.IsZero() && evidence.CredentialExpiresAt.Before(expiresAt) {
 		expiresAt = evidence.CredentialExpiresAt
 	}
-	if !evidence.LifetimeValid || evidence.IssuedAt.IsZero() || evidence.IssuedAt.After(now) || !expiresAt.After(now) || !expiresAt.After(evidence.IssuedAt) {
+	issuedAt := evidence.IssuedAt
+	if !evidence.GroupsObservedAt.IsZero() {
+		// A directory view is as fresh as its observation and no fresher; it
+		// never outlives its own expiry or the credential.
+		if evidence.GroupsObservedAt.After(issuedAt) {
+			issuedAt = evidence.GroupsObservedAt
+		}
+		if evidence.GroupsExpiresAt.Before(expiresAt) {
+			expiresAt = evidence.GroupsExpiresAt
+		}
+	}
+	if !evidence.LifetimeValid || evidence.IssuedAt.IsZero() || issuedAt.After(now) || !expiresAt.After(now) || !expiresAt.After(issuedAt) {
 		return contracts.MembershipSnapshot{}, fmt.Errorf("verified membership lifetime is missing, stale or not yet valid")
 	}
 	if !evidence.GroupsPresent || !evidence.GroupsValid {
@@ -62,10 +73,10 @@ func PrincipalMembership(identity *models.WIFIdentity, tenant string, now time.T
 		Tenant, Principal, Source string
 		Groups                    []string
 		IssuedAt, ExpiresAt       time.Time
-	}{tenant, identity.PrincipalID, source, groups, evidence.IssuedAt.UTC(), expiresAt.UTC()}
+	}{tenant, identity.PrincipalID, source, groups, issuedAt.UTC(), expiresAt.UTC()}
 	raw, _ := json.Marshal(stamp)
 	digest := sha256.Sum256(raw)
-	return contracts.MembershipSnapshot{Version: contracts.Version, Ref: contracts.SnapshotRef{ID: "claims-" + identity.PrincipalID, Version: hex.EncodeToString(digest[:])}, TenantID: tenant, PrincipalID: identity.PrincipalID, Groups: qualified, IssuedAt: evidence.IssuedAt.UTC(), ExpiresAt: expiresAt.UTC()}, nil
+	return contracts.MembershipSnapshot{Version: contracts.Version, Ref: contracts.SnapshotRef{ID: "claims-" + identity.PrincipalID, Version: hex.EncodeToString(digest[:])}, TenantID: tenant, PrincipalID: identity.PrincipalID, Groups: qualified, IssuedAt: issuedAt.UTC(), ExpiresAt: expiresAt.UTC()}, nil
 }
 
 func constrainRequestEvidence(r *http.Request, evidence *models.IdentityEvidence) {
@@ -116,6 +127,15 @@ func verifiedIdentityEvidence(claims map[string]any, identity *models.WIFIdentit
 	}
 	if referencesExternalGroups(claims) {
 		valid = false
+	}
+	// Directory-resolved groups (user identity provider directory) record their
+	// provenance and observation window; quota and role bindings see the same list.
+	if d, ok := claims[directoryGroupsClaim].(directoryGroups); ok && directPresent {
+		evidence.GroupsSource = d.Source
+		evidence.GroupsObservedAt, evidence.GroupsExpiresAt = d.ObservedAt, d.ExpiresAt
+		if d.ObservedAt.IsZero() || !d.ExpiresAt.After(d.ObservedAt) {
+			valid = false
+		}
 	}
 	evidence.GroupsValid = valid
 	evidence.Groups = slices.Clone(groups)

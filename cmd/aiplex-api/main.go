@@ -141,10 +141,18 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("agent identity federation configuration failed")
 	}
-	userFederationH, err := userFederation(cfg, resourceStore, connectedH.Runtime.Config.Network, connectedH.Tenant, wifValidator)
+	userDirectoriesR, secretName, err := userDirectories(connectedH.Runtime, sm, cfg.DevelopmentMode)
+	if err != nil {
+		log.Fatal().Err(err).Msg("user identity directory configuration failed")
+	}
+	userFederationH, err := userFederation(cfg, resourceStore, connectedH.Runtime.Config.Network, connectedH.Tenant, wifValidator, userDirectoriesR)
 	if err != nil {
 		log.Fatal().Err(err).Msg("user identity federation configuration failed")
 	}
+	userFederationH.SecretName = secretName
+	// Write-time and dry-run overlap detection between the two federation kinds.
+	federationH.Providers = userFederationH.Providers
+	userFederationH.Bindings = federationH.Bindings
 	usageH := configureUsageLedger(store, cfg, connectedH, llmH)
 	quotaRuntime, err := configureQuota(ctx, cfg, store, connectedH)
 	if err != nil {

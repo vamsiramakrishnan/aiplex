@@ -51,6 +51,10 @@ type BindingRequest struct {
 	RequiredClaims map[string]string `json:"required_claims,omitempty"`
 	DisplayName    string            `json:"display_name,omitempty"`
 	Disabled       bool              `json:"disabled,omitempty"`
+	// AcknowledgeOverlap saves the binding even though a user identity
+	// provider of the tenant trusts the same issuer and audience. It is not
+	// persisted: every write that keeps the overlap must acknowledge it again.
+	AcknowledgeOverlap bool `json:"acknowledge_overlap,omitempty"`
 }
 
 // Binding is the persisted agent-identity resource: request plus the derived
