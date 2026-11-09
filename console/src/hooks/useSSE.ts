@@ -1,51 +1,44 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react'
+import { useAuth } from './useAuth'
+import { authenticatedSSE } from '../sse'
 
 interface SSEStats {
-  total_instances: number;
-  running: number;
-  mcplex: number;
-  a2aplex: number;
-  llmplex: number;
-  skillsplex?: number;
-  agents: number;
-  delegations: number;
-  denials: number;
-  timestamp: string;
+  total_instances: number
+  running: number
+  mcplex: number
+  a2aplex: number
+  llmplex: number
+  skillsplex?: number
+  agents: number
+  delegations: number
+  denials: number
+  timestamp: string
 }
 
-export function useSSE(enabled: boolean = true): SSEStats | null {
-  const [stats, setStats] = useState<SSEStats | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
+export function useSSE(enabled = true): SSEStats | null {
+  const { token } = useAuth()
+  const [snapshot, setSnapshot] = useState<{ token: string; stats: SSEStats } | null>(null)
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !token) return
+    const controller = new AbortController()
+    let retry: ReturnType<typeof setTimeout> | undefined
 
-    const token = localStorage.getItem('aiplex_token');
-    // EventSource doesn't support custom headers, so use query param for auth
-    const url = `/api/v1/events/stream${token ? `?token=${token}` : ''}`;
-
-    const es = new EventSource(url);
-    eventSourceRef.current = es;
-
-    es.addEventListener('stats', (event) => {
+    const connect = async () => {
       try {
-        const data = JSON.parse(event.data) as SSEStats;
-        setStats(data);
+        const outcome = await authenticatedSSE('/events/stream', token, controller.signal, (event, data) => {
+          if (event !== 'stats' || controller.signal.aborted) return
+          try { setSnapshot({ token, stats: JSON.parse(data) as SSEStats }) } catch { /* ignore malformed event */ }
+        })
+        if (outcome === 'denied') return
       } catch {
-        // ignore parse errors
+        // Dashboard polling remains available while the stream reconnects.
       }
-    });
+      if (!controller.signal.aborted) retry = setTimeout(() => { void connect() }, 3000)
+    }
+    void connect()
+    return () => { controller.abort(); if (retry !== undefined) clearTimeout(retry) }
+  }, [enabled, token])
 
-    es.onerror = () => {
-      // EventSource auto-reconnects, just log
-      console.warn('SSE connection error, reconnecting...');
-    };
-
-    return () => {
-      es.close();
-      eventSourceRef.current = null;
-    };
-  }, [enabled]);
-
-  return stats;
+  return enabled && snapshot?.token === token ? snapshot.stats : null
 }

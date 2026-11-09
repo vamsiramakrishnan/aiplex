@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { getCatalog } from '../api/client'
+import { getCatalog, authenticatedRequest } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 
 interface SkillServer {
@@ -26,9 +26,9 @@ interface SkillInvocation {
 }
 
 const getServers = () =>
-  fetch('/api/v1/skills/servers').then((r) => r.json()) as Promise<SkillServer[]>
+  authenticatedRequest<SkillServer[]>('/api/v1/skills/servers')
 const getInvocations = () =>
-  fetch('/api/v1/skills/invocations').then((r) => r.json()) as Promise<SkillInvocation[]>
+  authenticatedRequest<SkillInvocation[]>('/api/v1/skills/invocations')
 
 export default function SkillsPlex() {
   const navigate = useNavigate()
@@ -38,6 +38,8 @@ export default function SkillsPlex() {
   const catalog = useQuery({ queryKey: ['catalog', 'skillsplex'], queryFn: () => getCatalog('skillsplex') })
   const servers = useQuery({ queryKey: ['skill-servers'], queryFn: getServers })
   const invocations = useQuery({ queryKey: ['skill-invocations'], queryFn: getInvocations })
+
+  const activeQuery = tab === 'catalog' ? catalog : tab === 'invocations' ? invocations : servers
 
   const filteredServers =
     servers.data?.filter(
@@ -77,7 +79,10 @@ export default function SkillsPlex() {
         ))}
       </div>
 
-      {tab === 'servers' && (
+      {activeQuery.isLoading && <p role="status">Loading module data…</p>}
+      {activeQuery.error && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeQuery.error.message}</p>}
+
+      {tab === 'servers' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Running Skill Servers</h3>
           <div className="mb-4">
@@ -145,7 +150,7 @@ export default function SkillsPlex() {
         </div>
       )}
 
-      {tab === 'catalog' && (
+      {tab === 'catalog' && !activeQuery.isLoading && !activeQuery.error && (
         <div className="grid grid-cols-2 gap-4">
           {catalog.data?.templates?.map((t: { id: string; name: string; description?: string; verified?: boolean }) => (
             <div key={t.id} className="bg-white rounded-lg shadow p-4">
@@ -165,7 +170,7 @@ export default function SkillsPlex() {
         </div>
       )}
 
-      {tab === 'invocations' && (
+      {tab === 'invocations' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Recent Invocations</h3>
           {invocations.data && invocations.data.length > 0 ? (

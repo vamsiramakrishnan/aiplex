@@ -42,7 +42,6 @@ console/.env
 
 # Rust (authz)
 authz/target/
-authz/Cargo.lock
 
 # IDE
 .idea/
@@ -60,6 +59,8 @@ docker-compose.override.yml
 *.key
 *.p12
 *secret*
+# Public regression fixture; referenced only from Rust #[cfg(test)] modules.
+!authz/tests/fixtures/test-only-private.pem
 !deploy/terraform/terraform.tfvars.example
 docs-site/node_modules/
 docs-site/build/

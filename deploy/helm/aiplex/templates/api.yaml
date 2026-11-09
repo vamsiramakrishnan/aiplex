@@ -1,3 +1,25 @@
+{{- $apiVolumeNames := dict -}}
+{{- range .Values.api.extraVolumes }}
+{{- $name := required "api.extraVolumes entries require a name" .name -}}
+{{- if hasKey $apiVolumeNames $name }}{{ fail "duplicate api.extraVolumes name" }}{{ end -}}
+{{- $_ := set $apiVolumeNames $name true -}}
+{{- if eq (hasKey . "secret") (hasKey . "configMap") }}{{ fail "api.extraVolumes must select exactly one Secret or ConfigMap" }}{{ end -}}
+{{- range $key, $value := . }}
+{{- if not (has $key (list "name" "secret" "configMap")) }}{{ fail "api.extraVolumes supports Secret/ConfigMap sources only" }}{{ end -}}
+{{- end -}}
+{{- if hasKey . "secret" }}{{- $_ := required "Secret volume requires secretName" .secret.secretName -}}{{- end -}}
+{{- if hasKey . "configMap" }}{{- $_ := required "ConfigMap volume requires name" .configMap.name -}}{{- end -}}
+{{- end -}}
+{{- range .Values.api.extraVolumeMounts }}
+{{- if not (hasKey $apiVolumeNames .name) }}{{ fail "api.extraVolumeMounts references an undeclared volume" }}{{ end -}}
+{{- $path := required "api.extraVolumeMounts requires mountPath" .mountPath -}}
+{{- if or (not (hasPrefix "/" $path)) (eq $path "/") (ne (clean $path) $path) }}{{ fail "api mountPath must be a canonical absolute non-root path" }}{{ end -}}
+{{- if and (hasKey . "readOnly") (ne .readOnly true) }}{{ fail "API configuration mounts must be read-only" }}{{ end -}}
+{{- if .subPath }}{{- if or (hasPrefix "/" .subPath) (hasPrefix "../" .subPath) (eq .subPath "..") (ne (clean .subPath) .subPath) }}{{ fail "API configuration subPath must be a canonical relative path" }}{{ end -}}{{- end -}}
+{{- range $key, $value := . }}
+{{- if not (has $key (list "name" "mountPath" "subPath" "readOnly")) }}{{ fail "unsupported API configuration mount field" }}{{ end -}}
+{{- end -}}
+{{- end -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -57,6 +79,17 @@ spec:
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
+        {{- with .Values.api.extraVolumeMounts }}
+        volumeMounts:
+        {{- range . }}
+        - name: {{ .name | quote }}
+          mountPath: {{ .mountPath | quote }}
+          readOnly: true
+          {{- with .subPath }}
+          subPath: {{ . | quote }}
+          {{- end }}
+        {{- end }}
+        {{- end }}
         resources:
           {{- toYaml .Values.api.resources | nindent 10 }}
         livenessProbe:
@@ -71,6 +104,10 @@ spec:
             port: http
           initialDelaySeconds: 3
           periodSeconds: 5
+      {{- with .Values.api.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service

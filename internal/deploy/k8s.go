@@ -15,6 +15,13 @@ type K8sClient interface {
 	Delete(ctx context.Context, apiVersion, kind, name, namespace string) error
 }
 
+// CapabilityDiscovery is an explicit opt-in to contacting newly deployed
+// workloads. Unknown adapters, local stubs, and dry-runs retain template
+// capabilities and never probe cluster-local service addresses.
+type CapabilityDiscovery interface {
+	CapabilityDiscoveryEnabled() bool
+}
+
 // NoOpK8sClient is a stub that logs operations without touching a real cluster.
 // Used for local development and testing.
 type NoOpK8sClient struct{}
@@ -22,6 +29,8 @@ type NoOpK8sClient struct{}
 func NewNoOpK8sClient() *NoOpK8sClient {
 	return &NoOpK8sClient{}
 }
+
+func (*NoOpK8sClient) CapabilityDiscoveryEnabled() bool { return false }
 
 func (n *NoOpK8sClient) Apply(_ context.Context, m Manifest) error {
 	log.Info().

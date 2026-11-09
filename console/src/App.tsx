@@ -3,10 +3,8 @@ import { AuthProvider, useAuth } from './hooks/useAuth'
 import { ToastProvider } from './components/Toast'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
-import MCPlex from './pages/MCPlex'
-import A2APlex from './pages/A2APlex'
-import LLMPlex from './pages/LLMPlex'
-import SkillsPlex from './pages/SkillsPlex'
+import { consoleModules } from './modules'
+import { ModuleProvider, RequireModule } from './hooks/useModules'
 import Agents from './pages/Agents'
 import Deploy from './pages/Deploy'
 import Permissions from './pages/Permissions'
@@ -16,9 +14,10 @@ import Runs from './pages/Runs'
 import CommandPalette from './components/CommandPalette'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, verifying } = useAuth()
   const location = useLocation()
 
+  if (verifying) return <p role="status">Verifying identity…</p>
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
@@ -41,10 +40,9 @@ function AppRoutes() {
         >
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/mcplex" element={<MCPlex />} />
-          <Route path="/a2aplex" element={<A2APlex />} />
-          <Route path="/llmplex" element={<LLMPlex />} />
-          <Route path="/skillsplex" element={<SkillsPlex />} />
+          {consoleModules.map(({ name, path, component: Component }) => (
+            <Route key={name} path={path} element={<RequireModule name={name}><Component /></RequireModule>} />
+          ))}
           <Route path="/agents" element={<Agents />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/deploy" element={<Deploy />} />
@@ -59,9 +57,11 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <ToastProvider>
-        <AppRoutes />
-      </ToastProvider>
+      <ModuleProvider>
+        <ToastProvider>
+          <AppRoutes />
+        </ToastProvider>
+      </ModuleProvider>
     </AuthProvider>
   )
 }

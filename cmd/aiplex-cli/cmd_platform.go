@@ -60,6 +60,14 @@ func platformApplyCmd() *cobra.Command {
 Use --skip-infra to only deploy the application (helm).
 Use --skip-deploy to only provision infrastructure (terraform).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if skipInfra && skipDeploy {
+				return fmt.Errorf("--skip-infra and --skip-deploy cannot both be set")
+			}
+			if !skipDeploy {
+				if err := validatePlatformIdentityValues(valuesFile); err != nil {
+					return err
+				}
+			}
 			cfg, err := cliconfig.Load()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
@@ -346,8 +354,14 @@ func platformDestroyCmd() *cobra.Command {
 		Use:   "destroy",
 		Short: "Tear down all infrastructure (use with extreme caution)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := cliconfig.Load()
-			ctx, _ := cfg.Current()
+			cfg, err := cliconfig.Load()
+			if err != nil {
+				return fmt.Errorf("load config: %w", err)
+			}
+			ctx, err := cfg.Current()
+			if err != nil {
+				return fmt.Errorf("no context configured; run aiplex init")
+			}
 
 			fmt.Println("WARNING: This will destroy ALL AIPlex infrastructure including:")
 			fmt.Println("  - GKE cluster and all workloads")

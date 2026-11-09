@@ -24,6 +24,15 @@ const (
 	StatusTerminated   InstanceStatus = "terminated"
 )
 
+// ResourceReference is the durable cleanup inventory for a deployed resource.
+// It contains no rendered configuration or credentials.
+type ResourceReference struct {
+	APIVersion string `json:"api_version"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Namespace  string `json:"namespace"`
+}
+
 // Instance represents a deployed MCP server, A2A agent, or LLM provider.
 type Instance struct {
 	ID              string            `json:"id"`
@@ -48,7 +57,8 @@ type Instance struct {
 	// agents backed by the Tape substrate. See runtime.go. The field is a
 	// value (not a pointer) so consumers never branch on nil; the
 	// zero-value (which Validate accepts) means "no durable runtime."
-	Runtime RuntimeConfig `json:"runtime"`
+	Runtime   RuntimeConfig       `json:"runtime"`
+	Resources []ResourceReference `json:"resources,omitempty"`
 }
 
 // HealthStatus captures the last health check result.

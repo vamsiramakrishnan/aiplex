@@ -9,11 +9,24 @@ import (
 )
 
 func whoamiCmd() *cobra.Command {
-	return &cobra.Command{
+	var server bool
+	command := &cobra.Command{
 		Use:   "whoami",
 		Short: "Show current context, account, and auth status",
 		Long:  `Displays the active context, GCP project, region, domain, and authentication status.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if server {
+				identity, err := newClient().GetIdentity(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if output == "yaml" {
+					printYAML(identity)
+				} else {
+					printJSON(identity)
+				}
+				return nil
+			}
 			cfg, err := cliconfig.Load()
 			if err != nil {
 				return fmt.Errorf("load config: %w", err)
@@ -57,4 +70,7 @@ func whoamiCmd() *cobra.Command {
 			return nil
 		},
 	}
+	command.Flags().BoolVar(&server, "server", false, "Resolve verified server identity, canonical principal ID, groups, and scopes")
+	return command
+
 }

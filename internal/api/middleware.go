@@ -5,9 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,6 +31,7 @@ const (
 	keyUserID      contextKey = "user_id"
 	keyWIFIdentity contextKey = "wif_identity"
 	keyWIFAccess   contextKey = "wif_access"
+	keyDevelopment contextKey = "development"
 )
 
 // RequestID injects a request ID from the X-Request-Id header (or generates one).
@@ -108,7 +107,8 @@ func CORS(allowedOrigins ...string) func(http.Handler) http.Handler {
 			if allowed {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-Id")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-Id, Idempotency-Key, X-Aiplex-Funding-Account, X-Aiplex-Operation-Id, MCP-Protocol-Version")
+				w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id, X-Aiplex-Attempt-ID, Retry-After, ETag")
 				w.Header().Set("Access-Control-Max-Age", "86400")
 			}
 			if r.Method == http.MethodOptions {
@@ -132,29 +132,13 @@ func MaxBody(maxBytes int64) func(http.Handler) http.Handler {
 	}
 }
 
-// extractOwner extracts the user identity from the Authorization header JWT.
-// Falls back to "anonymous" when no valid JWT is present (e.g., dev mode).
+// extractOwner uses only identity established by a verifier. Direct handler
+// tests and explicit local development may remain anonymous.
 func extractOwner(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		return "anonymous"
+	if identity := GetWIFIdentity(r.Context()); identity != nil {
+		return identity.PrincipalID
 	}
-	token := strings.TrimPrefix(auth, "Bearer ")
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return "anonymous"
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "anonymous"
-	}
-	var claims struct {
-		Sub string `json:"sub"`
-	}
-	if err := json.Unmarshal(payload, &claims); err != nil || claims.Sub == "" {
-		return "anonymous"
-	}
-	return claims.Sub
+	return "anonymous"
 }
 
 // WIFAuth extracts the caller's WIF identity from the request token,
@@ -162,27 +146,64 @@ func extractOwner(r *http.Request) string {
 // The resolved identity and access are stored in the request context.
 // This middleware is non-blocking: if no WIF token is present, the request
 // proceeds without WIF identity (for unauthenticated/dev endpoints).
-func WIFAuth(wif *auth.WIFValidator) func(http.Handler) http.Handler {
+func WIFAuth(wif *auth.WIFValidator) func(http.Handler) http.Handler { return WIFAuthMode(wif, false) }
+
+// WIFAuthMode enriches verified requests. Missing service/user credentials are
+// handled by the route's own authentication policy. Invalid supplied JWTs fail
+// closed; credentials for internal callbacks use their independent route guard.
+func WIFAuthMode(wif *auth.WIFValidator, development bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), keyDevelopment, development)
 			identity, err := wif.ExtractIdentity(r)
 			if err != nil {
-				// No valid WIF token — proceed without identity
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			access, err := wif.SyncUserScopes(ctx, identity)
+			if err != nil {
+				Error(w, r, http.StatusServiceUnavailable, "IDENTITY_UNAVAILABLE", "identity policy unavailable")
+				return
+			}
+			ctx = context.WithValue(ctx, keyWIFIdentity, identity)
+			ctx = context.WithValue(ctx, keyWIFAccess, access)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// RequireIdentity protects user-facing endpoints independently of gateway
+// deployment. Explicit local development is constrained to loopback at startup.
+func RequireIdentity(development bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if GetWIFIdentity(r.Context()) == nil && !development {
+				Error(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "verified identity required")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// ControlPlaneAccess protects resource/permission mutation APIs. Individual
+// modules may impose additional action-scoped authorization.
+func ControlPlaneAccess(development bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if development {
 				next.ServeHTTP(w, r)
 				return
 			}
-
-			ctx := context.WithValue(r.Context(), keyWIFIdentity, identity)
-
-			// Resolve roles and sync Dimension B scopes
-			access, err := wif.SyncUserScopes(r.Context(), identity)
-			if err != nil {
-				zerolog.Ctx(r.Context()).Warn().Err(err).Msg("failed to resolve WIF access")
-			} else {
-				ctx = context.WithValue(ctx, keyWIFAccess, access)
+			if r.Method == http.MethodGet || r.Method == http.MethodHead {
+				next.ServeHTTP(w, r)
+				return
 			}
-
-			next.ServeHTTP(w, r.WithContext(ctx))
+			roles := []models.IAMRole{models.RoleAdmin, models.RoleDeployer}
+			if strings.HasPrefix(r.URL.Path, "/api/v1/iam/") || strings.HasPrefix(r.URL.Path, "/api/v1/llm/usage") || strings.HasPrefix(r.URL.Path, "/api/v1/dashboard/") {
+				roles = []models.IAMRole{models.RoleAdmin}
+			}
+			RequireRole(roles...)(next).ServeHTTP(w, r)
 		})
 	}
 }
@@ -210,8 +231,11 @@ func RequireRole(roles ...models.IAMRole) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			access := GetWIFAccess(r.Context())
 			if access == nil {
-				// No WIF identity resolved — allow through for dev/IAP-only setups
-				next.ServeHTTP(w, r)
+				if dev, _ := r.Context().Value(keyDevelopment).(bool); dev {
+					next.ServeHTTP(w, r)
+					return
+				}
+				Error(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "verified role context required")
 				return
 			}
 			for _, role := range access.Roles {
@@ -526,10 +550,10 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 // TenantFromContext returns the caller's tenant id and a flag
 // indicating whether they have the cross-tenant scope. Sources:
 //
-//   1. ResolvedAccess.Scopes — looks for `aiplex:tenant:<id>` and
-//      `aiplex:runs:read:cross_tenant`.
-//   2. WIFIdentity.Domain — the workforce identity's `hd` claim,
-//      mapped via env AIPLEX_DOMAIN_TENANT_MAP (k=v,k=v).
+//  1. ResolvedAccess.Scopes — looks for `aiplex:tenant:<id>` and
+//     `aiplex:runs:read:cross_tenant`.
+//  2. WIFIdentity.Domain — the workforce identity's `hd` claim,
+//     mapped via env AIPLEX_DOMAIN_TENANT_MAP (k=v,k=v).
 //
 // Returns ("", false) when no tenant info is available; callers
 // decide whether to deny or fall through (the AIPLEX_REQUIRE_TENANT

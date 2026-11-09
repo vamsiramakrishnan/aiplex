@@ -3,8 +3,10 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -18,7 +20,38 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
-// setupFullRouter builds the complete AIPlex API router — same wiring as main.go.
+const integrationIdentityIssuer = "https://integration.test"
+const integrationIdentityPool = "integration-people"
+const integrationIdentitySubject = "immutable-admin"
+const integrationIdentityToken = "integration-verified-admin"
+
+func integrationPrincipalID() string {
+	return auth.CanonicalPrincipalID(integrationIdentityIssuer, integrationIdentityPool, integrationIdentitySubject)
+}
+
+// This hermetic adapter stands in for an already verified identity provider.
+// It accepts only the fixture credential, never arbitrary JWT claims or email.
+type integrationClaimsVerifier struct{}
+
+func (integrationClaimsVerifier) Verify(_ context.Context, token string) (map[string]any, error) {
+	if token != integrationIdentityToken {
+		return nil, errors.New("unverified integration credential")
+	}
+	return map[string]any{
+		"iss": integrationIdentityIssuer, "sub": integrationIdentitySubject,
+		"email": "admin@school.edu", "groups": []any{"integration-admins"},
+	}, nil
+}
+
+type integrationAuthenticatedTransport struct{ base http.RoundTripper }
+
+func (transport integrationAuthenticatedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	verified := request.Clone(request.Context())
+	verified.Header.Set("Authorization", "Bearer "+integrationIdentityToken)
+	return transport.base.RoundTrip(verified)
+}
+
+// setupFullRouter mounts the Plex APIs with a hermetic verified caller.
 func setupFullRouter() *httptest.Server {
 	store := registry.NewMemoryStore()
 
@@ -68,10 +101,18 @@ func setupFullRouter() *httptest.Server {
 	})
 
 	// Set up user scopes (Dimension B)
-	store.SetUserScopes(ctx, "admin@school.edu", []string{
+	store.SetUserScopes(ctx, integrationPrincipalID(), []string{
 		"mcp:tools:search_curriculum", "mcp:tools:get_document",
 		"a2a:task:research", "a2a:task:summarize",
 		"llm:model:gemini-2.5-flash",
+	})
+	store.PutRoleBinding(ctx, &models.RoleBinding{
+		ID: "integration-admins", Group: "integration-admins", Role: models.RoleAdmin,
+		Provider: integrationIdentityIssuer, PoolID: integrationIdentityPool,
+	})
+	validator := auth.NewWIFValidator(store, auth.WIFConfig{
+		TrustedIssuers: []string{integrationIdentityIssuer}, WorkforcePoolID: integrationIdentityPool,
+		IsWorkforce: true, Verifier: integrationClaimsVerifier{},
 	})
 
 	sources := []catalog.Source{
@@ -94,9 +135,12 @@ func setupFullRouter() *httptest.Server {
 
 	r := chi.NewRouter()
 	r.Use(api.RequestID)
+	r.Use(api.WIFAuth(validator))
 
 	r.Get("/healthz", api.Health)
 	r.Route("/api/v1", func(r chi.Router) {
+		r.Use(api.RequireIdentity(false))
+		r.Use(api.ControlPlaneAccess(false))
 		r.Get("/catalog", catalogH.List)
 		r.Get("/catalog/{id}", catalogH.Get)
 		r.Get("/instances", instanceH.List)
@@ -122,11 +166,18 @@ func setupFullRouter() *httptest.Server {
 	r.Get("/skills/{instanceId}/.well-known/skills.json", skillsH.GetSkillsManifest)
 	r.Route("/auth", func(r chi.Router) {
 		r.Post("/token-hook", authH.TokenHook)
-		r.Get("/users/{userId}/scopes", authH.GetUserScopes)
-		r.Put("/users/{userId}/scopes", authH.SetUserScopes)
+		r.With(api.RequireIdentity(false), api.RequireRole(models.RoleAdmin)).Get("/users/{userId}/scopes", authH.GetUserScopes)
+		r.With(api.RequireIdentity(false), api.RequireRole(models.RoleAdmin)).Put("/users/{userId}/scopes", authH.SetUserScopes)
 	})
 
-	return httptest.NewServer(r)
+	server := httptest.NewServer(r)
+	client := server.Client()
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	client.Transport = integrationAuthenticatedTransport{base: transport}
+	return server
 }
 
 func TestE2E_FullDeployLifecycle(t *testing.T) {
@@ -310,6 +361,9 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 		"session": {"access_token": {}}
 	}`
 	resp, _ = client.Post(srv.URL+"/auth/token-hook", "application/json", strings.NewReader(hookBody))
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("token hook: %d", resp.StatusCode)
+	}
 	var hookResult map[string]any
 	json.NewDecoder(resp.Body).Decode(&hookResult)
 	resp.Body.Close()
@@ -322,15 +376,35 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 	}
 
 	// 5. User scopes (Dimension B)
-	resp, _ = client.Get(srv.URL + "/auth/users/admin@school.edu/scopes")
-	var scopeResult map[string]any
-	json.NewDecoder(resp.Body).Decode(&scopeResult)
+	resp, _ = client.Get(srv.URL + "/auth/users/" + integrationPrincipalID() + "/scopes")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("canonical user scopes: %d", resp.StatusCode)
+	}
+	var scopeResult struct {
+		UserID string   `json:"user_id"`
+		Scopes []string `json:"scopes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&scopeResult); err != nil {
+		t.Fatal(err)
+	}
 	resp.Body.Close()
 
-	scopes := scopeResult["scopes"].([]any)
-	if len(scopes) != 5 {
-		t.Errorf("expected 5 user scopes, got %d", len(scopes))
+	if scopeResult.UserID != integrationPrincipalID() || len(scopeResult.Scopes) != 5 {
+		t.Errorf("expected canonical principal and 5 manual scopes, got %+v", scopeResult)
 	}
+	// Mutable email aliases cannot create an apparently successful grant that
+	// the canonical identity resolver would never read.
+	resp, _ = client.Get(srv.URL + "/auth/users/admin@school.edu/scopes")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("email alias read: %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	aliasWrite, _ := http.NewRequest(http.MethodPut, srv.URL+"/auth/users/admin@school.edu/scopes", strings.NewReader(`{"scopes":["llm:model:unreviewed"]}`))
+	resp, _ = client.Do(aliasWrite)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("email alias write: %d", resp.StatusCode)
+	}
+	resp.Body.Close()
 
 	// 6. List all agents
 	resp, _ = client.Get(srv.URL + "/api/v1/agents")
@@ -343,6 +417,7 @@ func TestE2E_AgentRegistrationWithPermissions(t *testing.T) {
 
 	// 7. Delete agent
 	req, _ := http.NewRequest("DELETE", srv.URL+"/api/v1/agents/tutor-agent", nil)
+	req.Header.Set("If-Match", strconv.FormatInt(agent.Revision, 10))
 	resp, _ = client.Do(req)
 	if resp.StatusCode != 204 {
 		t.Errorf("delete agent: %d", resp.StatusCode)
@@ -437,6 +512,9 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 	if ok.Status != "success" {
 		t.Errorf("default Status = %q, want success", ok.Status)
 	}
+	if ok.ReportedBy != integrationPrincipalID() || ok.UserID != "alice@example.com" {
+		t.Errorf("verified reporter must remain distinct from reported telemetry subject: %+v", ok)
+	}
 	if ok.TraceID == "" || ok.SpanID == "" {
 		t.Errorf("expected trace fields populated, got TraceID=%q SpanID=%q", ok.TraceID, ok.SpanID)
 	}
@@ -487,8 +565,8 @@ func TestE2E_SkillsPlexDeployAndInvocation(t *testing.T) {
 	if denials[0].Scope != "skill:invoke:suggest_tests" {
 		t.Errorf("denial Scope = %q, want skill:invoke:suggest_tests", denials[0].Scope)
 	}
-	if denials[0].Reason != "scope_missing" {
-		t.Errorf("denial Reason = %q, want scope_missing", denials[0].Reason)
+	if denials[0].Reason != "reported_scope_missing" {
+		t.Errorf("denial Reason = %q, want reported_scope_missing", denials[0].Reason)
 	}
 
 	// 9. Skill-server listing surfaces the running instance with its scopes.

@@ -5,27 +5,27 @@ import "time"
 // AgentCard is the A2A Agent Card specification for a deployed A2A agent.
 // Served at /.well-known/agent.json for each agent.
 type AgentCard struct {
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	URL          string            `json:"url"`
-	Version      string            `json:"version,omitempty"`
-	TaskTypes    []TaskTypeInfo    `json:"task_types"`
-	Capabilities []string          `json:"capabilities,omitempty"`
-	AuthSchemes  []AuthSchemeInfo  `json:"auth_schemes,omitempty"`
-	Metadata     map[string]any    `json:"metadata,omitempty"`
+	Name         string           `json:"name"`
+	Description  string           `json:"description"`
+	URL          string           `json:"url"`
+	Version      string           `json:"version,omitempty"`
+	TaskTypes    []TaskTypeInfo   `json:"task_types"`
+	Capabilities []string         `json:"capabilities,omitempty"`
+	AuthSchemes  []AuthSchemeInfo `json:"auth_schemes,omitempty"`
+	Metadata     map[string]any   `json:"metadata,omitempty"`
 }
 
 // TaskTypeInfo describes a task type an A2A agent supports.
 type TaskTypeInfo struct {
-	Type        string         `json:"type"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"input_schema,omitempty"`
+	Type         string         `json:"type"`
+	Description  string         `json:"description"`
+	InputSchema  map[string]any `json:"input_schema,omitempty"`
 	OutputSchema map[string]any `json:"output_schema,omitempty"`
 }
 
 // AuthSchemeInfo describes an auth scheme an A2A agent supports.
 type AuthSchemeInfo struct {
-	Scheme string `json:"scheme"` // "bearer", "oauth2", "spiffe"
+	Scheme string         `json:"scheme"` // "bearer", "oauth2", "spiffe"
 	Config map[string]any `json:"config,omitempty"`
 }
 
@@ -34,6 +34,11 @@ type AuthSchemeInfo struct {
 // distributed traces (currently in-process audit; full OTel export is a
 // future Phase 6 deliverable).
 type Delegation struct {
+	// ReportedBy identifies the verified collector that submitted this audit
+	// event. Caller/callee/user IDs describe reported history, not authenticated
+	// proof of a live invocation or its authorization.
+	ReportedBy       string     `json:"reported_by,omitempty"`
+	ReportedAt       time.Time  `json:"reported_at"`
 	ID               string     `json:"id"`
 	CallerAgentID    string     `json:"caller_agent_id"`
 	CalleeAgentID    string     `json:"callee_agent_id"`
@@ -46,16 +51,16 @@ type Delegation struct {
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
 	DurationMs       int64      `json:"duration_ms,omitempty"`
 	Error            string     `json:"error,omitempty"`
-	ParentID         string     `json:"parent_id,omitempty"`     // for nested delegations
-	TraceID          string     `json:"trace_id,omitempty"`      // 32-hex W3C trace id
-	SpanID           string     `json:"span_id,omitempty"`       // 16-hex W3C span id
+	ParentID         string     `json:"parent_id,omitempty"`      // for nested delegations
+	TraceID          string     `json:"trace_id,omitempty"`       // 32-hex W3C trace id
+	SpanID           string     `json:"span_id,omitempty"`        // 16-hex W3C span id
 	ParentSpanID     string     `json:"parent_span_id,omitempty"` // span id of the caller
 }
 
 // DelegationChain represents a full call chain from user through agents.
 type DelegationChain struct {
-	RootDelegation Delegation   `json:"root"`
-	Children       []Delegation `json:"children,omitempty"`
-	Depth          int          `json:"depth"`
-	TotalDurationMs int64      `json:"total_duration_ms"`
+	RootDelegation  Delegation   `json:"root"`
+	Children        []Delegation `json:"children,omitempty"` // flattened descendants, parent-before-child
+	Depth           int          `json:"depth"`
+	TotalDurationMs int64        `json:"total_duration_ms"` // sum of recorded spans, including nested work; not wall-clock elapsed time
 }

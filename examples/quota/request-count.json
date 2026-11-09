@@ -1,0 +1,156 @@
+{
+  "version": "v1",
+  "host": {
+    "max_membership_age": 300000000000,
+    "tenants": [
+      {
+        "policy": {
+          "version": "v1",
+          "tenant_id": "example",
+          "id": "managed-requests",
+          "revision": 1,
+          "effective_at": "2026-01-01T00:00:00Z",
+          "meters": {
+            "requests": {
+              "id": "requests",
+              "unit": "requests"
+            },
+            "tool_calls": {
+              "id": "tool_calls",
+              "unit": "calls"
+            }
+          },
+          "accounts": [
+            {
+              "id": "team",
+              "priority": 10,
+              "tenant_wide": true
+            }
+          ],
+          "budgets": [
+            {
+              "id": "team-daily",
+              "scope": {
+                "kind": "account",
+                "id": "team"
+              },
+              "match": {},
+              "meter_id": "requests",
+              "limit": 10000,
+              "period": {
+                "kind": "anchored",
+                "anchor": "2026-01-01T00:00:00Z",
+                "duration": 86400000000000
+              }
+            },
+            {
+              "id": "principal-seven-days",
+              "scope": {
+                "kind": "principal"
+              },
+              "match": {},
+              "meter_id": "requests",
+              "limit": 1000,
+              "period": {
+                "kind": "anchored",
+                "anchor": "2026-01-01T00:00:00Z",
+                "duration": 604800000000000
+              }
+            },
+            {
+              "id": "tools-monthly",
+              "scope": {
+                "kind": "tenant"
+              },
+              "match": {
+                "plane": "mcplex"
+              },
+              "meter_id": "tool_calls",
+              "limit": 20000,
+              "period": {
+                "kind": "calendar",
+                "anchor": "2026-01-01T00:00:00+11:00",
+                "calendar_unit": "month",
+                "time_zone": "Australia/Melbourne"
+              }
+            }
+          ],
+          "rates": [
+            {
+              "id": "tenant-arrivals",
+              "scope": {
+                "kind": "tenant"
+              },
+              "match": {},
+              "meter_id": "requests",
+              "rate": 20,
+              "interval": 1000000000,
+              "burst": 40,
+              "basis": "admitted"
+            }
+          ],
+          "concurrency": [
+            {
+              "id": "tenant-active",
+              "scope": {
+                "kind": "tenant"
+              },
+              "match": {},
+              "limit": 10
+            }
+          ]
+        },
+        "activate": true
+      }
+    ],
+    "bindings": [
+      {
+        "id": "model-requests-json",
+        "tenant_id": "example",
+        "plane": "llmplex",
+        "resource_id": "example-model-surface",
+        "operation_id": "models.generateContent",
+        "model": "example-model",
+        "profile": "request-count",
+        "funding_account_id": "team",
+        "provider": "google",
+        "billing_account": "example-billing-project",
+        "region": "us-central1",
+        "meters": {
+          "requests": "requests"
+        }
+      },
+      {
+        "id": "model-requests-sse",
+        "tenant_id": "example",
+        "plane": "llmplex",
+        "resource_id": "example-model-surface",
+        "operation_id": "models.streamGenerateContent",
+        "model": "example-model",
+        "profile": "request-count",
+        "funding_account_id": "team",
+        "provider": "google",
+        "billing_account": "example-billing-project",
+        "region": "us-central1",
+        "meters": {
+          "requests": "requests"
+        }
+      },
+      {
+        "id": "tool-search",
+        "tenant_id": "example",
+        "plane": "mcplex",
+        "resource_id": "example-tools",
+        "operation_id": "tools/call:search",
+        "profile": "request-count",
+        "funding_account_id": "team",
+        "provider": "mcp",
+        "meters": {
+          "requests": "requests",
+          "tool_calls": "tool_calls"
+        }
+      }
+    ]
+  },
+  "recovery_interval": "5s"
+}

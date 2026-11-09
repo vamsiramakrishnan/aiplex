@@ -290,4 +290,11 @@ describe('API Client', () => {
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0]).toContain('Invalid template');
   });
+
+  it('validates the entire manifest shape before issuing its first mutation', async () => {
+    const { applyManifest } = await import('../api/client');
+    await expect(applyManifest({ version: 'v1', instances: [{ name: 'valid', plane: 'mcplex', template: 'valid-template' }], agents: {} } as never)).rejects.toThrow('Manifest agents must be an array');
+    await expect(applyManifest({ version: 'v1', instances: [] })).rejects.toThrow('Add at least one resource');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
