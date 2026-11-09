@@ -135,6 +135,8 @@ Built-in Plex modules can be selected independently; external services register 
 
 [QuotaPlex prerequisites and readiness](docs/quotaplex-prerequisites.md) lists the contracts, accounting rules and integration gates needed to add quotas while preserving this flow.
 
+[QuotaPlex foundation design](docs/quotaplex-foundation-design.md) defines the shared control core for unequal allocations, model/tool meters, rate and burst limits, concurrency and scheduled throughput.
+
 The [feature cohesion bugbash](docs/feature-cohesion-bugbash.md) records repairs to existing OAuth, routing, persistence, audit, SDK/CLI and Console handoffs, including deployment compatibility.
 
 ## Local Development

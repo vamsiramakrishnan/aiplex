@@ -10,6 +10,11 @@ QuotaPlex. Hard token or monetary enforcement additionally needs accounting
 contracts, durable state, trusted usage and host integration. The existing
 foundation tests establish those seams; they do not prove a quota allocator.
 
+The [foundation design](quotaplex-foundation-design.md) extends the implementation
+baseline to uneven group sizes, tool work, rates, concurrency and scheduling.
+QuotaPlex can now start as a shared control core for models and tools. Completing
+that core precedes provider-specific functions and does not enable hard limits.
+
 ## Preserve the current architecture
 
 Keep the current gateway, authentication, permission checks, Plex ownership and
@@ -46,7 +51,7 @@ before enabling enforcement. None of the pending rows changes module ownership.
 | Q02 | Trusted tenant, principal and agent actor | Present: [request context](../pkg/contracts/context.go), [WIF resolution](../internal/auth/wif.go), [native identity](native-agent-governance.md) | Contract: distinguish caller, delegated user, agent, application and payer; never infer payer from email or sponsor |
 | Q03 | Multiple-group membership at admission | Present: snapshot type and `ValidateFor`; current [host context](../internal/api/connected.go) omits its reference | Integration: authoritative resolver, source-qualified group IDs, freshness/revocation rules, durable decision snapshot and attached reference |
 | Q04 | Funding and overlapping limits | Contract; authentication merges permissions, not money | Define eligible accounts, selected payer, account priority and all simultaneous user/group/tenant/model limits |
-| Q05 | Nonuniform allocations and periods | Contract; legacy daily/monthly reports are insufficient | Explicit quantities, units, interval type, start/anchor, timezone, effective revisions and overlap rules |
+| Q05 | Nonuniform allocations and periods | Contract; legacy daily/monthly reports are insufficient | Explicit quantities, units, interval type, start/anchor, timezone, effective revisions and overlap rules; no implicit division by group size |
 | Q06 | Admission and receipt lifecycle | Present: [enforcement interfaces](../pkg/enforcement/pipeline.go) | Contract: typed quota admission and settlement envelopes; integration before billable dispatch and after actual outcomes |
 | Q07 | Stable accounting identities | Present: request correlation; no durable quota identity | Contract: logical operation, attempt, reservation, provider resource and usage-event IDs; bind idempotency keys to immutable request fingerprints |
 | Q08 | Immutable decision provenance | Present: [policy snapshots](../pkg/policy/snapshots.go); memory backend only | Quota policy validation/evaluation, durable policy history, pinned membership/price revisions and explainable decisions |
@@ -60,6 +65,11 @@ before enabling enforcement. None of the pending rows changes module ownership.
 | Q16 | Balance and decision APIs | Contract | Granted/held/consumed/available/borrowed/lent with period, unit, revision and as-of semantics; tenant-scoped administration and explanations |
 | Q17 | Reconciliation and operations | Production | Recover outstanding holds; reconcile trusted usage; audit adjustments; alerts, backup/restore and bounded outage behavior |
 | Q18 | Performance and rollout | Production | Measured latency/QPS/contention bounds, multi-replica tests, shadow comparisons and rollback preserving in-flight accounting |
+| Q19 | Rate and burst controls | Contract; existing process-local request middleware is not distributed quota control | Independent meter/interval/burst and admitted-versus-observed basis; atomically check applicable tenant, account, subject and target buckets |
+| Q20 | Concurrency permits | Contract | Fenced acquire/renew/release, global and scoped limits, dispatch uncertainty and recovery; expiry alone does not prove upstream work stopped |
+| Q21 | Scheduling and assigned QoS | Contract | Bounded queue/deadline, priority, weights, protected shares, ceilings, work-conserving excess sharing and feasible upstream capacity pools; rate ceilings alone promise no minimum throughput |
+| Q22 | Tool and other resource meters | Integration; MCP OAuth registration is not execution interception | Canonical tool operation/cost units and trustworthy execution lifecycle; reuse the common core for calls, duration, bytes, rows, executions or provider-defined work |
+| Q23 | Group population allocation | Contract; group membership is not authoritative group cardinality | Fixed group allowances by default; explicit per-member formulas require source-qualified, revisioned population snapshots, eligibility/count rules and defined effective boundaries |
 
 The evidence links describe current code. A versioned schema, registry entry or
 native IAM integration alone does not satisfy a pending accounting gate.
@@ -169,6 +179,40 @@ available = granted + authorized_net_transfers - settled_usage - active_holds
 Borrowing cannot increase an organization's hard ceiling. Reporting a charge
 against both a funding account and a parent cap must not create two independent
 provider charges. Tests must cover lending races and simultaneous lender demand.
+
+## Rates, concurrency and assigned QoS
+
+Keep four controls distinct within the same QuotaPlex policy and admission plan:
+
+| Control | Governs | Required semantics |
+| --- | --- | --- |
+| Budget | Consumption over an allocation period | Bounded reservation and trusted settlement; remaining money/tokens/work units do not imply available throughput |
+| Rate | Admitted or observed work over short intervals | Sustained rate, burst and meter basis; request/s and token/s remain separate dimensions |
+| Concurrency | Outstanding execution | Atomic permits, fencing, renewal and known-terminal release; include streams, jobs and long-running tools |
+| Scheduling | Who receives scarce capacity next | Bounded queues/deadlines, protected shares, weights, ceilings, borrowing of idle throughput and starvation rules |
+
+Assigned throughput requires an identified capacity pool and a feasible scheduling
+policy. An application allowance cannot create provider capacity. Count admission
+tokens separately from provider-generated output tokens: reserving a maximum at
+dispatch limits admitted exposure, while delaying already generated SSE frames
+only changes client delivery. Neither establishes an upstream generation rate.
+
+Tool requests use the same controls with operation-appropriate meters. A tool
+may need calls/s, concurrent executions and execution-time or row budgets; it
+need not expose a fictitious token count. Long-lived MCP sessions are distinct
+from individual tool executions.
+
+Budget lending and throughput sharing need separate policy/state. A loan commits
+consumable allocation between particular windows; a scheduler lends idle service
+capacity while preserving feasible protected shares and parent throughput caps.
+Queue admission must consume no billable budget or execution permit until the
+defined dispatch transaction, or retain an explicit bounded queue hold. Retry and
+cancellation behavior must release only the capacity known to be unused.
+
+All applicable budget, rate and concurrency checks form one atomic admission:
+failure at any check commits none of its proposed changes. A typed demand envelope
+belongs to QuotaPlex and its explicit adapter; do not overload request/resource
+IDs or hide funding/meter facts in arbitrary context values.
 
 ## Module-owned accounting contracts
 
@@ -330,6 +374,9 @@ Before implementing the module, record decisions for:
 - [ ] Typed admission, usage, ledger and reservation/recovery contracts.
 - [ ] Atomic persistence and durable idempotency semantics.
 - [ ] Sharing/borrowing invariants and the initial operation/deployment coverage matrix.
+- [ ] Rate basis/burst, concurrency lifecycle, queue/deadline/fairness rules and
+  capacity feasibility; distinguish protected throughput from maximum rates.
+- [ ] Tool meter/operation contracts and explicit group-population allocation rules.
 
 Before enabling enforcement, require:
 
@@ -339,6 +386,8 @@ Before enabling enforcement, require:
 - [ ] Existing host paths supply trusted context, admission and acknowledged usage.
 - [ ] Per-operation metering, streaming/async recovery and bypass coverage verified.
 - [ ] Concurrency, retry, crash, expiry, rollover and reconciliation tests pass.
+- [ ] Compound budget/rate/concurrency admission, bounded queues, weighted sharing,
+  tool metering and supported throughput guarantees pass their own invariant tests.
 - [ ] Latency/capacity, audit, outage, backup/restore and administrative controls verified.
 - [ ] Shadow comparison, migration, activation and rollback evidence recorded.
 
