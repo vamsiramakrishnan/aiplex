@@ -12,7 +12,7 @@ import (
 
 // resourcesCmd is a typed resource client, not a shell/plugin execution path.
 func resourcesCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "resources", Short: "Manage connected module resources (model-surface, agent-connection, tool-connection, network-profile, client-destination, deployment-intent)"}
+	cmd := &cobra.Command{Use: "resources", Short: "Manage connected module resources (model-surface, agent-connection, tool-connection, network-profile, client-destination, deployment-intent, agent-binding)"}
 	show := func(value any) {
 		if output == "yaml" {
 			printYAML(value)

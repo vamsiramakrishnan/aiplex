@@ -28,7 +28,7 @@ describe('Authenticated stream framing', () => {
     try {
       await waitFor(() => expect(hook.result.current?.total_instances).toBe(7))
       const [url, options] = mock.mock.calls[0]
-      expect(url).toBe('/api/v1/events/stream')
+      expect(url).toBe('/events/stream')
       expect(options.headers.Authorization).toBe('Bearer private-token')
       hook.unmount()
       expect(options.signal.aborted).toBe(true)

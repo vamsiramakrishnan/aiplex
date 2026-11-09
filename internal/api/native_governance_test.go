@@ -327,17 +327,18 @@ func TestNativeGovernanceProviderDiscoveryFiltersTenant(t *testing.T) {
 func TestNativeGovernanceRuntimeLinkIsExactTenantScopedAndRevocable(t *testing.T) {
 	f := newNativeHostFixture(t)
 	binding := nativeTestBinding("binding-a", "google-native")
-	binding.Registry = &governance.RegistryRef{Provider: "google", TenantID: "project-a", NativeResourceName: nativeTestResource, RuntimeRef: "native-runtime-immutable-id"}
+	const runtime = "projects/project-a/locations/global/reasoningEngines/runtime-a"
+	binding.Registry = &governance.RegistryRef{Provider: "google", TenantID: "project-a", NativeResourceName: nativeTestResource, RuntimeRef: runtime}
 	record := f.saveBinding(t, binding)
-	connection := cloudagents.Connection{GovernanceBindingRef: "binding-a", ResourceID: "native-runtime-immutable-id"}
+	connection := cloudagents.Connection{Provider: cloudagents.GoogleRuntime, GovernanceBindingRef: "binding-a", ResourceID: runtime}
 	if err := f.handler.checkAgentGovernanceRef(context.Background(), "tenant-a", connection); err != nil {
 		t.Fatalf("declared exact runtime binding rejected: %v", err)
 	}
-	connection.ResourceID = "different-native-runtime"
+	connection.ResourceID = "projects/project-a/locations/global/reasoningEngines/runtime-b"
 	if err := f.handler.checkAgentGovernanceRef(context.Background(), "tenant-a", connection); err == nil {
 		t.Fatal("binding was reused for a different immutable runtime")
 	}
-	connection.ResourceID = "native-runtime-immutable-id"
+	connection.ResourceID = runtime
 	if err := f.handler.checkAgentGovernanceRef(context.Background(), "tenant-b", connection); err == nil {
 		t.Fatal("runtime relationship crossed Aiplex tenant namespaces")
 	}

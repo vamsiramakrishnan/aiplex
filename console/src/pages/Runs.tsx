@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import { useRunTimelineSSE } from '../hooks/useRunTimelineSSE'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ExecutionEvent,
   ExecutionEventKind,
   ExecutionRun,
   ExecutionRunStatus,
   OperatorAudit,
   getRunsHealth,
   listOperatorAudit,
-  listRunEvents,
   listRuns,
   runCancel,
   runCompensate,
@@ -218,74 +217,6 @@ function RunList({
       ))}
     </div>
   )
-}
-
-// useRunTimelineSSE prefers Server-Sent Events (PR 11 item 11) and
-// falls back to React Query polling if SSE doesn't work (older
-// browsers, proxies that buffer). Returns the accumulated events
-// in seq order.
-function useRunTimelineSSE(runID: string): { events: ExecutionEvent[]; live: boolean } {
-  const [events, setEvents] = useState<ExecutionEvent[]>([])
-  const [live, setLive] = useState(false)
-  const seqSeen = useRef<Set<number>>(new Set())
-
-  useEffect(() => {
-    setEvents([])
-    seqSeen.current = new Set()
-    setLive(false)
-    if (typeof EventSource === 'undefined') return
-
-    const token = (() => {
-      try { return localStorage.getItem('aiplex_token') ?? '' } catch { return '' }
-    })()
-    const url = `/events/stream?run_id=${encodeURIComponent(runID)}` +
-      (token ? `&token=${encodeURIComponent(token)}` : '')
-    const es = new EventSource(url)
-
-    const onEvent = (msg: MessageEvent) => {
-      try {
-        const ev: ExecutionEvent = JSON.parse(msg.data)
-        if (seqSeen.current.has(ev.seq)) return
-        seqSeen.current.add(ev.seq)
-        setEvents(prev => {
-          const next = [...prev, ev]
-          next.sort((a, b) => a.seq - b.seq)
-          return next
-        })
-      } catch { /* skip malformed */ }
-    }
-    es.addEventListener('run_event', onEvent as EventListener)
-    es.onopen = () => setLive(true)
-    es.onerror = () => setLive(false)
-
-    return () => {
-      es.removeEventListener('run_event', onEvent as EventListener)
-      es.close()
-      setLive(false)
-    }
-  }, [runID])
-
-  // Fallback: poll initial backlog via the read API when SSE hasn't
-  // connected within 800ms. Once SSE lands, the live==true path
-  // takes over (the polling query stays cached but de-prioritised).
-  const pollFallback = useQuery({
-    queryKey: ['run-events-fallback', runID],
-    queryFn: () => listRunEvents(runID),
-    refetchInterval: live ? false : 3000,
-    enabled: !live,
-  })
-  useEffect(() => {
-    if (pollFallback.data) {
-      setEvents(prev => {
-        if (prev.length >= pollFallback.data.events.length) return prev
-        const next = [...pollFallback.data.events]
-        seqSeen.current = new Set(next.map(e => e.seq))
-        return next
-      })
-    }
-  }, [pollFallback.data])
-
-  return { events, live }
 }
 
 function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) {

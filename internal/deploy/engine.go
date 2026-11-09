@@ -62,6 +62,9 @@ func (e *Engine) WithRouteRegistry(routes *RouteRegistry) *Engine {
 var ErrRuntimeMutation = fmt.Errorf("runtime config is immutable after first deploy; undeploy + redeploy to change")
 
 func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID string, config map[string]any, owner, displayName string) (*models.Instance, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	start := time.Now()
 	logger := log.Ctx(ctx).With().Str("plane", string(plane)).Str("template", templateID).Logger()
 
@@ -155,6 +158,9 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 
 	manifests := GenerateManifests(inst, template, e.trustDomain)
 	for _, manifest := range append(append([]Manifest(nil), manifests...), routes...) {
+		if _, err := marshalManifest(manifest); err != nil {
+			return nil, fmt.Errorf("invalid deployment manifest %s/%s: %w", manifest.Kind, manifest.Name, err)
+		}
 		if manifest.Shared {
 			continue
 		}
@@ -169,11 +175,11 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 
 	// 6. Apply K8s workload manifests (SA, Deployment, Service, NetworkPolicy)
 	for _, m := range manifests {
+		if err := ctx.Err(); err != nil {
+			return nil, e.failedDeployment(ctx, inst, owner, config, start, err)
+		}
 		if err := e.k8s.Apply(ctx, m); err != nil {
-			inst.Status = models.StatusFailed
-			e.store.PutInstance(ctx, inst)
-			e.recordHistory(ctx, inst, "deploy", owner, config, start, false, err.Error())
-			return nil, fmt.Errorf("failed to apply %s/%s: %w", m.Kind, m.Name, err)
+			return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("failed to apply %s/%s: %w", m.Kind, m.Name, err))
 		}
 	}
 
@@ -242,30 +248,51 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 
 	// 7. Apply route CRD (MCPRoute / HTTPRoute / LLMRoute)
 	for _, m := range routes {
+		if err := ctx.Err(); err != nil {
+			return nil, e.failedDeployment(ctx, inst, owner, config, start, err)
+		}
 		if err := e.k8s.Apply(ctx, m); err != nil {
-			inst.Status = models.StatusFailed
-			e.store.PutInstance(ctx, inst)
-			e.recordHistory(ctx, inst, "deploy", owner, config, start, false, err.Error())
-			return nil, fmt.Errorf("failed to apply route %s/%s: %w", m.Kind, m.Name, err)
+			return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("failed to apply route %s/%s: %w", m.Kind, m.Name, err))
 		}
 	}
 
 	// 8. Grant owner access (Dimension B — user ceiling)
-	if err := e.store.SetUserScopes(ctx, owner, append(
-		mustGetUserScopes(ctx, e.store, owner), scopes...,
-	)); err != nil {
-		logger.Warn().Err(err).Msg("failed to grant owner scopes")
+	if err := ctx.Err(); err != nil {
+		return nil, e.failedDeployment(ctx, inst, owner, config, start, err)
 	}
-
-	// 9. Record success history
-	e.recordHistory(ctx, inst, "deploy", owner, config, start, true, "")
+	ownerScopes, err := e.store.GetUserScopes(ctx, owner)
+	if err != nil {
+		return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("failed to resolve owner scopes: %w", err))
+	}
+	grantedScopes := append(append([]string(nil), ownerScopes...), inst.Scopes...)
+	if err := e.store.SetUserScopes(ctx, owner, grantedScopes); err != nil {
+		return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("failed to grant owner scopes: %w", err))
+	}
 
 	// Mark as running (in production, this transitions after health check passes)
 	inst.Status = models.StatusRunning
-	e.store.PutInstance(ctx, inst)
+	if err := e.store.PutInstance(ctx, inst); err != nil {
+		return nil, e.failedDeployment(ctx, inst, owner, config, start, fmt.Errorf("failed to persist deployed instance: %w", err))
+	}
+
+	// Record success only after the deployed state is durably saved.
+	e.recordHistory(ctx, inst, "deploy", owner, config, start, true, "")
 
 	logger.Info().Dur("duration", time.Since(start)).Msg("deploy complete")
 	return inst, nil
+}
+
+func (e *Engine) failedDeployment(ctx context.Context, inst *models.Instance, owner string, config map[string]any, start time.Time, cause error) error {
+	// An interrupted apply may have created resources. The initially persisted
+	// inventory remains available for explicit cleanup; this is no rollback claim.
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	inst.Status = models.StatusFailed
+	if err := e.store.PutInstance(cleanup, inst); err != nil {
+		cause = errors.Join(cause, fmt.Errorf("failed to persist deployment failure: %w", err))
+	}
+	e.recordHistory(cleanup, inst, "deploy", owner, config, start, false, cause.Error())
+	return cause
 }
 
 // Undeploy tears down an instance.
@@ -348,11 +375,6 @@ func (e *Engine) recordHistory(ctx context.Context, inst *models.Instance, actio
 	if err := e.store.AppendHistory(ctx, history); err != nil {
 		log.Ctx(ctx).Warn().Err(err).Msg("failed to record deploy history")
 	}
-}
-
-func mustGetUserScopes(ctx context.Context, store registry.UserScopeStore, userID string) []string {
-	scopes, _ := store.GetUserScopes(ctx, userID)
-	return scopes
 }
 
 func generateID(prefix string) string {
@@ -467,7 +489,7 @@ func (e *Engine) checkRuntimeMutation(ctx context.Context, plane models.Plane, t
 	}
 	existing, err := e.store.ListInstances(ctx, plane)
 	if err != nil {
-		return nil // store error: don't block the deploy on a fragile check
+		return fmt.Errorf("resolve existing runtime configuration: %w", err)
 	}
 	want := runtimeFromConfig(config)
 	for _, inst := range existing {
@@ -505,5 +527,8 @@ func runtimeEqual(a, b models.RuntimeConfig) bool {
 	if a.Outbox != b.Outbox {
 		return false
 	}
-	return true
+	if a.Engine == models.RuntimeEngineTape {
+		return models.NormaliseRetention(a.Retention) == models.NormaliseRetention(b.Retention)
+	}
+	return a.Retention == b.Retention
 }

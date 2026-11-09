@@ -1,14 +1,15 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
 export default function Login() {
   const [token, setToken] = useState('')
   const [error, setError] = useState('')
-  const { login } = useAuth()
+  const { login, verifying, error: sessionError } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const raw = token.trim()
     if (!raw) {
@@ -16,26 +17,13 @@ export default function Login() {
       return
     }
 
-    const jwt = raw.startsWith('Bearer ') ? raw.slice(7) : raw
-    const parts = jwt.split('.')
-    if (parts.length !== 3) {
-      setError('Invalid token format. Expected a JWT (three dot-separated segments).')
-      return
-    }
-
     try {
-      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
-      if (!payload.sub) {
-        setError('Token is missing a "sub" claim.')
-        return
-      }
-    } catch {
-      setError('Could not decode token payload.')
-      return
+      await login(raw)
+      const from = location.state?.from?.pathname as string | undefined
+      navigate(from?.startsWith('/') && !from.startsWith('//') ? from : '/dashboard', { replace: true })
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'Sign in failed.')
     }
-
-    login(raw)
-    navigate('/dashboard', { replace: true })
   }
 
   return (
@@ -66,15 +54,16 @@ export default function Login() {
             />
           </div>
 
-          {error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          {(error || sessionError) && (
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error || sessionError}</p>
           )}
 
           <button
             type="submit"
+            disabled={verifying}
             className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            Sign In
+            {verifying ? 'Verifying identity…' : 'Sign In'}
           </button>
         </form>
 

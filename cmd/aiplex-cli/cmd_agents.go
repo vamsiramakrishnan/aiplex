@@ -72,7 +72,7 @@ Examples:
 	cmd.Flags().StringVarP(&displayName, "name", "n", "", "Display name")
 	cmd.Flags().StringVar(&description, "description", "", "Description")
 	cmd.Flags().StringVar(&authMethod, "auth", "client_credentials", "Auth method: client_credentials, authorization_code, device_code")
-	cmd.Flags().StringSliceVar(&grantTypes, "grants", []string{"client_credentials"}, "Grant types")
+	cmd.Flags().StringSliceVar(&grantTypes, "grants", nil, "Grant types (default derives from --auth)")
 	cmd.Flags().StringSliceVar(&scopes, "scopes", nil, "Allowed scopes (Dimension A)")
 	return cmd
 }
@@ -134,7 +134,7 @@ func userScopesCmd() *cobra.Command {
 	}
 
 	getCmd := &cobra.Command{
-		Use:   "get <user-id>",
+		Use:   "get <principal-id>",
 		Short: "Get user scopes",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -150,7 +150,7 @@ func userScopesCmd() *cobra.Command {
 			}
 
 			fmt.Printf("User: %s\n", us.UserID)
-			for plane, scopes := range us.Scopes {
+			for plane, scopes := range us.ByPlane {
 				fmt.Printf("  %s:\n", plane)
 				for _, s := range scopes {
 					fmt.Printf("    - %s\n", s)
@@ -162,7 +162,7 @@ func userScopesCmd() *cobra.Command {
 
 	var scopes []string
 	setCmd := &cobra.Command{
-		Use:   "set <user-id>",
+		Use:   "set <principal-id>",
 		Short: "Set user scopes",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

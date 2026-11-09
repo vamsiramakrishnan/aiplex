@@ -58,6 +58,9 @@ func (ch *ConsentHandler) handleConsent(ctx context.Context, challenge string, s
 	if err != nil {
 		return "", err
 	}
+	if agent.Status != "active" {
+		return "", fmt.Errorf("agent registration is not active")
+	}
 	var userScopes []string
 	if access != nil {
 		identity := access.Identity
@@ -75,7 +78,7 @@ func (ch *ConsentHandler) handleConsent(ctx context.Context, challenge string, s
 	if !explicit {
 		choices = cr.RequestedScope
 	}
-	var granted []string
+	granted := make([]string, 0, len(choices))
 	seen := make(map[string]bool)
 	requested := toSet(cr.RequestedScope)
 	for _, scope := range choices {
@@ -91,7 +94,7 @@ func (ch *ConsentHandler) handleConsent(ctx context.Context, challenge string, s
 		}
 	}
 	sort.Strings(granted)
-	return ch.hydra.AcceptConsent(ctx, challenge, granted, map[string]string{"sub": agent.SpiffeID})
+	return ch.hydra.AcceptConsent(ctx, challenge, granted, map[string]string{"sub": AgentActorSubject(agent)})
 }
 
 // ScopeAllowed supports exact scopes and terminal namespace wildcards. A
@@ -116,6 +119,8 @@ func ScopesByPlane(scopes []string) map[models.Plane][]string {
 			result[models.PlaneA2APlex] = append(result[models.PlaneA2APlex], s)
 		case strings.HasPrefix(s, "llm:"):
 			result[models.PlaneLLMPlex] = append(result[models.PlaneLLMPlex], s)
+		case strings.HasPrefix(s, "skill:"):
+			result[models.PlaneSkillsPlex] = append(result[models.PlaneSkillsPlex], s)
 		}
 	}
 	return result

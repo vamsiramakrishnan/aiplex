@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from './useAuth'
-import { consumeSSE } from '../sse'
+import { authenticatedSSE } from '../sse'
 
 interface SSEStats {
   total_instances: number
@@ -26,17 +26,11 @@ export function useSSE(enabled = true): SSEStats | null {
 
     const connect = async () => {
       try {
-        const response = await fetch('/api/v1/events/stream', {
-          headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-          signal: controller.signal,
-        })
-        // An expired/revoked session should reauthenticate, not reconnect forever.
-        if (response.status === 401 || response.status === 403) return
-        if (!response.ok || !response.body) throw new Error('Event stream unavailable')
-        await consumeSSE(response.body, (event, data) => {
+        const outcome = await authenticatedSSE('/events/stream', token, controller.signal, (event, data) => {
           if (event !== 'stats' || controller.signal.aborted) return
           try { setSnapshot({ token, stats: JSON.parse(data) as SSEStats }) } catch { /* ignore malformed event */ }
         })
+        if (outcome === 'denied') return
       } catch {
         // Dashboard polling remains available while the stream reconnects.
       }

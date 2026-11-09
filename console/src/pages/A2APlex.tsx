@@ -38,6 +38,8 @@ export default function A2APlex() {
   const agentCards = useQuery({ queryKey: ['a2a-agents'], queryFn: getAgentCards })
   const delegations = useQuery({ queryKey: ['a2a-delegations'], queryFn: getDelegations })
 
+  const activeQuery = tab === 'catalog' ? catalog : tab === 'delegations' ? delegations : agentCards
+
   const filteredAgentCards = agentCards.data?.filter(card =>
     card.name?.toLowerCase().includes(search.toLowerCase()) ||
     card.instance_id?.toLowerCase().includes(search.toLowerCase())
@@ -70,7 +72,10 @@ export default function A2APlex() {
         ))}
       </div>
 
-      {tab === 'agents' && (
+      {activeQuery.isLoading && <p role="status">Loading module data…</p>}
+      {activeQuery.error && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeQuery.error.message}</p>}
+
+      {tab === 'agents' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Running A2A Agents</h3>
           <div className="mb-4">
@@ -130,7 +135,7 @@ export default function A2APlex() {
         </div>
       )}
 
-      {tab === 'catalog' && (
+      {tab === 'catalog' && !activeQuery.isLoading && !activeQuery.error && (
         <div className="grid grid-cols-2 gap-4">
           {catalog.data?.templates?.map((t) => (
             <div key={t.id} className="bg-white rounded-lg shadow p-4">
@@ -150,7 +155,7 @@ export default function A2APlex() {
         </div>
       )}
 
-      {tab === 'delegations' && (
+      {tab === 'delegations' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Recent Delegations</h3>
           {delegations.data && delegations.data.length > 0 ? (

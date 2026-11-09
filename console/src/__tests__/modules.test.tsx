@@ -59,4 +59,13 @@ describe('Module discovery', () => {
     expect(vi.mocked(getCatalog).mock.calls.every(([plane]) => plane === 'llmplex')).toBe(true)
     client.clear()
   })
+
+  it('keeps client configuration modules out of the deployment plane picker', async () => {
+    vi.mocked(listModules).mockResolvedValue([{ name: 'clientplex', version: '1.0.0', contract_version: 'v1', navigation: [{ path: '/clientplex', title: 'ClientPlex' }] }])
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<MemoryRouter initialEntries={['/deploy?plane=clientplex']}><QueryClientProvider client={client}><ModuleProvider><Deploy /></ModuleProvider></QueryClientProvider></MemoryRouter>)
+    await screen.findByText('No deployable modules are enabled.')
+    expect(screen.queryByRole('button', { name: /^ClientPlex/ })).toBeNull()
+    client.clear()
+  })
 })

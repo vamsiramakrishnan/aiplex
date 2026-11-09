@@ -14,9 +14,10 @@ import Runs from './pages/Runs'
 import CommandPalette from './components/CommandPalette'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, verifying } = useAuth()
   const location = useLocation()
 
+  if (verifying) return <p role="status">Verifying identity…</p>
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }

@@ -11,10 +11,12 @@ import (
 	"sort"
 	"time"
 
+	sdkaws "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/go-chi/chi/v5"
 	"github.com/vamsiramakrishnan/aiplex/pkg/cloudagents"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/governance"
+	awsgovernance "github.com/vamsiramakrishnan/aiplex/pkg/governance/aws"
 	"github.com/vamsiramakrishnan/aiplex/pkg/nativeapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 )
@@ -73,15 +75,49 @@ func (h *ConnectedHandler) checkAgentGovernanceRef(ctx context.Context, tenant s
 	if h.Governance == nil {
 		return fmt.Errorf("referenced native governance provider is unavailable")
 	}
+	target, err := connection.GovernanceTargetRef()
+	if err != nil {
+		return err
+	}
 	record, err := h.Store.Get(ctx, tenant, governance.BindingKind, connection.GovernanceBindingRef)
 	if err != nil {
 		return fmt.Errorf("referenced native governance binding is unavailable")
 	}
 	var binding governance.AgentBinding
-	if json.Unmarshal(record.Spec, &binding) != nil || binding.ID != connection.GovernanceBindingRef || binding.TenantID != tenant || binding.Registry == nil || binding.Registry.RuntimeRef != connection.ResourceID {
+	if json.Unmarshal(record.Spec, &binding) != nil || binding.ID != connection.GovernanceBindingRef || binding.TenantID != tenant || binding.Registry == nil || binding.Registry.RuntimeRef != target {
 		return fmt.Errorf("native governance binding does not identify this runtime")
 	}
 	return h.Governance.ValidateBinding(binding)
+}
+
+// Bedrock Classic dispatch selects names under the signing account. A declared
+// alias ARN alone cannot establish that account; use the same credential source
+// for a policy-constrained STS attestation before invoking it.
+func (h *ConnectedHandler) verifyLinkedBedrockAccount(ctx context.Context, tenant string, connection cloudagents.Connection, credentials sdkaws.CredentialsProvider) error {
+	if connection.GovernanceBindingRef == "" || connection.Provider != cloudagents.BedrockAgent {
+		return nil
+	}
+	account, partition, err := connection.GovernanceAWSAccount()
+	if err != nil {
+		return err
+	}
+	stsOrigin := "https://sts." + connection.Region + ".amazonaws.com"
+	if partition == "aws-cn" {
+		stsOrigin += ".cn"
+	}
+	if h.Runtime == nil || h.Runtime.Policy == nil || h.Runtime.Policy.ValidateURL(stsOrigin) != nil {
+		return fmt.Errorf("linked Bedrock governance requires an allowlisted STS authority")
+	}
+	if err = h.Runtime.CheckDestination(tenant, connection.IdentityRef, stsOrigin); err != nil {
+		return fmt.Errorf("STS credential destination is not approved")
+	}
+	verifier, err := awsgovernance.NewSTSAccountVerifier(h.Runtime.HTTP, credentials, connection.Region)
+	if err != nil {
+		return err
+	}
+	bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return verifier.VerifyAccount(bounded, account, partition)
 }
 
 func nativeGrant(ctx context.Context, request contracts.RequestContext, phase, binding string) error {

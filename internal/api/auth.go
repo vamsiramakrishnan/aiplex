@@ -1,11 +1,16 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
@@ -47,24 +52,33 @@ func (h *AuthHandler) ConsentGet(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusBadGateway, "HYDRA_ERROR", "consent request requires subject and client")
 		return
 	}
-	if access := GetWIFAccess(r.Context()); access != nil && cr.Subject != access.Identity.PrincipalID {
+	if access := GetWIFAccess(r.Context()); access != nil && !consentCallerMatches(access, cr.Subject) {
 		Error(w, r, http.StatusForbidden, "FORBIDDEN", "consent subject does not match verified caller")
 		return
 	}
 	// Look up agent ceiling (Dimension A) and user ceiling (Dimension B)
 	agent, err := h.store.GetAgent(r.Context(), cr.Client.ClientID)
 	if err != nil {
-		Error(w, r, http.StatusNotFound, "NOT_FOUND", "agent not registered: "+cr.Client.ClientID)
+		if errors.Is(err, registry.ErrNotFound) {
+			Error(w, r, http.StatusNotFound, "NOT_FOUND", "agent not registered")
+		} else {
+			Error(w, r, http.StatusServiceUnavailable, "STORE_ERROR", "agent policy unavailable")
+		}
 		return
 	}
-
-	userScopes, err := h.store.GetUserScopes(r.Context(), cr.Subject)
-	if err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "failed to resolve consent scopes")
+	if agent.Status != "active" {
+		Error(w, r, http.StatusForbidden, "OAUTH_AGENT_DENIED", "registered active agent required")
 		return
 	}
+	var userScopes []string
 	if access := GetWIFAccess(r.Context()); access != nil {
 		userScopes = access.Scopes
+	} else {
+		userScopes, err = h.store.GetUserScopes(r.Context(), cr.Subject)
+		if err != nil {
+			Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "failed to resolve consent scopes")
+			return
+		}
 	}
 
 	// Compute grantable scopes = A ∩ B ∩ requested
@@ -94,7 +108,7 @@ func (h *AuthHandler) ConsentAccept(w http.ResponseWriter, r *http.Request) {
 		GrantedScopes *[]string `json:"granted_scopes"`
 		Deny          bool      `json:"deny"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeAuthJSON(r, &req, true); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
@@ -104,6 +118,19 @@ func (h *AuthHandler) ConsentAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Deny {
+		cr, err := h.hydra.GetConsentRequest(r.Context(), req.Challenge)
+		if err != nil {
+			Error(w, r, http.StatusBadGateway, "HYDRA_ERROR", "failed to fetch consent request")
+			return
+		}
+		if strings.TrimSpace(cr.Subject) == "" || strings.TrimSpace(cr.Client.ClientID) == "" {
+			Error(w, r, http.StatusBadGateway, "HYDRA_ERROR", "consent request requires subject and client")
+			return
+		}
+		if access := GetWIFAccess(r.Context()); access != nil && !consentCallerMatches(access, cr.Subject) {
+			Error(w, r, http.StatusForbidden, "FORBIDDEN", "consent subject does not match verified caller")
+			return
+		}
 		redirectURL, err := h.hydra.RejectConsent(r.Context(), req.Challenge, "user_denied", "User denied consent")
 		if err != nil {
 			Error(w, r, http.StatusBadGateway, "HYDRA_ERROR", "consent rejection failed: "+err.Error())
@@ -136,43 +163,94 @@ func (h *AuthHandler) ConsentAccept(w http.ResponseWriter, r *http.Request) {
 // It injects the RFC 8693 actor claim with the agent's SPIFFE ID.
 // POST /auth/token-hook
 func (h *AuthHandler) TokenHook(w http.ResponseWriter, r *http.Request) {
-	var hookReq struct {
-		Subject string `json:"subject"`
-		Client  struct {
+	// Current Hydra sends request.client_id and session.extra; refresh hooks
+	// also have requester/top-level forms. Reject conflicting identities rather
+	// than resolving an ambiguous hook by field precedence.
+	type hookRequest struct {
+		ClientID        string   `json:"client_id"`
+		GrantedScopes   []string `json:"granted_scopes"`
+		RequestedScopes []string `json:"requested_scopes"`
+	}
+	var input struct {
+		ClientID string `json:"client_id"`
+		Client   struct {
 			ClientID string `json:"client_id"`
 		} `json:"client"`
-		GrantedScopes []string `json:"granted_scopes"`
+		Request       hookRequest `json:"request"`
+		Requester     hookRequest `json:"requester"`
+		GrantedScopes []string    `json:"granted_scopes"`
 		Session       struct {
 			AccessToken map[string]any `json:"access_token"`
+			Extra       map[string]any `json:"extra"`
+			IDToken     map[string]any `json:"id_token"`
 		} `json:"session"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&hookReq); err != nil {
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid hook request")
+	if decodeAuthJSON(r, &input, false) != nil {
+		Error(w, r, 400, "BAD_REQUEST", "invalid hook request")
 		return
 	}
-
-	// Look up the agent to get its SPIFFE ID
-	agent, err := h.store.GetAgent(r.Context(), hookReq.Client.ClientID)
+	clientID := ""
+	for _, id := range []string{input.Request.ClientID, input.Requester.ClientID, input.ClientID, input.Client.ClientID} {
+		if id == "" {
+			continue
+		}
+		if clientID != "" && clientID != id {
+			Error(w, r, 400, "BAD_REQUEST", "conflicting hook client identities")
+			return
+		}
+		clientID = id
+	}
+	if clientID == "" {
+		Error(w, r, 400, "BAD_REQUEST", "hook client identity required")
+		return
+	}
+	agent, err := h.store.GetAgent(r.Context(), clientID)
 	if err != nil {
-		// Agent not registered — still issue token but without act claim
-		JSON(w, http.StatusOK, map[string]any{"session": hookReq.Session})
+		if errors.Is(err, registry.ErrNotFound) {
+			Error(w, r, 403, "OAUTH_AGENT_DENIED", "registered active agent required")
+		} else {
+			Error(w, r, 503, "STORE_ERROR", "agent policy unavailable")
+		}
 		return
 	}
-
-	// Inject act claim (RFC 8693)
-	session := hookReq.Session
-	if session.AccessToken == nil {
-		session.AccessToken = make(map[string]any)
+	if agent.Status != "active" {
+		Error(w, r, 403, "OAUTH_AGENT_DENIED", "registered active agent required")
+		return
 	}
-	session.AccessToken["act"] = map[string]string{
-		"sub": agent.SpiffeID,
+	// Check all supplied current/refresh scope coordinates. Older Hydra hooks
+	// may leave granted_scopes empty, so requested scopes are checked as well.
+	scopes := append([]string(nil), input.GrantedScopes...)
+	for _, request := range []hookRequest{input.Request, input.Requester} {
+		scopes = append(scopes, request.GrantedScopes...)
+		scopes = append(scopes, request.RequestedScopes...)
 	}
-
-	JSON(w, http.StatusOK, map[string]any{
-		"session": map[string]any{
-			"access_token": session.AccessToken,
-		},
-	})
+	if _, err = auth.NormalizeScopes(scopes); err != nil {
+		Error(w, r, 400, "BAD_REQUEST", "invalid hook scopes")
+		return
+	}
+	for _, scope := range scopes {
+		if !auth.ScopeAllowed(agent.AllowedScopes, scope) {
+			Error(w, r, 403, "OAUTH_SCOPE_DENIED", "granted scopes exceed current agent permissions")
+			return
+		}
+	}
+	accessToken := input.Session.Extra
+	if accessToken == nil {
+		accessToken = input.Session.AccessToken
+	}
+	if accessToken == nil {
+		accessToken = map[string]any{}
+	}
+	accessToken["act"] = map[string]string{"sub": auth.AgentActorSubject(agent)}
+	idToken := input.Session.IDToken
+	if claims, ok := idToken["id_token_claims"].(map[string]any); ok {
+		idToken, _ = claims["ext"].(map[string]any)
+	}
+	session := map[string]any{"access_token": accessToken}
+	if idToken != nil {
+		session["id_token"] = idToken
+	}
+	JSON(w, http.StatusOK, map[string]any{"session": session})
 }
 
 // LoginRedirect handles the Kratos login challenge.
@@ -197,10 +275,17 @@ func (h *AuthHandler) LoginRedirect(w http.ResponseWriter, r *http.Request) {
 // GET /auth/users/{userId}/scopes
 func (h *AuthHandler) GetUserScopes(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("userId")
+	if !auth.IsCanonicalPrincipalID(userID) {
+		Error(w, r, 400, "INVALID_PRINCIPAL", "canonical principal ID from iam/whoami is required")
+		return
+	}
 	scopes, err := h.store.GetUserScopes(r.Context(), userID)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
+	}
+	if scopes == nil {
+		scopes = []string{}
 	}
 
 	// Group by plane for easier display
@@ -216,14 +301,27 @@ func (h *AuthHandler) GetUserScopes(w http.ResponseWriter, r *http.Request) {
 // PUT /auth/users/{userId}/scopes
 func (h *AuthHandler) SetUserScopes(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("userId")
-	var req struct {
-		Scopes []string `json:"scopes"`
+	if !auth.IsCanonicalPrincipalID(userID) {
+		Error(w, r, 400, "INVALID_PRINCIPAL", "canonical principal ID from iam/whoami is required")
+		return
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var req struct {
+		Scopes *[]string `json:"scopes"`
+	}
+	if err := decodeAuthJSON(r, &req, true); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
-	if err := h.store.SetUserScopes(r.Context(), userID, req.Scopes); err != nil {
+	if req.Scopes == nil {
+		Error(w, r, 400, "BAD_REQUEST", "scopes array is required; use an empty array to clear grants")
+		return
+	}
+	normalized, err := auth.NormalizeScopes(*req.Scopes)
+	if err != nil {
+		Error(w, r, 400, "INVALID_SCOPE", err.Error())
+		return
+	}
+	if err := h.store.SetUserScopes(r.Context(), userID, normalized); err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
@@ -236,4 +334,28 @@ func toSet(items []string) map[string]bool {
 		s[strings.TrimSpace(item)] = true
 	}
 	return s
+}
+
+// Bounded JSON prevents user-facing identity mutations and trusted hook bodies
+// from accepting a valid prefix followed by an ignored second request.
+func decodeAuthJSON(r *http.Request, destination any, strict bool) error {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, (1<<20)+1))
+	if err != nil || len(raw) > 1<<20 {
+		return fmt.Errorf("bounded JSON required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if strict {
+		decoder.DisallowUnknownFields()
+	}
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return fmt.Errorf("single JSON request required")
+	}
+	return nil
+}
+func consentCallerMatches(access *models.ResolvedAccess, subject string) bool {
+	identity := access.Identity
+	return identity.Subject != "" && identity.Provider != "" && identity.PrincipalID == auth.CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.Subject) && subject == identity.PrincipalID
 }

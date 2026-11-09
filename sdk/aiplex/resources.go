@@ -50,6 +50,9 @@ func (c *Client) ListResources(ctx context.Context, kind ResourceKind) ([]resour
 	return out, e
 }
 func (c *Client) GetResource(ctx context.Context, kind ResourceKind, id string) (*resources.Record, error) {
+	if err := validateResourceID(id); err != nil {
+		return nil, err
+	}
 	path, e := resourcePath(kind)
 	if e != nil {
 		return nil, e
@@ -59,6 +62,9 @@ func (c *Client) GetResource(ctx context.Context, kind ResourceKind, id string) 
 	return &out, e
 }
 func (c *Client) PutResource(ctx context.Context, kind ResourceKind, id string, spec any, revision uint64) (*resources.Record, error) {
+	if err := validateResourceID(id); err != nil {
+		return nil, err
+	}
 	path, e := resourcePath(kind)
 	if e != nil {
 		return nil, e
@@ -70,15 +76,24 @@ func (c *Client) PutResource(ctx context.Context, kind ResourceKind, id string, 
 	return &out, e
 }
 func (c *Client) DeleteResource(ctx context.Context, kind ResourceKind, id string, revision uint64) error {
+	if err := validateResourceID(id); err != nil {
+		return err
+	}
 	path, e := resourcePath(kind)
 	if e != nil {
 		return e
+	}
+	if revision == 0 {
+		return fmt.Errorf("positive expected revision required")
 	}
 	headers := map[string]string{}
 	headers["If-Match"] = strconv.FormatUint(revision, 10)
 	return c.doWithHeaders(ctx, http.MethodDelete, path+"/"+url.PathEscape(id), nil, nil, headers)
 }
 func (c *Client) ResourcePlan(ctx context.Context, kind ResourceKind, id string, idempotency string) (any, error) {
+	if err := validateResourceID(id); err != nil {
+		return nil, err
+	}
 	path, e := resourcePath(kind)
 	if e != nil {
 		return nil, e

@@ -1,8 +1,11 @@
 package deploy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"sync"
@@ -310,6 +313,44 @@ spec:
 var routeNamePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
 var routeScalarPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$`)
 
+var v2BackendName = regexp.MustCompile(`^llm-[0-9a-f]{16}-[0-9a-f]{32}-backend$`)
+
+// LLMBackendName preserves legacy resources while new route configurations use
+// collision-resistant tuple identities. The model tag allows a persisted retired
+// inventory to retain its ownership scope after the provider leaves Backends.
+func LLMBackendName(model, provider string, version int) (string, error) {
+	if model == "" || !validRouteName("llm-"+model) || !validRouteName(provider) {
+		return "", fmt.Errorf("invalid model or provider backend identity")
+	}
+	name := model + "-" + provider + "-backend"
+	switch version {
+	case 0:
+	case 2:
+		owner := sha256.Sum256([]byte(model))
+		tuple := sha256.Sum256([]byte(model + "\x00" + provider))
+		name = "llm-" + hex.EncodeToString(owner[:8]) + "-" + hex.EncodeToString(tuple[:16]) + "-backend"
+	default:
+		return "", fmt.Errorf("unsupported backend naming version")
+	}
+	if !validRouteName(name) {
+		return "", fmt.Errorf("invalid backend resource name")
+	}
+	return name, nil
+}
+
+// LLMBackendOwnedByModel validates names recovered from server-owned inventory.
+// It never makes caller-supplied retired names authoritative.
+func LLMBackendOwnedByModel(model, name string) bool {
+	if !validRouteName(name) {
+		return false
+	}
+	if v2BackendName.MatchString(name) {
+		owner := sha256.Sum256([]byte(model))
+		return strings.HasPrefix(name, "llm-"+hex.EncodeToString(owner[:8])+"-")
+	}
+	return strings.HasPrefix(name, model+"-") && strings.HasSuffix(name, "-backend")
+}
+
 // GenerateRoutesFromConfig is the bundled compatibility renderer. Admission
 // paths use GenerateRoutesFromConfigChecked to preserve validation errors.
 func GenerateRoutesFromConfig(config *models.LLMRouteConfig, gatewayName string) []Manifest {
@@ -320,44 +361,93 @@ func GenerateRoutesFromConfig(config *models.LLMRouteConfig, gatewayName string)
 // GenerateRoutesFromConfigChecked validates external configuration before any
 // route is stored or applied. Dynamic scalars cannot inject YAML structure.
 func GenerateRoutesFromConfigChecked(config *models.LLMRouteConfig, gatewayName string) ([]Manifest, error) {
-	if config == nil || !validRouteName(gatewayName) || !validRouteName("llm-"+config.ModelID) {
-		return nil, fmt.Errorf("invalid route model or gateway name")
+	return GenerateRoutesWithFallbacksChecked(config, gatewayName, nil)
+}
+
+// GenerateRoutesWithFallbacksChecked resolves ordered fallback model IDs to the
+// actual provider backend names owned by their saved route configurations. A
+// fallback is never rendered as a guessed, nonexistent model-only backend.
+func GenerateRoutesWithFallbacksChecked(config *models.LLMRouteConfig, gatewayName string, fallbacks map[string]*models.LLMRouteConfig) ([]Manifest, error) {
+	if err := validateLLMRouteConfig(config, gatewayName); err != nil {
+		return nil, err
 	}
-	if config.ModelID == "" {
-		return nil, fmt.Errorf("model ID is required")
-	}
-	seen := make(map[string]bool)
-	totalWeight := 0
-	for _, backend := range config.Backends {
-		if !validRouteName(backend.Provider) || !routeScalarPattern.MatchString(backend.ModelID) ||
-			(backend.SecretRef != "" && !validRouteName(backend.SecretRef)) || backend.Weight < 0 || backend.Weight > 100 {
-			return nil, fmt.Errorf("invalid backend configuration")
+	var refs []string
+	seen := map[string]bool{}
+	for _, id := range config.Fallbacks {
+		fallback := fallbacks[id]
+		if id == config.ModelID || seen[id] || fallback == nil || fallback.ModelID != id {
+			return nil, fmt.Errorf("fallback requires a distinct saved route configuration")
 		}
-		if !backend.Enabled {
-			continue
+		seen[id] = true
+		if err := validateLLMRouteConfig(fallback, gatewayName); err != nil {
+			return nil, fmt.Errorf("invalid fallback route configuration")
 		}
-		name := config.ModelID + "-" + backend.Provider + "-backend"
-		if !validRouteName(name) || seen[name] {
-			return nil, fmt.Errorf("duplicate or invalid backend name %q", name)
-		}
-		seen[name] = true
-		totalWeight += backend.Weight
-	}
-	if len(seen) == 0 || totalWeight != 100 {
-		return nil, fmt.Errorf("enabled backend weights must sum to 100")
-	}
-	for _, fallback := range config.Fallbacks {
-		if !validRouteName(fallback + "-backend") {
-			return nil, fmt.Errorf("invalid fallback model ID")
+		for _, backend := range fallback.Backends {
+			if backend.Enabled {
+				name, err := LLMBackendName(id, backend.Provider, fallback.BackendNamingVersion)
+				if err != nil {
+					return nil, err
+				}
+				refs = append(refs, name)
+			}
 		}
 	}
-	manifests := renderRoutesFromConfig(config, gatewayName)
+	manifests := renderRoutesFromConfig(config, gatewayName, refs)
 	for _, manifest := range manifests {
 		if _, err := marshalManifest(manifest); err != nil {
 			return nil, fmt.Errorf("invalid generated route: %w", err)
 		}
 	}
 	return manifests, nil
+}
+
+func validateLLMRouteConfig(config *models.LLMRouteConfig, gatewayName string) error {
+	if config == nil || !validRouteName(gatewayName) || !validRouteName("llm-"+config.ModelID) {
+		return fmt.Errorf("invalid route model or gateway name")
+	}
+	if config.ModelID == "" {
+		return fmt.Errorf("model ID is required")
+	}
+	if len(config.Backends) > 128 || len(config.Fallbacks) > 32 {
+		return fmt.Errorf("route backend or fallback inventory exceeds supported limits")
+	}
+	if config.BackendNamingVersion != 0 && config.BackendNamingVersion != 2 {
+		return fmt.Errorf("unsupported backend naming version")
+	}
+	if config.CacheTTL < 0 || config.RateLimit != nil && (config.RateLimit.RequestsPerMinute < 0 || config.RateLimit.TokensPerMinute < 0) {
+		return fmt.Errorf("cache and reporting limits cannot be negative")
+	}
+	if b := config.Budget; b != nil {
+		if b.MaxDailyCostUSD < 0 || b.MaxMonthlyCostUSD < 0 || b.MaxDailyTokens < 0 || b.AlertThreshold < 0 || b.AlertThreshold > 100 || math.IsNaN(b.MaxDailyCostUSD) || math.IsInf(b.MaxDailyCostUSD, 0) || math.IsNaN(b.MaxMonthlyCostUSD) || math.IsInf(b.MaxMonthlyCostUSD, 0) || math.IsNaN(b.AlertThreshold) || math.IsInf(b.AlertThreshold, 0) {
+			return fmt.Errorf("invalid reporting budget")
+		}
+	}
+	seen := make(map[string]bool)
+	totalWeight := 0
+	for _, backend := range config.Backends {
+		if !validRouteName(backend.Provider) || !routeScalarPattern.MatchString(backend.ModelID) ||
+			(backend.SecretRef != "" && !validRouteName(backend.SecretRef)) || backend.Weight < 0 || backend.Weight > 100 {
+			return fmt.Errorf("invalid backend configuration")
+		}
+		if !backend.Enabled {
+			continue
+		}
+		name, err := LLMBackendName(config.ModelID, backend.Provider, config.BackendNamingVersion)
+		if err != nil || seen[name] {
+			return fmt.Errorf("duplicate or invalid backend name %q", name)
+		}
+		seen[name] = true
+		totalWeight += backend.Weight
+	}
+	if len(seen) == 0 || totalWeight != 100 {
+		return fmt.Errorf("enabled backend weights must sum to 100")
+	}
+	for _, fallback := range config.Fallbacks {
+		if !validRouteName(fallback + "-backend") {
+			return fmt.Errorf("invalid fallback model ID")
+		}
+	}
+	return nil
 }
 
 func validRouteName(value string) bool {
@@ -374,7 +464,7 @@ func validRouteName(value string) bool {
 
 // GenerateRoutesFromConfig creates Envoy LLMRoute + AIServiceBackend manifests
 // from a route configuration with weighted backends and fallbacks.
-func renderRoutesFromConfig(config *models.LLMRouteConfig, gatewayName string) []Manifest {
+func renderRoutesFromConfig(config *models.LLMRouteConfig, gatewayName string, fallbackRefs []string) []Manifest {
 	var manifests []Manifest
 	var backendRefs []string
 
@@ -382,7 +472,7 @@ func renderRoutesFromConfig(config *models.LLMRouteConfig, gatewayName string) [
 		if !backend.Enabled {
 			continue
 		}
-		backendName := fmt.Sprintf("%s-%s-backend", config.ModelID, backend.Provider)
+		backendName, _ := LLMBackendName(config.ModelID, backend.Provider, config.BackendNamingVersion)
 
 		secretName := backend.SecretRef
 		if secretName == "" {
@@ -409,7 +499,7 @@ spec:
 			YAML:       backendYAML,
 		})
 
-		backendRefs = append(backendRefs, fmt.Sprintf("    - name: %s\n      weight: %d", backendName, backend.Weight))
+		backendRefs = append(backendRefs, fmt.Sprintf("        - name: %s\n          weight: %d", backendName, backend.Weight))
 	}
 
 	routeYAML := fmt.Sprintf(`apiVersion: aigateway.envoyproxy.io/v1alpha1
@@ -428,10 +518,10 @@ spec:
       backendRefs:
 %s`, config.ModelID, gatewayName, config.ModelID, strings.Join(backendRefs, "\n"))
 
-	if len(config.Fallbacks) > 0 {
+	if len(fallbackRefs) > 0 {
 		var fallbackLines []string
-		for _, fb := range config.Fallbacks {
-			fallbackLines = append(fallbackLines, fmt.Sprintf("        - name: %s-backend", fb))
+		for _, fb := range fallbackRefs {
+			fallbackLines = append(fallbackLines, fmt.Sprintf("        - name: %s", fb))
 		}
 		routeYAML += fmt.Sprintf("\n      fallback:\n%s", strings.Join(fallbackLines, "\n"))
 	}

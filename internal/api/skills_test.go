@@ -63,8 +63,8 @@ func TestSkillsHandler_RecordInvocation_RecordsDenialOnScopeMissing(t *testing.T
 	if d.AgentID != "tutor-agent" {
 		t.Errorf("AgentID = %q, want tutor-agent", d.AgentID)
 	}
-	if d.Reason != "scope_missing" {
-		t.Errorf("Reason = %q, want scope_missing", d.Reason)
+	if d.Reason != "reported_scope_missing" {
+		t.Errorf("Reason = %q, want reported_scope_missing", d.Reason)
 	}
 	if d.Action != "skills/invoke:review_pr" {
 		t.Errorf("Action = %q, want skills/invoke:review_pr", d.Action)

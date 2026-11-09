@@ -42,6 +42,7 @@ type ToolConnection struct {
 	NetworkProfileRef     string                 `json:"network_profile_ref,omitempty"`
 }
 type ConnectedHandler struct {
+	EnabledModules  map[string]bool
 	Governance      *governance.Controller
 	NativeProviders map[string]NativeProviderInfo
 	Deployments     map[string]*deployment.Anvil
@@ -55,6 +56,20 @@ type ConnectedHandler struct {
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
 	return &ConnectedHandler{Store: store, Runtime: runtime, Tenant: tenant, Tools: tools, Development: development}
+}
+
+// WithEnabledModules binds cross-Plex plans to the same explicit module set as
+// route mounting. Configure before serving; nil preserves standalone defaults.
+func (h *ConnectedHandler) WithEnabledModules(names []string) *ConnectedHandler {
+	if names == nil {
+		h.EnabledModules = nil
+		return h
+	}
+	h.EnabledModules = map[string]bool{}
+	for _, name := range names {
+		h.EnabledModules[name] = true
+	}
+	return h
 }
 func idParam(r *http.Request) string {
 	id := chi.URLParam(r, "id")
@@ -295,12 +310,16 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			return fmt.Errorf("tool connection id mismatch")
 		}
 		if c.ClientRegistrationRef != "" {
-			if c.Client.ID != c.ClientRegistrationRef {
-				return fmt.Errorf("OAuth profile id must match client registration reference")
-			}
-			if _, e := h.Store.Get(ctx, tenant, "client-registration", c.ClientRegistrationRef); e != nil {
+			record, e := h.Store.Get(ctx, tenant, clientplex.Kind, c.ClientRegistrationRef)
+			if e != nil {
 				return e
 			}
+			var registration clientplex.Registration
+			if json.Unmarshal(record.Spec, &registration) != nil || registration.ID != c.ClientRegistrationRef {
+				return fmt.Errorf("invalid referenced developer-client registration")
+			}
+			// Developer application identity and issuer-scoped OAuth profile
+			// identity are distinct. Linking them does not require equal IDs.
 		}
 		if e := toolauth.ValidateClientProfile(c.Client); e != nil {
 			return e
@@ -360,30 +379,34 @@ func (h *ConnectedHandler) RegisterTool(w http.ResponseWriter, r *http.Request) 
 		resourceError(w, r, e)
 		return
 	}
-	if c.ClientRegistrationRef != "" {
-		if _, e = h.Store.Get(r.Context(), tenant, "client-registration", c.ClientRegistrationRef); e != nil {
-			resourceError(w, r, e)
-			return
-		}
+	if e = h.validate(r.Context(), tenant, "tool-connection", idParam(r), rec.Spec); e != nil {
+		Error(w, r, 409, "CONNECTION_UNAVAILABLE", "saved tool connection references are unavailable")
+		return
+	}
+	expected := uint64(0)
+	prior, readErr := h.Store.Get(r.Context(), tenant, "oauth-registration", c.ID)
+	if readErr == nil {
+		expected = prior.Revision
+	} else if !errors.Is(readErr, resources.ErrNotFound) {
+		resourceError(w, r, readErr)
+		return
 	}
 	registration, e := h.Tools.Prepare(r.Context(), toolauth.Connection{TenantID: tenant, ID: c.ID, ResourceURL: c.ResourceURL, Issuer: c.Issuer}, c.Client)
 	if e != nil {
 		Error(w, r, 502, "REGISTRATION_FAILED", e.Error())
 		return
 	}
-	saved, e := h.Store.Put(r.Context(), resources.Record{TenantID: tenant, Kind: "oauth-registration", ID: c.ID, Spec: registration.CopyJSON()}, registrationRevision(r.Context(), h.Store, tenant, c.ID))
+	current, readErr := h.Store.Get(r.Context(), tenant, "tool-connection", c.ID)
+	if readErr != nil || current.Revision != rec.Revision {
+		Error(w, r, 409, "CONNECTION_CHANGED", "tool connection changed during OAuth registration; retry with its current revision")
+		return
+	}
+	saved, e := h.Store.Put(r.Context(), resources.Record{TenantID: tenant, Kind: "oauth-registration", ID: c.ID, Spec: registration.CopyJSON()}, expected)
 	if e != nil {
 		resourceError(w, r, e)
 		return
 	}
 	JSON(w, 200, saved)
-}
-func registrationRevision(ctx context.Context, s resources.Store, t, id string) uint64 {
-	r, e := s.Get(ctx, t, "oauth-registration", id)
-	if e != nil {
-		return 0
-	}
-	return r.Revision
 }
 func (h *ConnectedHandler) ModelOperations(w http.ResponseWriter, r *http.Request) {
 	JSON(w, 200, modelapi.GoogleOperations())
@@ -513,6 +536,10 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 403, "ACTION_DENIED", e.Error())
 		return
 	}
+	if e = h.checkAgentGovernanceRef(r.Context(), tenant, c); e != nil {
+		Error(w, r, 503, "GOVERNANCE_BINDING_UNAVAILABLE", "native governance binding is unavailable or targets another runtime")
+		return
+	}
 	if e = h.checkNetworkRef(r.Context(), tenant, c.NetworkProfileRef); e != nil {
 		Error(w, r, 503, "NETWORK_PROFILE_UNAVAILABLE", "network profile unavailable")
 		return
@@ -538,8 +565,8 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 			Error(w, r, 503, "CREDENTIAL_UNAVAILABLE", "AWS credential chain unavailable")
 			return
 		}
-		if e = h.checkAgentGovernanceRef(r.Context(), tenant, c); e != nil {
-			Error(w, r, 503, "GOVERNANCE_BINDING_UNAVAILABLE", "native governance binding is unavailable or targets another runtime")
+		if e = h.verifyLinkedBedrockAccount(r.Context(), tenant, c, cfg.Credentials); e != nil {
+			Error(w, r, 503, "GOVERNANCE_ACCOUNT_UNVERIFIED", "linked Bedrock signing account could not be verified")
 			return
 		}
 		service := "bedrock"
@@ -610,18 +637,33 @@ func (s resourceOwnership) Check(ctx context.Context, o modelapi.Owner, r modela
 
 func (h *ConnectedHandler) ResolveDestination(ctx context.Context, tenant, ref string) (clientplex.Destination, error) {
 	rec, e := h.Store.Get(ctx, tenant, "model-surface", ref)
+	if e != nil && !errors.Is(e, resources.ErrNotFound) {
+		return clientplex.Destination{}, e
+	}
 	if e == nil {
+		if _, collision := h.Store.Get(ctx, tenant, "client-destination", ref); collision == nil {
+			return clientplex.Destination{}, fmt.Errorf("destination reference is ambiguous across resource kinds")
+		} else if !errors.Is(collision, resources.ErrNotFound) {
+			return clientplex.Destination{}, collision
+		}
+		if h.EnabledModules != nil && !h.EnabledModules["llmplex"] {
+			return clientplex.Destination{}, fmt.Errorf("destination LLMPlex module is disabled")
+		}
 		var c ModelConnection
 		if e = json.Unmarshal(rec.Spec, &c); e != nil {
+			return clientplex.Destination{}, e
+		}
+		if c.Surface.ID != ref {
+			return clientplex.Destination{}, fmt.Errorf("surface identity mismatch")
+		}
+		if e = h.validate(ctx, tenant, "model-surface", ref, rec.Spec); e != nil {
 			return clientplex.Destination{}, e
 		}
 		if h.PublicURL == "" {
 			return clientplex.Destination{}, fmt.Errorf("trusted public gateway URL not configured")
 		}
-		switch c.Surface.Protocol {
-		case clientplex.GenAI, clientplex.OpenAIChat, clientplex.Responses, clientplex.Messages, clientplex.VertexAnthropic:
-		default:
-			return clientplex.Destination{}, fmt.Errorf("surface has no client protocol facade")
+		if !clientSurfaceReady(c.Surface) {
+			return clientplex.Destination{}, fmt.Errorf("surface has no enabled inference operation for its client protocol")
 		}
 		return clientplex.Destination{ID: ref, Provider: "aiplex", Endpoint: strings.TrimSuffix(h.PublicURL, "/") + "/api/v1/llm/gateway/" + ref, Protocols: []string{c.Surface.Protocol}, ProjectID: c.Surface.Project, Location: c.Surface.Location, Availability: "configured", ModelIDs: c.Surface.Models}, nil
 	}

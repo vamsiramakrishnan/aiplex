@@ -1,8 +1,9 @@
 # QuotaPlex prerequisites and readiness
 
 Status: implementation checklist, audited against the native-governance
-foundation at `d3ed9d8`. This documentation-only change preserves runtime behavior
-and deployed configuration.
+foundation at `d3ed9d8`, updated for the [feature cohesion repairs](feature-cohesion-bugbash.md).
+This checklist preserves the existing architecture and distinguishes pending
+quota work from implemented reporting behavior.
 
 Aiplex has the module, identity, policy and provider seams needed to start
 QuotaPlex. Hard token or monetary enforcement additionally needs accounting
@@ -301,11 +302,12 @@ Budget visibility and administrative allocation/transfer/refund APIs require
 tenant/account authorization. Audit attribution must retain human and agent;
 avoid putting raw credentials, prompts or unbounded identity labels in metrics.
 
-The legacy LLMPlex usage endpoint checks reported totals before storing a report;
-the check and write are separate. It is not admission enforcement or an immutable
-ledger. Its reported costs, trailing day/month summaries and warning headers must
-not become a second charging authority. Accounting must retain actual trusted
-consumption even when it exceeds a budget; rejecting a report cannot undo spend.
+The legacy LLMPlex usage endpoint retains valid reports and emits advisory
+warnings when reporting budgets/rates are exceeded. It is not admission
+enforcement or an immutable ledger. Its reported costs, trailing day/month
+summaries and warning headers must not become a second charging authority.
+Accounting must retain actual trusted consumption even when it exceeds a budget;
+rejecting a report cannot undo spend.
 
 Run shadow decisions and reconciliation before activating hard limits. Define
 cutover, historical import provenance and how legacy reports map to read views.

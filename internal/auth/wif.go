@@ -282,7 +282,7 @@ func (v *WIFValidator) ResolveAccess(ctx context.Context, identity *models.WIFId
 
 		// Use binding-specific scopes if provided, otherwise use role defaults
 		scopes := binding.Scopes
-		if len(scopes) == 0 {
+		if scopes == nil {
 			scopes = models.DefaultRoleScopes[binding.Role]
 		}
 		for _, s := range scopes {

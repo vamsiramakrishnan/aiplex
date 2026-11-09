@@ -6,6 +6,7 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"gopkg.in/yaml.v3"
 )
 
 func TestGenerateManifests_MCPlex(t *testing.T) {
@@ -151,7 +152,12 @@ func TestGenerateRoutesFromConfig_WeightedBackends(t *testing.T) {
 		Fallbacks: []string{"gpt-4.1-mini"},
 	}
 
-	manifests := deploy.GenerateRoutesFromConfig(config, "aiplex-gateway")
+	manifests, err := deploy.GenerateRoutesWithFallbacksChecked(config, "aiplex-gateway", map[string]*models.LLMRouteConfig{
+		"gpt-4.1-mini": {ModelID: "gpt-4.1-mini", Backends: []models.LLMBackend{{Provider: "openai", ModelID: "gpt-4.1-mini", Weight: 100, Enabled: true}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(manifests) != 3 {
 		t.Fatalf("expected 3 manifests (1 LLMRoute + 2 backends), got %d", len(manifests))
@@ -171,6 +177,22 @@ func TestGenerateRoutesFromConfig_WeightedBackends(t *testing.T) {
 	}
 	if !strings.Contains(routeYAML, "fallback") {
 		t.Error("LLMRoute should contain fallback section")
+	}
+	var parsed struct {
+		Spec struct {
+			Rules []struct {
+				BackendRefs []struct {
+					Name   string `yaml:"name"`
+					Weight int    `yaml:"weight"`
+				} `yaml:"backendRefs"`
+				Fallback []struct {
+					Name string `yaml:"name"`
+				} `yaml:"fallback"`
+			} `yaml:"rules"`
+		} `yaml:"spec"`
+	}
+	if err := yaml.Unmarshal([]byte(routeYAML), &parsed); err != nil || len(parsed.Spec.Rules) != 1 || len(parsed.Spec.Rules[0].BackendRefs) != 2 || parsed.Spec.Rules[0].BackendRefs[0].Weight != 80 || len(parsed.Spec.Rules[0].Fallback) != 1 || parsed.Spec.Rules[0].Fallback[0].Name != "gpt-4.1-mini-openai-backend" {
+		t.Fatalf("weighted backend/fallback references are not nested in one route rule: %+v %v", parsed, err)
 	}
 }
 
@@ -201,7 +223,12 @@ func TestGenerateRoutesFromConfig_YAMLFormat(t *testing.T) {
 		Fallbacks: []string{"gpt-4.1-mini"},
 	}
 
-	manifests := deploy.GenerateRoutesFromConfig(config, "aiplex-gateway")
+	manifests, err := deploy.GenerateRoutesWithFallbacksChecked(config, "aiplex-gateway", map[string]*models.LLMRouteConfig{
+		"gpt-4.1-mini": {ModelID: "gpt-4.1-mini", Backends: []models.LLMBackend{{Provider: "openai", ModelID: "gpt-4.1-mini", Weight: 100, Enabled: true}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Log the YAML output for manual verification
 	t.Logf("\n=== LLMRoute ===\n%s\n", manifests[0].YAML)
@@ -216,7 +243,7 @@ func TestGenerateRoutesFromConfig_YAMLFormat(t *testing.T) {
 	if !strings.Contains(routeYAML, "gemini-2.5-flash-anthropic-backend") {
 		t.Error("LLMRoute missing anthropic backend reference")
 	}
-	if !strings.Contains(routeYAML, "gpt-4.1-mini-backend") {
+	if !strings.Contains(routeYAML, "gpt-4.1-mini-openai-backend") {
 		t.Error("LLMRoute missing fallback backend reference")
 	}
 }

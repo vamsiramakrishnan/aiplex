@@ -90,6 +90,7 @@ type Ticket struct {
 	receipts  []Receipt
 	completed int
 	aborted   bool
+	aborting  bool // sticky once cleanup starts, even if cleanup must be retried
 	settling  bool
 	outcome   Outcome
 }
@@ -102,8 +103,8 @@ func (t *Ticket) Complete(ctx context.Context, out Outcome) error {
 			return fmt.Errorf("invalid usage quantity for %q", meter)
 		}
 	}
-	if t.aborted {
-		return fmt.Errorf("ticket aborted")
+	if t.aborting || t.aborted {
+		return fmt.Errorf("ticket abort started")
 	}
 	if t.settling {
 		if t.outcome.Successful != out.Successful || !maps.Equal(t.outcome.Usage, out.Usage) {
@@ -132,6 +133,10 @@ func (t *Ticket) Abort(ctx context.Context) error {
 	if t.settling {
 		return fmt.Errorf("ticket settlement started")
 	}
+	// Choosing abort permanently excludes settlement. Cleanup progress is
+	// tracked separately, so failed receipts remain retryable without allowing
+	// Complete to settle a reduced set of mandatory admission providers.
+	t.aborting = true
 	var errs []error
 	pending := make([]Receipt, 0)
 	for i := len(t.receipts) - 1; i >= 0; i-- {

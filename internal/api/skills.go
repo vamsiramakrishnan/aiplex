@@ -3,7 +3,6 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -48,7 +47,11 @@ func (h *SkillsHandler) ListSkillServers(w http.ResponseWriter, r *http.Request)
 		if inst.Status != models.StatusRunning {
 			continue
 		}
-		tmpl, _ := h.store.GetTemplate(r.Context(), inst.TemplateID)
+		tmpl, e := h.store.GetTemplate(r.Context(), inst.TemplateID)
+		if e != nil || tmpl == nil || tmpl.Plane != models.PlaneSkillsPlex {
+			Error(w, r, http.StatusServiceUnavailable, "TEMPLATE_UNAVAILABLE", "skill instance template is unavailable")
+			return
+		}
 		name := inst.DisplayName
 		bundle := ""
 		if tmpl != nil {
@@ -62,7 +65,7 @@ func (h *SkillsHandler) ListSkillServers(w http.ResponseWriter, r *http.Request)
 			Name:        name,
 			URL:         "/skills/" + inst.ID,
 			SkillBundle: bundle,
-			Skills:      inst.Scopes,
+			Skills:      prefixedCapabilities(skillNames(deployedSkills(&inst, tmpl)), "skill:invoke:"),
 			Status:      string(inst.Status),
 		})
 	}
@@ -70,8 +73,8 @@ func (h *SkillsHandler) ListSkillServers(w http.ResponseWriter, r *http.Request)
 }
 
 // GetSkillsManifest returns the merged Skill catalog for a deployed skill server.
-// Combines template-declared skills with the latest discovered scopes on the
-// running instance. GET /skills/{instanceId}/.well-known/skills.json
+// Discovered instance scopes determine the callable skills; template metadata
+// enriches matching entries. GET /skills/{instanceId}/.well-known/skills.json
 func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request) {
 	instanceID := r.PathValue("instanceId")
 
@@ -88,15 +91,22 @@ func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "instance is not a SkillsPlex server")
 		return
 	}
+	if inst.Status != models.StatusRunning {
+		Error(w, r, http.StatusConflict, "INSTANCE_UNAVAILABLE", "skill server is not running")
+		return
+	}
 
 	tmpl, err := h.store.GetTemplate(r.Context(), inst.TemplateID)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
+	if tmpl == nil || tmpl.Plane != models.PlaneSkillsPlex {
+		Error(w, r, http.StatusServiceUnavailable, "TEMPLATE_UNAVAILABLE", "skill instance template is unavailable")
+		return
+	}
 
-	skills := make([]models.SkillInfo, 0, len(tmpl.Skills))
-	skills = append(skills, tmpl.Skills...)
+	skills := deployedSkills(inst, tmpl)
 
 	manifest := map[string]any{
 		"instance_id":  instanceID,
@@ -111,29 +121,54 @@ func (h *SkillsHandler) GetSkillsManifest(w http.ResponseWriter, r *http.Request
 	JSON(w, http.StatusOK, manifest)
 }
 
-// RecordInvocation appends a skill invocation audit record. If the invocation
+// RecordInvocation appends caller-reported historical telemetry; it does not
+// execute a skill or prove that live authorization succeeded. If the invocation
 // failed with a "missing scope:" error (the form returned by aiplex-authz),
-// a matching PolicyDenial is also appended so the unified dashboard surfaces
-// authz-time failures alongside other denials.
+// a reported_scope_missing PolicyDenial is also appended, distinguishable from
+// a denial produced by the actual authorization path.
 // POST /api/v1/skills/invocations
 func (h *SkillsHandler) RecordInvocation(w http.ResponseWriter, r *http.Request) {
 	var inv models.SkillInvocation
-	if err := json.NewDecoder(r.Body).Decode(&inv); err != nil {
+	if err := telemetryJSON(r, &inv); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
-	if inv.SkillName == "" {
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "skill_name is required")
+	if !telemetryLabel(inv.SkillName, true) || !telemetryLabel(inv.AgentID, true) || !telemetryLabel(inv.InstanceID, false) || !telemetryLabel(inv.UserID, false) || len(inv.Error) > 8192 || inv.DurationMs < 0 {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "valid skill_name, agent_id and telemetry timing are required")
 		return
 	}
+	now := time.Now().UTC()
+	inv.ReportedBy = reportedBy(r)
+	inv.ReportedAt = now
 	if inv.StartedAt.IsZero() {
-		inv.StartedAt = time.Now()
+		inv.StartedAt = now
 	}
 	if inv.Status == "" {
 		inv.Status = "success"
 	}
+	if inv.Status != "success" && inv.Status != "failed" {
+		Error(w, r, 400, "INVALID_STATUS", "skill status must be success or failed")
+		return
+	}
+	if inv.StartedAt.After(now.Add(5 * time.Minute)) {
+		Error(w, r, 400, "INVALID_TIME", "skill start cannot be in the future")
+		return
+	}
 	if inv.ID == "" {
 		inv.ID = "inv-" + randHex(8)
+	}
+	if !telemetryID.MatchString(inv.ID) {
+		Error(w, r, 400, "INVALID_ID", "invalid skill invocation id")
+		return
+	}
+	if tp := r.Header.Get("traceparent"); tp != "" {
+		trace, span, ok := parseTraceparent(tp)
+		if !ok || inv.TraceID != "" && inv.TraceID != trace || inv.ParentSpanID != "" && inv.ParentSpanID != span {
+			Error(w, r, 400, "TRACE_CONTEXT", "reported trace and traceparent disagree or are invalid")
+			return
+		}
+		inv.TraceID = trace
+		inv.ParentSpanID = span
 	}
 	if inv.TraceID == "" {
 		inv.TraceID = randHex(16)
@@ -141,8 +176,16 @@ func (h *SkillsHandler) RecordInvocation(w http.ResponseWriter, r *http.Request)
 	if inv.SpanID == "" {
 		inv.SpanID = randHex(8)
 	}
+	if e := validateTelemetryTrace(inv.TraceID, inv.SpanID, inv.ParentSpanID); e != nil {
+		Error(w, r, 400, "TRACE_CONTEXT", e.Error())
+		return
+	}
 
 	if err := h.store.AppendSkillInvocation(r.Context(), &inv); err != nil {
+		if errors.Is(err, registry.ErrAlreadyExists) {
+			Error(w, r, 409, "ALREADY_EXISTS", "skill invocation record already exists")
+			return
+		}
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
@@ -157,7 +200,7 @@ func (h *SkillsHandler) RecordInvocation(w http.ResponseWriter, r *http.Request)
 				UserID:    inv.UserID,
 				Action:    "skills/invoke:" + inv.SkillName,
 				Scope:     scope,
-				Reason:    "scope_missing",
+				Reason:    "reported_scope_missing",
 				RequestID: GetRequestID(r.Context()),
 			}
 			// Best-effort — do not fail the audit write if denial recording fails.
@@ -195,12 +238,25 @@ func extractMissingScope(errMsg string) string {
 func (h *SkillsHandler) ListInvocations(w http.ResponseWriter, r *http.Request) {
 	agentID := r.URL.Query().Get("agent_id")
 	skillName := r.URL.Query().Get("skill")
-	invs, err := h.store.ListSkillInvocations(r.Context(), agentID, skillName, 100)
+	limit, e := telemetryLimit(r, 100)
+	if e != nil {
+		Error(w, r, 400, "INVALID_LIMIT", e.Error())
+		return
+	}
+	invs, err := h.store.ListSkillInvocations(r.Context(), agentID, skillName, limit)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
 	JSON(w, http.StatusOK, invs)
+}
+
+func skillNames(skills []models.SkillInfo) []string {
+	names := make([]string, len(skills))
+	for i, s := range skills {
+		names[i] = s.Name
+	}
+	return names
 }
 
 func randHex(n int) string {

@@ -23,46 +23,65 @@ func NewDashboardHandler(store registry.Store) *DashboardHandler {
 func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Instance counts
-	allInstances, _ := h.store.ListInstances(ctx, "")
-	mcplex, _ := h.store.ListInstances(ctx, models.PlaneMCPlex)
-	a2aplex, _ := h.store.ListInstances(ctx, models.PlaneA2APlex)
-	llmplex, _ := h.store.ListInstances(ctx, models.PlaneLLMPlex)
-	skillsplex, _ := h.store.ListInstances(ctx, models.PlaneSkillsPlex)
-	agents, _ := h.store.ListAgents(ctx)
+	// Derive every plane count from the same snapshot instead of issuing five
+	// potentially inconsistent database reads. An unavailable source is not zero.
+	allInstances, err := h.store.ListInstances(ctx, "")
+	if err != nil {
+		Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "instance inventory unavailable")
+		return
+	}
+	agents, err := h.store.ListAgents(ctx)
+	if err != nil {
+		Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "agent inventory unavailable")
+		return
+	}
 
 	running := 0
 	planes := map[models.Plane]bool{}
+	counts := map[models.Plane]int{}
 	for _, inst := range allInstances {
 		if inst.Status == models.StatusRunning {
 			running++
 		}
 		planes[inst.Plane] = true
+		counts[inst.Plane]++
 	}
 
 	// LLM usage (last 24h)
-	usage, _ := h.store.GetUsageSummary(ctx, "", "", "day")
+	usage, err := h.store.GetUsageSummary(ctx, "", "", "day")
+	if err != nil || usage == nil {
+		Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "usage reporting unavailable")
+		return
+	}
 
 	// Delegations count (efficient — no full fetch)
-	delegationCount, _ := h.store.CountDelegations(ctx)
+	delegationCount, err := h.store.CountDelegations(ctx)
+	if err != nil {
+		Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "delegation reporting unavailable")
+		return
+	}
 
 	// Policy denial count (efficient — no full fetch)
-	denialCount, _ := h.store.CountPolicyDenials(ctx)
+	denialCount, err := h.store.CountPolicyDenials(ctx)
+	if err != nil {
+		Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "policy reporting unavailable")
+		return
+	}
 
 	stats := models.DashboardStats{
-		TotalInstances:   len(allInstances),
-		RunningInstances: running,
-		RegisteredAgents: len(agents),
-		ActivePlanes:     len(planes),
-		MCPlexInstances:     len(mcplex),
-		A2APlexInstances:    len(a2aplex),
-		LLMPlexInstances:    len(llmplex),
-		SkillsPlexInstances: len(skillsplex),
-		DailyCostUSD:     usage.TotalCostUSD,
-		DailyTokens:      usage.TotalTokens,
-		DailyRequests:    usage.RequestCount,
-		A2ADelegations:   delegationCount,
-		PolicyDenials:    denialCount,
+		TotalInstances:      len(allInstances),
+		RunningInstances:    running,
+		RegisteredAgents:    len(agents),
+		ActivePlanes:        len(planes),
+		MCPlexInstances:     counts[models.PlaneMCPlex],
+		A2APlexInstances:    counts[models.PlaneA2APlex],
+		LLMPlexInstances:    counts[models.PlaneLLMPlex],
+		SkillsPlexInstances: counts[models.PlaneSkillsPlex],
+		DailyCostUSD:        usage.TotalCostUSD,
+		DailyTokens:         usage.TotalTokens,
+		DailyRequests:       usage.RequestCount,
+		A2ADelegations:      delegationCount,
+		PolicyDenials:       denialCount,
 	}
 
 	JSON(w, http.StatusOK, stats)

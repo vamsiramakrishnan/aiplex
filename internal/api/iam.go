@@ -1,10 +1,13 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
@@ -62,36 +65,38 @@ func (h *IAMHandler) GetRoleBinding(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/iam/role-bindings
 func (h *IAMHandler) CreateRoleBinding(w http.ResponseWriter, r *http.Request) {
 	var rb models.RoleBinding
-	if err := json.NewDecoder(r.Body).Decode(&rb); err != nil {
+	if err := decodeAuthJSON(r, &rb, true); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
-	if rb.Group == "" || rb.Role == "" {
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "group and role are required")
+	if err := validateIAMRoleBinding(&rb); err != nil {
+		Error(w, r, 400, "BAD_REQUEST", err.Error())
 		return
 	}
-
-	// Validate role
-	switch rb.Role {
-	case models.RoleAdmin, models.RoleDeployer, models.RoleViewer, models.RoleAgent:
-		// valid
-	default:
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST",
-			fmt.Sprintf("invalid role %q; must be one of: admin, deployer, viewer, agent", rb.Role))
-		return
-	}
-
-	// Generate ID if not provided
 	if rb.ID == "" {
-		rb.ID = fmt.Sprintf("rb-%s-%s", rb.Group, rb.Role)
+		// Bare group labels are not globally unique across configured issuers.
+		raw, _ := json.Marshal([]string{rb.Provider, rb.PoolID, rb.Group, string(rb.Role)})
+		digest := sha256.Sum256(raw)
+		rb.ID = "rb-" + hex.EncodeToString(digest[:16])
+	}
+	if strings.ContainsAny(rb.ID, "/\\\x00\r\n") || len(rb.ID) > 256 {
+		Error(w, r, 400, "BAD_REQUEST", "invalid role binding ID")
+		return
+	}
+	if _, err := h.store.GetRoleBinding(r.Context(), rb.ID); err == nil {
+		Error(w, r, 409, "CONFLICT", "role binding already exists")
+		return
+	} else if !errors.Is(err, registry.ErrNotFound) {
+		Error(w, r, 500, "STORE_ERROR", "role bindings unavailable")
+		return
 	}
 
 	rb.CreatedAt = time.Now()
 	rb.CreatedBy = extractOwner(r)
 
 	// If no explicit scopes provided, populate from role defaults
-	if len(rb.Scopes) == 0 {
-		rb.Scopes = models.DefaultRoleScopes[rb.Role]
+	if rb.Scopes == nil {
+		rb.Scopes = append([]string{}, models.DefaultRoleScopes[rb.Role]...)
 	}
 
 	if err := h.store.PutRoleBinding(r.Context(), &rb); err != nil {
@@ -116,22 +121,54 @@ func (h *IAMHandler) UpdateRoleBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var update models.RoleBinding
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+	var fields map[string]json.RawMessage
+	if decodeAuthJSON(r, &fields, false) != nil {
+		Error(w, r, 400, "BAD_REQUEST", "invalid request body")
 		return
 	}
-
-	// Preserve immutable fields
-	update.ID = existing.ID
-	update.CreatedAt = existing.CreatedAt
-	update.CreatedBy = existing.CreatedBy
-
-	if update.Group == "" {
+	if fields == nil {
+		Error(w, r, 400, "BAD_REQUEST", "role binding object is required")
+		return
+	}
+	for key := range fields {
+		switch key {
+		case "id", "group", "role", "provider", "pool_id", "scopes", "description", "created_at", "created_by":
+		default:
+			Error(w, r, 400, "BAD_REQUEST", "unknown role binding field")
+			return
+		}
+	}
+	raw, _ := json.Marshal(fields)
+	var update models.RoleBinding
+	if json.Unmarshal(raw, &update) != nil {
+		Error(w, r, 400, "BAD_REQUEST", "invalid role binding fields")
+		return
+	}
+	update.ID, update.CreatedAt, update.CreatedBy = existing.ID, existing.CreatedAt, existing.CreatedBy
+	if _, present := fields["group"]; !present {
 		update.Group = existing.Group
 	}
-	if update.Role == "" {
+	if _, present := fields["role"]; !present {
 		update.Role = existing.Role
+	}
+	if _, present := fields["provider"]; !present {
+		update.Provider = existing.Provider
+	}
+	if _, present := fields["pool_id"]; !present {
+		update.PoolID = existing.PoolID
+	}
+	if _, present := fields["description"]; !present {
+		update.Description = existing.Description
+	}
+	if _, present := fields["scopes"]; !present {
+		update.Scopes = existing.Scopes
+		if update.Role != existing.Role {
+			update.Scopes = append([]string{}, models.DefaultRoleScopes[update.Role]...)
+		}
+	}
+	if err := validateIAMRoleBinding(&update); err != nil {
+		Error(w, r, 400, "BAD_REQUEST", err.Error())
+		return
 	}
 
 	if err := h.store.PutRoleBinding(r.Context(), &update); err != nil {
@@ -199,7 +236,7 @@ func (h *IAMHandler) ValidateWIFPrincipal(w http.ResponseWriter, r *http.Request
 	var req struct {
 		Principal string `json:"principal"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeAuthJSON(r, &req, true); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
@@ -216,4 +253,26 @@ func (h *IAMHandler) ValidateWIFPrincipal(w http.ResponseWriter, r *http.Request
 		"valid":     true,
 		"principal": req.Principal,
 	})
+}
+
+func validateIAMRoleBinding(binding *models.RoleBinding) error {
+	if strings.TrimSpace(binding.Group) == "" || len(binding.Group) > 512 || strings.ContainsAny(binding.Group, "\x00\r\n") {
+		return fmt.Errorf("bounded group identity is required")
+	}
+	switch binding.Role {
+	case models.RoleAdmin, models.RoleDeployer, models.RoleViewer, models.RoleAgent:
+	default:
+		return fmt.Errorf("invalid role; expected admin, deployer, viewer or agent")
+	}
+	if len(binding.Provider) > 2048 || len(binding.PoolID) > 512 || strings.ContainsAny(binding.Provider+binding.PoolID, "\x00\r\n") {
+		return fmt.Errorf("invalid identity source restriction")
+	}
+	if binding.Scopes != nil {
+		scopes, err := auth.NormalizeScopes(binding.Scopes)
+		if err != nil {
+			return err
+		}
+		binding.Scopes = scopes
+	}
+	return nil
 }

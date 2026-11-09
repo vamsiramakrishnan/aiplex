@@ -107,6 +107,7 @@ func connectedHandlers(store resources.Store, sm *secrets.Manager, cfg *config.C
 	}
 	connected := api.NewConnectedHandler(store, runtime, tenant, tools, cfg.DevelopmentMode)
 	connected.PublicURL = cfg.PublicURL
+	connected.WithEnabledModules(cfg.EnabledModules)
 	if e := connected.ConfigureDeploymentProviders(); e != nil {
 		return nil, nil, e
 	}

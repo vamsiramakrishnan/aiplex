@@ -22,6 +22,7 @@ export async function authenticatedRequest<T>(path: string, init?: RequestInit):
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }))
+    if (res.status === 401) window.dispatchEvent(new CustomEvent('aiplex:session-invalid', { detail: { token } }))
     throw new Error(err.message ?? `HTTP ${res.status}`)
   }
   if (res.status === 204) return undefined as T
@@ -94,6 +95,8 @@ export interface Agent {
   allowed_scopes: string[]
   status: string
   registered_at: string
+  redirect_uris?: string[]
+  client_secret?: string
 }
 
 export interface CatalogPage {
@@ -138,6 +141,7 @@ export const registerAgent = (body: {
   auth_method: string
   grant_types: string[]
   allowed_scopes: string[]
+  redirect_uris?: string[]
 }) => request<Agent>('/agents', { method: 'POST', body: JSON.stringify(body) })
 export const deleteAgent = (id: string) =>
   request<void>(`/agents/${id}`, { method: 'DELETE' })
@@ -181,6 +185,7 @@ export interface Manifest {
   agents?: Array<{
     client_id: string; display_name: string; description?: string
     auth_method: string; grant_types: string[]; allowed_scopes: string[]
+    redirect_uris?: string[]
   }>
   routes?: Array<{
     model_id: string; backends: LLMBackend[]; fallbacks?: string[]
@@ -192,6 +197,12 @@ export interface Manifest {
 export async function applyManifest(manifest: Manifest): Promise<{
   applied: number; failed: string[]
 }> {
+  if (!manifest || typeof manifest !== 'object' || !['v1', '1'].includes(manifest.version)) throw new Error('Manifest version must be v1.')
+  for (const key of ['instances', 'agents', 'routes'] as const) if (manifest[key] !== undefined && !Array.isArray(manifest[key])) throw new Error(`Manifest ${key} must be an array.`)
+  if (!(manifest.instances?.length || manifest.agents?.length || manifest.routes?.length)) throw new Error('Add at least one resource before applying a manifest.')
+  if (manifest.instances?.some((item) => !item || typeof item.name !== 'string' || !item.name || typeof item.template !== 'string' || !item.template || !['mcplex', 'a2aplex', 'llmplex', 'skillsplex'].includes(item.plane))) throw new Error('Every instance requires a name, supported plane and template ID.')
+  if (manifest.agents?.some((item) => !item || !item.client_id || !item.display_name || !Array.isArray(item.allowed_scopes) || !Array.isArray(item.grant_types))) throw new Error('Every agent requires its identity, auth method, grant types and scope ceiling.')
+  if (manifest.routes?.some((item) => !item || !item.model_id || !Array.isArray(item.backends) || item.backends.length === 0)) throw new Error('Every route requires a model ID and at least one backend.')
   const failed: string[] = []
   let applied = 0
 
@@ -254,23 +265,21 @@ export const getDashboardStats = () =>
 // Role bindings
 export interface RoleBinding {
   id: string
-  subject: string
-  subject_type: 'user' | 'agent'
+  group: string
+  role: 'admin' | 'deployer' | 'viewer' | 'agent'
+  provider?: string
+  pool_id?: string
+  description?: string
   scopes: string[]
-  granted_at: string
-  granted_by: string
+  created_at: string
+  created_by: string
 }
 
 export const listRoleBindings = () =>
-  request<RoleBinding[]>('/access/bindings')
+  request<RoleBinding[]>('/iam/role-bindings')
 
 // Whoami
-export interface WhoamiResponse {
-  sub: string
-  email: string
-  scopes: string[]
-  agents: string[]
-}
+export type WhoamiResponse = ResolvedAccess
 
 // ── Runs (AIPlex ↔ Tape audit; mirrors models.ExecutionRun + ExecutionEvent) ──
 //
@@ -437,5 +446,12 @@ export interface RunsHealth {
 
 export const getRunsHealth = () => request<RunsHealth>('/runs/_health')
 
-export const getWhoami = () =>
-  request<WhoamiResponse>('/auth/whoami')
+export interface ResolvedAccess {
+  identity: { principal_id: string; subject: string; email: string; actor_id?: string; authorized_party?: string }
+  roles: string[]
+  scopes: string[]
+  group_scopes?: string[]
+  manual_scopes?: string[]
+}
+
+export const getWhoami = () => request<ResolvedAccess>('/iam/whoami')

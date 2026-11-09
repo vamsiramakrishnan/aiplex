@@ -15,7 +15,7 @@ import (
 func TestConsentHonorsSelectionAndCeilings(t *testing.T) {
 	store := registry.NewMemoryStore()
 	ctx := context.Background()
-	store.PutAgent(ctx, &models.Agent{ClientID: "agent", AllowedScopes: []string{"llm:model:*"}})
+	store.PutAgent(ctx, &models.Agent{ClientID: "agent", Status: "active", AllowedScopes: []string{"llm:model:*"}})
 	store.SetUserScopes(ctx, "user", []string{"llm:model:a", "llm:model:b"})
 	var granted []string
 	accepts := 0

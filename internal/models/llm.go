@@ -4,23 +4,29 @@ import "time"
 
 // LLMRouteConfig defines routing rules for a model — weights, failover, budgets.
 type LLMRouteConfig struct {
-	ID          string          `json:"id"`
-	ModelID     string          `json:"model_id"`
-	Owner       string          `json:"owner"`
-	Backends    []LLMBackend    `json:"backends"`
-	Fallbacks   []string        `json:"fallbacks,omitempty"` // ordered fallback model IDs
-	CacheTTL    int             `json:"cache_ttl_seconds,omitempty"`
-	Budget      *UsageBudget    `json:"budget,omitempty"`
-	RateLimit   *ModelRateLimit `json:"rate_limit,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID        string          `json:"id"`
+	ModelID   string          `json:"model_id"`
+	Owner     string          `json:"owner"`
+	Backends  []LLMBackend    `json:"backends"`
+	Fallbacks []string        `json:"fallbacks,omitempty"` // ordered fallback model IDs
+	CacheTTL  int             `json:"cache_ttl_seconds,omitempty"`
+	Budget    *UsageBudget    `json:"budget,omitempty"`
+	RateLimit *ModelRateLimit `json:"rate_limit,omitempty"`
+	// RetiredBackends is server-owned cleanup inventory. PUT derives it from
+	// previously saved route ownership, never from caller-supplied values.
+	RetiredBackends []string `json:"retired_backends,omitempty"`
+	// BackendNamingVersion is server-owned. Zero retains legacy deployed names;
+	// version 2 derives bounded names from the exact model/provider tuple.
+	BackendNamingVersion int       `json:"backend_naming_version,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 // LLMBackend is a weighted backend for load balancing across providers.
 type LLMBackend struct {
-	Provider  string `json:"provider"`  // google, anthropic, openai, bedrock, ollama
-	ModelID   string `json:"model_id"`  // provider-specific model ID
-	Weight    int    `json:"weight"`    // load balancing weight (0-100)
+	Provider  string `json:"provider"` // google, anthropic, openai, bedrock, ollama
+	ModelID   string `json:"model_id"` // provider-specific model ID
+	Weight    int    `json:"weight"`   // load balancing weight (0-100)
 	Enabled   bool   `json:"enabled"`
 	SecretRef string `json:"secret_ref"` // Secret Manager key for API key
 }

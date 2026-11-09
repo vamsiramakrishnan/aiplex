@@ -122,9 +122,17 @@ The SDK exposes `ListNativeProviders`, `ReadNativeBinding`, `PlanNativeBinding`,
 under `aiplex native governance`; `aiplex resources` manages `agent-binding` specs.
 
 For A2APlex, optional `governance_binding_ref` links a connection to the declared
-binding. Its registry `runtime_ref` must equal the connection's native resource
-ID. Missing, cross-tenant or mismatched references prevent invocation. The link
-does not replace runtime authentication or imply a gateway is attached.
+binding. Its registry `runtime_ref` must identify the actual invocation target.
+Google Runtime and AgentCore use their native resource IDs. Linked Foundry
+connections require a named agent and the exact origin/project/agent invocation
+URL as `resource_id`/`runtime_ref`. Linked Bedrock Classic uses its native alias
+ARN matching agent, alias and region, plus signing-account STS attestation with
+the same credential source; explicitly allow the regional STS origin in both
+network and credential policies. Copilot's credential-selected DirectLine bot
+has no equivalent verifiable target in this connection contract, so this optional
+link mode is rejected. Unlinked invocation modes remain available. Missing,
+cross-tenant or mismatched references prevent invocation. The link does not
+replace runtime authentication or imply a gateway is attached.
 
 ## Execution and deployment limits
 

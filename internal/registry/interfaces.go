@@ -77,6 +77,12 @@ type A2APlexStore interface {
 	UpdateDelegation(context.Context, *models.Delegation) error
 }
 
+// DelegationTraceReader bounds chain discovery to one trace without scanning
+// unrelated history. External adapters may implement this optional capability.
+type DelegationTraceReader interface {
+	ListDelegationTrace(context.Context, string, int) ([]models.Delegation, error)
+}
+
 type SkillsPlexStore interface {
 	TemplateReader
 	InstanceReader

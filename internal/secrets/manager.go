@@ -45,7 +45,10 @@ func (m *Manager) Exists(ctx context.Context, secretID string) (bool, error) {
 	name := fmt.Sprintf("projects/%s/secrets/%s", m.projectID, secretID)
 	_, err := m.client.GetSecret(ctx, &secretmanagerpb.GetSecretRequest{Name: name})
 	if err != nil {
-		return false, nil
+		if status.Code(err) == codes.NotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("get secret metadata: %w", err)
 	}
 	return true, nil
 }

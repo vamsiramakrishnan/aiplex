@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -54,6 +55,12 @@ type Driver interface {
 	Operations() []OperationInfo
 	Execute(context.Context, Operation) (Result, error)
 }
+
+// StatusError exposes an upstream HTTP status without response bodies or URLs.
+// Callers can classify a definite refusal separately from transport uncertainty.
+type StatusError struct{ StatusCode int }
+
+func (e *StatusError) Error() string { return fmt.Sprintf("native API returned HTTP %d", e.StatusCode) }
 
 // Client pins requests to a configured origin. The supplied HTTP client's
 // transport owns any deployment-specific DNS/network endpoint policy.
@@ -178,15 +185,15 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		return Result{}, errors.New("native API request failed")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return Result{StatusCode: resp.StatusCode}, &StatusError{StatusCode: resp.StatusCode}
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxBodyBytes+1))
 	if err != nil {
 		return Result{}, errors.New("native API response could not be read")
 	}
 	if len(data) > MaxBodyBytes {
 		return Result{}, errors.New("native API response exceeds limit")
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Result{}, errors.New("native API returned an unsuccessful status")
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		data = []byte("null")

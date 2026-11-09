@@ -4,41 +4,7 @@ interface ScopeSelectorProps {
   available?: string[]
   selected: string[]
   onChange: (scopes: string[]) => void
-}
-
-// Common scopes for quick selection
-const COMMON_SCOPES: Record<string, { label: string; scopes: string[] }> = {
-  MCPlex: {
-    label: 'Tools',
-    scopes: [
-      'mcp:tools:search_curriculum',
-      'mcp:tools:get_document',
-      'mcp:tools:generate_quiz',
-      'mcp:tools:read_mastery',
-      'mcp:tools:update_mastery',
-      'mcp:tools:github_search',
-      'mcp:tools:github_read_file',
-      'mcp:tools:pg_query',
-    ],
-  },
-  A2APlex: {
-    label: 'Tasks',
-    scopes: [
-      'a2a:task:research',
-      'a2a:task:visualize',
-      'a2a:task:summarize',
-    ],
-  },
-  LLMPlex: {
-    label: 'Models',
-    scopes: [
-      'llm:model:gemini-2.5-flash',
-      'llm:model:gemini-2.5-pro',
-      'llm:model:claude-sonnet-4-20250514',
-      'llm:model:gpt-4.1',
-      'llm:model:gpt-4.1-mini',
-    ],
-  },
+  disabled?: boolean
 }
 
 function groupByPlane(scopes: string[]): Record<string, string[]> {
@@ -47,6 +13,7 @@ function groupByPlane(scopes: string[]): Record<string, string[]> {
     const plane = scope.startsWith('mcp:') ? 'MCPlex'
       : scope.startsWith('a2a:') ? 'A2APlex'
       : scope.startsWith('llm:') ? 'LLMPlex'
+      : scope.startsWith('skill:') ? 'SkillsPlex'
       : 'Other'
     if (!groups[plane]) groups[plane] = []
     groups[plane].push(scope)
@@ -59,12 +26,11 @@ function scopeLabel(scope: string): string {
   return parts[parts.length - 1]
 }
 
-export default function ScopeSelector({ available, selected, onChange }: ScopeSelectorProps) {
+export default function ScopeSelector({ available, selected, onChange, disabled = false }: ScopeSelectorProps) {
   const [search, setSearch] = useState('')
   const [customScope, setCustomScope] = useState('')
 
-  // Use available scopes if provided, otherwise use common scopes
-  const allScopes = available ?? Object.values(COMMON_SCOPES).flatMap(g => g.scopes)
+  const allScopes = available ?? []
   // Include any selected scopes that aren't in the available list
   const merged = [...new Set([...allScopes, ...selected])]
   const groups = groupByPlane(merged)
@@ -104,7 +70,7 @@ export default function ScopeSelector({ available, selected, onChange }: ScopeSe
     : groups
 
   return (
-    <div className="space-y-4">
+    <fieldset disabled={disabled} className="space-y-4 min-w-0">
       <input
         type="text"
         placeholder="Filter scopes..."
@@ -163,6 +129,6 @@ export default function ScopeSelector({ available, selected, onChange }: ScopeSe
       <div className="text-xs text-gray-500">
         {selected.length} scope{selected.length !== 1 ? 's' : ''} selected
       </div>
-    </div>
+    </fieldset>
   )
 }

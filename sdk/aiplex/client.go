@@ -60,6 +60,9 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any)
 }
 
 func (c *Client) doWithHeaders(ctx context.Context, method, path string, body, out any, headers map[string]string) error {
+	if err := validateAPIPath(path); err != nil {
+		return err
+	}
 	u := c.BaseURL + path
 
 	var reqBody io.Reader
@@ -344,15 +347,20 @@ func (c *Client) GetAgentPermissions(ctx context.Context, clientID string) (*Age
 // --- LLMPlex ---
 
 type LLMRouteConfig struct {
-	ID        string       `json:"id"`
-	ModelID   string       `json:"model_id"`
-	Owner     string       `json:"owner"`
-	Backends  []LLMBackend `json:"backends"`
-	Fallbacks []string     `json:"fallbacks,omitempty"`
-	CacheTTL  int          `json:"cache_ttl_seconds,omitempty"`
-	Budget    *UsageBudget `json:"budget,omitempty"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	ID        string          `json:"id"`
+	ModelID   string          `json:"model_id"`
+	Owner     string          `json:"owner"`
+	Backends  []LLMBackend    `json:"backends"`
+	Fallbacks []string        `json:"fallbacks,omitempty"`
+	CacheTTL  int             `json:"cache_ttl_seconds,omitempty"`
+	Budget    *UsageBudget    `json:"budget,omitempty"`
+	RateLimit *ModelRateLimit `json:"rate_limit,omitempty"`
+	// BackendNamingVersion is server-owned native resource naming metadata.
+	BackendNamingVersion int `json:"backend_naming_version,omitempty"`
+	// RetiredBackends is server-owned cleanup inventory.
+	RetiredBackends []string  `json:"retired_backends,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type LLMBackend struct {
@@ -368,6 +376,11 @@ type UsageBudget struct {
 	MaxMonthlyCostUSD float64 `json:"max_monthly_cost_usd,omitempty"`
 	MaxDailyTokens    int64   `json:"max_daily_tokens,omitempty"`
 	AlertThreshold    float64 `json:"alert_threshold_pct,omitempty"`
+}
+
+type ModelRateLimit struct {
+	RequestsPerMinute int `json:"requests_per_minute"`
+	TokensPerMinute   int `json:"tokens_per_minute,omitempty"`
 }
 
 type UsageRecord struct {
@@ -386,6 +399,8 @@ type UsageRecord struct {
 }
 
 type UsageSummary struct {
+	Provider     string  `json:"provider,omitempty"`
+	AgentID      string  `json:"agent_id,omitempty"`
 	ModelID      string  `json:"model_id,omitempty"`
 	Period       string  `json:"period"`
 	InputTokens  int64   `json:"input_tokens"`
@@ -456,26 +471,27 @@ func (c *Client) RecordUsage(ctx context.Context, rec *UsageRecord) (*UsageRecor
 
 // GetUsageSummary returns aggregated usage for a time period.
 func (c *Client) GetUsageSummary(ctx context.Context, period string) (*UsageSummary, error) {
-	var s UsageSummary
-	err := c.do(ctx, "GET", "/api/v1/llm/usage/summary?period="+url.QueryEscape(period), nil, &s)
-	return &s, err
+	return c.GetUsageSummaryWithOpts(ctx, &UsageSummaryOpts{Period: period})
 }
 
 // --- A2APlex ---
 
 type AgentCard struct {
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	URL         string           `json:"url"`
-	Version     string           `json:"version,omitempty"`
-	TaskTypes   []TaskTypeInfo   `json:"task_types"`
-	AuthSchemes []AuthSchemeInfo `json:"auth_schemes,omitempty"`
+	Capabilities []string         `json:"capabilities,omitempty"`
+	Metadata     map[string]any   `json:"metadata,omitempty"`
+	Name         string           `json:"name"`
+	Description  string           `json:"description"`
+	URL          string           `json:"url"`
+	Version      string           `json:"version,omitempty"`
+	TaskTypes    []TaskTypeInfo   `json:"task_types"`
+	AuthSchemes  []AuthSchemeInfo `json:"auth_schemes,omitempty"`
 }
 
 type TaskTypeInfo struct {
-	Type        string         `json:"type"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"input_schema,omitempty"`
+	OutputSchema map[string]any `json:"output_schema,omitempty"`
+	Type         string         `json:"type"`
+	Description  string         `json:"description"`
+	InputSchema  map[string]any `json:"input_schema,omitempty"`
 }
 
 type AuthSchemeInfo struct {
@@ -484,6 +500,13 @@ type AuthSchemeInfo struct {
 }
 
 type Delegation struct {
+	ReportedBy       string     `json:"reported_by,omitempty"`
+	ReportedAt       time.Time  `json:"reported_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	TraceID          string     `json:"trace_id,omitempty"`
+	SpanID           string     `json:"span_id,omitempty"`
+	ParentSpanID     string     `json:"parent_span_id,omitempty"`
 	ID               string     `json:"id"`
 	CallerAgentID    string     `json:"caller_agent_id"`
 	CalleeAgentID    string     `json:"callee_agent_id"`
@@ -493,9 +516,7 @@ type Delegation struct {
 	Status           string     `json:"status"`
 	UserID           string     `json:"user_id"`
 	StartedAt        time.Time  `json:"started_at"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty"`
 	DurationMs       int64      `json:"duration_ms,omitempty"`
-	Error            string     `json:"error,omitempty"`
 	ParentID         string     `json:"parent_id,omitempty"`
 }
 
@@ -507,14 +528,22 @@ type DelegationChain struct {
 }
 
 type RecordDelegationRequest struct {
-	ID               string `json:"id"`
-	CallerAgentID    string `json:"caller_agent_id"`
-	CalleeAgentID    string `json:"callee_agent_id"`
-	CallerInstanceID string `json:"caller_instance_id"`
-	CalleeInstanceID string `json:"callee_instance_id"`
-	TaskType         string `json:"task_type"`
-	UserID           string `json:"user_id"`
-	ParentID         string `json:"parent_id,omitempty"`
+	Status           string     `json:"status,omitempty"`
+	StartedAt        time.Time  `json:"started_at,omitempty"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	DurationMs       int64      `json:"duration_ms,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	TraceID          string     `json:"trace_id,omitempty"`
+	SpanID           string     `json:"span_id,omitempty"`
+	ParentSpanID     string     `json:"parent_span_id,omitempty"`
+	ID               string     `json:"id"`
+	CallerAgentID    string     `json:"caller_agent_id"`
+	CalleeAgentID    string     `json:"callee_agent_id"`
+	CallerInstanceID string     `json:"caller_instance_id"`
+	CalleeInstanceID string     `json:"callee_instance_id"`
+	TaskType         string     `json:"task_type"`
+	UserID           string     `json:"user_id"`
+	ParentID         string     `json:"parent_id,omitempty"`
 }
 
 type UpdateDelegationRequest struct {
@@ -585,6 +614,8 @@ type SkillServerSummary struct {
 
 // SkillInvocation mirrors models.SkillInvocation for SDK consumers.
 type SkillInvocation struct {
+	ReportedBy   string    `json:"reported_by,omitempty"`
+	ReportedAt   time.Time `json:"reported_at"`
 	ID           string    `json:"id"`
 	AgentID      string    `json:"agent_id"`
 	InstanceID   string    `json:"instance_id"`
@@ -601,14 +632,17 @@ type SkillInvocation struct {
 
 // RecordSkillInvocationRequest is the body sent to POST /api/v1/skills/invocations.
 type RecordSkillInvocationRequest struct {
-	AgentID    string `json:"agent_id"`
-	InstanceID string `json:"instance_id"`
-	SkillName  string `json:"skill_name"`
-	UserID     string `json:"user_id,omitempty"`
-	Status     string `json:"status,omitempty"`
-	DurationMs int64  `json:"duration_ms,omitempty"`
-	Error      string `json:"error,omitempty"`
-	TraceID    string `json:"trace_id,omitempty"`
+	StartedAt    time.Time `json:"started_at,omitempty"`
+	SpanID       string    `json:"span_id,omitempty"`
+	ParentSpanID string    `json:"parent_span_id,omitempty"`
+	AgentID      string    `json:"agent_id"`
+	InstanceID   string    `json:"instance_id"`
+	SkillName    string    `json:"skill_name"`
+	UserID       string    `json:"user_id,omitempty"`
+	Status       string    `json:"status,omitempty"`
+	DurationMs   int64     `json:"duration_ms,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	TraceID      string    `json:"trace_id,omitempty"`
 }
 
 // ListSkillServers returns running SkillsPlex instances.
@@ -646,19 +680,20 @@ func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName st
 // --- Dashboard ---
 
 type DashboardStats struct {
-	TotalInstances   int     `json:"total_instances"`
-	RunningInstances int     `json:"running_instances"`
-	RegisteredAgents int     `json:"registered_agents"`
-	ActivePlanes     int     `json:"active_planes"`
-	MCPlexInstances  int     `json:"mcplex_instances"`
-	A2APlexInstances int     `json:"a2aplex_instances"`
-	LLMPlexInstances int     `json:"llmplex_instances"`
-	DailyCostUSD     float64 `json:"daily_cost_usd"`
-	DailyTokens      int64   `json:"daily_tokens"`
-	DailyRequests    int64   `json:"daily_requests"`
-	ToolCalls        int64   `json:"tool_calls_24h"`
-	A2ADelegations   int64   `json:"a2a_delegations_24h"`
-	PolicyDenials    int64   `json:"policy_denials_24h"`
+	TotalInstances      int     `json:"total_instances"`
+	RunningInstances    int     `json:"running_instances"`
+	RegisteredAgents    int     `json:"registered_agents"`
+	ActivePlanes        int     `json:"active_planes"`
+	MCPlexInstances     int     `json:"mcplex_instances"`
+	A2APlexInstances    int     `json:"a2aplex_instances"`
+	SkillsPlexInstances int     `json:"skillsplex_instances"`
+	LLMPlexInstances    int     `json:"llmplex_instances"`
+	DailyCostUSD        float64 `json:"daily_cost_usd"`
+	DailyTokens         int64   `json:"daily_tokens"`
+	DailyRequests       int64   `json:"daily_requests"`
+	ToolCalls           int64   `json:"tool_calls_24h"`
+	A2ADelegations      int64   `json:"a2a_delegations_24h"`
+	PolicyDenials       int64   `json:"policy_denials_24h"`
 }
 
 type PolicyDenial struct {
@@ -697,23 +732,35 @@ func (c *Client) RecordPolicyDenial(ctx context.Context, d *PolicyDenial) (*Poli
 // --- Auth / User Scopes ---
 
 type UserScopes struct {
-	UserID string              `json:"user_id"`
-	Scopes map[string][]string `json:"scopes"` // plane → scopes
+	UserID      string              `json:"user_id"`
+	PrincipalID string              `json:"principal_id,omitempty"`
+	Scopes      []string            `json:"scopes"`
+	ByPlane     map[string][]string `json:"by_plane"`
 }
 
-// GetUserScopes returns the Dimension B scopes for a user.
-func (c *Client) GetUserScopes(ctx context.Context, userID string) (*UserScopes, error) {
-	var s UserScopes
-	err := c.do(ctx, "GET", "/auth/users/"+url.PathEscape(userID)+"/scopes", nil, &s)
-	return &s, err
+// GetUserScopes returns manually assigned scopes for a canonical principal.
+func (c *Client) GetUserScopes(ctx context.Context, principalID string) (*UserScopes, error) {
+	if err := validatePrincipalID(principalID); err != nil {
+		return nil, err
+	}
+	var result UserScopes
+	err := c.do(ctx, http.MethodGet, "/auth/users/"+url.PathEscape(principalID)+"/scopes", nil, &result)
+	return &result, err
 }
 
-// SetUserScopes sets the Dimension B scopes for a user.
-func (c *Client) SetUserScopes(ctx context.Context, userID string, scopes []string) (*UserScopes, error) {
-	body := map[string][]string{"scopes": scopes}
-	var s UserScopes
-	err := c.do(ctx, "PUT", "/auth/users/"+url.PathEscape(userID)+"/scopes", body, &s)
-	return &s, err
+// SetUserScopes updates manual grants. The API returns204; read the authoritative
+// representation afterward rather than decoding a nonexistent response body.
+func (c *Client) SetUserScopes(ctx context.Context, principalID string, scopes []string) (*UserScopes, error) {
+	if scopes == nil {
+		scopes = []string{}
+	} // explicit empty grant set, never JSON null
+	if err := validatePrincipalID(principalID); err != nil {
+		return nil, err
+	}
+	if err := c.do(ctx, http.MethodPut, "/auth/users/"+url.PathEscape(principalID)+"/scopes", map[string][]string{"scopes": scopes}, nil); err != nil {
+		return nil, err
+	}
+	return c.GetUserScopes(ctx, principalID)
 }
 
 // Health checks the server health.

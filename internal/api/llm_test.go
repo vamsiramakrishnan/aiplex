@@ -47,7 +47,6 @@ func TestLLM_RouteConfig_CRUD(t *testing.T) {
 			{"provider": "google", "model_id": "gemini-2.5-flash", "weight": 80, "enabled": true},
 			{"provider": "anthropic", "model_id": "claude-sonnet-4", "weight": 20, "enabled": true}
 		],
-		"fallbacks": ["gpt-4.1"],
 		"cache_ttl_seconds": 300,
 		"budget": {"max_daily_cost_usd": 100, "alert_threshold_pct": 80}
 	}`
@@ -182,7 +181,7 @@ func TestLLM_UsageTracking(t *testing.T) {
 	}
 }
 
-func TestLLM_MonthlyBudgetEnforcement(t *testing.T) {
+func TestLLM_MonthlyBudgetWarningsPreserveUsage(t *testing.T) {
 	r, store := setupLLMRouter()
 
 	// Set up a route with $1 monthly budget
@@ -234,8 +233,12 @@ func TestLLM_MonthlyBudgetEnforcement(t *testing.T) {
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != 429 {
-		t.Errorf("expected 429 for monthly budget exceeded, got %d: %s", w.Code, w.Body.String())
+	if w.Code != 201 {
+		t.Errorf("expected persisted usage with advisory warning, got %d: %s", w.Code, w.Body.String())
+	}
+	monthlySummary, _ = store.GetUsageSummary(context.Background(), "gemini-2.5-flash", "", "month")
+	if monthlySummary.RequestCount != 2 || monthlySummary.TotalCostUSD != 1.05 {
+		t.Fatalf("over-budget usage was lost: %+v", monthlySummary)
 	}
 
 	warning := w.Header().Get("X-Budget-Warning")
@@ -244,7 +247,7 @@ func TestLLM_MonthlyBudgetEnforcement(t *testing.T) {
 	}
 }
 
-func TestLLM_RateLimiting(t *testing.T) {
+func TestLLM_RequestRateWarningsPreserveUsage(t *testing.T) {
 	r, _ := setupLLMRouter()
 
 	// Set up a route with 2 requests/minute limit
@@ -277,7 +280,7 @@ func TestLLM_RateLimiting(t *testing.T) {
 		}
 	}
 
-	// Make 3rd request (should get 429)
+	// Report the third completed request; retain it with an advisory warning.
 	usageBody := `{
 		"model_id": "gemini-2.5-flash",
 		"provider": "google",
@@ -290,17 +293,20 @@ func TestLLM_RateLimiting(t *testing.T) {
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != 429 {
-		t.Errorf("expected 429 for rate limit exceeded, got %d: %s", w.Code, w.Body.String())
+	if w.Code != 201 {
+		t.Errorf("expected persisted rate-limit report, got %d: %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("X-RateLimit-Warning") != "requests_per_minute_exceeded" {
+		t.Fatal("missing request-rate advisory")
 	}
 
 	retryAfter := w.Header().Get("Retry-After")
-	if retryAfter != "60" {
-		t.Errorf("expected Retry-After: 60, got %q", retryAfter)
+	if retryAfter != "" {
+		t.Errorf("persisted reports must not invite a duplicate retry, got %q", retryAfter)
 	}
 }
 
-func TestLLM_TokenRateLimiting(t *testing.T) {
+func TestLLM_TokenRateWarningsPreserveUsage(t *testing.T) {
 	r, _ := setupLLMRouter()
 
 	// Set up a route with 500 tokens/minute limit
@@ -344,12 +350,15 @@ func TestLLM_TokenRateLimiting(t *testing.T) {
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != 429 {
-		t.Errorf("expected 429 for token rate limit exceeded, got %d: %s", w.Code, w.Body.String())
+	if w.Code != 201 {
+		t.Errorf("expected persisted token-rate report, got %d: %s", w.Code, w.Body.String())
+	}
+	if w.Header().Get("X-RateLimit-Warning") != "tokens_per_minute_exceeded" {
+		t.Fatal("missing token-rate advisory")
 	}
 
 	retryAfter := w.Header().Get("Retry-After")
-	if retryAfter != "60" {
-		t.Errorf("expected Retry-After: 60, got %q", retryAfter)
+	if retryAfter != "" {
+		t.Errorf("persisted reports must not invite a duplicate retry, got %q", retryAfter)
 	}
 }

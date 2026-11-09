@@ -18,7 +18,7 @@ import (
 func TestConsentAcceptUsesSelectedScopes(t *testing.T) {
 	ctx := context.Background()
 	store := registry.NewMemoryStore()
-	store.PutAgent(ctx, &models.Agent{ClientID: "agent", AllowedScopes: []string{"llm:model:*"}})
+	store.PutAgent(ctx, &models.Agent{ClientID: "agent", Status: "active", AllowedScopes: []string{"llm:model:*"}})
 	store.SetUserScopes(ctx, "user", []string{"llm:model:a", "llm:model:b"})
 	var scopes []string
 	hydra := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

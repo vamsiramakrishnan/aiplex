@@ -39,6 +39,8 @@ export default function SkillsPlex() {
   const servers = useQuery({ queryKey: ['skill-servers'], queryFn: getServers })
   const invocations = useQuery({ queryKey: ['skill-invocations'], queryFn: getInvocations })
 
+  const activeQuery = tab === 'catalog' ? catalog : tab === 'invocations' ? invocations : servers
+
   const filteredServers =
     servers.data?.filter(
       (s) =>
@@ -77,7 +79,10 @@ export default function SkillsPlex() {
         ))}
       </div>
 
-      {tab === 'servers' && (
+      {activeQuery.isLoading && <p role="status">Loading module data…</p>}
+      {activeQuery.error && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeQuery.error.message}</p>}
+
+      {tab === 'servers' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Running Skill Servers</h3>
           <div className="mb-4">
@@ -145,7 +150,7 @@ export default function SkillsPlex() {
         </div>
       )}
 
-      {tab === 'catalog' && (
+      {tab === 'catalog' && !activeQuery.isLoading && !activeQuery.error && (
         <div className="grid grid-cols-2 gap-4">
           {catalog.data?.templates?.map((t: { id: string; name: string; description?: string; verified?: boolean }) => (
             <div key={t.id} className="bg-white rounded-lg shadow p-4">
@@ -165,7 +170,7 @@ export default function SkillsPlex() {
         </div>
       )}
 
-      {tab === 'invocations' && (
+      {tab === 'invocations' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Recent Invocations</h3>
           {invocations.data && invocations.data.length > 0 ? (

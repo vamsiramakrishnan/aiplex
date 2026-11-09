@@ -14,19 +14,22 @@ import (
 )
 
 // FirestoreStore implements the Store interface using Google Cloud Firestore.
+// Models are persisted with the SDK's Go field names. JSON tags describe HTTP
+// wire names and do not rename these stored fields. Queries/indexes must match.
 //
 // Collection layout:
-//   instances/{id}       — deployed instances
-//   templates/{id}       — cached catalog templates
-//   agents/{clientId}    — registered OAuth clients
-//   deploy_history/{id}  — append-only audit trail
-//   user_scopes/{userId} — Dimension B (user ceiling)
-//   route_configs/{modelID} — LLM routing configs
-//   provider_configs/{provider} — LLM provider settings
-//   usage_records/{id}   — token usage tracking (append-only)
-//   delegations/{id}     — A2A delegations
-//   policy_denials/{id}  — authz denial events (append-only)
-//   role_bindings/{id}   — IAM role bindings
+//
+//	instances/{id}       — deployed instances
+//	templates/{id}       — cached catalog templates
+//	agents/{clientId}    — registered OAuth clients
+//	deploy_history/{id}  — append-only audit trail
+//	user_scopes/{userId} — Dimension B (user ceiling)
+//	route_configs/{modelID} — LLM routing configs
+//	provider_configs/{provider} — LLM provider settings
+//	usage_records/{id}   — token usage tracking (append-only)
+//	delegations/{id}     — A2A delegations
+//	policy_denials/{id}  — authz denial events (append-only)
+//	role_bindings/{id}   — IAM role bindings
 type FirestoreStore struct {
 	client     *firestore.Client
 	projectID  string
@@ -87,7 +90,7 @@ func (f *FirestoreStore) ListInstances(ctx context.Context, plane models.Plane) 
 	if plane == "" {
 		iter = f.client.Collection("instances").Documents(ctx)
 	} else {
-		iter = f.client.Collection("instances").Where("plane", "==", string(plane)).Documents(ctx)
+		iter = f.client.Collection("instances").Where("Plane", "==", string(plane)).Documents(ctx)
 	}
 
 	var instances []models.Instance
@@ -148,9 +151,9 @@ func (f *FirestoreStore) GetTemplate(ctx context.Context, id string) (*models.Te
 func (f *FirestoreStore) ListTemplates(ctx context.Context, plane models.Plane, page, pageSize int) ([]models.Template, int, error) {
 	var query firestore.Query
 	if plane == "" {
-		query = f.client.Collection("templates").OrderBy("name", firestore.Asc)
+		query = f.client.Collection("templates").OrderBy("Name", firestore.Asc)
 	} else {
-		query = f.client.Collection("templates").Where("plane", "==", string(plane)).OrderBy("name", firestore.Asc)
+		query = f.client.Collection("templates").Where("Plane", "==", string(plane)).OrderBy("Name", firestore.Asc)
 	}
 
 	// Get total count (Firestore doesn't have native count, so we fetch all IDs)
@@ -210,7 +213,7 @@ func (f *FirestoreStore) GetAgent(ctx context.Context, clientID string) (*models
 }
 
 func (f *FirestoreStore) ListAgents(ctx context.Context) ([]models.Agent, error) {
-	iter := f.client.Collection("agents").OrderBy("registered_at", firestore.Desc).Documents(ctx)
+	iter := f.client.Collection("agents").OrderBy("RegisteredAt", firestore.Desc).Documents(ctx)
 	var agents []models.Agent
 	for {
 		doc, err := iter.Next()
@@ -267,8 +270,8 @@ func (f *FirestoreStore) AppendHistory(ctx context.Context, h *models.DeployHist
 
 func (f *FirestoreStore) ListHistory(ctx context.Context, instanceID string, limit int) ([]models.DeployHistory, error) {
 	query := f.client.Collection("deploy_history").
-		Where("instance_id", "==", instanceID).
-		OrderBy("timestamp", firestore.Desc)
+		Where("InstanceID", "==", instanceID).
+		OrderBy("Timestamp", firestore.Desc)
 
 	if limit > 0 {
 		query = query.Limit(limit)
@@ -458,8 +461,7 @@ func (f *FirestoreStore) GetUsageSummary(ctx context.Context, modelID, agentID, 
 		period = "day"
 	}
 
-	// Query filtered by time, then filter by model/agent in-memory
-	query := f.client.Collection("usage_records").Where("timestamp", ">=", cutoff)
+	query := f.usageQuery(modelID, agentID, cutoff)
 	iter := query.Documents(ctx)
 
 	summary := &models.UsageSummary{ModelID: modelID, AgentID: agentID, Period: period}
@@ -505,9 +507,7 @@ func (f *FirestoreStore) GetUsageSummary(ctx context.Context, modelID, agentID, 
 }
 
 func (f *FirestoreStore) ListUsageRecords(ctx context.Context, modelID, agentID string, since time.Time, limit int) ([]models.UsageRecord, error) {
-	query := f.client.Collection("usage_records").
-		Where("timestamp", ">=", since).
-		OrderBy("timestamp", firestore.Desc)
+	query := f.usageQuery(modelID, agentID, since)
 
 	if limit > 0 {
 		query = query.Limit(limit)
@@ -543,12 +543,29 @@ func (f *FirestoreStore) ListUsageRecords(ctx context.Context, modelID, agentID 
 	return records, nil
 }
 
+// Filter before Limit: a page of another model's newer usage must not hide the
+// requested model's records. Typed model persistence uses Go field names;
+// encoding/json tags do not change Firestore's field paths.
+func (f *FirestoreStore) usageQuery(modelID, agentID string, since time.Time) firestore.Query {
+	query := f.client.Collection("usage_records").Where("Timestamp", ">=", since).OrderBy("Timestamp", firestore.Desc)
+	if modelID != "" {
+		query = query.Where("ModelID", "==", modelID)
+	}
+	if agentID != "" {
+		query = query.Where("AgentID", "==", agentID)
+	}
+	return query
+}
+
 // ── A2A Delegations ──
 
 func (f *FirestoreStore) AppendDelegation(ctx context.Context, d *models.Delegation) error {
 	ref := f.client.Collection("delegations").Doc(d.ID)
-	_, err := ref.Set(ctx, d)
+	_, err := ref.Create(ctx, d)
 	if err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			return ErrAlreadyExists
+		}
 		return fmt.Errorf("firestore append delegation: %w", err)
 	}
 	return nil
@@ -570,21 +587,18 @@ func (f *FirestoreStore) GetDelegation(ctx context.Context, id string) (*models.
 }
 
 func (f *FirestoreStore) ListDelegations(ctx context.Context, agentID string, limit int) ([]models.Delegation, error) {
-	var query firestore.Query
+	query := f.client.Collection("delegations").OrderBy("StartedAt", firestore.Desc)
 	if agentID != "" {
-		// Note: This requires a composite index for multiple OR conditions
-		// For simplicity, we'll fetch all and filter in-memory
-		query = f.client.Collection("delegations").OrderBy("started_at", firestore.Desc)
-	} else {
-		query = f.client.Collection("delegations").OrderBy("started_at", firestore.Desc)
+		query = query.WhereEntity(firestore.OrFilter{Filters: []firestore.EntityFilter{firestore.PropertyFilter{Path: "CallerAgentID", Operator: "==", Value: agentID}, firestore.PropertyFilter{Path: "CalleeAgentID", Operator: "==", Value: agentID}}})
 	}
 
 	if limit > 0 {
-		query = query.Limit(limit * 2) // fetch extra since we'll filter
+		query = query.Limit(limit)
 	}
 
 	iter := query.Documents(ctx)
-	var delegations []models.Delegation
+	defer iter.Stop()
+	delegations := make([]models.Delegation, 0)
 	count := 0
 
 	for {
@@ -616,7 +630,24 @@ func (f *FirestoreStore) ListDelegations(ctx context.Context, agentID string, li
 }
 
 func (f *FirestoreStore) UpdateDelegation(ctx context.Context, d *models.Delegation) error {
-	_, err := f.client.Collection("delegations").Doc(d.ID).Set(ctx, d)
+	ref := f.client.Collection("delegations").Doc(d.ID)
+	err := f.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		snapshot, e := tx.Get(ref)
+		if e != nil {
+			if status.Code(e) == codes.NotFound {
+				return ErrNotFound
+			}
+			return e
+		}
+		var previous models.Delegation
+		if e = snapshot.DataTo(&previous); e != nil {
+			return e
+		}
+		if e = delegationTransition(&previous, d); e != nil {
+			return e
+		}
+		return tx.Set(ref, d)
+	})
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return ErrNotFound
@@ -624,6 +655,31 @@ func (f *FirestoreStore) UpdateDelegation(ctx context.Context, d *models.Delegat
 		return fmt.Errorf("firestore update delegation: %w", err)
 	}
 	return nil
+}
+
+func (f *FirestoreStore) ListDelegationTrace(ctx context.Context, traceID string, limit int) ([]models.Delegation, error) {
+	query := f.client.Collection("delegations").Where("TraceID", "==", traceID).OrderBy("StartedAt", firestore.Desc)
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	iter := query.Documents(ctx)
+	defer iter.Stop()
+	out := make([]models.Delegation, 0)
+	for {
+		snapshot, e := iter.Next()
+		if e == iterator.Done {
+			break
+		}
+		if e != nil {
+			return nil, fmt.Errorf("firestore list delegation trace: %w", e)
+		}
+		var d models.Delegation
+		if e = snapshot.DataTo(&d); e != nil {
+			return nil, fmt.Errorf("firestore decode delegation trace: %w", e)
+		}
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 // ── SkillsPlex Invocations ──
@@ -635,19 +691,29 @@ func (f *FirestoreStore) AppendSkillInvocation(ctx context.Context, inv *models.
 	} else {
 		ref = f.client.Collection("skill_invocations").Doc(inv.ID)
 	}
-	if _, err := ref.Set(ctx, inv); err != nil {
+	if _, err := ref.Create(ctx, inv); err != nil {
+		if status.Code(err) == codes.AlreadyExists {
+			return ErrAlreadyExists
+		}
 		return fmt.Errorf("firestore append skill invocation: %w", err)
 	}
 	return nil
 }
 
 func (f *FirestoreStore) ListSkillInvocations(ctx context.Context, agentID, skillName string, limit int) ([]models.SkillInvocation, error) {
-	query := f.client.Collection("skill_invocations").OrderBy("started_at", firestore.Desc)
+	query := f.client.Collection("skill_invocations").OrderBy("StartedAt", firestore.Desc)
+	if agentID != "" {
+		query = query.Where("AgentID", "==", agentID)
+	}
+	if skillName != "" {
+		query = query.Where("SkillName", "==", skillName)
+	}
 	if limit > 0 {
-		query = query.Limit(limit * 2)
+		query = query.Limit(limit)
 	}
 	iter := query.Documents(ctx)
-	var out []models.SkillInvocation
+	defer iter.Stop()
+	out := make([]models.SkillInvocation, 0)
 	count := 0
 	for {
 		doc, err := iter.Next()
@@ -693,7 +759,7 @@ func (f *FirestoreStore) AppendPolicyDenial(ctx context.Context, d *models.Polic
 }
 
 func (f *FirestoreStore) ListPolicyDenials(ctx context.Context, limit int) ([]models.PolicyDenial, error) {
-	query := f.client.Collection("policy_denials").OrderBy("timestamp", firestore.Desc)
+	query := f.client.Collection("policy_denials").OrderBy("Timestamp", firestore.Desc)
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
@@ -772,7 +838,7 @@ func (f *FirestoreStore) GetRoleBinding(ctx context.Context, id string) (*models
 }
 
 func (f *FirestoreStore) ListRoleBindings(ctx context.Context) ([]models.RoleBinding, error) {
-	iter := f.client.Collection("role_bindings").OrderBy("created_at", firestore.Desc).Documents(ctx)
+	iter := f.client.Collection("role_bindings").OrderBy("CreatedAt", firestore.Desc).Documents(ctx)
 	var bindings []models.RoleBinding
 	for {
 		doc, err := iter.Next()
@@ -792,7 +858,7 @@ func (f *FirestoreStore) ListRoleBindings(ctx context.Context) ([]models.RoleBin
 }
 
 func (f *FirestoreStore) ListRoleBindingsByGroup(ctx context.Context, group string) ([]models.RoleBinding, error) {
-	iter := f.client.Collection("role_bindings").Where("group", "==", group).Documents(ctx)
+	iter := f.client.Collection("role_bindings").Where("Group", "==", group).Documents(ctx)
 	var bindings []models.RoleBinding
 	for {
 		doc, err := iter.Next()
@@ -905,10 +971,10 @@ func (f *FirestoreStore) ListExecutionRuns(ctx context.Context, tenantID, agentI
 	}
 	q := f.client.Collection("execution_runs").Limit(limit)
 	if tenantID != "" {
-		q = q.Where("tenant_id", "==", tenantID)
+		q = q.Where("TenantID", "==", tenantID)
 	}
 	if agentID != "" {
-		q = q.Where("agent_id", "==", agentID)
+		q = q.Where("AgentID", "==", agentID)
 	}
 	docs, err := q.Documents(ctx).GetAll()
 	if err != nil {
@@ -929,7 +995,8 @@ func (f *FirestoreStore) ListExecutionEvents(ctx context.Context, runID string, 
 		limit = 1000
 	}
 	docs, err := f.client.Collection("execution_events").Doc(runID).Collection("seq").
-		Where("seq", ">=", fromSeq).
+		Where("Seq", ">=", fromSeq).
+		OrderBy("Seq", firestore.Asc).
 		Limit(limit).
 		Documents(ctx).GetAll()
 	if err != nil {
@@ -996,7 +1063,7 @@ func (f *FirestoreStore) ListOperatorAudit(ctx context.Context, runID string, li
 		limit = 100
 	}
 	docs, err := f.client.Collection("operator_audit").
-		Where("run_id", "==", runID).
+		Where("RunID", "==", runID).
 		Limit(limit).
 		Documents(ctx).GetAll()
 	if err != nil {
@@ -1017,7 +1084,7 @@ func (f *FirestoreStore) CountInstancesWithRuntime(ctx context.Context, engine m
 	// the aggregate API isn't enabled. Cheap regardless since instances
 	// is a small collection (< 10k rows in any real deployment).
 	docs, err := f.client.Collection("instances").
-		Where("runtime.engine", "==", string(engine)).
+		Where("Runtime.Engine", "==", string(engine)).
 		Documents(ctx).GetAll()
 	if err != nil {
 		return 0, fmt.Errorf("firestore count instances by runtime: %w", err)

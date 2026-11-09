@@ -54,6 +54,8 @@ export default function LLMPlex() {
   const instances = useQuery({ queryKey: ['instances', 'llmplex'], queryFn: () => listInstances('llmplex') })
   const routes = useQuery({ queryKey: ['llm-routes'], queryFn: getRoutes })
   const usage = useQuery({ queryKey: ['llm-usage', 'day'], queryFn: () => getUsageSummary('day') })
+  const activeLoading = tab === 'providers' ? catalog.isLoading || instances.isLoading : tab === 'routes' ? routes.isLoading : usage.isLoading
+  const activeError = tab === 'providers' ? catalog.error ?? instances.error : tab === 'routes' ? routes.error : usage.error
 
   const putRouteMutation = useMutation({
     mutationFn: ({ modelId, config }: { modelId: string; config: Partial<RouteConfig> }) =>
@@ -184,7 +186,10 @@ export default function LLMPlex() {
         ))}
       </div>
 
-      {tab === 'providers' && (
+      {activeLoading && <p role="status">Loading module data…</p>}
+      {activeError && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeError.message}</p>}
+
+      {tab === 'providers' && !activeLoading && !activeError && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Available Models</h3>
           <div className="grid grid-cols-3 gap-4 mb-8">
@@ -241,7 +246,7 @@ export default function LLMPlex() {
         </div>
       )}
 
-      {tab === 'routes' && (
+      {tab === 'routes' && !activeLoading && !activeError && (
         <div>
           <div className="flex justify-between items-center mb-3">
             <h3 className="font-semibold text-lg">Routing Rules</h3>
@@ -510,7 +515,7 @@ export default function LLMPlex() {
         </div>
       )}
 
-      {tab === 'costs' && (
+      {tab === 'costs' && !activeLoading && !activeError && (
         <div>
           <h3 className="font-semibold text-lg mb-3">Cost Tracking (Last 24h)</h3>
           {usage.data ? (

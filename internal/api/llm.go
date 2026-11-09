@@ -1,13 +1,12 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
@@ -20,6 +19,7 @@ type LLMHandler struct {
 	k8s         deploy.K8sClient
 	gatewayName string
 	secrets     *secrets.Manager
+	configMu    sync.Mutex
 }
 
 // NewLLMHandler creates an LLMPlex API handler.
@@ -44,6 +44,10 @@ func (h *LLMHandler) ListRouteConfigs(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/llm/routes/{modelId}
 func (h *LLMHandler) GetRouteConfig(w http.ResponseWriter, r *http.Request) {
 	modelID := r.PathValue("modelId")
+	if !llmResourceName("llm-"+modelID) || modelID == "" {
+		Error(w, r, http.StatusBadRequest, "INVALID_MODEL", "valid route model identifier required")
+		return
+	}
 	rc, err := h.store.GetRouteConfig(r.Context(), modelID)
 	if err != nil {
 		if errors.Is(err, registry.ErrNotFound) {
@@ -59,34 +63,98 @@ func (h *LLMHandler) GetRouteConfig(w http.ResponseWriter, r *http.Request) {
 // PutRouteConfig creates or updates an LLM routing configuration.
 // PUT /api/v1/llm/routes/{modelId}
 func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
 	modelID := r.PathValue("modelId")
+	if !llmResourceName("llm-"+modelID) || modelID == "" {
+		Error(w, r, http.StatusBadRequest, "INVALID_MODEL", "valid route model identifier required")
+		return
+	}
 	var rc models.LLMRouteConfig
-	if err := json.NewDecoder(r.Body).Decode(&rc); err != nil {
+	if err := llmReadJSON(r, &rc); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+		return
+	}
+	if rc.ModelID != "" && rc.ModelID != modelID || rc.ID != "" && rc.ID != "route-"+modelID {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "route identity must match path")
 		return
 	}
 	rc.ModelID = modelID
 	rc.ID = "route-" + modelID
-
-	manifests, err := deploy.GenerateRoutesFromConfigChecked(&rc, h.gatewayName)
+	rc.BackendNamingVersion = 2 // caller metadata cannot choose native resource identities
+	previous, err := h.store.GetRouteConfig(r.Context(), modelID)
+	if err != nil && !errors.Is(err, registry.ErrNotFound) {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "route configuration unavailable")
+		return
+	}
+	if previous != nil {
+		rc.CreatedAt = previous.CreatedAt
+	} else {
+		rc.CreatedAt = time.Time{}
+	}
+	manifests, err := h.routeManifests(r.Context(), &rc)
 	if err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 		return
 	}
+	if previous != nil && !sameBackendNames(previous, &rc) {
+		if err := h.routeNotReferenced(r.Context(), modelID); err != nil {
+			Error(w, r, http.StatusConflict, "ROUTE_IN_USE", "remove fallback references before changing this route's backend inventory")
+			return
+		}
+	}
+	if h.k8s == nil {
+		Error(w, r, http.StatusServiceUnavailable, "DEPLOYMENT_UNAVAILABLE", "route deployment adapter unavailable")
+		return
+	}
+	if err := h.setRetiredBackends(previous, &rc); err != nil {
+		Error(w, r, http.StatusConflict, "INVALID_CLEANUP_INVENTORY", "saved backend ownership inventory requires operator review")
+		return
+	}
+	if err := h.checkBackendOwnership(r.Context(), modelID, append(backendNames(&rc), rc.RetiredBackends...)); err != nil {
+		Error(w, r, http.StatusConflict, "BACKEND_OWNERSHIP_CONFLICT", "backend names overlap another route inventory; review route ownership before applying")
+		return
+	}
 
-	if err := h.store.PutRouteConfig(r.Context(), &rc); err != nil {
+	if err := h.saveRoute(r.Context(), &rc); err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
 
-	// Generate and apply Envoy LLMRoute + AIServiceBackend CRDs
-	for _, m := range manifests {
-		if err := h.k8s.Apply(r.Context(), m); err != nil {
-			zerolog.Ctx(r.Context()).Warn().Err(err).
-				Str("kind", m.Kind).Str("name", m.Name).
-				Msg("failed to apply LLM route CRD")
+	w.Header().Set("X-LLM-Configuration", "saved")
+	w.Header().Set("X-LLM-Policy-Mode", "reporting-only")
+	if rc.CacheTTL > 0 {
+		w.Header().Add("X-LLM-Configuration-Warning", "cache_ttl_metadata_not_applied_to_legacy_route")
+	}
+	// Submit backend dependencies before the route. An error leaves desired state
+	// available for an explicit retry; no cross-system rollback is implied.
+	for _, kind := range []string{"AIServiceBackend", "LLMRoute"} {
+		for _, m := range manifests {
+			if m.Kind == kind {
+				if err := h.k8s.Apply(r.Context(), m); err != nil {
+					w.Header().Set("X-LLM-Activation", "failed")
+					Error(w, r, http.StatusBadGateway, "ROUTE_APPLY_FAILED", "desired route saved; deployment submission failed; inspect and retry the saved configuration")
+					return
+				}
+			}
 		}
 	}
+	if previous != nil {
+		if err := h.cleanupBackends(r.Context(), previous, &rc); err != nil {
+			w.Header().Set("X-LLM-Activation", "cleanup-pending")
+			Error(w, r, http.StatusBadGateway, "ROUTE_CLEANUP_FAILED", "desired route saved and submitted; old backend cleanup failed; inspect and retry")
+			return
+		}
+	}
+	if len(rc.RetiredBackends) > 0 {
+		rc.RetiredBackends = nil
+		if err := h.saveRoute(r.Context(), &rc); err != nil {
+			w.Header().Set("X-LLM-Activation", "cleanup-pending")
+			Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "route submitted and old backends removed; cleanup inventory persistence failed; retry saved configuration")
+			return
+		}
+	}
+	w.Header().Set("X-LLM-Activation", "submitted-unverified")
 
 	JSON(w, http.StatusOK, rc)
 }
@@ -94,8 +162,15 @@ func (h *LLMHandler) PutRouteConfig(w http.ResponseWriter, r *http.Request) {
 // DeleteRouteConfig removes an LLM routing configuration.
 // DELETE /api/v1/llm/routes/{modelId}
 func (h *LLMHandler) DeleteRouteConfig(w http.ResponseWriter, r *http.Request) {
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
 	modelID := r.PathValue("modelId")
-	if err := h.store.DeleteRouteConfig(r.Context(), modelID); err != nil {
+	if !llmResourceName("llm-"+modelID) || modelID == "" {
+		Error(w, r, http.StatusBadRequest, "INVALID_MODEL", "valid route model identifier required")
+		return
+	}
+	config, err := h.store.GetRouteConfig(r.Context(), modelID)
+	if err != nil {
 		if errors.Is(err, registry.ErrNotFound) {
 			Error(w, r, http.StatusNotFound, "NOT_FOUND", "route config not found")
 			return
@@ -103,10 +178,29 @@ func (h *LLMHandler) DeleteRouteConfig(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
-
-	// Clean up Envoy CRDs
+	if err := h.routeNotReferenced(r.Context(), modelID); err != nil {
+		Error(w, r, http.StatusConflict, "ROUTE_IN_USE", "remove fallback references before deleting this route")
+		return
+	}
+	if h.k8s == nil {
+		Error(w, r, http.StatusServiceUnavailable, "DEPLOYMENT_UNAVAILABLE", "route deployment adapter unavailable")
+		return
+	}
+	if err := h.checkBackendOwnership(r.Context(), modelID, append(backendNames(config), config.RetiredBackends...)); err != nil {
+		Error(w, r, http.StatusConflict, "BACKEND_OWNERSHIP_CONFLICT", "backend names overlap another route inventory; desired state retained")
+		return
+	}
 	if err := h.k8s.Delete(r.Context(), "aigateway.envoyproxy.io/v1alpha1", "LLMRoute", "llm-"+modelID, "aiplex-system"); err != nil {
-		zerolog.Ctx(r.Context()).Warn().Err(err).Msg("failed to delete LLMRoute CRD")
+		Error(w, r, http.StatusBadGateway, "ROUTE_DELETE_FAILED", "desired configuration retained; route deletion failed")
+		return
+	}
+	if err := h.cleanupBackends(r.Context(), config, nil); err != nil {
+		Error(w, r, http.StatusBadGateway, "ROUTE_CLEANUP_FAILED", "desired configuration retained; backend cleanup failed")
+		return
+	}
+	if err := h.store.DeleteRouteConfig(r.Context(), modelID); err != nil {
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "route deleted; desired configuration cleanup failed")
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -128,22 +222,26 @@ func (h *LLMHandler) ListProviders(w http.ResponseWriter, r *http.Request) {
 // PutProvider creates or updates a provider configuration.
 // PUT /api/v1/llm/providers/{provider}
 func (h *LLMHandler) PutProvider(w http.ResponseWriter, r *http.Request) {
+	h.configMu.Lock()
+	defer h.configMu.Unlock()
 	providerName := r.PathValue("provider")
 	var pc models.ProviderConfig
-	if err := json.NewDecoder(r.Body).Decode(&pc); err != nil {
+	if err := llmReadJSON(r, &pc); err != nil {
 		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 		return
 	}
+	if pc.Provider != "" && pc.Provider != providerName {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "provider identity must match path")
+		return
+	}
 	pc.Provider = providerName
-
-	// Validate Secret Manager reference exists
-	if h.secrets != nil && pc.SecretRef != "" {
-		exists, err := h.secrets.Exists(r.Context(), pc.SecretRef)
-		if err != nil {
-			zerolog.Ctx(r.Context()).Warn().Err(err).Str("secret", pc.SecretRef).Msg("secret validation failed")
-		} else if !exists {
-			Error(w, r, http.StatusBadRequest, "SECRET_NOT_FOUND",
-				fmt.Sprintf("secret %q not found in Secret Manager — create it first with: gcloud secrets create %s --data-file=key.txt", pc.SecretRef, pc.SecretRef))
+	if err := h.validateProvider(r.Context(), pc); err != nil {
+		Error(w, r, http.StatusBadRequest, "INVALID_PROVIDER", err.Error())
+		return
+	}
+	if !pc.Enabled {
+		if err := h.providerNotReferenced(r.Context(), providerName); err != nil {
+			Error(w, r, http.StatusConflict, "PROVIDER_IN_USE", "remove enabled route backends before disabling this provider")
 			return
 		}
 	}
@@ -152,6 +250,13 @@ func (h *LLMHandler) PutProvider(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return
 	}
+	w.Header().Set("X-LLM-Configuration", "saved")
+	w.Header().Set("X-LLM-Activation", "configuration-only")
+	if pc.BaseURL != "" || pc.Region != "" || pc.ProjectID != "" {
+		w.Header().Add("X-LLM-Configuration-Warning", "provider_endpoint_metadata_not_applied_to_legacy_routes")
+	}
+	w.Header().Add("X-LLM-Configuration-Warning", "credential_reference_requires_operator_managed_kubernetes_secret")
+	w.Header().Add("X-LLM-Configuration-Warning", "provider_defaults_do_not_rewrite_existing_backend_references")
 	JSON(w, http.StatusOK, pc)
 }
 
@@ -161,87 +266,38 @@ func (h *LLMHandler) PutProvider(w http.ResponseWriter, r *http.Request) {
 // POST /api/v1/llm/usage
 func (h *LLMHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
 	var record models.UsageRecord
-	if err := json.NewDecoder(r.Body).Decode(&record); err != nil {
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
+	if err := llmReadJSON(r, &record); err != nil {
+		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid usage report")
+		return
+	}
+	if err := validateLLMUsage(record); err != nil {
+		Error(w, r, http.StatusBadRequest, "INVALID_USAGE", err.Error())
 		return
 	}
 	if record.Timestamp.IsZero() {
-		record.Timestamp = time.Now()
+		record.Timestamp = time.Now().UTC()
 	}
 	record.TotalTokens = record.InputTokens + record.OutputTokens
-
-	// Auto-calculate cost if pricing is known
 	if record.CostUSD == 0 {
 		tmpl, err := h.store.GetTemplate(r.Context(), record.ModelID)
-		if err == nil && tmpl.Pricing != nil {
-			record.CostUSD = (float64(record.InputTokens) * tmpl.Pricing.Input / 1_000_000) +
-				(float64(record.OutputTokens) * tmpl.Pricing.Output / 1_000_000)
-		}
-	}
-
-	// Check budget BEFORE recording usage — reject if over limit
-	if rc, err := h.store.GetRouteConfig(r.Context(), record.ModelID); err == nil && rc.Budget != nil {
-		summary, _ := h.store.GetUsageSummary(r.Context(), record.ModelID, "", "day")
-		if rc.Budget.MaxDailyCostUSD > 0 && summary.TotalCostUSD+record.CostUSD > rc.Budget.MaxDailyCostUSD {
-			w.Header().Set("X-Budget-Warning", "daily_cost_exceeded")
-			Error(w, r, http.StatusTooManyRequests, "BUDGET_EXCEEDED",
-				"daily cost budget exceeded for this model")
-			return
-		}
-		if rc.Budget.MaxDailyTokens > 0 && summary.TotalTokens+int64(record.TotalTokens) > rc.Budget.MaxDailyTokens {
-			w.Header().Set("X-Budget-Warning", "daily_tokens_exceeded")
-			Error(w, r, http.StatusTooManyRequests, "BUDGET_EXCEEDED",
-				"daily token budget exceeded for this model")
-			return
-		}
-
-		// Monthly cost check
-		if rc.Budget.MaxMonthlyCostUSD > 0 {
-			monthlySummary, _ := h.store.GetUsageSummary(r.Context(), record.ModelID, "", "month")
-			if monthlySummary.TotalCostUSD+record.CostUSD > rc.Budget.MaxMonthlyCostUSD {
-				w.Header().Set("X-Budget-Warning", "monthly_cost_exceeded")
-				Error(w, r, http.StatusTooManyRequests, "BUDGET_EXCEEDED",
-					fmt.Sprintf("monthly cost budget exceeded: $%.2f / $%.2f",
-						monthlySummary.TotalCostUSD+record.CostUSD, rc.Budget.MaxMonthlyCostUSD))
+		if err == nil && tmpl != nil && tmpl.Pricing != nil && validLLMPrice(tmpl.Pricing.Input) && validLLMPrice(tmpl.Pricing.Output) {
+			record.CostUSD = float64(record.InputTokens)*tmpl.Pricing.Input/1_000_000 + float64(record.OutputTokens)*tmpl.Pricing.Output/1_000_000
+			if !validLLMPrice(record.CostUSD) {
+				Error(w, r, http.StatusBadRequest, "INVALID_USAGE", "calculated reporting cost exceeds supported range")
 				return
 			}
+		} else {
+			w.Header().Set("X-LLM-Price-Warning", "reporting_price_unavailable")
 		}
 	}
-
-	// Per-minute rate limiting
-	if rc, err := h.store.GetRouteConfig(r.Context(), record.ModelID); err == nil && rc.RateLimit != nil {
-		// Count requests in the last minute
-		minuteAgo := time.Now().Add(-1 * time.Minute)
-		recentRecords, _ := h.store.ListUsageRecords(r.Context(), record.ModelID, "", minuteAgo, 0)
-
-		if rc.RateLimit.RequestsPerMinute > 0 && len(recentRecords) >= rc.RateLimit.RequestsPerMinute {
-			w.Header().Set("Retry-After", "60")
-			Error(w, r, http.StatusTooManyRequests, "RATE_LIMITED",
-				fmt.Sprintf("rate limit exceeded: %d/%d requests per minute",
-					len(recentRecords), rc.RateLimit.RequestsPerMinute))
-			return
-		}
-
-		if rc.RateLimit.TokensPerMinute > 0 {
-			var minuteTokens int64
-			for _, rec := range recentRecords {
-				minuteTokens += int64(rec.TotalTokens)
-			}
-			if minuteTokens+int64(record.TotalTokens) > int64(rc.RateLimit.TokensPerMinute) {
-				w.Header().Set("Retry-After", "60")
-				Error(w, r, http.StatusTooManyRequests, "RATE_LIMITED",
-					fmt.Sprintf("token rate limit exceeded: %d/%d tokens per minute",
-						minuteTokens+int64(record.TotalTokens), rc.RateLimit.TokensPerMinute))
-				return
-			}
-		}
-	}
-
+	// This endpoint reports already-consumed work. Store the report even when a
+	// configured reporting threshold is exceeded; rejecting it cannot undo spend.
 	if err := h.store.AppendUsage(r.Context(), &record); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
+		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "usage report could not be persisted")
 		return
 	}
-
+	w.Header().Set("X-LLM-Policy-Mode", "reporting-only")
+	h.usageWarnings(w, r, record)
 	JSON(w, http.StatusCreated, record)
 }
 
@@ -253,6 +309,10 @@ func (h *LLMHandler) GetUsageSummary(w http.ResponseWriter, r *http.Request) {
 	period := r.URL.Query().Get("period")
 	if period == "" {
 		period = "day"
+	}
+	if period != "day" && period != "week" && period != "month" {
+		Error(w, r, http.StatusBadRequest, "INVALID_PERIOD", "period must be day, week or month")
+		return
 	}
 
 	summary, err := h.store.GetUsageSummary(r.Context(), modelID, agentID, period)
@@ -269,8 +329,25 @@ func (h *LLMHandler) ListUsageRecords(w http.ResponseWriter, r *http.Request) {
 	modelID := r.URL.Query().Get("model_id")
 	agentID := r.URL.Query().Get("agent_id")
 	since := time.Now().Add(-24 * time.Hour) // default: last 24h
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		value, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			Error(w, r, http.StatusBadRequest, "INVALID_SINCE", "since must be an RFC3339 timestamp")
+			return
+		}
+		since = value
+	}
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 1000 {
+			Error(w, r, http.StatusBadRequest, "INVALID_LIMIT", "limit must be between 1 and 1000")
+			return
+		}
+		limit = value
+	}
 
-	records, err := h.store.ListUsageRecords(r.Context(), modelID, agentID, since, 100)
+	records, err := h.store.ListUsageRecords(r.Context(), modelID, agentID, since, limit)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return

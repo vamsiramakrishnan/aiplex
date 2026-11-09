@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,8 +20,8 @@ type HydraClient struct {
 // NewHydraClient creates a Hydra admin client.
 func NewHydraClient(adminURL string) *HydraClient {
 	return &HydraClient{
-		adminURL:   adminURL,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		adminURL:   strings.TrimRight(adminURL, "/"),
+		httpClient: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 	}
 }
 
@@ -33,6 +32,7 @@ type OAuthClient struct {
 	GrantTypes              []string `json:"grant_types"`
 	Scope                   string   `json:"scope"`
 	RedirectURIs            []string `json:"redirect_uris,omitempty"`
+	ResponseTypes           []string `json:"response_types,omitempty"`
 	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 }
 
@@ -55,9 +55,8 @@ func (h *HydraClient) CreateClient(ctx context.Context, client OAuthClient) (*Cr
 		return nil, fmt.Errorf("hydra create client: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("hydra create client: status %d: %s", resp.StatusCode, body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("hydra create client: status %d", resp.StatusCode)
 	}
 
 	// Parse response to get client_secret
@@ -70,7 +69,10 @@ func (h *HydraClient) CreateClient(ctx context.Context, client OAuthClient) (*Cr
 
 // DeleteClient removes an OAuth client from Hydra.
 func (h *HydraClient) DeleteClient(ctx context.Context, clientID string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, h.adminURL+"/admin/clients/"+clientID, nil)
+	if !agentHydraClientID(clientID) {
+		return fmt.Errorf("invalid OAuth client identity")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, h.adminURL+"/admin/clients/"+url.PathEscape(clientID), nil)
 	if err != nil {
 		return err
 	}
@@ -79,7 +81,7 @@ func (h *HydraClient) DeleteClient(ctx context.Context, clientID string) error {
 		return fmt.Errorf("hydra delete client: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
+	if (resp.StatusCode < 200 || resp.StatusCode >= 300) && resp.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("hydra delete client: status %d", resp.StatusCode)
 	}
 	return nil
@@ -87,25 +89,25 @@ func (h *HydraClient) DeleteClient(ctx context.Context, clientID string) error {
 
 // CreateScope is deprecated. Use UpdateClientScopes instead.
 func (h *HydraClient) CreateScope(ctx context.Context, scope, description string) error {
-	// Hydra doesn't have a dedicated scope registry — scopes are validated
-	// against the client's allowed_scope. This is a no-op placeholder for
-	// when we need scope metadata tracking.
-	_ = ctx
-	_ = scope
-	_ = description
-	return nil
+	// Scope discovery cannot implicitly extend an agent's reviewed ceiling.
+	return fmt.Errorf("Hydra has no scope registry; update an explicit OAuth client instead")
 }
 
 // UpdateClientScopes patches an OAuth client's allowed scopes in Hydra.
 func (h *HydraClient) UpdateClientScopes(ctx context.Context, clientID string, scopes []string) error {
-	patch := map[string]any{
-		"scope": strings.Join(scopes, " "),
+	if !agentHydraClientID(clientID) {
+		return fmt.Errorf("invalid OAuth client identity")
 	}
+	normalized, err := NormalizeScopes(scopes)
+	if err != nil {
+		return err
+	}
+	patch := []map[string]any{{"op": "replace", "path": "/scope", "value": strings.Join(normalized, " ")}}
 	data, err := json.Marshal(patch)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, "PATCH", h.adminURL+"/admin/clients/"+clientID, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, "PATCH", h.adminURL+"/admin/clients/"+url.PathEscape(clientID), bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -115,9 +117,8 @@ func (h *HydraClient) UpdateClientScopes(ctx context.Context, clientID string, s
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("hydra update scopes: status %d: %s", resp.StatusCode, body)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("hydra update scopes: status %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -224,4 +225,8 @@ func (h *HydraClient) RejectConsent(ctx context.Context, challenge, errorID, err
 		return "", fmt.Errorf("hydra consent response has no redirect")
 	}
 	return result.RedirectTo, nil
+}
+
+func agentHydraClientID(id string) bool {
+	return id != "" && id != "." && id != ".." && len(id) <= 128 && !strings.ContainsAny(id, "/%?#\\ \t\r\n\x00")
 }

@@ -161,3 +161,22 @@ func TestAuthenticatorCannotChangePinnedRequest(t *testing.T) {
 		}
 	}
 }
+
+func TestUnsuccessfulHTTPStatusPreservesSafeClassification(t *testing.T) {
+	for _, status := range []int{403, 404, 409, 429, 500} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			io.WriteString(w, "PRIVATE-CREDENTIAL")
+		}))
+		client, err := nativeapi.NewClient(server.URL, server.Client(), nativeapi.AuthFunc(noAuth))
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := client.Do(context.Background(), http.MethodPost, "entry", nil, nil)
+		var statusError *nativeapi.StatusError
+		if !errors.As(err, &statusError) || statusError.StatusCode != status || result.StatusCode != status || len(result.Body) != 0 || strings.Contains(err.Error(), "PRIVATE-CREDENTIAL") {
+			t.Fatalf("unsafe or missing status: result=%+v err=%v", result, err)
+		}
+		server.Close()
+	}
+}

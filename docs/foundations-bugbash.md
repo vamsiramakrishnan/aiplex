@@ -156,9 +156,13 @@ RS256/ES256 tokens; module startup/readiness failures; external module descripto
 mismatch; cancellation; concurrent registration and policy publication; group
 revocation; disabled deployment; cleanup ownership; and Console/CLI discovery.
 Cloud deployment, IAM grants, provider billing and traffic interception are not
-validated by these local tests. Legacy LLMPlex budget checks remain reporting-time
-checks; they are not an admission-based hard spending limit. QuotaPlex will replace
+validated by these local tests. Legacy LLMPlex budgets remain reporting-only
+advisories; they are not an admission-based hard spending limit. QuotaPlex will replace
 that path with reservations and durable settlement in a later change.
 The [QuotaPlex readiness checklist](quotaplex-prerequisites.md) records the exact
 remaining contracts and host integration gates; the foundation test counts do
 not establish production quota enforcement.
+
+See [feature cohesion repairs](feature-cohesion-bugbash.md) for the subsequent
+OAuth, routing, storage, audit, SDK/CLI and Console bugbash, with deployment
+compatibility and remaining integration limits.
