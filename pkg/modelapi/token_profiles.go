@@ -66,8 +66,13 @@ func normalizeControlledFinal(op Operation, value *UsageObservation) error {
 // MeteringProfile is an optional lease contract. Request-count consumers must
 // not acquire a token-accounting promise just because the native API has usage.
 func normalizeForRun(op Operation, value *UsageObservation, run *executionRun) error {
-	if contract, ok := run.lease.(interface{ MeteringProfile() string }); ok && contract.MeteringProfile() == "request-count" {
+	if requestCountRun(run) {
 		return nil
 	}
 	return normalizeControlledFinal(op, value)
+}
+
+func requestCountRun(run *executionRun) bool {
+	contract, ok := run.lease.(interface{ MeteringProfile() string })
+	return ok && contract.MeteringProfile() == "request-count"
 }

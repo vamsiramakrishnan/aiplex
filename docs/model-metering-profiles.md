@@ -123,6 +123,12 @@ response submits version and usage together so quarantine can preserve the known
 terminal facts. Truncated streams do not manufacture terminal usage or release
 uncertain holds.
 
+Every cumulative update is checked, including updates inside the withheld final
+tail. Later counters cannot replace higher observed usage; repeated equal
+counters are not summed. Contradictions retain unknown exposure and suppress the
+final tail. Request-count profiles keep token telemetry advisory. See the
+[execution coverage and regression matrix](quotaplex-execution-coverage.md).
+
 The local regression suite covers native JSON/SSE, client facade translation,
 exact money composition, retry exclusion and unsupported exposure. It does not
 prove billing equivalence, native model availability or live cloud entitlement.
