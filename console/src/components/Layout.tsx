@@ -16,6 +16,8 @@ const routeLabels: Record<string, string> = {
   a2aplex: 'A2APlex',
   llmplex: 'LLMPlex',
   skillsplex: 'SkillsPlex',
+  quotaplex: 'QuotaPlex',
+  usage: 'Usage',
   agents: 'Agents',
   runs: 'Runs',
   permissions: 'Permissions',
