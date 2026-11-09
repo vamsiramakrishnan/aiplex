@@ -296,6 +296,8 @@ func main() {
 		r.Get("/modules", moduleDiscovery(moduleRegistry))
 		mountUsageLedger(r, usageH, connectedH)
 		connectedH.MountAccessPoints(r) // /api/v1/access-points
+		// Single-pane overview: /api/v1/overview
+		api.NewOverviewHandler(connectedH, usageH.Ledger, store, federationH.Bindings).Mount(r)
 
 		// Dashboard — unified observability
 		r.Route("/dashboard", func(r chi.Router) {

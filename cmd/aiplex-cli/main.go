@@ -124,6 +124,7 @@ Get started:
 		nativeCmd(),
 		quotaCmd(),
 		usageCmd(),
+		accessPointsCmd(), connectCmd(), whoCmd(), identityUserCmd(),
 		toolAuthCmd(),
 		toolsCmd(),
 		infrastructureCmd(),
