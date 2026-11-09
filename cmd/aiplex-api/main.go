@@ -140,6 +140,10 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("agent identity federation configuration failed")
 	}
+	userFederationH, err := userFederation(cfg, resourceStore, connectedH.Runtime.Config.Network, connectedH.Tenant, wifValidator)
+	if err != nil {
+		log.Fatal().Err(err).Msg("user identity federation configuration failed")
+	}
 	usageH := configureUsageLedger(store, cfg, connectedH, llmH)
 	quotaRuntime, err := configureQuota(ctx, cfg, store, connectedH)
 	if err != nil {
@@ -282,7 +286,8 @@ func main() {
 		r.Get("/agents/{clientId}", agentH.Get)
 		r.Delete("/agents/{clientId}", agentH.Delete)
 		r.Get("/agents/{clientId}/permissions", agentH.GetPermissions)
-		federationH.Mount(r) // cross-cloud agent identity presets, bindings, plans, verify
+		federationH.Mount(r)     // cross-cloud agent identity presets, bindings, plans, verify
+		userFederationH.Mount(r) // workforce user identity providers, plans, verify
 
 		for _, module := range enabledModules {
 			module.mount(r)

@@ -383,34 +383,7 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 	}
 
 	// 5. Lifetime.
-	exp, hasExp := numeric(claims["exp"])
-	lifetimeProblem := ""
-	switch {
-	case !hasExp:
-		lifetimeProblem = "token has no numeric exp claim"
-	case now.Unix() >= exp:
-		lifetimeProblem = fmt.Sprintf("token expired %s ago (exp %s)", now.Sub(time.Unix(exp, 0)).Round(time.Second), time.Unix(exp, 0).UTC().Format(time.RFC3339))
-	}
-	if lifetimeProblem == "" {
-		if raw, ok := claims["nbf"]; ok {
-			nbf, valid := numeric(raw)
-			if !valid {
-				lifetimeProblem = "nbf claim is not a number"
-			} else if now.Add(skew).Unix() < nbf {
-				lifetimeProblem = fmt.Sprintf("token is not valid until %s", time.Unix(nbf, 0).UTC().Format(time.RFC3339))
-			}
-		}
-	}
-	if lifetimeProblem == "" {
-		if raw, ok := claims["iat"]; ok {
-			iat, valid := numeric(raw)
-			if !valid {
-				lifetimeProblem = "iat claim is not a number"
-			} else if now.Add(skew).Unix() < iat {
-				lifetimeProblem = "token was issued in the future (check the workload's clock)"
-			}
-		}
-	}
+	lifetimeProblem, exp := LifetimeProblem(claims, now, skew)
 	if lifetimeProblem != "" {
 		add(CheckLifetime, StatusFail, lifetimeProblem+unverified)
 	} else {
