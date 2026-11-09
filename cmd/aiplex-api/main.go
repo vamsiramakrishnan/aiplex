@@ -140,6 +140,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("agent identity federation configuration failed")
 	}
+	usageH := configureUsageLedger(store, cfg, connectedH, llmH)
 	quotaRuntime, err := configureQuota(ctx, cfg, store, connectedH)
 	if err != nil {
 		log.Fatal().Err(err).Msg("quota module configuration failed")
@@ -287,6 +288,7 @@ func main() {
 			module.mount(r)
 		}
 		r.Get("/modules", moduleDiscovery(moduleRegistry))
+		mountUsageLedger(r, usageH, connectedH)
 
 		// Dashboard — unified observability
 		r.Route("/dashboard", func(r chi.Router) {

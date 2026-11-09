@@ -293,10 +293,19 @@ func (g *Gateway) emitLegacy(ctx context.Context, owner Owner, value *UsageObser
 	}
 }
 func (g *Gateway) observeJSON(ctx context.Context, owner Owner, op Operation, data []byte, terminal bool) error {
-	result, err := g.inspectJSON(ctx, owner, op, data, terminal, g.options.Observe != nil)
+	if g.options.Observe == nil {
+		_, err := g.inspectJSON(ctx, owner, op, data, terminal, false)
+		return err
+	}
+	result, err := g.inspectJSON(ctx, owner, op, data, terminal, true)
 	if err == nil {
 		g.emitLegacy(ctx, owner, result.usage)
+		return nil
 	}
+	// Legacy observation is advisory on uncontrolled paths: a response the
+	// gateway would deliver without an observer is not rejected because its
+	// usage object is malformed. Usage then stays unobserved (unknown).
+	_, err = g.inspectJSON(ctx, owner, op, data, terminal, false)
 	return err
 }
 
