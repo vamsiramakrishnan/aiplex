@@ -86,9 +86,17 @@ func clientNativePath(s modelapi.Surface, r *http.Request, path string) (string,
 		if s.Publisher != "anthropic" || r.Method != "POST" || path != "/v1/messages" {
 			return "", nil, fmt.Errorf("Anthropic Messages requires an Anthropic Cloud surface")
 		}
+		if clientOperationReady(s, "anthropic.messages") {
+			// An explicitly installed Messages operation keeps its native path,
+			// body and headers. Only Vertex operations require a translated body.
+			return path, nil, nil
+		}
 		data, e := io.ReadAll(io.LimitReader(r.Body, (8<<20)+1))
 		if e != nil || len(data) > 8<<20 {
 			return "", nil, fmt.Errorf("request body exceeds bound")
+		}
+		if e = modelapi.ValidateJSON(data); e != nil {
+			return "", nil, fmt.Errorf("invalid native JSON: %w", e)
 		}
 		var payload map[string]json.RawMessage
 		if e = json.Unmarshal(data, &payload); e != nil {
@@ -102,7 +110,11 @@ func clientNativePath(s modelapi.Surface, r *http.Request, path string) (string,
 		payload["anthropic_version"] = json.RawMessage(`"vertex-2023-10-16"`)
 		method := "rawPredict"
 		var stream bool
-		_ = json.Unmarshal(payload["stream"], &stream)
+		if raw := payload["stream"]; raw != nil {
+			if e = json.Unmarshal(raw, &stream); e != nil {
+				return "", nil, fmt.Errorf("stream must be a boolean")
+			}
+		}
 		if stream {
 			method = "streamRawPredict"
 		}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authenticatedRequest } from '../api/client'
 
@@ -17,24 +17,54 @@ export default function ClientPlex() {
   const [revision, setRevision] = useState(0)
   const [selected, setSelected] = useState('')
   const [plan, setPlan] = useState<Plan | null>(null)
+  const editorGeneration = useRef(0)
+  const planGeneration = useRef(0)
+  const clearPlan = () => { planGeneration.current++; setPlan(null) }
+  const changeEditor = (text: string, id: string, expected: number) => {
+    editorGeneration.current++
+    setEditor(text); setSelected(id); setRevision(expected); clearPlan()
+  }
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ editor, revision, selected, generation }: { editor: string; revision: number; selected: string; generation: number }) => {
       const spec = JSON.parse(editor) as Registration
       if (!/^[a-z][a-z0-9-]{0,62}$/.test(spec.id)) throw new Error('A valid registration ID is required')
       if (revision > 0 && spec.id !== selected) throw new Error('Start a new registration to change the ID')
-      return authenticatedRequest<Record>(`${base}/registrations/${encodeURIComponent(spec.id)}`, { method: 'PUT', headers: revision ? { 'If-Match': `"${revision}"` } : {}, body: JSON.stringify(spec) })
+      const record = await authenticatedRequest<Record>(`${base}/registrations/${encodeURIComponent(spec.id)}`, { method: 'PUT', headers: revision ? { 'If-Match': `"${revision}"` } : {}, body: JSON.stringify(spec) })
+      return { record, generation }
     },
-    onSuccess: (record) => { setSelected(record.id); setRevision(record.revision); setPlan(null); cache.invalidateQueries({ queryKey: ['clientplex-registrations'] }) },
+    onSuccess: ({ record, generation }) => {
+      cache.invalidateQueries({ queryKey: ['clientplex-registrations'] })
+      if (generation !== editorGeneration.current) return
+      setSelected(record.id); setRevision(record.revision); clearPlan()
+    },
   })
-  const render = useMutation({ mutationFn: (id: string) => authenticatedRequest<Plan>(`${base}/registrations/${encodeURIComponent(id)}/plan`, { method: 'POST' }), onSuccess: setPlan })
-  const remove = useMutation({ mutationFn: (record: Record) => authenticatedRequest<void>(`${base}/registrations/${encodeURIComponent(record.id)}`, { method: 'DELETE', headers: { 'If-Match': `"${record.revision}"` } }), onSuccess: () => { setSelected(''); setRevision(0); setPlan(null); cache.invalidateQueries({ queryKey: ['clientplex-registrations'] }) } })
+  const render = useMutation({
+    mutationFn: async ({ id, generation }: { id: string; generation: number }) => {
+      const plan = await authenticatedRequest<Plan>(`${base}/registrations/${encodeURIComponent(id)}/plan`, { method: 'POST' })
+      return { generation, plan }
+    },
+    onSuccess: ({ generation, plan }) => { if (generation === planGeneration.current) setPlan(plan) },
+  })
+  const requestPlan = (id: string) => {
+    const generation = ++planGeneration.current
+    setPlan(null)
+    render.mutate({ id, generation })
+  }
+  const remove = useMutation({
+    mutationFn: ({ record }: { record: Record; generation: number }) => authenticatedRequest<void>(`${base}/registrations/${encodeURIComponent(record.id)}`, { method: 'DELETE', headers: { 'If-Match': `"${record.revision}"` } }),
+    onSuccess: (_result, { record, generation }) => {
+      cache.invalidateQueries({ queryKey: ['clientplex-registrations'] })
+      clearPlan()
+      if (generation === editorGeneration.current && selected === record.id) changeEditor(JSON.stringify(starter, null, 2), '', 0)
+    },
+  })
   const error = profiles.error ?? registrations.error ?? save.error ?? render.error ?? remove.error
   return <div className="space-y-6">
     <div><h2 className="text-2xl font-bold">ClientPlex</h2><p className="text-gray-500">Register developer clients, check native protocol compatibility, and review configuration and network requirements.</p></div>
     {error && <p role="alert" className="text-red-600">{error.message}</p>}
     <section><h3 className="font-semibold mb-2">Supported profiles</h3><div className="grid md:grid-cols-3 gap-3">{profiles.data?.map((profile) => <div className="border rounded p-3" key={profile.id}><h4 className="font-medium">{profile.name}</h4><p className="text-sm text-gray-500">{profile.surface} · {profile.modes.join(', ')}</p><p className="text-xs mt-1">{profile.protocols.join(', ')}</p></div>)}</div></section>
-    <section><h3 className="font-semibold mb-2">Registrations</h3><table className="w-full text-sm"><thead><tr className="text-left"><th>ID</th><th>Profile</th><th>Mode</th><th>Revision</th><th>Actions</th></tr></thead><tbody>{registrations.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-2">{record.id}</td><td>{record.spec.profile_id}</td><td>{record.spec.mode}</td><td>{record.revision}</td><td className="space-x-3"><button onClick={() => { setSelected(record.id); setRevision(record.revision); setEditor(JSON.stringify(record.spec, null, 2)); setPlan(null) }}>Edit</button><button onClick={() => render.mutate(record.id)}>Plan</button><button onClick={() => remove.mutate(record)} disabled={remove.isPending}>Delete</button></td></tr>)}</tbody></table></section>
-    <section className="max-w-3xl"><div className="flex items-center gap-4 mb-2"><h3 className="font-semibold">{revision ? `Edit ${selected}, revision ${revision}` : 'New registration'}</h3><button onClick={() => { setRevision(0); setSelected(''); setEditor(JSON.stringify(starter, null, 2)); setPlan(null) }} className="text-sm">New</button></div><label htmlFor="client-registration" className="text-sm text-gray-500">Use credential references and environment-variable names. Do not paste tokens or keys.</label><textarea id="client-registration" className="block w-full border rounded p-3 mt-2 font-mono text-sm" rows={16} value={editor} onChange={(event) => setEditor(event.target.value)} /><button className="mt-3 bg-brand-600 text-white rounded px-4 py-2" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Saving…' : 'Save registration'}</button></section>
+    <section><h3 className="font-semibold mb-2">Registrations</h3><table className="w-full text-sm"><thead><tr className="text-left"><th>ID</th><th>Profile</th><th>Mode</th><th>Revision</th><th>Actions</th></tr></thead><tbody>{registrations.data?.map((record) => <tr key={record.id} className="border-t"><td className="py-2">{record.id}</td><td>{record.spec.profile_id}</td><td>{record.spec.mode}</td><td>{record.revision}</td><td className="space-x-3"><button onClick={() => changeEditor(JSON.stringify(record.spec, null, 2), record.id, record.revision)}>Edit</button><button onClick={() => requestPlan(record.id)}>Plan</button><button onClick={() => remove.mutate({ record, generation: editorGeneration.current })} disabled={remove.isPending}>Delete</button></td></tr>)}</tbody></table></section>
+    <section className="max-w-3xl"><div className="flex items-center gap-4 mb-2"><h3 className="font-semibold">{revision ? `Edit ${selected}, revision ${revision}` : 'New registration'}</h3><button onClick={() => changeEditor(JSON.stringify(starter, null, 2), '', 0)} className="text-sm">New</button></div><label htmlFor="client-registration" className="text-sm text-gray-500">Use credential references and environment-variable names. Do not paste tokens or keys.</label><textarea id="client-registration" className="block w-full border rounded p-3 mt-2 font-mono text-sm" rows={16} value={editor} onChange={(event) => changeEditor(event.target.value, selected, revision)} /><button className="mt-3 bg-brand-600 text-white rounded px-4 py-2" disabled={save.isPending} onClick={() => save.mutate({ editor, revision, selected, generation: editorGeneration.current })}>{save.isPending ? 'Saving…' : 'Save registration'}</button></section>
     {plan && <section className="space-y-4"><h3 className="font-semibold">Connection plan · {plan.support_status}</h3>{plan.version_requirements?.map((requirement) => <p key={requirement} className="text-sm">{requirement}</p>)}{plan.commands?.map((command) => <pre key={command.join(" ")} className="text-sm bg-gray-100 dark:bg-gray-900 rounded p-3">{command.join(" ")}</pre>)}{plan.warnings.map((warning) => <p key={warning} className="text-sm text-gray-600">{warning}</p>)}{plan.credential_bindings?.map((binding) => <p key={binding.environment} className="text-sm">Credential reference <code>{binding.reference}</code> → environment <code>{binding.environment}</code></p>)}{plan.artifacts.map((artifact) => <div key={artifact.target}><h4 className="font-medium">{artifact.target}</h4><p className="text-xs text-gray-500">{artifact.format} · {artifact.merge_strategy}</p><pre className="text-sm overflow-auto bg-gray-100 dark:bg-gray-900 rounded p-3 mt-1">{artifact.content}</pre></div>)}<table className="w-full text-sm"><thead><tr className="text-left"><th>Host</th><th>Purpose</th><th>Required</th></tr></thead><tbody>{plan.services.map((service) => <tr key={`${service.host}:${service.purpose}`} className="border-t"><td className="py-2">{service.host}</td><td>{service.purpose}</td><td>{service.required ? 'Yes' : 'When configured'}</td></tr>)}</tbody></table></section>}
   </div>
 }

@@ -67,8 +67,10 @@ errors remain visible and a failed stop can be retried with `Stop`; incomplete
 cleanup blocks restart.
 
 Readiness evaluates every enabled module. A dependency losing readiness makes
-the runtime unready rather than silently bypassing enforcement. `Stop` attempts
-all registered started modules in reverse order and joins cleanup errors.
+the runtime unready rather than silently bypassing enforcement. `Stop` cleans
+started modules in reverse dependency order and joins cleanup errors. A failed
+consumer retains its transitive dependencies for a later cleanup attempt;
+unrelated modules still stop. Successful cleanup is not repeated on retry.
 
 Lifecycle methods are serialized. Implementations must honor their context and
 make `Stop` safe after partial startup. They must not call lifecycle methods on

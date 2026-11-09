@@ -160,9 +160,14 @@ func ValidateResponse(body []byte, requestID json.RawMessage) error {
 		ID      json.RawMessage `json:"id"`
 		Result  json.RawMessage `json:"result"`
 		Error   json.RawMessage `json:"error"`
+		Method  json.RawMessage `json:"method"`
+		Params  json.RawMessage `json:"params"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil || envelope.JSONRPC != "2.0" {
 		return fmt.Errorf("response is not JSON-RPC 2.0")
+	}
+	if len(envelope.Method) != 0 || len(envelope.Params) != 0 {
+		return fmt.Errorf("response cannot contain request members")
 	}
 	want, err := rpcID(requestID)
 	if err != nil {
