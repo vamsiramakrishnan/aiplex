@@ -123,6 +123,7 @@ Get started:
 		resourcesCmd(),
 		nativeCmd(),
 		quotaCmd(),
+		usageCmd(),
 		toolAuthCmd(),
 		infrastructureCmd(),
 

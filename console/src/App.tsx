@@ -11,6 +11,7 @@ import Permissions from './pages/Permissions'
 import Login from './pages/Login'
 import InstanceDetail from './pages/InstanceDetail'
 import Runs from './pages/Runs'
+import { QuotaUsage } from './pages/QuotaTabs'
 import CommandPalette from './components/CommandPalette'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -43,6 +44,7 @@ function AppRoutes() {
           {consoleModules.map(({ name, path, component: Component }) => (
             <Route key={name} path={path} element={<RequireModule name={name}><Component /></RequireModule>} />
           ))}
+          <Route path="/quotaplex/usage" element={<RequireModule name="quotaplex"><QuotaUsage /></RequireModule>} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/runs" element={<Runs />} />
           <Route path="/deploy" element={<Deploy />} />
