@@ -72,6 +72,13 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 		return
 	}
 	metadata, resumed, e := g.validateLiveSetupResumption(r.Context(), owner, setup)
+	if pinned := r.URL.Query()["model"]; e == nil && len(pinned) > 0 {
+		// A routing selector (e.g. an access point's ?model=) pins the
+		// session: the setup must name the same model.
+		if len(pinned) != 1 || g.normalizeModel(pinned[0]) != g.normalizeModel(metadata.Model) {
+			e = fmt.Errorf("setup model differs from the selected model")
+		}
+	}
 	if e != nil {
 		closeWebSocket(connection, websocket.ClosePolicyViolation, "setup denied")
 		return

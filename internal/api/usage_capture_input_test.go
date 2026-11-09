@@ -25,6 +25,7 @@ func TestLedgerSessionUsageBoundLabels(t *testing.T) {
 		{"interrupted", false, "", map[string]int64{"input_tokens": 10, "output_tokens": 5}, usageledger.StatusUnknown, usageledger.UsageLowerBound},
 		{"resumed", false, usageledger.UsageAmbiguous, map[string]int64{"input_tokens": 10}, usageledger.StatusUnknown, usageledger.UsageAmbiguous},
 		{"seconds", true, "", map[string]int64{"input_tokens": 1, "output_tokens": 1, "transcription_audio_milliseconds": 2500}, usageledger.StatusOK, usageledger.UsagePartial},
+		{"transcription tokens", true, "", map[string]int64{"input_tokens": 1, "output_tokens": 1, "transcription_input_tokens": 13}, usageledger.StatusOK, usageledger.UsagePartial},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			h := &ConnectedHandler{}

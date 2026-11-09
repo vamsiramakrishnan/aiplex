@@ -463,11 +463,13 @@ func (c *usageCapture) finish() {
 	})
 }
 
-// nonTokenUsage reports observed non-token meters (milliseconds of audio,
-// counts of images) that the token ledger cannot represent.
+// nonTokenUsage reports observed meters the record cannot represent:
+// non-token units (milliseconds of audio, counts of images) and separately
+// attributed meters such as Realtime input transcription (billed to the
+// transcription model, while a record carries one model).
 func nonTokenUsage(counters map[string]int64) bool {
 	for key := range counters {
-		if strings.HasSuffix(key, "_milliseconds") || strings.HasSuffix(key, "_images") {
+		if strings.HasSuffix(key, "_milliseconds") || strings.HasSuffix(key, "_images") || strings.HasPrefix(key, "transcription_") {
 			return true
 		}
 	}

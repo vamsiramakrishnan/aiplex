@@ -28,6 +28,15 @@ var (
 )
 
 func providerClientNativePath(s modelapi.Surface, r *http.Request, path string) (string, []byte, error) {
+	if r.Method == http.MethodGet && s.Provider.ID == modelapi.ProviderOpenAI {
+		// WebSocket sessions (Realtime, Responses WebSocket mode) upgrade a GET.
+		switch strings.TrimPrefix(path, "/v1") {
+		case "/realtime":
+			return "/v1/realtime", nil, nil
+		case "/responses":
+			return "/v1/responses", nil, nil
+		}
+	}
 	if r.Method != http.MethodPost {
 		return "", nil, fmt.Errorf("provider client operations are POST")
 	}

@@ -9,8 +9,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/gorilla/websocket"
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/pkg/clientplex"
@@ -101,6 +103,22 @@ func newAPFixture(t *testing.T) *apFixture {
 		f.calls = append(f.calls, upstreamCall{Path: r.URL.Path, Query: r.URL.RawQuery, Body: string(body), Authorization: r.Header.Get("Authorization")})
 		f.mu.Unlock()
 		switch {
+		case r.URL.Path == "/v1/realtime":
+			conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			for _, event := range []string{`{"type":"response.created","response":{"id":"resp_ap1"}}`, `{"type":"response.done","response":{"id":"resp_ap1","status":"completed","usage":{"input_tokens":9,"input_token_details":{"cached_tokens":4},"output_tokens":3,"total_tokens":12}}}`} {
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(event))
+			}
+			_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+			_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+			for {
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+			}
 		case strings.HasPrefix(r.URL.Path, "/mcp/"):
 			connection := strings.TrimPrefix(r.URL.Path, "/mcp/")
 			if connection == "broken" {

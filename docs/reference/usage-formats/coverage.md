@@ -10,12 +10,46 @@ AIPLEX_WRITE_USAGE_COVERAGE=1 go test ./pkg/modelapi -run TestUsageCoverageMatri
 
 Each row is provider x surface x transport. `exact`: the gateway observer reproduces the fixture's usage and the operation may carry a token profile (strict settlement still fails closed where noted). `advisory`: usage is observed as ledger telemetry only; the operation is request-count metered. `unsupported`: no gateway observer path serves this surface/transport (fixtures marked format-checked are still replayed through the observer of an equivalent served operation).
 
+## How fixtures are compared
+
+The harness (`pkg/modelapi/usage_conformance_test.go`) replays every fixture through the
+gateway path that serves it, three ways: without quota (legacy observer), with a
+request-count lease, and with a token-profile lease. The first two must reproduce
+the fixture's usage exactly as the usage ledger accumulates it; the token-profile
+lease must either settle the same values or fail closed, and must never settle an
+incomplete exchange. WebSocket fixtures are replayed by a fake upstream socket;
+interrupted fixtures drop the TCP connection without a close frame.
+
+The three `expected.json` files use different conventions, so expected and observed
+values are both converted to one canonical form: `input_tokens` = all prompt-side
+tokens (fresh + cache read + cache write, tool-use prompt excluded);
+`output_tokens` = all billed generated tokens including reasoning/thoughts;
+`reasoning_tokens` = informational subset of output; `total_tokens` = the provider's
+total when reported, else input + output. Per-directory rules:
+
+| Fixture convention | Expected -> canonical |
+| --- | --- |
+| `openai/` | verbatim (input includes cache read and write; output includes reasoning) |
+| `anthropic/` (incl. Bedrock, Vertex rawPredict) | input = input + cache_read + cache_write (input is exclusive of cache) |
+| `google/` Gemini, Interactions, Live | output = output + reasoning (thoughts are not inside candidates) |
+| `google/vertex-claude-*` | input verbatim (already summed); null total derived |
+| `google/vertex-openai-chat*` | output = completion + reasoning (completion excludes reasoning) |
+| `google/*count-tokens*` | not consumption: no usage may be observed |
+
+Strict Gemini settlement treats an omitted `cachedContentTokenCount` as 0 (proto3 zero
+omission; conservative, all input charged as uncached) and derives thoughts as
+total - prompt - candidates. WebSocket sessions are request-count metered: one
+admission and one settlement per session; usage without final evidence is
+labelled `lower_bound`, `ambiguous` (resumed Live session) or `partial` (non-token units
+such as transcription seconds, kept as `*_milliseconds` counters the token ledger
+cannot hold).
+
 ## Summary (rows)
 
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
 | anthropic | 4 | 4 | 5 |
-| google | 9 | 3 | 12 |
+| google | 8 | 4 | 12 |
 | openai | 4 | 2 | 11 |
 
 ## Matrix
@@ -36,7 +70,7 @@ Each row is provider x surface x transport. `exact`: the gateway observer reprod
 | anthropic | vertex-rawPredict | json | exact | `vertex-raw.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
 | anthropic | vertex-streamRawPredict | sse | exact | `vertex-raw-interrupted.sse`<br>`vertex-raw.sse` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
 | google | gemini-batch | json | unsupported | `gemini-batch-inlined.json` | no Developer API batch operation; job resources carry no token totals |
-| google | gemini-cachedContents | json | unsupported | `gemini-cachedcontent-create.json` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it; DA cache names are outside the Vertex resource scope and cache-creation billing is UNCONFIRMED |
+| google | gemini-cachedContents | json | unsupported | `gemini-cachedcontent-create.json` | no Gemini Developer API surface and not replayed: DA cache names (cachedContents/{id}) are outside the Vertex resource scope, and how cache creation is billed is UNCONFIRMED (cache.create is request-count; usageMetadata.totalTokenCount is not mapped to cache writes) |
 | google | gemini-countTokens | json | unsupported | `gemini-count-tokens.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it; countTokens is an estimate and must never be recorded as usage |
 | google | gemini-embedContent | json | unsupported | `gemini-embed.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
 | google | gemini-generateContent | json | unsupported | `gemini-generate-error-429.json (format-checked)`<br>`gemini-generate-tooluse.json (format-checked)`<br>`gemini-generate.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
@@ -56,7 +90,7 @@ Each row is provider x surface x transport. `exact`: the gateway observer reprod
 | google | vertex-openai-chat | sse | exact | `vertex-maas-chat.sse`<br>`vertex-openai-chat-interrupted.sse`<br>`vertex-openai-chat.sse` | observation exact; strict settlement fails closed for this fixture: openai-text requires a cached-input breakdown that this endpoint does not report (fail closed) |
 | google | vertex-predict | json | advisory | `vertex-embed-predict.json` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry |
 | google | vertex-rawPredict | json | exact | `vertex-claude-rawpredict.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
-| google | vertex-streamGenerateContent | json-array | exact | `vertex-generate.stream.json` |  |
+| google | vertex-streamGenerateContent | json-array | advisory | `vertex-generate.stream.json` | JSON-array framing (no alt=sse) is observed exactly, but the quota host admits protected Gemini streaming only with alt=sse; usage is ledger telemetry |
 | google | vertex-streamGenerateContent | sse | exact | `vertex-generate-cumulative.sse`<br>`vertex-generate-interrupted.sse`<br>`vertex-generate.sse` |  |
 | google | vertex-streamRawPredict | sse | exact | `vertex-claude-streamrawpredict-interrupted.sse`<br>`vertex-claude-streamrawpredict.sse` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
 | openai | audio-transcriptions | json | unsupported | `transcription.duration.json`<br>`transcription.json` | no /v1/audio/transcriptions operation; duration-billed variants report seconds |
