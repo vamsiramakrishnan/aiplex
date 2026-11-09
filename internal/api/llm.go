@@ -22,6 +22,7 @@ type LLMHandler struct {
 	gatewayName string
 	secrets     *secrets.Manager
 	configMu    sync.Mutex
+	ledger      reportedUsageLedger
 }
 
 // NewLLMHandler creates an LLMPlex API handler.
@@ -349,6 +350,7 @@ func (h *LLMHandler) RecordUsage(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", "usage report could not be persisted")
 		return
 	}
+	h.ledger.record(r, record)
 	w.Header().Set("X-LLM-Policy-Mode", "reporting-only")
 	h.usageWarnings(w, r, record)
 	JSON(w, http.StatusCreated, record)

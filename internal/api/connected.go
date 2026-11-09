@@ -30,6 +30,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 type TenantResolver func(*http.Request) (string, error)
@@ -58,6 +59,7 @@ type ConnectedHandler struct {
 	Tools           *toolauth.Service
 	Development     bool
 	PublicURL       string
+	Ledger          *usageledger.Recorder
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
@@ -200,6 +202,10 @@ func (h *ConnectedHandler) Resources(kind string) http.HandlerFunc {
 func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string, raw []byte) error {
 	if kind == governance.BindingKind {
 		return h.validateAgentBinding(tenant, id, raw)
+	}
+	if kind == usageledger.PriceKind {
+		_, e := usageledger.DecodePrice(id, raw)
+		return e
 	}
 	if id == "" {
 		return fmt.Errorf("resource id required")
@@ -510,6 +516,8 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
+	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneLLM, id)
+	defer usage.finish()
 	record, e := h.Store.Get(r.Context(), tenant, "model-surface", id)
 	if e != nil {
 		resourceError(w, r, e)
@@ -565,6 +573,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	if h.Quota != nil {
 		opts.Execution = h.ModelExecutionPreparer(r, record, connection)
 	}
+	usage.instrumentModel(&opts, connection)
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)
 	if e != nil {
 		Error(w, r, 503, "SURFACE_UNAVAILABLE", e.Error())
@@ -579,6 +588,8 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
+	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneA2A, id)
+	defer usage.finish()
 	record, e := h.Store.Get(r.Context(), tenant, "agent-connection", id)
 	if e != nil {
 		resourceError(w, r, e)
@@ -599,6 +610,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 400, "INVALID_INVOCATION", "invalid native invocation")
 		return
 	}
+	usage.agent(c.Provider, in.Operation)
 	if e = h.authorize(r, "a2a:agent:"+id+":"+in.Operation); e != nil {
 		Error(w, r, 403, "ACTION_DENIED", e.Error())
 		return
@@ -637,7 +649,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	options := []cloudagents.Option{cloudagents.WithSessionStore(cloudSessions{h.Store})}
 	if h.Quota != nil {
-		options = append(options, cloudagents.WithExecutionPreparer(h.AgentExecutionPreparer(w, r, record, c)))
+		options = append(options, cloudagents.WithExecutionPreparer(usage.agentPreparer(h.AgentExecutionPreparer(w, r, record, c))))
 	}
 	invoker, e := cloudagents.NewInvoker(c, cloudagents.AuthorizeFunc(func(ctx context.Context, a cloudagents.Action) error {
 		if err := h.authorizeCurrent(ctx, r, "a2a:agent:"+id+":"+a.Operation); err != nil {
@@ -653,6 +665,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	response, e := invoker.Invoke(invokeCtx, trusted, in)
 	if e != nil {
+		usage.noteError(e)
 		var failure *execution.StatusError
 		if errors.As(e, &failure) {
 			if failure.RetryAfter > 0 {
@@ -675,7 +688,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(response.StatusCode)
-	copyNativeStream(w, response.Body)
+	copyNativeStream(w, usage.agentBody(response.Body))
 }
 
 type resourceOwnership struct {

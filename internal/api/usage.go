@@ -1,0 +1,224 @@
+package api
+
+import (
+	"errors"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
+)
+
+// UsageHandler serves the tenant-scoped usage ledger under /api/v1/usage.
+// Administrators read every record of their tenant; other callers read only
+// records in which they are the principal or the actor.
+type UsageHandler struct {
+	Ledger      usageledger.Store
+	Tenant      TenantResolver
+	Development bool
+}
+
+func NewUsageHandler(ledger usageledger.Store, tenant TenantResolver, development bool) *UsageHandler {
+	return &UsageHandler{Ledger: ledger, Tenant: tenant, Development: development}
+}
+
+var (
+	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "status", "source", "since", "until"}
+	usageListParams    = append(append([]string{}, usageFilterParams...), "limit", "cursor")
+	usageSummaryParams = append(append([]string{}, usageFilterParams...), "group_by", "bucket")
+)
+
+// scope resolves the tenant and the caller's visibility. A nil visibility
+// means tenant-wide (administrator) access.
+func (h *UsageHandler) scope(w http.ResponseWriter, r *http.Request) (string, []string, bool) {
+	if h.Ledger == nil || h.Tenant == nil {
+		Error(w, r, http.StatusServiceUnavailable, "USAGE_LEDGER_UNAVAILABLE", "usage ledger is not configured")
+		return "", nil, false
+	}
+	tenant, err := h.Tenant(r)
+	if err != nil || tenant == "" {
+		Error(w, r, http.StatusForbidden, "TENANT_REQUIRED", "verified tenant binding required")
+		return "", nil, false
+	}
+	access := GetWIFAccess(r.Context())
+	if access == nil {
+		if h.Development {
+			return tenant, nil, true
+		}
+		Error(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "verified identity required")
+		return "", nil, false
+	}
+	for _, role := range access.Roles {
+		if role == models.RoleAdmin {
+			return tenant, nil, true
+		}
+	}
+	identity := GetWIFIdentity(r.Context())
+	if identity == nil || identity.PrincipalID == "" {
+		Error(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "verified identity required")
+		return "", nil, false
+	}
+	return tenant, []string{identity.PrincipalID}, true
+}
+
+func usageQueryError(w http.ResponseWriter, r *http.Request, message string) {
+	Error(w, r, http.StatusBadRequest, "INVALID_QUERY", message)
+}
+
+// parseUsageFilter validates query parameters; unknown or repeated
+// parameters and unknown enumeration values are rejected.
+func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, error) {
+	values := r.URL.Query()
+	known := map[string]bool{}
+	for _, name := range allowed {
+		known[name] = true
+	}
+	for name, v := range values {
+		if !known[name] {
+			return usageledger.Filter{}, errors.New("unknown query parameter " + strconv.Quote(name))
+		}
+		if len(v) != 1 {
+			return usageledger.Filter{}, errors.New("query parameter " + strconv.Quote(name) + " must appear once")
+		}
+		if len(v[0]) > usageledger.MaxTextLength {
+			return usageledger.Filter{}, errors.New("query parameter " + strconv.Quote(name) + " is too long")
+		}
+	}
+	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), Status: values.Get("status"), Source: values.Get("source")}
+	switch f.Plane {
+	case "", usageledger.PlaneLLM, usageledger.PlaneMCP, usageledger.PlaneA2A:
+	default:
+		return f, errors.New("plane must be llmplex, mcplex or a2aplex")
+	}
+	switch f.Status {
+	case "", usageledger.StatusOK, usageledger.StatusError, usageledger.StatusDenied, usageledger.StatusUnknown:
+	default:
+		return f, errors.New("status must be ok, error, denied or unknown")
+	}
+	switch f.Source {
+	case "", usageledger.SourceManaged, usageledger.SourceReported:
+	default:
+		return f, errors.New("source must be managed or reported")
+	}
+	for name, target := range map[string]*time.Time{"since": &f.Since, "until": &f.Until} {
+		if raw := values.Get(name); raw != "" {
+			t, err := time.Parse(time.RFC3339Nano, raw)
+			if err != nil {
+				return f, errors.New(name + " must be an RFC3339 timestamp")
+			}
+			*target = t.UTC()
+		}
+	}
+	if !f.Since.IsZero() && !f.Until.IsZero() && !f.Until.After(f.Since) {
+		return f, errors.New("until must be after since")
+	}
+	return f, nil
+}
+
+// ListRecords returns one page of records, newest first.
+// GET /api/v1/usage/records
+func (h *UsageHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
+	tenant, visibility, ok := h.scope(w, r)
+	if !ok {
+		return
+	}
+	filter, err := parseUsageFilter(r, usageListParams)
+	if err != nil {
+		usageQueryError(w, r, err.Error())
+		return
+	}
+	filter.Visibility = visibility
+	limit := 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		limit, err = strconv.Atoi(raw)
+		if err != nil || limit < 1 || limit > usageledger.MaxLimit {
+			usageQueryError(w, r, "limit must be between 1 and "+strconv.Itoa(usageledger.MaxLimit))
+			return
+		}
+	}
+	cursor := r.URL.Query().Get("cursor")
+	if cursor != "" {
+		if _, err := usageledger.DecodeCursor(cursor); err != nil {
+			usageQueryError(w, r, "cursor is malformed")
+			return
+		}
+	}
+	page, err := h.Ledger.List(r.Context(), tenant, usageledger.Query{Filter: filter, Limit: limit, Cursor: cursor})
+	if err != nil {
+		h.storeError(w, r, err)
+		return
+	}
+	JSON(w, http.StatusOK, page)
+}
+
+// GetRecord returns one visible record.
+// GET /api/v1/usage/records/{id}
+func (h *UsageHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
+	tenant, visibility, ok := h.scope(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		id = r.PathValue("id")
+	}
+	if id == "" || len(id) > usageledger.MaxTextLength {
+		Error(w, r, http.StatusNotFound, "NOT_FOUND", "usage record not found")
+		return
+	}
+	record, err := h.Ledger.Get(r.Context(), tenant, id)
+	if err != nil {
+		h.storeError(w, r, err)
+		return
+	}
+	// Invisible records are indistinguishable from missing ones.
+	if record.TenantID != tenant || !(usageledger.Filter{Visibility: visibility}).Matches(record) {
+		Error(w, r, http.StatusNotFound, "NOT_FOUND", "usage record not found")
+		return
+	}
+	JSON(w, http.StatusOK, record)
+}
+
+// Summary aggregates visible records.
+// GET /api/v1/usage/summary
+func (h *UsageHandler) Summary(w http.ResponseWriter, r *http.Request) {
+	tenant, visibility, ok := h.scope(w, r)
+	if !ok {
+		return
+	}
+	filter, err := parseUsageFilter(r, usageSummaryParams)
+	if err != nil {
+		usageQueryError(w, r, err.Error())
+		return
+	}
+	filter.Visibility = visibility
+	groupBy, err := usageledger.ParseGroupBy(r.URL.Query().Get("group_by"))
+	if err != nil {
+		usageQueryError(w, r, "group_by must be a comma-separated subset of plane,provider,model_id,tool_name,actor_id,principal_id,client_id,status")
+		return
+	}
+	bucket := r.URL.Query().Get("bucket")
+	if usageledger.ValidateBucket(bucket) != nil {
+		usageQueryError(w, r, "bucket must be hour or day")
+		return
+	}
+	summary, err := usageledger.Summarize(r.Context(), h.Ledger, tenant, usageledger.SummaryQuery{Filter: filter, GroupBy: groupBy, Bucket: bucket})
+	if err != nil {
+		h.storeError(w, r, err)
+		return
+	}
+	JSON(w, http.StatusOK, summary)
+}
+
+func (h *UsageHandler) storeError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, usageledger.ErrNotFound):
+		Error(w, r, http.StatusNotFound, "NOT_FOUND", "usage record not found")
+	case errors.Is(err, usageledger.ErrInvalid):
+		usageQueryError(w, r, "invalid usage query")
+	default:
+		Error(w, r, http.StatusInternalServerError, "USAGE_LEDGER_ERROR", "usage ledger unavailable")
+	}
+}

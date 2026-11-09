@@ -200,7 +200,7 @@ func ControlPlaneAccess(development bool) func(http.Handler) http.Handler {
 				return
 			}
 			roles := []models.IAMRole{models.RoleAdmin, models.RoleDeployer}
-			if strings.HasPrefix(r.URL.Path, "/api/v1/iam/") || strings.HasPrefix(r.URL.Path, "/api/v1/llm/usage") || strings.HasPrefix(r.URL.Path, "/api/v1/dashboard/") {
+			if strings.HasPrefix(r.URL.Path, "/api/v1/iam/") || strings.HasPrefix(r.URL.Path, "/api/v1/llm/usage") || strings.HasPrefix(r.URL.Path, "/api/v1/usage/") || strings.HasPrefix(r.URL.Path, "/api/v1/dashboard/") {
 				roles = []models.IAMRole{models.RoleAdmin}
 			}
 			RequireRole(roles...)(next).ServeHTTP(w, r)
