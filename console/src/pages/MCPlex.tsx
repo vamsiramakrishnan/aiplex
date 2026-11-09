@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { getCatalog, listInstances } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
+import ToolConnectionsPanel from '../components/ToolConnectionsPanel'
 
 export default function MCPlex() {
   const navigate = useNavigate()
-  const [tab, setTab] = useState<'catalog' | 'instances'>('instances')
+  const [tab, setTab] = useState<'catalog' | 'instances' | 'connections'>('instances')
   const [search, setSearch] = useState('')
   const catalog = useQuery({ queryKey: ['catalog', 'mcplex'], queryFn: () => getCatalog('mcplex') })
   const instances = useQuery({ queryKey: ['instances', 'mcplex'], queryFn: () => listInstances('mcplex') })
@@ -37,10 +38,17 @@ export default function MCPlex() {
         >
           Catalog ({catalog.data?.total ?? 0})
         </button>
+        <button
+          onClick={() => setTab('connections')}
+          className={`px-4 py-2 rounded text-sm ${tab === 'connections' ? 'bg-brand-600 text-white' : 'bg-gray-100'}`}
+        >
+          Tool connections
+        </button>
       </div>
 
-      {activeQuery.isLoading && <p role="status">Loading module data…</p>}
-      {activeQuery.error && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeQuery.error.message}</p>}
+      {tab === 'connections' && <ToolConnectionsPanel />}
+      {tab !== 'connections' && activeQuery.isLoading && <p role="status">Loading module data…</p>}
+      {tab !== 'connections' && activeQuery.error && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeQuery.error.message}</p>}
 
       {tab === 'instances' && !activeQuery.isLoading && !activeQuery.error && (
         <div>

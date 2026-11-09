@@ -23,7 +23,7 @@ export async function authenticatedRequest<T>(path: string, init?: RequestInit, 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: res.statusText }))
     if (res.status === 401) window.dispatchEvent(new CustomEvent('aiplex:session-invalid', { detail: { token } }))
-    throw new Error(err.message ?? `HTTP ${res.status}`)
+    throw Object.assign(new Error(err.message ?? `HTTP ${res.status}`), { status: res.status, code: typeof err.code === 'string' ? err.code : undefined })
   }
   if (res.status === 204) return undefined as T
   return decode ? decode(res) : res.json()
