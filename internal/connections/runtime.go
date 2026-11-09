@@ -17,6 +17,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
 	"github.com/vamsiramakrishnan/aiplex/pkg/deployment"
 	"github.com/vamsiramakrishnan/aiplex/pkg/endpointpolicy"
@@ -35,6 +36,7 @@ type Identity struct {
 	Audience       string   `json:"audience,omitempty"`
 }
 type Config struct {
+	GovernanceProviders []GovernanceProvider      `json:"governance_providers,omitempty"`
 	DeploymentProviders []DeploymentProvider      `json:"deployment_providers,omitempty"`
 	Network             endpointpolicy.Config     `json:"network"`
 	Identities          []Identity                `json:"identities"`
@@ -42,14 +44,15 @@ type Config struct {
 	PreRegistered       []toolauth.Registration   `json:"pre_registered,omitempty"`
 }
 type Runtime struct {
-	Policy    *endpointpolicy.Policy
-	HTTP      *http.Client
-	Streaming *http.Client
-	Config    Config
-	Secrets   *secrets.Manager
-	mu        sync.Mutex
-	sources   map[string]oauth2.TokenSource
-	azure     map[string]*azidentity.DefaultAzureCredential
+	Policy        *endpointpolicy.Policy
+	HTTP          *http.Client
+	Streaming     *http.Client
+	Config        Config
+	Secrets       *secrets.Manager
+	mu            sync.Mutex
+	sources       map[string]oauth2.TokenSource
+	azure         map[string]*azidentity.DefaultAzureCredential
+	governanceAWS map[string]aws.CredentialsProvider
 }
 
 func New(cfg Config, sm *secrets.Manager) (*Runtime, error) {

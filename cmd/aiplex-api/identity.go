@@ -7,11 +7,13 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/config"
 	"github.com/vamsiramakrishnan/aiplex/pkg/agentidentity"
+	"github.com/vamsiramakrishnan/aiplex/pkg/governance/entra"
 	"io"
 	"os"
 )
 
 type identitySourceSpec struct {
+	NativeEntraAgentID  *entra.IdentityConfig `json:"native_entra_agent_id,omitempty"`
 	NativeAgentIdentity *agentidentity.Config `json:"native_agent_identity,omitempty"`
 	Issuer              string                `json:"issuer"`
 	Audience            string                `json:"audience"`
@@ -65,7 +67,24 @@ func identityValidator(store auth.IdentityStore, cfg *config.Config) (*auth.WIFV
 	for _, s := range sources {
 		var verifier auth.TokenVerifier
 		var err error
-		if s.NativeAgentIdentity != nil {
+		if s.NativeAgentIdentity != nil && s.NativeEntraAgentID != nil {
+			return nil, fmt.Errorf("identity source must select one native provider")
+		}
+		if s.NativeEntraAgentID != nil {
+			native := s.NativeEntraAgentID
+			if s.PoolID != native.TenantID || (s.Issuer != "https://login.microsoftonline.com/"+native.TenantID+"/v2.0" && s.Issuer != "https://sts.windows.net/"+native.TenantID+"/") {
+				return nil, fmt.Errorf("native Entra source must pin its tenant issuer and tenant pool")
+			}
+			keys := s.JWKSURL
+			if keys == "" {
+				keys = "https://login.microsoftonline.com/" + native.TenantID + "/discovery/v2.0/keys"
+			}
+			jwks, jwksErr := auth.NewJWKSVerifier(auth.JWKSConfig{Issuer: s.Issuer, Audience: s.Audience, JWKSURL: keys})
+			if jwksErr != nil {
+				return nil, jwksErr
+			}
+			verifier, err = entra.NewIdentityVerifier(*native, jwks)
+		} else if s.NativeAgentIdentity != nil {
 			native := s.NativeAgentIdentity
 			if s.IsWorkforce || s.Issuer != native.Issuer || s.Audience != native.Audience || s.PoolID != native.TrustDomain {
 				return nil, fmt.Errorf("native agent source must bind workload issuer/audience/trust domain exactly")

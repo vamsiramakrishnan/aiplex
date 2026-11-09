@@ -132,7 +132,7 @@ func main() {
 	dashH := api.NewDashboardHandler(store)
 	iamH := api.NewIAMHandler(store, wifValidator)
 	moduleRegistry := modules.NewRegistry()
-	if err := moduleRegistry.Register(&httpModule{descriptor: modules.Descriptor{Name: "identity", Version: "1.0.0", ContractVersion: modules.ContractVersion, Capabilities: []string{"identity.resolve"}}}); err != nil {
+	if err := moduleRegistry.Register(&httpModule{descriptor: modules.Descriptor{Name: "identity", Version: "1.0.0", ContractVersion: modules.ContractVersion, Capabilities: []string{"identity.resolve", "identity.governance"}, APIPrefixes: []string{"/api/v1/iam/native"}, Commands: []modules.Command{{Name: "native", Description: "Govern native agent identities and registries"}}}}); err != nil {
 		log.Fatal().Err(err).Msg("register identity")
 	}
 	connectedH, clientH, err := connectedHandlers(resourceStore, sm, cfg)
@@ -323,6 +323,7 @@ func main() {
 
 		// IAM — role bindings, WIF identity resolution
 		r.Route("/iam", func(r chi.Router) {
+			connectedH.MountNativeGovernance(r)
 			r.Get("/roles", iamH.ListRoles)
 			r.Get("/whoami", iamH.ResolveIdentity)
 			r.Post("/validate-principal", iamH.ValidateWIFPrincipal)

@@ -110,6 +110,9 @@ func connectedHandlers(store resources.Store, sm *secrets.Manager, cfg *config.C
 	if e := connected.ConfigureDeploymentProviders(); e != nil {
 		return nil, nil, e
 	}
+	if e := connected.ConfigureNativeGovernance(); e != nil {
+		return nil, nil, e
+	}
 	return connected, api.NewClientHandler(store, tenant, connected), nil
 }
 func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHandler, clients *api.ClientHandler) {
@@ -204,5 +207,8 @@ func serverTLS(cfg *config.Config) (*tls.Config, error) {
 // NativeInvocation bypasses only the administrative POST role test. The native
 // handler must enforce its own per-resource action grant before credentials.
 func nativeInvocation(r *http.Request) bool {
+	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/iam/native/bindings/") && strings.HasSuffix(r.URL.Path, "/read") {
+		return true
+	}
 	return (strings.HasPrefix(r.URL.Path, "/api/v1/llm/native/") || strings.HasPrefix(r.URL.Path, "/api/v1/llm/gateway/")) || (strings.HasPrefix(r.URL.Path, "/api/v1/a2a/connections/") && strings.HasSuffix(r.URL.Path, "/invoke"))
 }

@@ -12,6 +12,7 @@ import (
 type ResourceKind string
 
 const (
+	AgentBindings      ResourceKind = "agent-binding"
 	ModelSurfaces      ResourceKind = "model-surface"
 	AgentConnections   ResourceKind = "agent-connection"
 	ToolConnections    ResourceKind = "tool-connection"
@@ -22,6 +23,8 @@ const (
 
 func resourcePath(kind ResourceKind) (string, error) {
 	switch kind {
+	case AgentBindings:
+		return "/api/v1/iam/native/bindings", nil
 	case ModelSurfaces:
 		return "/api/v1/llm/surfaces", nil
 	case AgentConnections:

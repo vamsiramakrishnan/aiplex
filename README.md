@@ -127,6 +127,8 @@ Enforced by a [20-line Rego policy](policies/aiplex_authz.rego) / Rust ext_authz
 
 ClientPlex registers developer clients; LLMPlex preserves native model APIs; MCPlex handles OAuth registration; A2APlex invokes native cloud agents. Shared networking plans can use an optional Anvil provider for missing infrastructure constructs. See [configuration and API ownership](docs/connected-plexes.md).
 
+Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity and Microsoft Entra Agent ID through scoped inventory, reviewed policy plans and durable apply receipts. See [native governance](docs/native-agent-governance.md) for credential brokers, provider limits and configuration.
+
 ## Module foundations
 
 Built-in Plex modules can be selected independently; external services register through versioned descriptors. See [module contracts](docs/modules.md) and [deployment migration and bugbash](docs/foundations-bugbash.md) before upgrading an existing deployment.

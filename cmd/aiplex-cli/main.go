@@ -121,6 +121,7 @@ Get started:
 		versionCmd(),
 		modulesCmd(),
 		resourcesCmd(),
+		nativeCmd(),
 
 		// Onboarding
 		quickstartCmd(),

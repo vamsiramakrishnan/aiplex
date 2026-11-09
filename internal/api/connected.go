@@ -23,6 +23,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/deployment"
 	"github.com/vamsiramakrishnan/aiplex/pkg/endpointpolicy"
+	"github.com/vamsiramakrishnan/aiplex/pkg/governance"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
@@ -41,13 +42,15 @@ type ToolConnection struct {
 	NetworkProfileRef     string                 `json:"network_profile_ref,omitempty"`
 }
 type ConnectedHandler struct {
-	Deployments map[string]*deployment.Anvil
-	Store       resources.Store
-	Runtime     *connections.Runtime
-	Tenant      TenantResolver
-	Tools       *toolauth.Service
-	Development bool
-	PublicURL   string
+	Governance      *governance.Controller
+	NativeProviders map[string]NativeProviderInfo
+	Deployments     map[string]*deployment.Anvil
+	Store           resources.Store
+	Runtime         *connections.Runtime
+	Tenant          TenantResolver
+	Tools           *toolauth.Service
+	Development     bool
+	PublicURL       string
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
@@ -92,6 +95,16 @@ func (h *ConnectedHandler) Resources(kind string) http.HandlerFunc {
 			return
 		}
 		id := idParam(r)
+		if kind == governance.BindingKind && r.Method == http.MethodGet {
+			resource := id
+			if resource == "" {
+				resource = "bindings"
+			}
+			if h.authorize(r, "aiplex:governance:read:"+resource) != nil {
+				Error(w, r, 403, "ACTION_DENIED", "native binding read grant required")
+				return
+			}
+		}
 		if (kind == "deployment-intent" || kind == "deployment-plan") && r.Method == http.MethodGet {
 			access := GetWIFAccess(r.Context())
 			allowed := false
@@ -164,6 +177,9 @@ func (h *ConnectedHandler) Resources(kind string) http.HandlerFunc {
 	}
 }
 func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string, raw []byte) error {
+	if kind == governance.BindingKind {
+		return h.validateAgentBinding(tenant, id, raw)
+	}
 	if id == "" {
 		return fmt.Errorf("resource id required")
 	}
@@ -209,6 +225,9 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			return fmt.Errorf("agent connection identity mismatch")
 		}
 		if e := c.Validate(); e != nil {
+			return e
+		}
+		if e := h.checkAgentGovernanceRef(ctx, tenant, c); e != nil {
 			return e
 		}
 		if e := h.Runtime.CheckDestination(tenant, c.IdentityRef, c.Endpoint); e != nil {
@@ -517,6 +536,10 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		cfg, e := awsconfig.LoadDefaultConfig(r.Context(), awsconfig.WithRegion(c.Region))
 		if e != nil {
 			Error(w, r, 503, "CREDENTIAL_UNAVAILABLE", "AWS credential chain unavailable")
+			return
+		}
+		if e = h.checkAgentGovernanceRef(r.Context(), tenant, c); e != nil {
+			Error(w, r, 503, "GOVERNANCE_BINDING_UNAVAILABLE", "native governance binding is unavailable or targets another runtime")
 			return
 		}
 		service := "bedrock"

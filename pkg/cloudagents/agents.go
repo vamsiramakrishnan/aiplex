@@ -28,19 +28,20 @@ const (
 )
 
 type Connection struct {
-	ID                string   `json:"id"`
-	TenantID          string   `json:"tenant_id"`
-	Provider          Provider `json:"provider"`
-	Endpoint          string   `json:"endpoint"`
-	ResourceID        string   `json:"resource_id"`
-	IdentityRef       string   `json:"identity_ref"`
-	NetworkProfileRef string   `json:"network_profile_ref,omitempty"`
-	Region            string   `json:"region,omitempty"`
-	AgentID           string   `json:"agent_id,omitempty"`
-	AliasID           string   `json:"alias_id,omitempty"`
-	Project           string   `json:"project,omitempty"`
-	APIVersion        string   `json:"api_version,omitempty"`
-	GovernanceMode    string   `json:"governance_mode"`
+	ID                   string   `json:"id"`
+	TenantID             string   `json:"tenant_id"`
+	Provider             Provider `json:"provider"`
+	Endpoint             string   `json:"endpoint"`
+	ResourceID           string   `json:"resource_id"`
+	IdentityRef          string   `json:"identity_ref"`
+	NetworkProfileRef    string   `json:"network_profile_ref,omitempty"`
+	GovernanceBindingRef string   `json:"governance_binding_ref,omitempty"`
+	Region               string   `json:"region,omitempty"`
+	AgentID              string   `json:"agent_id,omitempty"`
+	AliasID              string   `json:"alias_id,omitempty"`
+	Project              string   `json:"project,omitempty"`
+	APIVersion           string   `json:"api_version,omitempty"`
+	GovernanceMode       string   `json:"governance_mode"`
 }
 
 var segment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)

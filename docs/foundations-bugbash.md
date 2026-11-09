@@ -132,10 +132,24 @@ embedding. Source CLI builds show build instructions until the Console is built;
 release packaging compiles and embeds the full Console first. CI and releases
 select the Go toolchain from `go.mod`.
 
-Final local validation: 416 Go tests pass with the race detector; seven Firestore
+Connected-module validation: 416 Go tests pass with the race detector; seven Firestore
 integration tests require an emulator and are skipped. Go vet/build, 24 Rust tests
 and Clippy, 31 Console tests/build, public schemas, and a real Anvil CLI dry-run
 and bundle-hash compatibility check pass. No cloud resources were applied.
+
+The subsequent [native governance extension](native-agent-governance.md) adds
+Google Registry/IAM/Auth Manager, AWS AgentCore Identity and Entra Agent ID
+adapters, plus a shared reviewed-plan controller. Its independent bugbash covers
+credential payloads entering persistence, wrong native authority, broad IAM grant
+replacement, stale actor/provider revisions, ambiguous writes, receipt deletion,
+duplicate execution, and Entra subject/actor attribution. Operator-declared
+identity links, native APIs without atomic preconditions, and runtime-provided
+credential acquisition retain their documented boundaries.
+
+Native governance final validation: 577 Go tests/subtests pass under the race
+detector; seven emulator-dependent Firestore tests skip. Go vet/build, public
+schemas, 24 Rust tests/Clippy, and 31 Console tests/build pass. Protocol tests use
+fake native servers, actual request signing, and signed JWT/mTLS fixtures.
 
 Automated regression coverage includes fake JWKS servers and actual signed
 RS256/ES256 tokens; module startup/readiness failures; external module descriptor

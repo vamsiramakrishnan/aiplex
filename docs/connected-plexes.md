@@ -1,6 +1,8 @@
 # Connected Plexes
 
 The reviewed design is [Connected Plexes](design/2026-11-09-connected-plexes.md).
+Native identity directories, registry APIs, delegation brokers and reviewed
+policy apply are documented in [Native agent governance](native-agent-governance.md).
 Modules share trusted identity, revisioned resource storage and endpoint policy;
 they retain ownership of their own domain objects.
 
