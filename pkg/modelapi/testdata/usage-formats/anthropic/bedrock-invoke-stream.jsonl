@@ -1,0 +1,7 @@
+{"type":"message_start","message":{"id":"msg_01FixtureBedrockS","type":"message","role":"assistant","content":[],"model":"anthropic.claude-sonnet-4-6","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":640,"cache_creation_input_tokens":128,"cache_read_input_tokens":1024,"output_tokens":5}}}
+{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Synthetic"}}
+{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" answer."}}
+{"type":"content_block_stop","index":0}
+{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":211}}
+{"type":"message_stop"}

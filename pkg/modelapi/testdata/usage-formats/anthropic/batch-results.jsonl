@@ -1,0 +1,5 @@
+{"custom_id":"req-b","result":{"type":"succeeded","message":{"id":"msg_01Batchreq-b","type":"message","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Synthetic."}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":90,"cache_read_input_tokens":2000,"output_tokens":310,"output_tokens_details":{"thinking_tokens":120},"service_tier":"batch"}}}}
+{"custom_id":"req-a","result":{"type":"succeeded","message":{"id":"msg_01Batchreq-a","type":"message","role":"assistant","model":"claude-opus-5-5","content":[{"type":"text","text":"Synthetic."}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":1500,"cache_creation_input_tokens":2000,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":2000},"output_tokens":600,"output_tokens_details":{"thinking_tokens":250},"service_tier":"batch"}}}}
+{"custom_id":"req-c","result":{"type":"errored","error":{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":null}}}
+{"custom_id":"req-d","result":{"type":"canceled"}}
+{"custom_id":"req-e","result":{"type":"expired"}}

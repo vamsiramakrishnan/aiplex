@@ -1,0 +1,6 @@
+{"messageStart":{"role":"assistant"}}
+{"contentBlockDelta":{"contentBlockIndex":0,"delta":{"text":"Synthetic"}}}
+{"contentBlockDelta":{"contentBlockIndex":0,"delta":{"text":" answer."}}}
+{"contentBlockStop":{"contentBlockIndex":0}}
+{"messageStop":{"stopReason":"end_turn"}}
+{"metadata":{"usage":{"inputTokens":388,"outputTokens":142,"totalTokens":530,"cacheReadInputTokens":1792,"cacheWriteInputTokens":0},"metrics":{"latencyMs":1840}}}
