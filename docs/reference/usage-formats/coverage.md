@@ -15,8 +15,8 @@ Each row is provider x surface x transport. `exact`: the gateway observer reprod
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
 | anthropic | 4 | 4 | 5 |
-| google | 9 | 2 | 13 |
-| openai | 4 | 0 | 13 |
+| google | 9 | 3 | 12 |
+| openai | 4 | 2 | 11 |
 
 ## Matrix
 
@@ -42,7 +42,7 @@ Each row is provider x surface x transport. `exact`: the gateway observer reprod
 | google | gemini-generateContent | json | unsupported | `gemini-generate-error-429.json (format-checked)`<br>`gemini-generate-tooluse.json (format-checked)`<br>`gemini-generate.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
 | google | gemini-interactions | json | unsupported | `gemini-interactions.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
 | google | gemini-interactions | sse | unsupported | `gemini-interactions-interrupted.sse (format-checked)`<br>`gemini-interactions.sse (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
-| google | gemini-live | websocket | unsupported | `gemini-live-interrupted.ws.jsonl`<br>`gemini-live.ws.jsonl` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
+| google | gemini-live | websocket | unsupported | `gemini-live-interrupted.ws.jsonl (format-checked)`<br>`gemini-live.ws.jsonl (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it (Live messages replayed through the Vertex Live relay) |
 | google | gemini-predictLongRunning | json | unsupported | `gemini-veo-operation.json` | no Developer API surface; video is billed per output second and the operation result carries no usage |
 | google | gemini-streamGenerateContent | json-array | unsupported | `gemini-generate.stream.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
 | google | gemini-streamGenerateContent | sse | unsupported | `gemini-generate-interrupted.sse (format-checked)`<br>`gemini-generate.sse (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
@@ -51,7 +51,7 @@ Each row is provider x surface x transport. `exact`: the gateway observer reprod
 | google | vertex-generateContent | json | exact | `vertex-generate-error-429.json`<br>`vertex-generate-flex.json`<br>`vertex-generate-image.json`<br>`vertex-generate.json` |  |
 | google | vertex-interactions | json | exact | `vertex-interactions.json` |  |
 | google | vertex-interactions | sse | exact | `vertex-interactions-interrupted.sse`<br>`vertex-interactions.sse` |  |
-| google | vertex-live | websocket | unsupported | `vertex-live-interrupted.ws.jsonl`<br>`vertex-live.ws.jsonl` | pending |
+| google | vertex-live | websocket | advisory | `vertex-live-interrupted.ws.jsonl`<br>`vertex-live.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous; snapshot semantics (cumulative) and Vertex field names are UNCONFIRMED; resumed sessions are labelled ambiguous<br>WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
 | google | vertex-openai-chat | json | exact | `vertex-maas-chat.json`<br>`vertex-openai-chat.json` | observation exact; strict settlement fails closed for this fixture: openai-text requires a cached-input breakdown that this endpoint does not report (fail closed) |
 | google | vertex-openai-chat | sse | exact | `vertex-maas-chat.sse`<br>`vertex-openai-chat-interrupted.sse`<br>`vertex-openai-chat.sse` | observation exact; strict settlement fails closed for this fixture: openai-text requires a cached-input breakdown that this endpoint does not report (fail closed) |
 | google | vertex-predict | json | advisory | `vertex-embed-predict.json` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry |
@@ -70,9 +70,9 @@ Each row is provider x surface x transport. `exact`: the gateway observer reprod
 | openai | images | sse | unsupported | `images.interrupted.sse`<br>`images.sse` | no /v1/images operation |
 | openai | live-voice-sessions | websocket | unsupported | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens |
 | openai | moderations | json | unsupported | `moderation.json` | no /v1/moderations operation (no usage documented) |
-| openai | realtime | websocket | unsupported | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` | pending |
+| openai | realtime | websocket | advisory | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous; input-transcription usage is a separate transcription_* meter (ASR model) not merged into the session tokens; duration-billed transcription seconds are not captured by the token ledger (session labelled partial)<br>WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
 | openai | responses | json | exact | `responses.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
 | openai | responses | sse | exact | `responses.error.sse`<br>`responses.failed.sse`<br>`responses.incomplete.sse`<br>`responses.sse` |  |
-| openai | responses | websocket | unsupported | `responses.interrupted.ws.jsonl`<br>`responses.ws.jsonl` | pending |
+| openai | responses | websocket | advisory | `responses.interrupted.ws.jsonl`<br>`responses.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
 | openai | responses-cancel | json | unsupported | `responses.background.cancelled.json (format-checked)` | POST /v1/responses/{id}/cancel is not an OpenAI provider operation; response body checked through the Responses observer |
 | openai | responses-retrieve | json | unsupported | `responses.background.queued.json (format-checked)` | GET /v1/responses/{id} (background poll) is not an OpenAI provider operation; response body checked through the Responses observer |

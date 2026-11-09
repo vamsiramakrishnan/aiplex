@@ -117,7 +117,7 @@ func (r *executionRun) observe(value UsageObservation) error {
 	for key, n := range value.Counters {
 		copy[key] = n
 	}
-	return r.lease.Observe(ctx, execution.Observation{Source: value.Source, EventID: value.EventID, ResourceID: value.ResourceID, ModelVersion: value.ModelVersion, Counters: copy, Cumulative: value.Cumulative, Terminal: value.Terminal})
+	return r.lease.Observe(ctx, execution.Observation{Source: value.Source, EventID: value.EventID, ResourceID: value.ResourceID, ModelVersion: value.ModelVersion, Counters: copy, Cumulative: value.Cumulative, Terminal: value.Terminal, Bound: value.Bound})
 }
 func (r *executionRun) finish(result execution.Result) error {
 	if r == nil || r.closed {

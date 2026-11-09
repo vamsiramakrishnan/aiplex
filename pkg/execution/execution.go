@@ -21,7 +21,20 @@ type Observation struct {
 	Counters     map[string]int64
 	Cumulative   bool
 	Terminal     bool
+	// Bound qualifies a non-terminal observation that ends a session without
+	// final usage evidence: BoundLowerBound (counters are a lower bound),
+	// BoundAmbiguous (counter composition across a resumed session is not
+	// established) or BoundPartial (non-token units were not captured).
+	// Empty means no qualification.
+	Bound string
 }
+
+// Usage-bound labels for Observation.Bound.
+const (
+	BoundLowerBound = "lower_bound"
+	BoundAmbiguous  = "ambiguous"
+	BoundPartial    = "partial"
+)
 
 // ResponseComplete means the response body/protocol completed. Terminal also
 // requires native finality and the operation's declared usage evidence.

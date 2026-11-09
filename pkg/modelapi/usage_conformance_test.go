@@ -53,8 +53,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
@@ -286,6 +289,12 @@ var (
 	callInvokeS        = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderBedrock, Region: "us-east-1"}, ProtocolBedrockInvoke, []string{bedrockModel}, "bedrock.invoke-stream"), path: "/model/" + bedrockModel + "/invoke-with-response-stream", body: `{"anthropic_version":"bedrock-2023-05-31","max_tokens":8,"messages":[]}`, media: "application/vnd.amazon.eventstream"}
 )
 
+var (
+	callLive        = &fixtureCall{surface: googleSurfaceFor("google", "live.connect"), path: "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent", body: `{"setup":{"model":"model-a"}}`, ws: "live"}
+	callRealtime    = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIRealtime, []string{"fixture-model-c"}, "openai.v1.realtime"), path: "/v1/realtime?model=fixture-model-c", ws: "realtime"}
+	callResponsesWS = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIResponses, []string{"fixture-model-b"}, "openai.v1.responses-websocket"), path: "/v1/responses", ws: "responses"}
+)
+
 func with(c *fixtureCall, mutate func(*fixtureCall)) *fixtureCall {
 	copy := *c
 	mutate(&copy)
@@ -314,6 +323,7 @@ func usageRoutes() []fixtureRoute {
 	const toolRefuse = "server-tool quantities are outside the output-inclusive token profile (fail closed)"
 	const noCached = "openai-text requires a cached-input breakdown that this endpoint does not report (fail closed)"
 	const requestCount = "operation coverage is request-count; token usage is recorded as advisory ledger telemetry"
+	const sessionReason = "WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous"
 	routes := []fixtureRoute{
 		// ---------------- OpenAI ----------------
 		exact("openai", "chat.json", "chat-completions", "json", callOpenAIChat, convOpenAI, natOpenAI, true, strictRefuses, cwRefuse),
@@ -382,8 +392,8 @@ func usageRoutes() []fixtureRoute {
 		formatOnly(exact("google", "gemini-interactions.json", "gemini-interactions", "json", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions-interrupted.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, false, strictNotApplicable, ""), statusUnsupported, noDA),
-		unsupported("google", "gemini-live.ws.jsonl", "gemini-live", "websocket", noDA),
-		unsupported("google", "gemini-live-interrupted.ws.jsonl", "gemini-live", "websocket", noDA),
+		formatOnly(advisory("google", "gemini-live.ws.jsonl", "gemini-live", "websocket", callLive, convGemini, natGemini, true, ""), statusUnsupported, noDA+" (Live messages replayed through the Vertex Live relay)"),
+		formatOnly(advisory("google", "gemini-live-interrupted.ws.jsonl", "gemini-live", "websocket", callLive, convGemini, natGemini, false, ""), statusUnsupported, noDA+" (Live messages replayed through the Vertex Live relay)"),
 		exact("google", "vertex-generate.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-flex.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-image.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
@@ -396,26 +406,30 @@ func usageRoutes() []fixtureRoute {
 		advisory("google", "vertex-embed-predict.json", "vertex-predict", "json", callVertexPredict, convGemini, natGemini, true, requestCount),
 		unsupported("google", "vertex-batch-gcs.jsonl", "vertex-batch", "jsonl-file", "batch output rows are Cloud Storage artifacts, not gateway responses; batch.create counts the submission only"),
 		exact("google", "vertex-openai-chat.json", "vertex-openai-chat", "json", callVertexChat, convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
-		exact("google", "vertex-openai-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) { c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}` }), convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
-		exact("google", "vertex-openai-chat-interrupted.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) { c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}` }), convVertexOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("google", "vertex-openai-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
+			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
+		}), convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
+		exact("google", "vertex-openai-chat-interrupted.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
+			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
+		}), convVertexOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("google", "vertex-maas-chat.json", "vertex-openai-chat", "json", callVertexChat, convOpenAI, natOpenAI, true, strictRefuses, noCached),
-		exact("google", "vertex-maas-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) { c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}` }), convOpenAI, natOpenAI, true, strictRefuses, noCached),
+		exact("google", "vertex-maas-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
+			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
+		}), convOpenAI, natOpenAI, true, strictRefuses, noCached),
 		exact("google", "vertex-claude-rawpredict.json", "vertex-rawPredict", "json", callVertexClaude, convGoogleClaude, natAnthropic, true, strictRefuses, cwRefuse),
 		exact("google", "vertex-claude-streamrawpredict.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convGoogleClaude, natAnthropic, true, strictRefuses, cwRefuse),
 		exact("google", "vertex-claude-streamrawpredict-interrupted.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convGoogleClaude, natAnthropic, false, strictUnknown, ""),
 		exact("google", "vertex-interactions.json", "vertex-interactions", "json", callInteraction, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-interactions.sse", "vertex-interactions", "sse", callInteraction, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-interactions-interrupted.sse", "vertex-interactions", "sse", callInteraction, convGemini, natGemini, false, strictUnknown, ""),
-		unsupported("google", "vertex-live.ws.jsonl", "vertex-live", "websocket", "pending"),
-		unsupported("google", "vertex-live-interrupted.ws.jsonl", "vertex-live", "websocket", "pending"),
+		advisory("google", "vertex-live.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, true, sessionReason+"; snapshot semantics (cumulative) and Vertex field names are UNCONFIRMED; resumed sessions are labelled ambiguous"),
+		advisory("google", "vertex-live-interrupted.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, false, sessionReason),
+		advisory("openai", "realtime.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, true, sessionReason+"; input-transcription usage is a separate transcription_* meter (ASR model) not merged into the session tokens; duration-billed transcription seconds are not captured by the token ledger (session labelled partial)"),
+		advisory("openai", "realtime.cancelled.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, sessionReason),
+		advisory("openai", "realtime.interrupted.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, sessionReason),
+		advisory("openai", "responses.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, true, sessionReason),
+		advisory("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, false, sessionReason),
 	}
-	routes = append(routes,
-		unsupported("openai", "realtime.ws.jsonl", "realtime", "websocket", "pending"),
-		unsupported("openai", "realtime.cancelled.ws.jsonl", "realtime", "websocket", "pending"),
-		unsupported("openai", "realtime.interrupted.ws.jsonl", "realtime", "websocket", "pending"),
-		unsupported("openai", "responses.ws.jsonl", "responses", "websocket", "pending"),
-		unsupported("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", "pending"),
-	)
 	return routes
 }
 
@@ -439,6 +453,7 @@ type fixtureRun struct {
 	body         []byte
 	observations []execution.Observation
 	results      []execution.Result
+	aborts       int
 }
 
 func (r fixtureRun) settled() bool {
@@ -728,10 +743,153 @@ func hasTokens(c canonical) bool {
 	return false
 }
 
-// checkWebSocketFixture is replaced once WebSocket relays observe usage.
+// runFixtureWebSocket replays a .ws.jsonl message log from a fake upstream
+// through the gateway's WebSocket relay. Interrupted fixtures drop the TCP
+// connection without a close frame; complete ones close normally.
+func runFixtureWebSocket(t *testing.T, route fixtureRoute, data []byte, mode leaseMode) (fixtureRun, int32) {
+	t.Helper()
+	var dials atomic.Int32
+	interrupted := strings.Contains(route.file, "interrupted")
+	upgrader := websocket.Upgrader{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dials.Add(1)
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if route.call.ws == "live" {
+			if _, _, err = conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+		scanner := bufio.NewScanner(bytes.NewReader(data))
+		scanner.Buffer(make([]byte, 1<<20), 1<<20)
+		for scanner.Scan() {
+			if line := bytes.TrimSpace(scanner.Bytes()); len(line) > 0 {
+				if conn.WriteMessage(websocket.TextMessage, line) != nil {
+					return
+				}
+			}
+		}
+		if interrupted {
+			_ = conn.UnderlyingConn().Close()
+			return
+		}
+		_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(time.Second))
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	defer upstream.Close()
+	s := route.call.surface(upstream.URL)
+	opts := options(t, upstream.URL, newOwnership())
+	if s.Provider != nil {
+		opts.TokenSource = nil
+		opts.Credential = NoCredential()
+	}
+	var mu sync.Mutex
+	run := fixtureRun{}
+	var lease *collectingLease
+	switch mode {
+	case modeLegacy:
+		opts.Observe = func(_ context.Context, _ Owner, value UsageObservation) {
+			mu.Lock()
+			defer mu.Unlock()
+			run.observations = append(run.observations, execution.Observation{Source: value.Source, Counters: value.Counters, Cumulative: value.Cumulative, Terminal: value.Terminal, Bound: value.Bound})
+		}
+	default:
+		lease = &collectingLease{}
+		if mode == modeCount {
+			lease.profile = "request-count"
+		}
+		opts.Execution = ExecutionPreparerFunc(func(context.Context, ExecutionRequest) (execution.Lease, error) { return lease, nil })
+	}
+	g, err := NewGateway(s, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan struct{})
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(finished)
+		g.ServeHTTP(w, r)
+	}))
+	defer gateway.Close()
+	conn, response, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(gateway.URL, "http")+route.call.path, nil)
+	if err != nil {
+		if response != nil {
+			run.code = response.StatusCode
+		}
+		<-finished
+	} else {
+		run.code = http.StatusSwitchingProtocols
+		if route.call.body != "" {
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(route.call.body))
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				break
+			}
+		}
+		conn.Close()
+		select {
+		case <-finished:
+		case <-time.After(5 * time.Second):
+			t.Fatal("relay did not finish")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if lease != nil {
+		lease.mu.Lock()
+		run.observations = append(run.observations, lease.observations...)
+		run.results = append(run.results, lease.results...)
+		run.aborts = lease.aborts
+		lease.mu.Unlock()
+	}
+	return run, dials.Load()
+}
+
 func checkWebSocketFixture(t *testing.T, route fixtureRoute, data []byte, want canonical) {
 	t.Helper()
-	t.Fatalf("no WebSocket runner for %s", route.call.ws)
+	for _, mode := range []leaseMode{modeLegacy, modeCount} {
+		run, dials := runFixtureWebSocket(t, route, data, mode)
+		if dials != 1 || run.code != http.StatusSwitchingProtocols {
+			t.Fatalf("mode %d: session not relayed: code=%d dials=%d", mode, run.code, dials)
+		}
+		got := observedCanonical(route.native, run.accumulate())
+		if diffs := compareCanonical(want, got, route.allowUnknown); len(diffs) > 0 {
+			t.Errorf("mode %d session usage mismatch: %s\n want %s\n got  %s", mode, strings.Join(diffs, "; "), describe(want), describe(got))
+		}
+		_, terminal := run.terminal()
+		bound := ""
+		for _, o := range run.observations {
+			if o.Bound != "" {
+				bound = o.Bound
+			}
+		}
+		if route.final && (!terminal || bound != "") {
+			t.Errorf("mode %d: complete session not final (bound %q): %+v", mode, bound, run.observations)
+		}
+		if !route.final && (terminal || bound == "") {
+			t.Errorf("mode %d: incomplete session not labelled (terminal=%t bound=%q)", mode, terminal, bound)
+		}
+		if mode == modeCount {
+			// One session = one request: always settled exactly once.
+			if len(run.results) != 1 || !run.results[0].ResponseComplete || run.results[0].Terminal != route.final {
+				t.Errorf("session settlement: %+v", run.results)
+			}
+		}
+	}
+	// A token-metered lease is refused before credentials or the dial.
+	run, dials := runFixtureWebSocket(t, route, data, modeStrict)
+	if dials != 0 || run.aborts != 1 || len(run.results) != 0 {
+		t.Errorf("token-metered session admitted: dials=%d aborts=%d results=%+v", dials, run.aborts, run.results)
+	}
 }
 
 // ---- coverage matrix ----

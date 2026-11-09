@@ -34,6 +34,10 @@ const (
 	SourceManaged  = "managed"
 	SourceReported = "reported"
 
+	UsageLowerBound = "lower_bound"
+	UsageAmbiguous  = "ambiguous"
+	UsagePartial    = "partial"
+
 	BasisSettled   = "settled"
 	BasisEstimated = "estimated"
 	BasisUnknown   = "unknown"
@@ -178,7 +182,14 @@ type Record struct {
 	Source         string `json:"source"`
 	Requests       int64  `json:"requests"`
 	Usage          *Usage `json:"usage"`
-	Cost           Cost   `json:"cost"`
+	// UsageBound qualifies Usage when the exchange ended without final usage
+	// evidence: "lower_bound" (the counters are what was observed before the
+	// exchange ended), "ambiguous" (a resumed session whose counter
+	// composition is unconfirmed) or "partial" (non-token units such as audio
+	// seconds were reported but are not representable here). Empty means the
+	// counters are the exchange's final reported usage (or unknown when nil).
+	UsageBound string `json:"usage_bound,omitempty"`
+	Cost       Cost   `json:"cost"`
 	// ProviderLimits is the provider rate-limit metadata observed on the
 	// managed exchange's native response, when any was reported.
 	ProviderLimits *providerlimits.Limits `json:"provider_limits,omitempty"`
@@ -241,6 +252,11 @@ func (r Record) Validate() error {
 	case "", "agent", "user", "client":
 	default:
 		return invalid("caller_kind must be agent, user or client")
+	}
+	switch r.UsageBound {
+	case "", UsageLowerBound, UsageAmbiguous, UsagePartial:
+	default:
+		return invalid("usage_bound must be lower_bound, ambiguous or partial")
 	}
 	switch r.Plane {
 	case PlaneLLM, PlaneMCP, PlaneA2A:

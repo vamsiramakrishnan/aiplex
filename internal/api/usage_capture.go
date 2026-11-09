@@ -44,6 +44,11 @@ type usageCapture struct {
 	incomplete   bool
 	streaming    bool
 	finished     bool
+	// terminalSeen and bound come from the native adapter's observations. A
+	// WebSocket session has no HTTP completion signal of its own, so its
+	// usage is final only with a terminal observation.
+	terminalSeen bool
+	bound        string
 }
 
 // beginUsage starts capturing an exchange for a verified tenant. The returned
@@ -111,10 +116,16 @@ func (c *usageCapture) noteError(err error) {
 	}
 }
 
-func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string) {
+func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string, terminal bool, bound string) {
 	if c == nil {
 		return
 	}
+	c.mu.Lock()
+	c.terminalSeen = c.terminalSeen || terminal
+	if bound != "" {
+		c.bound = bound
+	}
+	c.mu.Unlock()
 	c.usage.Observe(counters, cumulative)
 	if modelVersion != "" {
 		c.set(func(r *usageledger.Record) { r.ModelVersion = modelVersion })
@@ -170,7 +181,7 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 	}
 	opts.Observe = func(_ context.Context, _ modelapi.Owner, value modelapi.UsageObservation) {
 		if value.Source == "upstream" {
-			c.observe(value.Counters, value.Cumulative, value.ModelVersion)
+			c.observe(value.Counters, value.Cumulative, value.ModelVersion, value.Terminal, value.Bound)
 		}
 	}
 }
@@ -283,7 +294,7 @@ func (l *usageLease) BeforeDispatch(ctx context.Context) error {
 func (l *usageLease) Observe(ctx context.Context, observation execution.Observation) error {
 	err := l.inner.Observe(ctx, observation)
 	if observation.Source == "upstream" {
-		l.capture.observe(observation.Counters, observation.Cumulative, observation.ModelVersion)
+		l.capture.observe(observation.Counters, observation.Cumulative, observation.ModelVersion, observation.Terminal, observation.Bound)
 	}
 	l.capture.noteError(err)
 	return err
@@ -370,7 +381,19 @@ func (c *usageCapture) finish() {
 	counters := c.usage.Snapshot()
 	anthropicRaw, attemptID, code, incomplete := c.anthropicRaw, c.attemptID, c.errorCode, c.incomplete
 	streaming := c.streaming || hijacked
+	bound, terminalSeen := c.bound, c.terminalSeen
 	c.mu.Unlock()
+	if hijacked && !terminalSeen {
+		// A relayed session without a final usage observation: whatever was
+		// observed is a lower bound (or labelled more specifically).
+		incomplete = true
+		if bound == "" {
+			bound = usageledger.UsageLowerBound
+		}
+		if code == "" {
+			code = "session_usage_" + bound
+		}
+	}
 
 	if media, _, err := mime.ParseMediaType(contentType); err == nil {
 		switch media {
@@ -414,6 +437,13 @@ func (c *usageCapture) finish() {
 		normalizeExclusiveInput(counters)
 	}
 	record.Usage = usageledger.FromCounters(counters)
+	if bound != "" {
+		record.UsageBound = bound
+	} else if nonTokenUsage(counters) {
+		// Audio seconds and similar units were observed but have no ledger
+		// field: the token counters do not describe the whole exchange.
+		record.UsageBound = usageledger.UsagePartial
+	}
 	record.Cost = usageledger.UnknownCost()
 	h := c.h
 	h.Ledger.Submit(c.r.Context(), func(ctx context.Context) (usageledger.Record, error) {
@@ -431,6 +461,17 @@ func (c *usageCapture) finish() {
 		}
 		return record, nil
 	})
+}
+
+// nonTokenUsage reports observed non-token meters (milliseconds of audio,
+// counts of images) that the token ledger cannot represent.
+func nonTokenUsage(counters map[string]int64) bool {
+	for key := range counters {
+		if strings.HasSuffix(key, "_milliseconds") || strings.HasSuffix(key, "_images") {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeExclusiveInput converts native Messages-format counters, whose

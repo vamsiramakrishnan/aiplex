@@ -57,6 +57,9 @@ type UsageObservation struct {
 	Cumulative   bool             `json:"cumulative"`
 	EventID      string           `json:"event_id,omitempty"`
 	ModelVersion string           `json:"model_version,omitempty"`
+	// Bound labels a session-ending observation without final usage
+	// evidence (see execution.Observation.Bound).
+	Bound string `json:"bound,omitempty"`
 }
 type Options struct {
 	UpstreamHeaders http.Header
@@ -230,23 +233,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if op.Transport == WebSocket {
+		// Operation-level authorization before the upgrade; the model-level
+		// decision and request-count admission follow the bounded setup.
 		if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
 			http.Error(w, "operation denied", http.StatusForbidden)
-			return
-		}
-		if g.options.Execution != nil {
-			lease, err := g.prepareExecution(r, trusted, op, metadata, nil)
-			if err != nil {
-				writeExecutionError(w, err)
-				return
-			}
-			cleanup, cancel := executionContext(r.Context())
-			defer cancel()
-			if err = lease.Abort(cleanup); err != nil {
-				writeExecutionError(w, err)
-				return
-			}
-			writeExecutionError(w, &execution.StatusError{Status: http.StatusNotImplemented, Code: "UNSUPPORTED_EXECUTION_TRANSPORT", Message: "controlled Live execution requires a supported lifecycle adapter"})
 			return
 		}
 		g.serveLive(w, r, trusted, owner, op)
