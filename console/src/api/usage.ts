@@ -59,6 +59,8 @@ export interface UsageRecord {
   source: 'managed' | 'reported'
   /** Provider rate-limit observation; shape is provider-defined, so it is shown as received. */
   provider_limits?: Record<string, unknown>
+  /** Set when the exchange ended without final usage evidence; the counters are then not a final exact count. */
+  usage_bound?: UsageBound
   requests: Count
   usage: UsageCounters | null
   cost: UsageCost
@@ -190,6 +192,17 @@ export function presetSince(id: TimePreset, now: Date = new Date()): string | un
 // ---- exact formatting ----------------------------------------------------
 
 export const UNKNOWN = 'unknown'
+
+export type UsageBound = 'lower_bound' | 'ambiguous' | 'partial'
+export const USAGE_BOUND_LABEL: Record<UsageBound, string> = { lower_bound: 'lower bound', ambiguous: 'ambiguous', partial: 'partial' }
+export const USAGE_BOUND_TEXT: Record<UsageBound, string> = {
+  lower_bound: 'Lower bound: these counters are what was observed before the exchange ended. The true usage is at least this much, and may be more.',
+  ambiguous: 'Ambiguous: this is a resumed session, and how its counters combine with earlier usage is unconfirmed. Do not treat them as exact.',
+  partial: 'Partial: the provider also reported non-token usage (such as audio seconds) that this ledger cannot represent, so the token counters do not cover everything.',
+}
+/** Operations that are WebSocket sessions: metered as one request, with advisory usage. */
+export const SESSION_OPERATIONS: readonly string[] = ['live.connect', 'openai.v1.realtime', 'openai.v1.responses-websocket']
+export const isSessionOperation = (operation: string | undefined) => !!operation && SESSION_OPERATIONS.includes(operation)
 
 /**
  * Renders minor units at `scale` decimal places using string arithmetic only:
