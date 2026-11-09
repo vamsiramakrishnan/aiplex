@@ -1,0 +1,41 @@
+[
+  {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Syn"
+            }
+          ]
+        }
+      }
+    ],
+    "modelVersion": "synthetic-model-001",
+    "responseId": "resp-synth-v-0002"
+  },
+  {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "thetic."
+            }
+          ]
+        },
+        "finishReason": "STOP"
+      }
+    ],
+    "modelVersion": "synthetic-model-001",
+    "responseId": "resp-synth-v-0002",
+    "usageMetadata": {
+      "promptTokenCount": 410,
+      "candidatesTokenCount": 33,
+      "totalTokenCount": 443,
+      "trafficType": "ON_DEMAND"
+    }
+  }
+]

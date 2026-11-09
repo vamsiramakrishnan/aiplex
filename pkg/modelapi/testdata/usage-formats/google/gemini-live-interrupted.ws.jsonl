@@ -1,0 +1,5 @@
+{"setupComplete":{}}
+{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm;rate=24000","data":"AAAA"}}]}}}
+{"serverContent":{"modelTurn":{"parts":[{"inlineData":{"mimeType":"audio/pcm;rate=24000","data":"BBBB"}}]}}}
+{"serverContent":{"interrupted":true}}
+{"goAway":{"timeLeft":"5s"}}

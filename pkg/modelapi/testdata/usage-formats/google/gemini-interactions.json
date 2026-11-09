@@ -1,0 +1,52 @@
+{
+  "id": "v1_synthetic_interaction_0001",
+  "model": "synthetic-model-001",
+  "object": "interaction",
+  "status": "completed",
+  "created": "2026-01-01T00:00:00Z",
+  "updated": "2026-01-01T00:00:01Z",
+  "steps": [
+    {
+      "type": "model_output",
+      "content": [
+        {
+          "type": "text",
+          "text": "Synthetic answer."
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "total_input_tokens": 640,
+    "initial_input_tokens": 640,
+    "input_tokens_by_modality": [
+      {
+        "modality": "text",
+        "tokens": 640
+      }
+    ],
+    "total_cached_tokens": 512,
+    "cached_tokens_by_modality": [
+      {
+        "modality": "text",
+        "tokens": 512
+      }
+    ],
+    "total_output_tokens": 77,
+    "output_tokens_by_modality": [
+      {
+        "modality": "text",
+        "tokens": 77
+      }
+    ],
+    "total_tool_use_tokens": 0,
+    "total_thought_tokens": 301,
+    "total_tokens": 1018,
+    "grounding_tool_count": [
+      {
+        "type": "google_search",
+        "count": 1
+      }
+    ]
+  }
+}

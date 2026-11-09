@@ -1,0 +1,16 @@
+{
+  "totalTokens": 1316,
+  "cachedContentTokenCount": 1024,
+  "promptTokensDetails": [
+    {
+      "modality": "TEXT",
+      "tokenCount": 1316
+    }
+  ],
+  "cacheTokensDetails": [
+    {
+      "modality": "TEXT",
+      "tokenCount": 1024
+    }
+  ]
+}

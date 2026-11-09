@@ -1,0 +1,362 @@
+{
+  "gemini-generate.json": {
+    "input_tokens": 1200,
+    "output_tokens": 85,
+    "cache_read_tokens": 1024,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 342,
+    "total_tokens": 1627,
+    "notes": "POST /v1beta/models/{model}:generateContent. promptTokenCount INCLUDES cachedContentTokenCount (1024 is a subset of 1200, not additive). thoughtsTokenCount is SEPARATE from candidatesTokenCount; totalTokenCount = prompt + candidates + thoughts (+ toolUsePromptTokenCount). Cache writes are not reported here (null). serviceTier (unspecified|standard|flex|priority) is inside usageMetadata."
+  },
+  "gemini-generate-tooluse.json": {
+    "input_tokens": 800,
+    "output_tokens": 60,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 100,
+    "total_tokens": 1410,
+    "notes": "toolUsePromptTokenCount (450) is NOT inside promptTokenCount and has no slot in this schema; it IS inside totalTokenCount. input+output+reasoning (960) != total (1410). An observer that recomputes total from the three normalized counters under-reports by 450. Billing class of tool-use prompt tokens is UNCONFIRMED."
+  },
+  "gemini-generate.sse": {
+    "input_tokens": 1500,
+    "output_tokens": 58,
+    "cache_read_tokens": 1024,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 210,
+    "total_tokens": 1768,
+    "notes": "POST /v1beta/models/{model}:streamGenerateContent?alt=sse. Every chunk here carries a CUMULATIVE usageMetadata (candidates 4 -> 31 -> 58); the final chunk (finishReason STOP) is authoritative. Summing chunks would triple-count prompt (4500) and cached tokens. That every chunk carries usage is UNCONFIRMED; the docs only say usage_metadata is cumulative within a stream and to keep the last value of each stream."
+  },
+  "gemini-generate.stream.json": {
+    "input_tokens": 900,
+    "output_tokens": 120,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 1020,
+    "notes": "POST /v1beta/models/{model}:streamGenerateContent without alt=sse: body is one JSON array of GenerateContentResponse (this array framing is UNCONFIRMED in the Developer API docs). Take usage from the LAST element (cumulative). cachedContentTokenCount and thoughtsTokenCount are absent (null); whether absence means zero is UNCONFIRMED (proto3 JSON omits zeros but the docs do not say so)."
+  },
+  "gemini-generate-interrupted.sse": {
+    "input_tokens": 700,
+    "output_tokens": 19,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 719,
+    "notes": "INTERRUPTED: stream cut after chunk 2; no finishReason, no final chunk. Values are the last cumulative snapshot and are a LOWER BOUND for output. Prompt is known. Whether Google bills or reports full generation for a client-aborted stream is UNCONFIRMED. If no chunk before the cut had carried usageMetadata, every counter would be null."
+  },
+  "gemini-generate-error-429.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "HTTP 429 with the documented gRPC-status error body {error:{code,message,status,details[]}}; details[] for 429 (QuotaFailure / RetryInfo) and any Retry-After header are UNCONFIRMED (the docs show only ErrorInfo and LocalizedMessage examples, for a 400). No usageMetadata. HTTP 402 also carries status RESOURCE_EXHAUSTED (Prepay credits depleted) and must NOT be retried."
+  },
+  "gemini-count-tokens.json": {
+    "input_tokens": 1316,
+    "output_tokens": null,
+    "cache_read_tokens": 1024,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 1316,
+    "notes": "POST /v1beta/models/{model}:countTokens. Returns an INPUT-ONLY size (totalTokens), not consumption: a usage meter must not record it as usage. cachedContentTokenCount is the cached part of the prompt (subset of totalTokens, by analogy with generate; UNCONFIRMED for countTokens)."
+  },
+  "gemini-embed.json": {
+    "input_tokens": 18,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "POST /v1beta/models/{model}:embedContent. usageMetadata is EmbeddingUsageMetadata: promptTokenCount plus promptTokenDetails (singular 'Token', unlike promptTokensDetails on generate). No total counter. Per-item usage for batchEmbedContents / asyncBatchEmbedContent is UNCONFIRMED."
+  },
+  "gemini-cachedcontent-create.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": 4096,
+    "reasoning_tokens": null,
+    "total_tokens": 4096,
+    "notes": "POST /v1beta/cachedContents. usageMetadata.totalTokenCount = 'total number of tokens that the cached content consumes'; mapped to cache_write here (how Gemini Developer API bills cache creation is UNCONFIRMED). Later generateContent calls report hits as usageMetadata.cachedContentTokenCount (see gemini-generate.json). Same usage is returned by get and list."
+  },
+  "gemini-veo-operation.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "POST /v1beta/models/{model}:predictLongRunning, then poll the operation. The documented done result (response.generateVideoResponse.generatedSamples[].video.uri) carries NO token usage. Pricing is per output second (tokens-per-second rate in the pricing page), so a meter must derive units from request parameters/duration, not from the response. Any usage on the operation object is UNCONFIRMED."
+  },
+  "gemini-batch-inlined.json": {
+    "input_tokens": 710,
+    "output_tokens": 115,
+    "cache_read_tokens": 256,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 25,
+    "total_tokens": 850,
+    "notes": "AGGREGATE over successful records (prompt 300+410, candidates 40+75, thoughts 25, total 365+485, cached 256). Per-request usage is output.inlinedResponses.inlinedResponses[].response.usageMetadata (a GenerateContentResponse). The failed record (error) has no usage. The file-output form (responsesFile JSONL: one GenerateContentResponse or status object per line) per-line wrapper/key is UNCONFIRMED. Job-level token totals on the batch resource (batchStats has only request counts) do not exist; Batch is a discounted price class."
+  },
+  "gemini-interactions.json": {
+    "input_tokens": 640,
+    "output_tokens": 77,
+    "cache_read_tokens": 512,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 301,
+    "total_tokens": 1018,
+    "notes": "POST /v1beta/interactions (non-stream) or GET /v1beta/interactions/{id} (background poll). usage keys are total_* (different from generateContent). total_input_tokens includes cached (512 is a subset, by the long-decode doc's note that input is discounted by implicit caching); total_thought_tokens is SEPARATE from total_output_tokens; total_tokens = input + output + thought (+ tool_use). On multi-hop foreground long decode total_input_tokens is the SUM of every hop's input and is not the context size. grounding_tool_count is a non-token unit (tool invocations)."
+  },
+  "gemini-interactions.sse": {
+    "input_tokens": 733,
+    "output_tokens": 64,
+    "cache_read_tokens": 512,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 288,
+    "total_tokens": 1085,
+    "notes": "POST /v1beta/interactions with stream=true. usage appears on interaction.status_update (checkpoint, 'up to this checkpoint') and on interaction.completed (final). CUMULATIVE per hop (whole interaction in background mode): use only the latest, never add checkpoint + final (895 + 1085 would double count). In a foreground multi-hop stream each hop is a separate interaction: sum the final usage of each hop. Usage on status_update is per the schema; the documented example omits it (practice UNCONFIRMED)."
+  },
+  "gemini-interactions-interrupted.sse": {
+    "input_tokens": 733,
+    "output_tokens": 0,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 96,
+    "total_tokens": 829,
+    "notes": "INTERRUPTED: no interaction.completed; the stream ends with an error event ({error:{code,message},event_type:'error'}). The last status_update checkpoint is a LOWER BOUND; the docs say cancelled/failed interactions are billed for work completed before they end, so final usage is unknown to the stream consumer (the stored interaction can be fetched via GET, and a stream resumed with last_event_id). Cache counters absent -> null."
+  },
+  "gemini-live.ws.jsonl": {
+    "input_tokens": 1130,
+    "output_tokens": 455,
+    "cache_read_tokens": 600,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 1585,
+    "notes": "WSS /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent. usageMetadata is its own top-level server message (not inside serverContent) and uses responseTokenCount/responseTokensDetails (NOT candidates*). The fixture ASSUMES cumulative-per-session (772 -> 1585), so expected = the LAST message. The Developer API docs do not say cumulative vs per-turn (UNCONFIRMED); the Vertex Live doc says 'tokens used by the session so far'. If it were per-turn, correct totals would be the SUM (prompt 1690, response 667): confirm with real traffic before choosing. Live billing re-bills accumulated context each turn (pricing doc), so cost cannot be derived from usage totals alone. thoughtsTokenCount on Live is UNCONFIRMED (absent here); Live ref totalTokenCount text says 'prompt + response candidates'. Counter reset after session resumption is UNCONFIRMED. sessionResumptionUpdate and goAway carry no usage."
+  },
+  "gemini-live-interrupted.ws.jsonl": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "INTERRUPTED: model audio streamed, then serverContent.interrupted (documented to skip generationComplete and go interrupted -> turnComplete) and goAway arrive, and the socket drops before any usageMetadata message. All counters UNKNOWN (null), not zero. Consumption was real but unreported: flag the session 'usage unavailable' rather than 0."
+  },
+  "vertex-generate.json": {
+    "input_tokens": 2048,
+    "output_tokens": 120,
+    "cache_read_tokens": 1536,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 256,
+    "total_tokens": 2424,
+    "notes": "POST https://{service-endpoint}/v1/projects/{p}/locations/{l}/publishers/google/models/{model}:generateContent (model id in the URL path). promptTokenCount INCLUDES cached tokens. thoughtsTokenCount is separate from candidatesTokenCount; totalTokenCount = prompt + candidates + toolUsePrompt + thoughts. trafficType (ON_DEMAND | ON_DEMAND_PRIORITY | ON_DEMAND_FLEX | PROVISIONED_THROUGHPUT) says which quota/price class served the request and is absent on failed requests; ON_DEMAND on a request that asked for priority means it was downgraded. Cache writes not reported (null)."
+  },
+  "vertex-generate-flex.json": {
+    "input_tokens": 3,
+    "output_tokens": 900,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 1054,
+    "total_tokens": 1957,
+    "notes": "Mirrors the documented Flex example (request header X-Vertex-AI-LLM-Shared-Request-Type: flex). Proves thoughts (1054) are NOT inside candidatesTokenCount (900): total 1957 = 3 + 900 + 1054. trafficType ON_DEMAND_FLEX = discounted price class."
+  },
+  "vertex-generate.sse": {
+    "input_tokens": 3100,
+    "output_tokens": 77,
+    "cache_read_tokens": 2048,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 200,
+    "total_tokens": 3377,
+    "notes": "POST .../publishers/google/models/{model}:streamGenerateContent?alt=sse. Variant A: usageMetadata only on the FINAL chunk (finishReason STOP). Which Vertex chunks carry usageMetadata is UNCONFIRMED (only promptFeedback is documented as first-chunk-only). trafficType PROVISIONED_THROUGHPUT here; a PT-spillover request would report ON_DEMAND."
+  },
+  "vertex-generate-cumulative.sse": {
+    "input_tokens": 3100,
+    "output_tokens": 77,
+    "cache_read_tokens": 2048,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 200,
+    "total_tokens": 3377,
+    "notes": "Variant B: every chunk carries a growing usageMetadata (candidates 3 -> 30 -> 77). Take the last chunk, never sum; the same observer must also handle Variant A (vertex-generate.sse, usage only at the end). Cumulative semantics are UNCONFIRMED for Vertex and assumed from the Developer API long-decode guidance."
+  },
+  "vertex-generate.stream.json": {
+    "input_tokens": 410,
+    "output_tokens": 33,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 443,
+    "notes": "POST ...:streamGenerateContent without alt=sse: documented as 'a stream of GenerateContentResponse instances'; the JSON-array framing is UNCONFIRMED. Usage on the last element."
+  },
+  "vertex-generate-interrupted.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "INTERRUPTED before any usageMetadata (Variant A style): no finishReason, no usage -> all unknown (null). The logging doc states usageMetadata and trafficType are absent on failed requests. In-stream error JSON shape on Vertex is UNCONFIRMED."
+  },
+  "vertex-generate-image.json": {
+    "input_tokens": 18,
+    "output_tokens": 1290,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 1308,
+    "notes": "Gemini image-output models via generateContent: image output counts inside candidatesTokenCount and appears as an IMAGE entry in candidatesTokensDetails (documented in inference request metadata logging; 1290 is a synthetic value). Imagen via :predict is documented as NOT logged and its usage units are UNCONFIRMED; do not assume tokens."
+  },
+  "vertex-count-tokens.json": {
+    "input_tokens": 31,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 31,
+    "notes": "POST .../publishers/google/models/{model}:countTokens (reference path form {endpoint}:countTokens). CountTokensResponse {totalTokens,totalBillableCharacters,promptTokensDetails}. INPUT-ONLY estimate, not consumption. totalBillableCharacters is a character unit, not a token counter."
+  },
+  "vertex-embed-predict.json": {
+    "input_tokens": 6,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "POST .../publishers/google/models/gemini-embedding-001:predict. Usage is predictions[].embeddings.statistics.token_count (snake_case, per instance; sum across instances) plus statistics.truncated. SDK embedContent also exposes metadata.billableCharacterCount (SDK-level; REST path UNCONFIRMED). No total counter."
+  },
+  "vertex-batch-gcs.jsonl": {
+    "input_tokens": 30180,
+    "output_tokens": 86,
+    "cache_read_tokens": 512,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 130,
+    "total_tokens": 30396,
+    "notes": "AGGREGATE over successful rows of the Cloud Storage output JSONL (prompt 29180+1000, candidates 36+50, thoughts 130, total 29216+1180, cached 512). Each row: {status, processed_time, request, response}; a failed row has non-empty status and response {} (no usage; not charged). BigQuery output carries the same GenerateContentResponse in the response column. trafficType is not shown in documented batch rows (UNCONFIRMED)."
+  },
+  "vertex-openai-chat.json": {
+    "input_tokens": 612,
+    "output_tokens": 48,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 130,
+    "total_tokens": 790,
+    "notes": "POST https://aiplatform.googleapis.com/v1/projects/{p}/locations/{l}/endpoints/openapi/chat/completions (model 'google/<model>' in the request body). OpenAI-looking but NOT OpenAI semantics: completion_tokens EXCLUDES reasoning_tokens (612 + 48 + 130 = 790 = total_tokens), whereas OpenAI's completion_tokens includes reasoning. Adding reasoning on top of completion is right here; subtracting it is wrong. Google extension: usage.extra_properties.google.traffic_type. No cached-token field is documented in this usage object (cache_read null; UNCONFIRMED)."
+  },
+  "vertex-openai-chat.sse": {
+    "input_tokens": 27,
+    "output_tokens": 45,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 504,
+    "total_tokens": 576,
+    "notes": "stream=true: data-only SSE (no 'event:' lines) ending with 'data: [DONE]'. In the documented example usage rides on the SAME chunk as finish_reason, not on a separate empty-choices chunk like OpenAI's stream_options.include_usage; whether Vertex needs or honors stream_options is UNCONFIRMED. Same exclusive-of-reasoning math (27+45+504=576). traffic_type here is PROVISIONED_THROUGHPUT."
+  },
+  "vertex-openai-chat-interrupted.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "INTERRUPTED: no finish_reason chunk, no usage, no [DONE]. Nothing known; do not default to zero."
+  },
+  "vertex-maas-chat.json": {
+    "input_tokens": 14,
+    "output_tokens": 131,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 145,
+    "notes": "POST https://aiplatform.googleapis.com/v1/projects/{p}/locations/global/endpoints/openapi/chat/completions (open-model id in body 'model'). Plain {prompt,completion,total}; no reasoning/cached/traffic fields in the documented example. For models with implicit caching the docs say the cached count is 'cachedContentTokenCount in your response's metadata', but where that lands in the chat-completions JSON is UNCONFIRMED. Whether completion_tokens includes thinking for MaaS reasoning models is UNCONFIRMED."
+  },
+  "vertex-maas-chat.sse": {
+    "input_tokens": 14,
+    "output_tokens": 131,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 145,
+    "notes": "stream=true SSE. The documented final chunk carries delta.content AND finish_reason 'stop' AND usage together, then 'data: [DONE]'. An observer that only reads usage from empty-choices chunks will miss it."
+  },
+  "vertex-claude-rawpredict.json": {
+    "input_tokens": 2435,
+    "output_tokens": 140,
+    "cache_read_tokens": 2048,
+    "cache_write_tokens": 300,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "POST .../publishers/anthropic/models/{model}:rawPredict (model in URL; body carries anthropic_version). Body is the Anthropic Messages format. input_tokens EXCLUDES cache reads/writes, so normalized input = 87 + 2048 + 300 = 2435 (Google's logging doc: total Claude input is the sum; opposite of Gemini, where promptTokenCount already includes cached). output_tokens includes extended thinking (do not add separately; reasoning null). There is no total_tokens field (null). cache fields appear in Google's log schema; their presence in the raw response payload follows Anthropic's format and is UNCONFIRMED in Google's docs."
+  },
+  "vertex-claude-streamrawpredict.sse": {
+    "input_tokens": 2435,
+    "output_tokens": 140,
+    "cache_read_tokens": 2048,
+    "cache_write_tokens": 300,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "POST ...:streamRawPredict with stream=true. Event shapes come from Anthropic's streaming doc (secondary source); Google's docs only say the request log 'merges the usage reported in the stream' and that streamRawPredict mirrors rawPredict. Input counters arrive in message_start.usage (output_tokens there is a placeholder 1); final output is message_delta.usage.output_tokens, CUMULATIVE (140, not 1+140)."
+  },
+  "vertex-claude-streamrawpredict-interrupted.sse": {
+    "input_tokens": 2435,
+    "output_tokens": null,
+    "cache_read_tokens": 2348,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "INTERRUPTED before message_delta: input-side counters are known from message_start (87 + 0 + 2348 = 2435); output is only the placeholder 1, so output_tokens is unknown (null), not 1."
+  },
+  "vertex-interactions.json": {
+    "input_tokens": 420,
+    "output_tokens": 45,
+    "cache_read_tokens": 256,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 18,
+    "total_tokens": 483,
+    "notes": "POST https://aiplatform.googleapis.com/v1/projects/{p}/locations/global/interactions (global location in the documented path); GET .../interactions/{id}[?stream=true&last_event_id=]. Same Usage schema as the Developer API Interactions. Cancel (POST .../{id}/cancel, background only) still bills partially generated tokens. trafficType is not part of the documented Interactions usage object (UNCONFIRMED)."
+  },
+  "vertex-interactions.sse": {
+    "input_tokens": 533,
+    "output_tokens": 27,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 230,
+    "total_tokens": 790,
+    "notes": "Mirrors the documented Vertex stream (533 in / 27 out / 230 thought / 790 total). Usage only on interaction.completed in the documented example; cached keys absent here (null). total_tokens = input + output + thought."
+  },
+  "vertex-interactions-interrupted.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "INTERRUPTED: no interaction.completed and no usage on any seen event -> unknown (null). Resume with GET .../interactions/{id}?stream=true&last_event_id=<id> or fetch the stored interaction."
+  },
+  "vertex-live.ws.jsonl": {
+    "input_tokens": 1500,
+    "output_tokens": 610,
+    "cache_read_tokens": 400,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 2110,
+    "notes": "WSS wss://{LOCATION}-aiplatform.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent. The Vertex Live reference describes the usageMetadata server message as 'tokens used by the session so far' (cumulative), so expected = the LAST message. FIELD NAMES ARE UNCONFIRMED: Vertex v1 UsageMetadata uses candidatesTokenCount/candidatesTokensDetails/trafficType, but no Google page shows the Live message JSON, and the Developer API Live message uses responseTokenCount; an observer must accept both. The Vertex reference lists inputTranscription/outputTranscription as TOP-LEVEL server messages (Developer API nests them in serverContent)."
+  },
+  "vertex-live-interrupted.ws.jsonl": {
+    "input_tokens": 700,
+    "output_tokens": 40,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 740,
+    "notes": "INTERRUPTED mid-session: one usageMetadata snapshot arrived mid-turn, then interrupted + goAway and the socket dropped. The snapshot is a LOWER BOUND for the session (anything generated after it is unreported). Mid-turn emission timing is UNCONFIRMED."
+  },
+  "vertex-generate-error-429.json": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "HTTP 429. Documented messages: pay-as-you-go 'Resource exhausted, please try again later.'; Provisioned Throughput 'Too many requests. Exceeded the Provisioned Throughput.'. Body details[] (QuotaFailure/RetryInfo), Retry-After and rate-limit headers are NOT documented (UNCONFIRMED); the code/status/message envelope is the standard Google error envelope (UNCONFIRMED for Vertex pages). Error entries carry no trafficType/usageMetadata. Under Standard PayGo a 429 means shared-pool contention, not a fixed-quota breach."
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": 429,
+    "message": "Resource exhausted, please try again later.",
+    "status": "RESOURCE_EXHAUSTED"
+  }
+}

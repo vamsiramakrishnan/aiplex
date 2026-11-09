@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Partial"}]},"index":0}],"usageMetadata":{"promptTokenCount":700,"candidatesTokenCount":6,"totalTokenCount":706},"modelVersion":"synthetic-model-001","responseId":"resp-synth-0005"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":" text that never"}]},"index":0}],"usageMetadata":{"promptTokenCount":700,"candidatesTokenCount":19,"totalTokenCount":719},"modelVersion":"synthetic-model-001","responseId":"resp-synth-0005"}
+

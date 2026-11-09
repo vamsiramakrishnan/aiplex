@@ -1,0 +1,15 @@
+{
+  "name": "models/synthetic-veo/operations/op-0001",
+  "done": true,
+  "response": {
+    "generateVideoResponse": {
+      "generatedSamples": [
+        {
+          "video": {
+            "uri": "https://example.invalid/files/v-0001:download"
+          }
+        }
+      ]
+    }
+  }
+}
