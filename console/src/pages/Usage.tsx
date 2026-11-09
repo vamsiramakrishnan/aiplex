@@ -163,6 +163,7 @@ function SummarySection({ filter }: { filter: api.UsageFilter }) {
   const toggle = (f: api.GroupField) => setGroupBy((cur) => cur.includes(f) ? cur.filter((x) => x !== f) : api.GROUP_FIELDS.filter((x) => x === f || cur.includes(x)))
   return <section className="space-y-4" aria-label="Usage summary">
     <h2 className="text-lg font-medium">Summary</h2>
+    <p className="text-xs text-gray-500">Totals add up each record&apos;s reported counters. Records marked lower bound, ambiguous or partial in the list below are included as reported; the summary does not flag them.</p>
     <div className="flex flex-wrap items-end gap-6">
       <fieldset><legend className="mb-1 text-xs text-gray-500">Group by</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{api.GROUP_FIELDS.map((f) => <label key={f} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={groupBy.includes(f)} onChange={() => toggle(f)} />{GROUP_LABELS[f]}</label>)}</div></fieldset>
       <Field label="Time bucket"><select className={field} value={bucket} onChange={(e) => setBucket(e.target.value as api.Bucket)}><option value="">No buckets</option><option value="hour">Hourly</option><option value="day">Daily</option></select></Field>
@@ -181,7 +182,12 @@ function SummarySection({ filter }: { filter: api.UsageFilter }) {
 const statusClass: Record<string, string> = { ok: 'text-green-700 dark:text-green-400', error: 'text-red-700 dark:text-red-400', denied: 'text-amber-700 dark:text-amber-400', unknown: 'text-gray-500' }
 const none = '—'
 const target = (r: api.UsageRecord) => r.model_id || r.tool_name || r.resource_id || none
-const counter = (r: api.UsageRecord, name: api.TokenCounter) => api.formatCount(r.usage?.[name])
+const counter = (r: api.UsageRecord, name: api.TokenCounter) => {
+  const text = api.formatCount(r.usage?.[name])
+  if (!r.usage_bound || text === api.UNKNOWN) return text
+  // A bounded count is never shown bare: it is not a final exact figure.
+  return r.usage_bound === 'lower_bound' ? `≥ ${text} (lower bound)` : `${text} (${api.USAGE_BOUND_LABEL[r.usage_bound]})`
+}
 const when = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : d.toLocaleString() }
 
 const DETAIL_FIELDS: [string, (r: api.UsageRecord) => string][] = [
@@ -207,6 +213,8 @@ export function RecordDrawer({ record, onClose }: { record: api.UsageRecord; onC
   }, [onClose])
   return <aside role="dialog" aria-label="Usage record detail" className="fixed inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950">
     <div className="mb-4 flex items-start justify-between gap-3"><h3 className="text-lg font-medium">Usage record</h3><button ref={closeRef} type="button" className="underline" onClick={onClose}>Close</button></div>
+    {record.usage_bound && <p role="note" className="mb-3 rounded border border-amber-400 p-2 text-sm text-amber-900 dark:text-amber-200"><strong>Not a final count.</strong> {api.USAGE_BOUND_TEXT[record.usage_bound]} Any cost computed from these counters is not final either.</p>}
+    {api.isSessionOperation(record.operation) && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>WebSocket session.</strong> One request was admitted and settled for the whole session; token usage reported during the session is advisory.</p>}
     {record.usage === null && <p className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700">No usage was reported for this request. Token counts are unknown, not zero.</p>}
     <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 text-sm">{DETAIL_FIELDS.map(([label, read]) => <div key={label} className="contents"><dt className="text-gray-500">{label}</dt><dd className="break-all font-mono text-xs leading-5">{read(record)}</dd></div>)}</dl>
     {record.provider_limits && <section aria-label="Provider limits" className="mt-4"><h4 className="text-sm font-medium">Provider limits</h4><p className="text-xs text-gray-500">Rate-limit signals the upstream provider returned for this request, as received.</p><pre className="mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(record.provider_limits, null, 2)}</pre></section>}
@@ -232,10 +240,10 @@ function RecordsSection({ filter }: { filter: api.UsageFilter }) {
         <thead><tr className="border-b border-gray-200 dark:border-gray-800">{['Time', 'Plane', 'Model / tool', 'Agent', 'Principal', 'Client', 'Status', 'Tokens in', 'Tokens out', 'Cost', 'Latency'].map((h) => <th key={h} scope="col" className="py-2 pr-4">{h}</th>)}</tr></thead>
         <tbody>{page?.records.map((r) => <tr key={r.id} className="border-t border-gray-200 dark:border-gray-800">
           <td className="py-2 pr-4 whitespace-nowrap"><button type="button" className="underline" aria-label={`Open details for record ${r.id}`} onClick={() => setSelected(r)}>{when(r.started_at)}</button></td>
-          <td className="pr-4">{r.plane}</td><td className="pr-4">{target(r)}</td><td className="pr-4">{r.actor_id || none}</td><td className="pr-4">{r.principal_id || none}</td><td className="pr-4">{r.client_id || none}</td>
+          <td className="pr-4">{r.plane}</td><td className="pr-4">{target(r)}{api.isSessionOperation(r.operation) && <span className={`${muted} ml-1 rounded border px-1`} title="WebSocket session: metered as one request; usage is advisory">session</span>}</td><td className="pr-4">{r.actor_id || none}</td><td className="pr-4">{r.principal_id || none}</td><td className="pr-4">{r.client_id || none}</td>
           <td className={`pr-4 ${statusClass[r.status] ?? ''}`}>{r.status}</td>
           <td className="pr-4">{counter(r, 'input_tokens')}</td><td className="pr-4">{counter(r, 'output_tokens')}</td>
-          <td className="pr-4 whitespace-nowrap">{api.formatCost(r.cost)}{(r.cost.basis === 'settled' || r.cost.basis === 'estimated') && <span className={`${muted} ml-1`}>{r.cost.basis}</span>}</td>
+          <td className="pr-4 whitespace-nowrap">{api.formatCost(r.cost)}{r.usage_bound && <span className={`${muted} ml-1`}>(from bounded usage)</span>}{(r.cost.basis === 'settled' || r.cost.basis === 'estimated') && <span className={`${muted} ml-1`}>{r.cost.basis}</span>}</td>
           <td className="whitespace-nowrap">{r.latency_ms} ms</td>
         </tr>)}</tbody>
       </table></div>}

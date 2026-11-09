@@ -396,34 +396,38 @@ describe('pure helpers', () => {
 
   it('derives protocols from surfaces', () => {
     const groups = endpointGroups(spec, 'https://a.example/', surfaces)
-    expect(groups.map(g => g.id)).toEqual(['google-genai', 'models', 'mcp', 'skills'])
+    expect(groups.map(g => g.id)).toEqual(['google-genai', 'google-live', 'models', 'mcp', 'skills'])
     expect(groups[0].urls[0].url).toBe('https://a.example/ap/ide-team/v1beta/models/{model}:{op}')
   })
 })
 
 describe('surface picker with non-Google providers', () => {
-  const bedrock: api.ModelSurfaceRecord = { id: 'bedrock-us', revision: 1, spec: { surface: { id: 'bedrock-us', protocol: 'bedrock-converse', models: ['claude-x'], provider: { id: 'bedrock' } } } }
+  const bedrock: api.ModelSurfaceRecord = { id: 'bedrock-us', revision: 1, spec: { surface: { id: 'bedrock-us', protocol: 'bedrock-converse', models: ['anthropic.claude-3:0'], provider: { id: 'bedrock' } } } }
+  const exotic: api.ModelSurfaceRecord = { id: 'exotic', revision: 1, spec: { surface: { id: 'exotic', protocol: 'grpc-inference', models: ['m'], provider: { id: 'acme' } } } }
   const openai: api.ModelSurfaceRecord = { id: 'oai', revision: 1, spec: { surface: { id: 'oai', protocol: 'openai-chat', models: ['gpt-5'], provider: { id: 'openai' } } } }
 
   it('shows provider and protocol and disables surfaces access points cannot route, with the reason', async () => {
-    vi.mocked(api.listModelSurfaces).mockResolvedValue([...surfaces, openai, bedrock])
+    vi.mocked(api.listModelSurfaces).mockResolvedValue([...surfaces, openai, bedrock, exotic])
     show('/access-points/new')
     fireEvent.click(await screen.findByRole('button', { name: 'Add model' }))
     const surface = await screen.findByLabelText('Model surface')
-    await waitFor(() => expect(within(surface).getAllByRole('option').length).toBe(5))
+    await waitFor(() => expect(within(surface).getAllByRole('option').length).toBe(6))
     const options = within(surface).getAllByRole('option') as HTMLOptionElement[]
     const byText = (t: RegExp) => options.find(o => t.test(o.textContent ?? ''))!
     expect(byText(/^oai/).textContent).toBe('oai · openai · openai-chat')
     expect(byText(/^oai/).disabled).toBe(false)
-    expect(byText(/^bedrock-us/).textContent).toBe('bedrock-us · bedrock · bedrock-converse (unavailable: access points do not route bedrock-converse yet)')
-    expect(byText(/^bedrock-us/).disabled).toBe(true)
+    // Bedrock is routable now
+    expect(byText(/^bedrock-us/).textContent).toBe('bedrock-us · bedrock · bedrock-converse')
+    expect(byText(/^bedrock-us/).disabled).toBe(false)
+    expect(byText(/^exotic/).textContent).toBe('exotic · acme · grpc-inference (unavailable: access points have no client protocol for grpc-inference)')
+    expect(byText(/^exotic/).disabled).toBe(true)
   })
 
   it('blocks saving and explains when an existing model uses an unroutable surface', async () => {
-    vi.mocked(api.listModelSurfaces).mockResolvedValue([bedrock])
-    vi.mocked(api.getAccessPoint).mockResolvedValue({ ...record, spec: { ...spec, models: [{ name: 'c', surface_ref: 'bedrock-us', native_model: 'c' }] } })
+    vi.mocked(api.listModelSurfaces).mockResolvedValue([exotic])
+    vi.mocked(api.getAccessPoint).mockResolvedValue({ ...record, spec: { ...spec, models: [{ name: 'c', surface_ref: 'exotic', native_model: 'c' }] } })
     show('/access-points/ide-team/edit')
-    expect(await screen.findByText(/Surface bedrock-us is unavailable for access points: access points do not route bedrock-converse yet/)).toBeInTheDocument()
+    expect(await screen.findByText(/Surface exotic is unavailable for access points: access points have no client protocol for grpc-inference/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled()
   })
 })
@@ -454,6 +458,29 @@ describe('detail endpoint URLs from the server', () => {
     expect(note).toHaveTextContent(/derived from this console's address/)
     expect(note).toHaveTextContent(/no public URL configured/)
     expect(within(endpoints).getByText(`${window.location.origin}/ap/ide-team/mcp`)).toBeInTheDocument()
+  })
+
+  it('shows Bedrock and WebSocket endpoints for reachable models, built from the server root with a note', async () => {
+    vi.mocked(overview.getConnect).mockResolvedValue({ ...connectInfo, base_urls: { genai: 'https://public.example.com/ap/ide-team' }, models: [{ name: 'gemini-pro', protocols: ['google-genai', 'google-live', 'bedrock-converse', 'openai-realtime'] }] })
+    show('/access-points/ide-team')
+    const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
+    const root = 'https://public.example.com/ap/ide-team'
+    await waitFor(() => expect(within(endpoints).getByText(`${root}/model/{model}/converse`)).toBeInTheDocument())
+    expect(within(endpoints).getByText(`${root}/model/{model}/converse-stream`)).toBeInTheDocument()
+    expect(within(endpoints).getByText('wss://public.example.com/ap/ide-team/v1/realtime?model={model}')).toBeInTheDocument()
+    expect(within(endpoints).getByText('wss://public.example.com/ap/ide-team/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent?model={model}')).toBeInTheDocument()
+    expect(within(endpoints).getByRole('group', { name: 'Amazon Bedrock Converse' })).toHaveTextContent(/connect response does not list this endpoint/)
+    expect(within(endpoints).queryByRole('group', { name: 'Amazon Bedrock InvokeModel' })).toBeNull()
+  })
+
+  it('falls back to client-built Bedrock and WebSocket URLs for a Bedrock surface', async () => {
+    vi.mocked(api.listModelSurfaces).mockResolvedValue([{ id: 'bedrock-us', revision: 1, spec: { surface: { id: 'bedrock-us', protocol: 'bedrock-invoke', provider: { id: 'bedrock' } } } }])
+    vi.mocked(api.getAccessPoint).mockResolvedValue({ ...record, spec: { ...spec, models: [{ name: 'anthropic.claude:0', surface_ref: 'bedrock-us', native_model: 'anthropic.claude:0' }] } })
+    show('/access-points/ide-team')
+    const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
+    await waitFor(() => expect(within(endpoints).getByText(`${window.location.origin}/ap/ide-team/model/{model}/invoke-with-response-stream`)).toBeInTheDocument())
+    expect(within(endpoints).queryByRole('group', { name: 'Google GenAI' })).toBeNull()
+    expect(within(endpoints).queryByRole('group', { name: /WebSocket/ })).toBeNull()
   })
 
   it('launches the connect wizard from the detail view', async () => {

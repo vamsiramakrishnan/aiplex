@@ -102,14 +102,33 @@ export function errorStatus(error: unknown): number | undefined {
   return typeof s === 'number' ? s : undefined
 }
 
-export interface Wire { id: string; label: string; path: string; surfaceProtocol: string }
-/** Client wire protocols and the model-surface protocol that serves each natively. */
+export interface Wire {
+  id: string; label: string; path: string; surfaceProtocol: string
+  /** Further endpoints of the same protocol (streaming variants). */
+  extra?: { label: string; path: string }[]
+  /** WebSocket session endpoint: metered as one request, usage advisory. */
+  websocket?: boolean
+}
+const GEMINI_LIVE_PATH = '/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent'
+/**
+ * Client wire protocols and the model-surface protocol that serves each
+ * natively. Mirrors accessPointWires in internal/api/access_point_models.go;
+ * a surface protocol listed here is one the server accepts at save time.
+ */
 export const WIRES: readonly Wire[] = [
   { id: 'openai-chat-completions', label: 'OpenAI Chat Completions', path: '/v1/chat/completions', surfaceProtocol: 'openai-chat' },
   { id: 'openai-responses', label: 'OpenAI Responses', path: '/v1/responses', surfaceProtocol: 'openai-responses' },
   { id: 'anthropic-messages', label: 'Anthropic Messages', path: '/v1/messages', surfaceProtocol: 'anthropic-messages' },
   { id: 'google-genai', label: 'Google GenAI', path: '/v1beta/models/{model}:{op}', surfaceProtocol: 'google-genai' },
+  { id: 'bedrock-converse', label: 'Amazon Bedrock Converse', path: '/model/{model}/converse', surfaceProtocol: 'bedrock-converse', extra: [{ label: 'Streaming', path: '/model/{model}/converse-stream' }] },
+  { id: 'bedrock-invoke', label: 'Amazon Bedrock InvokeModel', path: '/model/{model}/invoke', surfaceProtocol: 'bedrock-invoke', extra: [{ label: 'Streaming', path: '/model/{model}/invoke-with-response-stream' }] },
+  { id: 'openai-realtime', label: 'OpenAI Realtime (WebSocket)', path: '/v1/realtime?model={model}', surfaceProtocol: 'openai-realtime', websocket: true },
+  { id: 'google-live', label: 'Gemini Live (WebSocket)', path: `${GEMINI_LIVE_PATH}?model={model}`, surfaceProtocol: 'google-genai', websocket: true },
 ]
+const wireUrls = (w: Wire, root: string) => {
+  const ws = (u: string) => (w.websocket ? u.replace(/^http/, 'ws') : u)
+  return [{ label: 'Endpoint', url: ws(root + w.path) }, ...(w.extra ?? []).map(e => ({ label: e.label, url: ws(root + e.path) }))]
+}
 
 type SurfaceInfo = ModelSurfaceRecord['spec']['surface']
 /** Provider name shown for a surface: its explicit provider, else Google Cloud. */
@@ -117,7 +136,6 @@ export const surfaceProviderName = (s: SurfaceInfo) => s.provider?.id ?? 'google
 /** Why an access point cannot route this surface, or undefined when it can. */
 export function surfaceUnroutableReason(s: SurfaceInfo): string | undefined {
   if (WIRES.some(w => w.surfaceProtocol === s.protocol)) return undefined
-  if (s.protocol.startsWith('bedrock-')) return `access points do not route ${s.protocol} yet`
   return `access points have no client protocol for ${s.protocol}`
 }
 export const surfaceOptionLabel = (s: SurfaceInfo) => {
@@ -147,10 +165,10 @@ export function endpointGroups(spec: AccessPointSpec, origin: string, surfaces: 
       groups.push({
         id: w.id, title: w.label,
         note: unknown ? 'Could not determine which models speak this protocol. A request through the wrong protocol returns an error naming the protocols that serve the model.' : undefined,
-        urls: [{ label: 'Endpoint', url: root + w.path }],
+        urls: wireUrls(w, root),
       })
     }
-    if (wires.length) groups.push({ id: 'models', title: 'Model listing', urls: [{ label: 'List models', url: `${root}/v1/models` }] })
+    if (wires.some(w => !w.websocket && !w.id.startsWith('bedrock'))) groups.push({ id: 'models', title: 'Model listing', urls: [{ label: 'List models', url: `${root}/v1/models` }] })
   }
   if ((spec.tools ?? []).length) {
     groups.push({
@@ -204,14 +222,21 @@ export function parseList(text: string): string[] {
 export function endpointGroupsFromConnect(spec: AccessPointSpec, c: ConnectInfo): EndpointGroup[] {
   const groups: EndpointGroup[] = []
   const reach = new Set((c.models ?? []).flatMap(m => m.protocols ?? []))
+  // The connect response gives base URLs for the OpenAI, Anthropic and GenAI
+  // families only. Bedrock and WebSocket endpoints are built here from the
+  // server's public URL (taken from the access point root it returned).
+  const root = [c.base_urls?.genai, c.base_urls?.anthropic, c.base_urls?.openai?.replace(/\/v1$/, ''), c.mcp_url?.replace(/\/mcp$/, '')].find(Boolean)
   for (const w of WIRES.filter(w => reach.has(w.id))) {
-    const family = w.id.startsWith('openai') ? 'openai' : w.id === 'anthropic-messages' ? 'anthropic' : 'genai'
-    const baseUrl = c.base_urls?.[family]
-    if (!baseUrl) continue
-    const path = family === 'openai' ? w.path.replace(/^\/v1/, '') : w.path
-    groups.push({ id: w.id, title: w.label, urls: [{ label: 'Endpoint', url: baseUrl + path }] })
+    const family = w.id.startsWith('openai-') && !w.websocket ? 'openai' : w.id === 'anthropic-messages' ? 'anthropic' : w.id === 'google-genai' ? 'genai' : ''
+    if (family) {
+      const baseUrl = c.base_urls?.[family]
+      if (!baseUrl) continue
+      groups.push({ id: w.id, title: w.label, urls: [{ label: 'Endpoint', url: baseUrl + (family === 'openai' ? w.path.replace(/^\/v1/, '') : w.path) }] })
+    } else if (root) {
+      groups.push({ id: w.id, title: w.label, note: 'Built by this console from the server\'s public URL; the connect response does not list this endpoint.', urls: wireUrls(w, root) })
+    }
   }
-  if (c.base_urls?.openai && reach.has('openai-chat-completions') || c.base_urls?.openai && reach.has('openai-responses')) {
+  if (c.base_urls?.openai && (reach.has('openai-chat-completions') || reach.has('openai-responses'))) {
     groups.push({ id: 'models', title: 'Model listing', urls: [{ label: 'List models', url: `${c.base_urls.openai}/models` }] })
   }
   if (c.mcp_url) {

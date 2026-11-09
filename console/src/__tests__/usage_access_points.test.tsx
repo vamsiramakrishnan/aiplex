@@ -10,6 +10,12 @@ const base = { tenant_id: 't', finished_at: '2026-11-09T10:00:01Z', latency_ms: 
 const withLimits = { ...base, id: 'ul_limits', started_at: '2026-11-09T10:00:00Z', access_point_id: 'ide-team', caller_kind: 'user', provider_limits: { provider: 'openai', classification: 'rate_limited', retry_after_ms: 1500 } }
 const without = { ...base, id: 'ul_plain', started_at: '2026-11-09T09:00:00Z' }
 
+const tok = (input: number, output: number) => ({ input_tokens: input, output_tokens: output, cache_read_tokens: null, cache_write_tokens: null, reasoning_tokens: null, total_tokens: null })
+const lower = { ...base, id: 'ul_lower', started_at: '2026-11-09T08:00:00Z', operation: 'openai.v1.realtime', model_id: 'gpt-realtime', usage: tok(120, 30), usage_bound: 'lower_bound', cost: { basis: 'estimated', currency: 'USD', amount: '500', scale: 6 } }
+const ambiguous = { ...base, id: 'ul_amb', started_at: '2026-11-09T07:00:00Z', operation: 'live.connect', usage: tok(7, 8), usage_bound: 'ambiguous' }
+const partial = { ...base, id: 'ul_part', started_at: '2026-11-09T06:00:00Z', usage: tok(1, 2), usage_bound: 'partial' }
+const exact = { ...base, id: 'ul_exact', started_at: '2026-11-09T05:00:00Z', usage: tok(9, 4) }
+
 let calls: URL[]
 beforeEach(() => {
   calls = []
@@ -17,7 +23,7 @@ beforeEach(() => {
     const url = new URL(input, 'http://localhost')
     calls.push(url)
     if (url.pathname === '/api/v1/usage/summary') return new Response(JSON.stringify({ group_by: [], groups: [], records_scanned: 0, truncated: false }))
-    if (url.pathname === '/api/v1/usage/records') return new Response(JSON.stringify({ records: [withLimits, without] }))
+    if (url.pathname === '/api/v1/usage/records') return new Response(JSON.stringify({ records: [withLimits, without, lower, ambiguous, partial, exact] }))
     if (url.pathname === '/api/v1/usage/prices/') return new Response('[]')
     return new Response('{}', { status: 500 })
   }))
@@ -59,5 +65,49 @@ describe('Usage page: access point and caller kind', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Open details for record ul_plain' }))
     drawer = screen.getByRole('dialog', { name: 'Usage record detail' })
     expect(within(drawer).queryByRole('region', { name: 'Provider limits' })).toBeNull()
+  })
+
+  it('never shows a bounded count bare, and explains each bound in the table and drawer', async () => {
+    show()
+    const table = await screen.findByRole('table', { name: 'Usage records, newest first' })
+    const row = (id: string) => within(table).getByRole('button', { name: `Open details for record ${id}` }).closest('tr')!
+    expect(row('ul_lower')).toHaveTextContent('≥ 120 (lower bound)')
+    expect(row('ul_lower')).toHaveTextContent('≥ 30 (lower bound)')
+    expect(row('ul_lower')).toHaveTextContent('(from bounded usage)')
+    expect(row('ul_amb')).toHaveTextContent('7 (ambiguous)')
+    expect(row('ul_part')).toHaveTextContent('1 (partial)')
+    // exact records stay bare
+    expect(row('ul_exact')).toHaveTextContent('9')
+    expect(row('ul_exact')).not.toHaveTextContent(/bound|ambiguous|partial/)
+
+    fireEvent.click(within(row('ul_amb')).getByRole('button'))
+    let note = within(screen.getByRole('dialog', { name: 'Usage record detail' })).getAllByRole('note')[0]
+    expect(note).toHaveTextContent('Not a final count')
+    expect(note).toHaveTextContent(/resumed session/)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(within(row('ul_part')).getByRole('button'))
+    note = within(screen.getByRole('dialog', { name: 'Usage record detail' })).getAllByRole('note')[0]
+    expect(note).toHaveTextContent(/non-token usage/)
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(within(row('ul_lower')).getByRole('button'))
+    const drawer = screen.getByRole('dialog', { name: 'Usage record detail' })
+    expect(drawer).toHaveTextContent(/at least this much/)
+    expect(drawer).toHaveTextContent('Any cost computed from these counters is not final')
+  })
+
+  it('labels WebSocket session operations as sessions and not other rows', async () => {
+    show()
+    const table = await screen.findByRole('table', { name: 'Usage records, newest first' })
+    const row = (id: string) => within(table).getByRole('button', { name: `Open details for record ${id}` }).closest('tr')!
+    expect(within(row('ul_lower')).getByText('session')).toBeInTheDocument()
+    expect(within(row('ul_amb')).getByText('session')).toBeInTheDocument()
+    expect(within(row('ul_exact')).queryByText('session')).toBeNull()
+    fireEvent.click(within(row('ul_lower')).getByRole('button'))
+    expect(screen.getByText(/One request was admitted and settled for the whole session/)).toBeInTheDocument()
+  })
+
+  it('states that the summary does not flag bounded records', async () => {
+    show()
+    expect(await screen.findByText(/the summary does not flag them/)).toBeInTheDocument()
   })
 })
