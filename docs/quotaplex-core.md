@@ -2,10 +2,12 @@
 
 QuotaPlex is a provider-independent Go library in [pkg/quotaplex](../pkg/quotaplex).
 It implements the accounting and admission foundation shared by model, tool,
-agent and skill execution. It installs no HTTP routes, gateway filters or native
-usage collectors. Existing traffic does not acquire quotas by registering the
-module. See the [foundation design](quotaplex-foundation-design.md) and
-[readiness register](quotaplex-prerequisites.md) for the remaining integration gates.
+agent and skill execution. The library installs no routes by itself. An optional
+[managed execution integration](quotaplex-integration.md) now binds supported model
+and stateless tool calls to admission, acknowledged terminal usage and recovery.
+Default traffic does not acquire quotas by registering the library. See the
+[foundation design](quotaplex-foundation-design.md) and
+[readiness register](quotaplex-prerequisites.md) for remaining deployment gates.
 
 ## Implemented boundary
 
@@ -21,6 +23,7 @@ module. See the [foundation design](quotaplex-foundation-design.md) and
 | Rates | Exact-rational token buckets for admitted demand, with sustained rate and burst; accepted debits are not refunded |
 | Concurrency | One active permit per admitted attempt in every matched scope; known-undispatched abort or terminal settlement releases permits |
 | Lifecycle | Single dispatch claim, retained unknown exposure, idempotent terminal usage acknowledgement and original-plan settlement |
+| Usage recovery | Immutable terminal outbox, fenced/backoff settlement work, bounded recovery pages and retained mismatched-model evidence |
 | Allocation loans | Explicit policy-authorized transfers between compatible account budgets; source/destination windows, floors and outstanding limits are pinned |
 | Weighted selection | Serializable bounded deficit-round-robin queue state, deadlines, cancellation and replay history |
 | Storage | Snapshot-isolated memory reference backend and a native multi-document Firestore transaction adapter |
@@ -141,6 +144,14 @@ overruns are retained as consumed debt and flagged `settled_overrun`; they are n
 discarded to preserve a limit. Unpriced/overflowing terminal usage fails its
 acknowledgement and leaves outstanding exposure for retry or reconciliation.
 
+`EnqueueTerminal` separately acknowledges durable terminal evidence and returns a
+`UsageAcknowledgement`. `ProcessTerminal` settles it idempotently; pending evidence
+retains its exposure. `NewRecovery` supplies bounded outbox, attempt and loan
+passes. A configured `TrustedRecoveryResolver` can read an already submitted
+native resource; it must never replay provider writes. The managed host uses the
+outbox before releasing terminal data and starts these passes with no native
+resolver by default. See the [operational guide](quotaplex-integration.md).
+
 Pin a native job/session ID through `RecordProviderResource` as soon as the host
 knows it, before waiting for terminal usage. The pin survives restart, permits an
 identical retry and rejects a changed resource. `GetAttempt.ProviderResource`
@@ -198,7 +209,8 @@ rule/borrower window. Expiry fits both windows and the configured duration.
 or committed work. Expired credit that becomes available after late settlement
 requires another maintenance pass. New admission can return
 `loan_reconciliation_required` until that maintenance completes. The library
-implements these operations; an automatic loan/recovery worker is not installed.
+implements these operations. Embedding the library alone starts no worker; the
+opt-in managed API module runs bounded loan/usage recovery passes.
 
 `FairQueue` returns new serializable state for `Enqueue`, `Pick` and `Cancel`.
 Persist that state in a quota transaction before acting on a selected request.
@@ -208,9 +220,9 @@ and policy generation. Changing generations requires explicit migration retainin
 attempt deduplication; creating fresh state is not a replay-history reset mechanism.
 
 Protected throughput floors, capacity feasibility, atomic scheduling/admission and
-native preemption/cancellation semantics remain integration work. Further gates
-include actual LLM/tool dispatch interception, acknowledged provider usage,
-streaming/async reconciliation, route-bypass coverage, administrative APIs,
-authenticated remote enforcement, operational recovery workers and measured
-multi-replica/shadow-rollout evidence. Enable hard limits only for paths that pass
-those operation-specific gates.
+native preemption/cancellation semantics remain integration work. Managed native
+generation and stateless tool paths now have interception and acknowledged usage
+under explicit coverage profiles. Additional operations, native async status
+resolvers, corrections, direct-route coverage, broader administration, authenticated
+remote enforcement and measured multi-replica/shadow-rollout evidence remain.
+Enable hard limits only for paths that pass their operation-specific gates.

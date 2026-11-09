@@ -45,13 +45,9 @@ func main() {
 	// Store — use Firestore when configured, otherwise in-memory
 	var store registry.Store
 	var resourceStore resources.Store = resources.NewMemoryStore()
-	projectID := os.Getenv("GCP_PROJECT_ID")
-	if projectID == "" {
-		projectID = os.Getenv("FIRESTORE_PROJECT_ID")
-	}
+	projectID, databaseID := firestoreConfiguration(cfg)
 
 	if projectID != "" {
-		databaseID := os.Getenv("FIRESTORE_DATABASE_ID") // optional, defaults to (default)
 		fs, err := registry.NewFirestoreStore(projectID, databaseID)
 		if err != nil {
 			log.Fatal().Err(err).Msg("firestore init failed")
@@ -139,8 +135,16 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("connected module configuration failed")
 	}
+	connectedH.ResolveAccess = wifValidator.SyncUserScopes
+	quotaRuntime, err := configureQuota(ctx, cfg, store, connectedH)
+	if err != nil {
+		log.Fatal().Err(err).Msg("quota module configuration failed")
+	}
 	availableModules := builtinModules(llmH, a2aH, skillsH)
 	extendConnectedModules(availableModules, connectedH, clientH)
+	if quotaRuntime != nil {
+		availableModules["quotaplex"] = &httpModule{descriptor: quotaRuntime.Descriptor(), mount: func(r chi.Router) { quotaRuntime.mount(r, connectedH) }, lifecycle: quotaRuntime}
+	}
 	enabledModules, err := selectModules(cfg.EnabledModules, availableModules)
 	if err != nil {
 		log.Fatal().Err(err).Msg("invalid module configuration")

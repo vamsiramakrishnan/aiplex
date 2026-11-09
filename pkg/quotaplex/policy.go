@@ -417,6 +417,9 @@ func ValidateDemand(demand Demand) error {
 	if demand.Principal.ID != demand.Context.PrincipalID || demand.Target.ResourceID != demand.Context.ResourceID {
 		return fmt.Errorf("quota demand does not bind the trusted principal/resource")
 	}
+	if demand.RequireModelVersion && demand.Target.ModelVersion == "" {
+		return fmt.Errorf("required model-version evidence needs a pinned target version")
+	}
 	if err := policyMembershipStatic(demand.Principal, demand.Context.TenantID); err != nil {
 		return err
 	}

@@ -14,12 +14,28 @@ import (
 type httpModule struct {
 	descriptor modules.Descriptor
 	mount      func(chi.Router)
+	lifecycle  modules.Module
 }
 
 func (m *httpModule) Descriptor() modules.Descriptor { return m.descriptor }
-func (m *httpModule) Start(context.Context) error    { return nil }
-func (m *httpModule) Stop(context.Context) error     { return nil }
-func (m *httpModule) Ready(context.Context) error    { return nil }
+func (m *httpModule) Start(ctx context.Context) error {
+	if m.lifecycle != nil {
+		return m.lifecycle.Start(ctx)
+	}
+	return nil
+}
+func (m *httpModule) Stop(ctx context.Context) error {
+	if m.lifecycle != nil {
+		return m.lifecycle.Stop(ctx)
+	}
+	return nil
+}
+func (m *httpModule) Ready(ctx context.Context) error {
+	if m.lifecycle != nil {
+		return m.lifecycle.Ready(ctx)
+	}
+	return nil
+}
 
 func builtinModules(llmH *api.LLMHandler, a2aH *api.A2AHandler, skillsH *api.SkillsHandler) map[string]*httpModule {
 	makeModule := func(name, title, path, command string, mount func(chi.Router)) *httpModule {
@@ -30,7 +46,7 @@ func builtinModules(llmH *api.LLMHandler, a2aH *api.A2AHandler, skillsH *api.Ski
 		if command != "" {
 			d.Commands = []modules.Command{{Name: command, Description: "Manage " + title}}
 		}
-		return &httpModule{d, mount}
+		return &httpModule{descriptor: d, mount: mount}
 	}
 	return map[string]*httpModule{
 		"mcplex": makeModule("mcplex", "MCPlex", "", "", func(chi.Router) {}),

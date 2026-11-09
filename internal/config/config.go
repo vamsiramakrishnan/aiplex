@@ -41,6 +41,7 @@ type Config struct {
 
 	// Connected module providers and trusted single-tenant binding.
 	ConnectionsFile string `env:"AIPLEX_CONNECTIONS_FILE,default="`
+	QuotaFile       string `env:"AIPLEX_QUOTA_FILE,default="`
 	TenantID        string `env:"AIPLEX_TENANT_ID,default="`
 	PublicURL       string `env:"AIPLEX_PUBLIC_URL,default="`
 	TLSCertFile     string `env:"TLS_CERT_FILE,default="`

@@ -109,7 +109,7 @@ func validatePlatformConfigMounts(env map[string]any, volumes, mounts []map[stri
 			}
 		}
 	}
-	for _, key := range []string{"AIPLEX_IDENTITY_PROVIDERS_FILE", "AIPLEX_CONNECTIONS_FILE", "AIPLEX_ROLE_BINDINGS_FILE", "AIPLEX_MODULE_MANIFEST", "TLS_CERT_FILE", "TLS_KEY_FILE", "CLIENT_CA_FILE"} {
+	for _, key := range []string{"AIPLEX_IDENTITY_PROVIDERS_FILE", "AIPLEX_CONNECTIONS_FILE", "AIPLEX_QUOTA_FILE", "AIPLEX_ROLE_BINDINGS_FILE", "AIPLEX_MODULE_MANIFEST", "TLS_CERT_FILE", "TLS_KEY_FILE", "CLIENT_CA_FILE"} {
 		filename, ok := env[key].(string)
 		if !ok || filename == "" {
 			continue

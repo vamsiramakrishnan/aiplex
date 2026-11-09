@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
 type Owner struct{ TenantID, PrincipalID, SurfaceID string }
@@ -45,14 +46,15 @@ type Authorizer func(context.Context, contracts.RequestContext, Surface, Operati
 type SharedAuthorizer func(context.Context, contracts.RequestContext, Surface, Operation) bool
 
 type UsageObservation struct {
-	Source      string           `json:"source"`
-	SurfaceID   string           `json:"surface_id"`
-	OperationID string           `json:"operation_id"`
-	ResourceID  string           `json:"resource_id,omitempty"`
-	Terminal    bool             `json:"terminal"`
-	Counters    map[string]int64 `json:"counters"`
-	Cumulative  bool             `json:"cumulative"`
-	EventID     string           `json:"event_id,omitempty"`
+	Source       string           `json:"source"`
+	SurfaceID    string           `json:"surface_id"`
+	OperationID  string           `json:"operation_id"`
+	ResourceID   string           `json:"resource_id,omitempty"`
+	Terminal     bool             `json:"terminal"`
+	Counters     map[string]int64 `json:"counters"`
+	Cumulative   bool             `json:"cumulative"`
+	EventID      string           `json:"event_id,omitempty"`
+	ModelVersion string           `json:"model_version,omitempty"`
 }
 type Options struct {
 	UpstreamHeaders http.Header
@@ -63,6 +65,7 @@ type Options struct {
 	AllowShared     SharedAuthorizer
 	Ownership       Ownership
 	Observe         func(context.Context, Owner, UsageObservation)
+	Execution       ExecutionPreparer
 	// LiveDialer is a separately configured transport adapter. Its network dialer
 	// must enforce the same endpoint policy as HTTPClient.
 	LiveDialer        LiveDialer
@@ -207,6 +210,21 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "operation denied", http.StatusForbidden)
 			return
 		}
+		if g.options.Execution != nil {
+			lease, err := g.prepareExecution(r, trusted, op, metadata, nil)
+			if err != nil {
+				writeExecutionError(w, err)
+				return
+			}
+			cleanup, cancel := executionContext(r.Context())
+			defer cancel()
+			if err = lease.Abort(cleanup); err != nil {
+				writeExecutionError(w, err)
+				return
+			}
+			writeExecutionError(w, &execution.StatusError{Status: http.StatusNotImplemented, Code: "UNSUPPORTED_EXECUTION_TRANSPORT", Message: "controlled Live execution requires a supported lifecycle adapter"})
+			return
+		}
 		g.serveLive(w, r, trusted, owner, op)
 		return
 	}
@@ -226,6 +244,22 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
 		http.Error(w, "operation denied", http.StatusForbidden)
 		return
+	}
+	lease, e := g.prepareExecution(r, trusted, op, metadata, body)
+	if e != nil {
+		writeExecutionError(w, e)
+		return
+	}
+	var run *executionRun
+	if lease != nil {
+		run = &executionRun{lease: lease, ctx: r.Context()}
+		defer run.close()
+		if receipt, ok := lease.(execution.Receipt); ok {
+			id := receipt.AttemptID()
+			if id != "" && len(id) <= 1024 && !strings.ContainsAny(id, "\r\n") {
+				w.Header().Set(execution.AttemptHeader, id)
+			}
+		}
 	}
 	token, e := g.options.TokenSource.Token(r.Context())
 	if e != nil || strings.TrimSpace(token) == "" {
@@ -250,13 +284,25 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	request.Header = forwardRequestHeaders(r.Header)
 	applyTrustedHeaders(request.Header, g.options.UpstreamHeaders)
 	request.Header.Set("Authorization", "Bearer "+token)
+	if e = run.beforeDispatch(r.Context()); e != nil {
+		writeExecutionError(w, e)
+		return
+	}
 	response, e := g.client.Do(request)
 	if e != nil {
+		if err := run.finish(execution.Result{Err: e}); err != nil {
+			writeExecutionError(w, err)
+			return
+		}
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= 300 && response.StatusCode < 400 {
+		if err := run.finish(execution.Result{StatusCode: response.StatusCode, Err: errors.New("upstream redirect refused")}); err != nil {
+			writeExecutionError(w, err)
+			return
+		}
 		http.Error(w, "upstream redirects are not supported", http.StatusBadGateway)
 		return
 	}
@@ -264,7 +310,39 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if success && strings.HasPrefix(response.Header.Get("Content-Type"), "text/event-stream") {
 		copyResponseHeaders(w.Header(), response.Header)
 		w.WriteHeader(response.StatusCode)
+		if run != nil {
+			g.copyControlledSSE(w, r, response.Body, owner, op, run, response.StatusCode)
+			return
+		}
 		g.copySSE(w, r, response.Body, owner, op)
+		return
+	}
+	if run != nil {
+		data, err := io.ReadAll(io.LimitReader(response.Body, g.options.MaxBodyBytes+1))
+		if err != nil || int64(len(data)) > g.options.MaxBodyBytes {
+			if err == nil {
+				err = errors.New("response observation bound exceeded")
+			}
+			_ = run.finish(execution.Result{StatusCode: response.StatusCode, Err: err})
+			http.Error(w, "upstream response exceeds observation bound", http.StatusBadGateway)
+			return
+		}
+		terminal := false
+		if success && (op.Action == Create || strings.Contains(response.Header.Get("Content-Type"), "json")) {
+			terminal, err = g.observeControlledJSON(owner, op, data, run)
+			if err != nil {
+				_ = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Err: err})
+				http.Error(w, "upstream response could not be acknowledged", http.StatusBadGateway)
+				return
+			}
+		}
+		if err = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Terminal: terminal}); err != nil {
+			writeExecutionError(w, err)
+			return
+		}
+		copyResponseHeaders(w.Header(), response.Header)
+		w.WriteHeader(response.StatusCode)
+		_, _ = w.Write(data)
 		return
 	}
 	// Creation responses must be examined and durably bound before delivery.

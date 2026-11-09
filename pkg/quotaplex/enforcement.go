@@ -129,6 +129,12 @@ func (b *BoundProvider) RecordProviderResource(ctx context.Context, resourceID s
 // disconnect or missing final frame must use MarkUnknown instead. Native host
 // adapters, not arbitrary API callers, establish that this evidence is terminal.
 func (b *BoundProvider) SettleTerminal(ctx context.Context, eventID string, usage Vector, providerResourceID string) (Decision, error) {
+	return b.SettleTerminalWithModelVersion(ctx, eventID, usage, providerResourceID, "")
+}
+
+// SettleTerminalWithModelVersion binds terminal usage to an observed model
+// version when the admission requires it. The version is part of replay identity.
+func (b *BoundProvider) SettleTerminalWithModelVersion(ctx context.Context, eventID string, usage Vector, providerResourceID, modelVersion string) (Decision, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.claim == nil {
@@ -143,7 +149,7 @@ func (b *BoundProvider) SettleTerminal(ctx context.Context, eventID string, usag
 			return Decision{}, fmt.Errorf("%w: missing meter %s", ErrTerminalEvidenceRequired, meter)
 		}
 	}
-	settlement := Settlement{TenantID: b.demand.Context.TenantID, AttemptID: b.demand.AttemptID, EventID: eventID, Claim: *b.claim, Usage: CloneVector(usage), ProviderResourceID: providerResourceID}
+	settlement := Settlement{TenantID: b.demand.Context.TenantID, AttemptID: b.demand.AttemptID, EventID: eventID, Claim: *b.claim, Usage: CloneVector(usage), ProviderResourceID: providerResourceID, ModelVersion: modelVersion}
 	decision, err := b.engine.Settle(ctx, settlement)
 	if err != nil {
 		return Decision{}, err

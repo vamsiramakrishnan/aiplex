@@ -29,18 +29,39 @@ type RoleBinding struct {
 
 // WIFIdentity represents a resolved identity from a WIF token.
 type WIFIdentity struct {
-	ActorID         string   `json:"actor_id,omitempty"`
-	ActorSubject    string   `json:"actor_subject,omitempty"`
-	AuthorizedParty string   `json:"authorized_party,omitempty"`
-	PrincipalID     string   `json:"principal_id"` // Canonical immutable identity; never an email.
-	Subject         string   `json:"subject"`      // google.subject
-	Email           string   `json:"email"`        // attribute.email
-	DisplayName     string   `json:"display_name"` // google.display_name
-	Groups          []string `json:"groups"`       // google.groups
-	Domain          string   `json:"domain"`       // attribute.domain (e.g. hd claim)
-	Provider        string   `json:"provider"`     // which WIF provider authenticated this user
-	PoolID          string   `json:"pool_id"`      // workforce or workload pool ID
-	IsWorkforce     bool     `json:"is_workforce"` // true = human user, false = machine agent
+	// VerifiedEvidence is populated only after a configured verifier accepts
+	// the credential. It is not accepted from or exposed as an identity JSON field.
+	VerifiedEvidence *IdentityEvidence `json:"-"`
+	ActorID          string            `json:"actor_id,omitempty"`
+	ActorSubject     string            `json:"actor_subject,omitempty"`
+	AuthorizedParty  string            `json:"authorized_party,omitempty"`
+	PrincipalID      string            `json:"principal_id"` // Canonical immutable identity; never an email.
+	Subject          string            `json:"subject"`      // google.subject
+	Email            string            `json:"email"`        // attribute.email
+	DisplayName      string            `json:"display_name"` // google.display_name
+	Groups           []string          `json:"groups"`       // google.groups
+	Domain           string            `json:"domain"`       // attribute.domain (e.g. hd claim)
+	Provider         string            `json:"provider"`     // which WIF provider authenticated this user
+	PoolID           string            `json:"pool_id"`      // workforce or workload pool ID
+	IsWorkforce      bool              `json:"is_workforce"` // true = human user, false = machine agent
+}
+
+// IdentityEvidence preserves the signed lifetime and group-view facts needed by
+// controls that require bounded membership freshness. Missing evidence does not
+// invalidate ordinary authentication; protected controls must fail closed or
+// use an explicitly configured authoritative resolver.
+type IdentityEvidence struct {
+	Issuer              string
+	PoolID              string
+	Subject             string
+	IssuedAt            time.Time
+	ExpiresAt           time.Time
+	CredentialExpiresAt time.Time
+	LifetimeValid       bool
+	GroupsPresent       bool
+	GroupsValid         bool
+	GroupsSource        string
+	Groups              []string
 }
 
 // ResolvedAccess is the result of resolving a WIF identity against role bindings.

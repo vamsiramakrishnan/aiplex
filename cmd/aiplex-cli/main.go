@@ -122,6 +122,7 @@ Get started:
 		modulesCmd(),
 		resourcesCmd(),
 		nativeCmd(),
+		quotaCmd(),
 
 		// Onboarding
 		quickstartCmd(),

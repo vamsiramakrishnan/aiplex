@@ -186,16 +186,17 @@ type PolicyRef struct {
 }
 
 type Demand struct {
-	Version            string                   `json:"version"`
-	Context            contracts.RequestContext `json:"context"`
-	Principal          Subject                  `json:"principal"`
-	Actor              *Subject                 `json:"actor,omitempty"`
-	LogicalOperationID string                   `json:"logical_operation_id"`
-	AttemptID          string                   `json:"attempt_id"`
-	PayloadDigest      string                   `json:"payload_digest"`
-	Target             Target                   `json:"target"`
-	FundingAccountID   string                   `json:"funding_account_id,omitempty"`
-	Bounds             Vector                   `json:"bounds"` // trusted maximum raw exposure, excluding computed money
+	RequireModelVersion bool                     `json:"require_model_version,omitempty"`
+	Version             string                   `json:"version"`
+	Context             contracts.RequestContext `json:"context"`
+	Principal           Subject                  `json:"principal"`
+	Actor               *Subject                 `json:"actor,omitempty"`
+	LogicalOperationID  string                   `json:"logical_operation_id"`
+	AttemptID           string                   `json:"attempt_id"`
+	PayloadDigest       string                   `json:"payload_digest"`
+	Target              Target                   `json:"target"`
+	FundingAccountID    string                   `json:"funding_account_id,omitempty"`
+	Bounds              Vector                   `json:"bounds"` // trusted maximum raw exposure, excluding computed money
 }
 
 type BudgetLimit struct {
@@ -264,6 +265,7 @@ type DispatchClaim struct {
 // Settlement must originate from a host-authorized terminal usage producer.
 // Successful=false does not erase consumption; client disconnect is not terminal.
 type Settlement struct {
+	ModelVersion       string        `json:"model_version,omitempty"`
 	TenantID           string        `json:"tenant_id"`
 	AttemptID          string        `json:"attempt_id"`
 	EventID            string        `json:"event_id"`

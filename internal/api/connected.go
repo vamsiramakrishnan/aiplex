@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -28,12 +29,14 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 )
 
 type TenantResolver func(*http.Request) (string, error)
 type ModelConnection = modelapi.Connection
 
 type ToolConnection struct {
+	Execution             *toolexec.Connection   `json:"execution,omitempty"`
 	ClientRegistrationRef string                 `json:"client_registration_ref,omitempty"`
 	ID                    string                 `json:"id"`
 	ResourceURL           string                 `json:"resource_url"`
@@ -42,6 +45,8 @@ type ToolConnection struct {
 	NetworkProfileRef     string                 `json:"network_profile_ref,omitempty"`
 }
 type ConnectedHandler struct {
+	Quota           *QuotaHost
+	ResolveAccess   func(context.Context, *models.WIFIdentity) (*models.ResolvedAccess, error)
 	EnabledModules  map[string]bool
 	Governance      *governance.Controller
 	NativeProviders map[string]NativeProviderInfo
@@ -321,11 +326,28 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			// Developer application identity and issuer-scoped OAuth profile
 			// identity are distinct. Linking them does not require equal IDs.
 		}
-		if e := toolauth.ValidateClientProfile(c.Client); e != nil {
-			return e
+		if c.Execution == nil || c.Issuer != "" || !reflect.DeepEqual(c.Client, toolauth.ClientProfile{}) {
+			if e := toolauth.ValidateClientProfile(c.Client); e != nil {
+				return e
+			}
+			if e := toolauth.ValidateConnection(toolauth.Connection{TenantID: tenant, ID: id, ResourceURL: c.ResourceURL, Issuer: c.Issuer}); e != nil {
+				return e
+			}
 		}
-		if e := toolauth.ValidateConnection(toolauth.Connection{TenantID: tenant, ID: id, ResourceURL: c.ResourceURL, Issuer: c.Issuer}); e != nil {
-			return e
+		if c.Execution != nil {
+			if c.Execution.ID != id || c.Execution.Endpoint != c.ResourceURL {
+				return fmt.Errorf("execution identity and endpoint must match the saved connection")
+			}
+			if e := c.Execution.Validate(); e != nil {
+				return e
+			}
+			if e := h.Runtime.CheckDestination(tenant, c.Execution.IdentityRef, c.ResourceURL); e != nil {
+				return e
+			}
+			identity, e := h.Runtime.Identity(tenant, c.Execution.IdentityRef)
+			if e != nil || identity.Type == "aws-default" {
+				return fmt.Errorf("managed tool execution requires an approved bearer credential adapter")
+			}
 		}
 		p, e := endpointpolicy.New(h.Runtime.Config.Network)
 		if e != nil {
@@ -440,6 +462,26 @@ func (h *ConnectedHandler) authorize(r *http.Request, required string) error {
 	}
 	return nil
 }
+
+// authorizeCurrent re-resolves grants at the dispatch boundary. Quota-protected
+// hosts must supply their authoritative resolver rather than reuse ingress grants.
+func (h *ConnectedHandler) authorizeCurrent(ctx context.Context, r *http.Request, required string) error {
+	if h.ResolveAccess == nil {
+		if h.Quota != nil {
+			return fmt.Errorf("current access resolver unavailable")
+		}
+		return h.authorize(r, required)
+	}
+	identity := GetWIFIdentity(r.Context())
+	if identity == nil {
+		return fmt.Errorf("verified identity required")
+	}
+	access, err := h.ResolveAccess(ctx, identity)
+	if err != nil || access == nil || access.Identity.PrincipalID != identity.PrincipalID || access.Identity.ActorID != identity.ActorID || !scopeAllowed(access.Scopes, required) {
+		return fmt.Errorf("current execution grant required")
+	}
+	return nil
+}
 func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	tenant, ok := h.tenant(w, r)
 	if !ok {
@@ -498,6 +540,9 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	}, AllowShared: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation) bool {
 		return h.authorize(r, "llm:surface:"+id+":shared-admin") == nil
 	}, Ownership: resourceOwnership{store: h.Store, namespace: strconv.FormatUint(record.Revision, 10)}, LiveDialer: liveDialer, AllowHTTPForTests: h.Development}
+	if h.Quota != nil {
+		opts.Execution = h.ModelExecutionPreparer(r, record, connection)
+	}
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)
 	if e != nil {
 		Error(w, r, 503, "SURFACE_UNAVAILABLE", e.Error())
@@ -534,6 +579,10 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if e = h.authorize(r, "a2a:agent:"+id+":"+in.Operation); e != nil {
 		Error(w, r, 403, "ACTION_DENIED", e.Error())
+		return
+	}
+	if h.Quota != nil {
+		Error(w, r, http.StatusNotImplemented, "QUOTA_AGENT_COVERAGE_UNAVAILABLE", "native agent execution requires a supported quota and metering adapter")
 		return
 	}
 	if e = h.checkAgentGovernanceRef(r.Context(), tenant, c); e != nil {

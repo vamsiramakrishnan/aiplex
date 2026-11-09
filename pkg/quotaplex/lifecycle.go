@@ -205,8 +205,7 @@ func (e *Engine) Settle(ctx context.Context, settlement Settlement) (Decision, e
 	if !validAccountingTime(now) {
 		return Decision{}, fmt.Errorf("valid quota clock required")
 	}
-	eventDigest := quotaHash(settlement.AttemptID, settlement.Claim, settlement.Usage, settlement.ProviderResourceID)
-	settlementDigest := quotaHash(settlement.Usage, settlement.ProviderResourceID)
+	eventDigest, settlementDigest := settlementDigests(settlement)
 	var result Decision
 	err := e.store.Update(ctx, settlement.TenantID, func(tx Tx) error {
 		result = Decision{}
@@ -216,6 +215,9 @@ func (e *Engine) Settle(ctx context.Context, settlement Settlement) (Decision, e
 		}
 		if record.DispatchClaim != settlement.Claim {
 			return ErrConflict
+		}
+		if err := validateSettlementModel(record.Demand, settlement); err != nil {
+			return err
 		}
 		if record.ProviderResource != "" && record.ProviderResource != settlement.ProviderResourceID {
 			return fmt.Errorf("terminal usage does not identify the pinned provider resource: %w", ErrConflict)

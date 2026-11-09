@@ -137,6 +137,7 @@ func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHa
 		r.Route("/mcp/connections", func(r chi.Router) {
 			resourceRoutes(r, h, "tool-connection")
 			r.Post("/{id}/registration", h.RegisterTool)
+			r.Post("/{id}/invoke", h.NativeTool)
 		})
 	}
 	available["clientplex"] = &httpModule{descriptor: modules.Descriptor{Name: "clientplex", Version: "1.0.0", ContractVersion: "v1", Capabilities: []string{"clientplex.manage"}, Dependencies: []modules.Dependency{{Name: "identity", ContractVersion: "v1"}}, APIPrefixes: []string{"/api/v1/clients"}, Navigation: []modules.Navigation{{Path: "/clientplex", Title: "ClientPlex"}}, Commands: []modules.Command{{Name: "clients", Description: "Register and configure developer clients"}}}, mount: func(r chi.Router) {
@@ -208,6 +209,10 @@ func serverTLS(cfg *config.Config) (*tls.Config, error) {
 // NativeInvocation bypasses only the administrative POST role test. The native
 // handler must enforce its own per-resource action grant before credentials.
 func nativeInvocation(r *http.Request) bool {
+	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/mcp/connections/") && strings.HasSuffix(r.URL.Path, "/invoke") {
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/mcp/connections/"), "/invoke")
+		return id != "" && !strings.ContainsAny(id, "/%\\")
+	}
 	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/iam/native/bindings/") && strings.HasSuffix(r.URL.Path, "/read") {
 		return true
 	}

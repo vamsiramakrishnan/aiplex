@@ -146,7 +146,8 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 	}
 	var claims map[string]any
 	var err error
-	if requestVerifier, ok := verifier.(RequestTokenVerifier); ok {
+	requestVerifier, requestBound := verifier.(RequestTokenVerifier)
+	if requestBound {
 		claims, err = requestVerifier.VerifyRequest(r, token)
 	} else {
 		claims, err = verifier.Verify(r.Context(), token)
@@ -219,6 +220,10 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 			return nil, fmt.Errorf("delegated actor requires immutable subject")
 		}
 		identity.ActorID = CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.ActorSubject)
+	}
+	identity.VerifiedEvidence = verifiedIdentityEvidence(claims, identity)
+	if requestBound {
+		constrainRequestEvidence(r, identity.VerifiedEvidence)
 	}
 
 	return identity, nil

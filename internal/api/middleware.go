@@ -107,7 +107,8 @@ func CORS(allowedOrigins ...string) func(http.Handler) http.Handler {
 			if allowed {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-Id")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-Id, Idempotency-Key, X-Aiplex-Funding-Account, X-Aiplex-Operation-Id, MCP-Protocol-Version")
+				w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id, X-Aiplex-Attempt-ID, Retry-After, ETag")
 				w.Header().Set("Access-Control-Max-Age", "86400")
 			}
 			if r.Method == http.MethodOptions {
