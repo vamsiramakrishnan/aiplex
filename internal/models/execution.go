@@ -25,7 +25,7 @@ const (
 	ExecutionEventTimerScheduled    ExecutionEventKind = "timer.scheduled"
 	ExecutionEventBudgetCharged     ExecutionEventKind = "budget.charged"
 	ExecutionEventPolicyViolation   ExecutionEventKind = "policy.violation"
-	// PR 13. Tape's compactor reactor emits a kind="run" journal entry
+	// Tape's compactor reactor emits a kind="run" journal entry
 	// with `compacted_at_ms` in the payload when it zeroes the bulky
 	// payloads on a settled run. The AIPlexSink (or the run-projection
 	// loop) re-stamps it as `run.compacted` so the typed enum below
@@ -38,8 +38,7 @@ const (
 // no-op, out-of-order posts land and the projection catches up.
 //
 // The shape is what `/internal/tape/events` accepts (the wire contract
-// between Tape's outbox relay and AIPlex's ingestion endpoint). See
-// docs/integration/aiplex-tape-survey.md §"PR 6" for the rationale.
+// between Tape's outbox relay and AIPlex's ingestion endpoint).
 type ExecutionEvent struct {
 	// (RunID, Seq) is the idempotency key for ingestion.
 	RunID string `json:"run_id"`
@@ -105,7 +104,7 @@ type ExecutionRun struct {
 	PolicyViolations  int64 `json:"policy_violations"`
 	BudgetUSDCharged  float64 `json:"budget_usd_charged"`
 
-	// Compaction (PR 13). Tape's compactor reactor zeroes the bulky
+	// Compaction. Tape's compactor reactor zeroes the bulky
 	// JSON payloads on settled, retention-aged runs; AIPlex sees the
 	// state change via a kind="run" journal entry carrying
 	// compacted_at_ms in the payload. The projection mirrors that

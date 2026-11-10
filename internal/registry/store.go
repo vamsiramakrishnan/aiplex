@@ -81,7 +81,7 @@ type Store interface {
 	PutRoleBinding(ctx context.Context, rb *models.RoleBinding) error
 	DeleteRoleBinding(ctx context.Context, id string) error
 
-	// AIPlex ↔ Tape audit ingestion (PR 6).
+	// AIPlex ↔ Tape audit ingestion.
 	//
 	// Tape's outbox relay POSTs events to /internal/tape/events; the
 	// handler dedupes on (RunID, Seq), quarantines events for unknown
@@ -98,17 +98,17 @@ type Store interface {
 	ListExecutionRuns(ctx context.Context, tenantID, agentID string, limit int) ([]models.ExecutionRun, error)
 	ListExecutionEvents(ctx context.Context, runID string, fromSeq int64, limit int) ([]models.ExecutionEvent, error)
 	// Last-ingest timestamp drives the Runs page health checklist
-	// (PR 11 item 13) — "have we received any events recently?"
+	// "Have we received any events recently?"
 	LastIngestAt(ctx context.Context) (time.Time, error)
 
-	// AIPlex ↔ Tape operator audit (PR 11 item 8). Distinct from
+	// AIPlex ↔ Tape operator audit. Distinct from
 	// ExecutionEvent so projection rebuild from Tape's outbox doesn't
 	// drop operator history.
 	AppendOperatorAudit(ctx context.Context, a *models.OperatorAudit) error
 	ListOperatorAudit(ctx context.Context, runID string, limit int) ([]models.OperatorAudit, error)
 
 	// Count instances whose Runtime.Engine matches — drives the
-	// tape-server lifecycle status endpoint (PR 11 item 17).
+	// tape-server lifecycle status endpoint.
 	CountInstancesWithRuntime(ctx context.Context, engine models.RuntimeEngine) (int, error)
 }
 
@@ -134,13 +134,13 @@ type MemoryStore struct {
 	skillInvocationIDs      map[string]struct{}
 	policyDenials           []models.PolicyDenial
 	roleBindings            map[string]*models.RoleBinding
-	// Execution audit (AIPlex ↔ Tape integration PR 6 + PR 11).
+	// Execution audit.
 	executionEvents     map[string][]models.ExecutionEvent // runID → events (append-only)
 	executionEventKeys  map[string]struct{}                // "<runID>/<seq>" idempotency set
 	executionRuns       map[string]*models.ExecutionRun    // runID → projected summary
 	executionQuarantine []models.QuarantinedExecutionEvent // unknown-agent quarantine
-	lastIngest          time.Time                          // PR 11 item 13
-	operatorAudit       map[string][]models.OperatorAudit  // runID → audit rows (PR 11 item 8)
+	lastIngest          time.Time
+	operatorAudit       map[string][]models.OperatorAudit  // runID → audit rows
 }
 
 // NewMemoryStore creates an empty in-memory store.
@@ -660,7 +660,7 @@ func (m *MemoryStore) DeleteRoleBinding(ctx context.Context, id string) error {
 	return DeleteLegacyConfiguration(ctx, m, ConfigRoleBinding, id)
 }
 
-// ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────
+// ── Execution audit ──────────────────────
 
 // AppendExecutionEvent stores one event. Returns wrote=true on a fresh
 // row, wrote=false on a duplicate (idempotent on (RunID, Seq)).

@@ -1,18 +1,16 @@
 # QuotaPlex prerequisites and readiness
 
-Status: implementation checklist, audited against the native-governance
-foundation and the [implemented QuotaPlex core](quotaplex-core.md), including the
-[feature cohesion repairs](feature-cohesion-bugbash.md).
-This checklist preserves the existing architecture and distinguishes pending
-quota work from implemented reporting behavior.
+This register states what the [QuotaPlex core](quotaplex-core.md) implements and
+what must still be demonstrated before hard limits are enabled. It distinguishes
+unfinished quota work from implemented reporting behavior.
 
-Aiplex now includes the shared allocator, durable accounting, acknowledged usage
+Aiplex includes the shared allocator, durable accounting, acknowledged usage
 and opt-in managed host integrations. Their mechanism tests cover explicit
 profiles; hard token or monetary claims still depend on verified provider bounds,
 commercial prices, deployed routing and operation-specific qualification.
 
-The [foundation design](quotaplex-foundation-design.md) extends the implementation
-baseline to uneven group sizes, tool work, rates, concurrency and scheduling.
+The [foundation design](quotaplex-foundation-design.md) covers
+uneven group sizes, tool work, rates, concurrency and scheduling.
 QuotaPlex has a shared control core and an [opt-in managed execution layer](quotaplex-integration.md)
 for supported model/tool profiles. Default traffic and direct-provider/deployed
 gateway paths do not automatically gain coverage.
@@ -33,17 +31,15 @@ Live messages and client protocols retain their provider semantics.
 
 There are three different readiness questions:
 
-1. **Before implementation:** agree the contracts and invariants below. These are
-   design inputs, not a requirement to build the quota engine somewhere else first.
-2. **During implementation:** build the quota-owned mechanisms and narrow host
-   integrations against those contracts.
+1. **Contracts:** the contracts and invariants below define what each mechanism must guarantee.
+2. **Mechanisms:** quota-owned mechanisms and narrow host integrations implement those contracts.
 3. **Before enforcement:** demonstrate the production gates for every enabled
    operation and deployment. Untested paths cannot inherit a hard-limit claim.
 
 ## Prerequisite register
 
 `Present` means a reusable foundation exists. `Contract` means a decision must be
-made before coding the corresponding mechanism. `Integration` means the host
+made before the corresponding mechanism is relied on. `Integration` means the host
 still needs to bind an existing seam. `Production` means evidence is required
 before enabling enforcement. None of the pending rows changes module ownership.
 
@@ -76,7 +72,7 @@ before enabling enforcement. None of the pending rows changes module ownership.
 The evidence links describe current code. A versioned schema, registry entry or
 native IAM integration alone does not satisfy a pending accounting gate.
 
-## Decisions to settle before implementing QuotaPlex
+## Policy decisions
 
 ### Funding, groups and authority
 
@@ -344,8 +340,8 @@ Before enabling enforcement, demonstrate:
 Set measurable admission/settlement latency, throughput, hot-account contention
 and recovery targets for the deployment. Keep immutable policy/price reads cached
 by revision and the reservation critical section bounded. Native identity-directory
-or registry administration does not belong on each token's hot path. If local
-leases/escrow are introduced later, their total outstanding exposure needs the
+or registry administration does not belong on each token's hot path. Local
+leases/escrow, if introduced, need their total outstanding exposure needs the
 same conservation proof as central reservations.
 
 Expose reservation age, pending/unknown settlement, denied admission reasons,
@@ -372,18 +368,18 @@ routing, native credentials and billing/usage comparisons. Deploying every cloud
 identity product is not a prerequisite to writing QuotaPlex. Enable coverage only
 where these checks pass.
 
-## Core implementation and ready-to-enforce checklists
+## Implemented core and enforcement gates
 
-The initial foundation now implements:
+The core implements:
 
-- [x] Typed subjects, independent memberships, selected payer and simultaneous constraints.
-- [x] Explicit unequal allocations and supported fixed, anchored and calendar windows.
-- [x] Extensible integer meters, exact money, immutable price revisions and overflow handling.
-- [x] Typed admission, dispatch/resource pinning, unknown retention and terminal settlement.
-- [x] Atomic memory-reference/Firestore storage and durable replay mechanisms.
-- [x] Explicit compatible-budget loans, protected allocation floors and expiry guards.
-- [x] Admitted rate/burst controls, concurrency permits and bounded weighted queue selection.
-- [x] Frozen source-qualified population allocation; no automatic headcount rebalance.
+- Typed subjects, independent memberships, selected payer and simultaneous constraints.
+- Explicit unequal allocations and supported fixed, anchored and calendar windows.
+- Extensible integer meters, exact money, immutable price revisions and overflow handling.
+- Typed admission, dispatch/resource pinning, unknown retention and terminal settlement.
+- Atomic memory-reference/Firestore storage and durable replay mechanisms.
+- Explicit compatible-budget loans, protected allocation floors and expiry guards.
+- Admitted rate/burst controls, concurrency permits and bounded weighted queue selection.
+- Frozen source-qualified population allocation; no automatic headcount rebalance.
 
 The core guide identifies unsupported rolling windows, structural migrations and
 operation-specific partial-usage/checkpoint/renewal workflows. Reviewed corrections
@@ -391,22 +387,22 @@ and atomic scheduling/admission are implemented. Native capacity reservation,
 preemption and provider throughput guarantees still require their own contracts
 and deployment evidence; configured admission credits do not establish them.
 
-Before enabling enforcement, require:
+Before enabling enforcement, each of the following must hold (none is established by this repository alone):
 
-- [ ] Validate allocation, reservations, ledger, configured prices and immutable
+- Validate allocation, reservations, ledger, configured prices and immutable
   policy/membership/price history on the chosen production backend and deployment.
-- [x] Supported managed paths supply trusted context, admission and acknowledged usage.
-- [ ] Additional enabled operations and deployment routes pass the same coverage gate.
-- [ ] Per-operation metering, streaming/async recovery and bypass coverage verified.
-- [ ] Deployment-level concurrency, retry, crash, expiry, rollover and reconciliation tests pass.
-- [ ] Compound budget/rate/concurrency admission, bounded queues, weighted sharing,
+- Supported managed paths supply trusted context, admission and acknowledged usage (implemented).
+- Additional enabled operations and deployment routes pass the same coverage gate.
+- Per-operation metering, streaming/async recovery and bypass coverage verified.
+- Deployment-level concurrency, retry, crash, expiry, rollover and reconciliation tests pass.
+- Compound budget/rate/concurrency admission, bounded queues, weighted sharing,
   tool metering and supported throughput guarantees pass their own invariant tests.
-- [ ] Latency/capacity, audit, outage, backup/restore and administrative controls verified.
-- [ ] Shadow comparison, migration, activation and rollback evidence recorded.
+- Latency/capacity, audit, outage, backup/restore and administrative controls verified.
+- Shadow comparison, migration, activation and rollback evidence recorded.
 
-These checks preserve the present flow. Remaining automation, capacity scheduling,
+Remaining automation, capacity scheduling,
 recovery and enforcement integration stay with QuotaPlex and its explicit host
 adapters. Identity, LLMPlex, A2APlex, ClientPlex, networking and Anvil retain their
 existing responsibilities.
 
-The [foundation completion guide](foundation-completion.md) links the new configuration, membership, administration, scheduling, MCP, model and infrastructure mechanisms with their qualification evidence.
+The [foundation completion guide](foundation-completion.md) links the new configuration, membership, administration, scheduling, MCP, model and infrastructure mechanisms with their evidence.

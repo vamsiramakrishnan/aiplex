@@ -41,7 +41,7 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8787 go test -race ./internal/registry \
   -run '^(TestFirestore(Instance|Agent|Template|DeployHistory|UserScopes|LLMRouteConfig|RoleBinding)|TestQuotaEmulator.*)$'
 ```
 
-The new qualification tests use fresh random emulator project IDs and independent
+The qualification tests use fresh random emulator project IDs and independent
 SDK clients. Closing/reopening those clients tests process replacement while the
 emulator retains its data. It does **not** test restoration of a managed Firestore
 backup, production IAM, composite-index enforcement, regional latency or live

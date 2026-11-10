@@ -6,8 +6,7 @@ tool server (its `auth` block), and which tools a caller may reach through it (i
 service OAuth, RFC 8693 token exchange, Google ID tokens, and the existing per-user
 OAuth grant. The `tools` block adds allow and deny lists and a read-only mode.
 
-The design is in [usage ledger, agent identity and tool auth](design/2026-11-09-usage-ledger-agent-identity-tool-auth.md),
-section 3. The delegated OAuth flow that `oauth_user` uses is described in
+The delegated OAuth flow that `oauth_user` uses is described in
 [MCP runtime authorization](mcp-runtime-authorization.md).
 
 ## Routes

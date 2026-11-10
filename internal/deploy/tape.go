@@ -16,7 +16,7 @@ const tapeRuntimeNamespace = "aiplex-system"
 // Default container image. The Tape repo ships releases as
 // `tape-server_<version>_<target>.tar.gz`; for the GKE / Cloud Run
 // images the convention is ghcr.io/vamsiramakrishnan/tape-server:<version>.
-// Overridable per-environment via the runtime config in PR 4's model
+// Overridable per-environment via the runtime config model
 // (Store.SecretRef etc are already there; image override is a follow-up).
 const tapeServerImage = "ghcr.io/vamsiramakrishnan/tape-server:latest"
 

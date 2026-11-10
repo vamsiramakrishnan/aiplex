@@ -135,70 +135,37 @@ Protocol: the server answers `server/discover` and requests that carry the per-r
 
 A test walks the CLI's command tree and fails if any `aiplex` command or flag in these instruction files does not exist.
 
-## What was run against real clients
+## Validation status
 
-Run on 2026-11-10 in the build environment, with the real Claude Code 2.1.322, an isolated
-home directory, a minimal environment (no provider keys) and `aiplex dev`:
+Config shapes follow the vendors' documentation for Claude Code (settings, MCP, monitoring, authentication, plugins), Codex (config file and reference), Gemini CLI (MCP, configuration, extensions), Antigravity (MCP) and the MCP specification.
 
-- `aiplex connect local --client claude-code --write --with-telemetry aiplex` wrote the
-  endpoint and the telemetry environment and printed the header step; no token reached a file.
-- Claude Code, with `OTEL_EXPORTER_OTLP_HEADERS` set from that step, exported logs and metrics
-  to `/otlp/v1/logs` and `/otlp/v1/metrics`. Both were accepted under the sender's verified
-  principal. Its `claude_code.api_error` event (an upstream refusal) and its
-  `claude_code.api_request` event (against a local mock Anthropic server, to get a successful
-  request) were stored as reported records with the harness version (`2.1.322`), session id,
-  prompt id, request id, token counts (`input_tokens` plus cache tokens as the ledger's total
-  input), cost basis `reported` from `cost_usd_micros`, and `query_source`, `speed`,
-  `terminal_type`. The attribute names in the Claude Code mapping were confirmed by these
-  events.
-- Claude Code did not send an `X-Client-Request-Id` or a `traceparent` to a gateway. With
-  `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1` and `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` it sent a
-  `traceparent`, and its log events carried the same trace id but a different span id from
-  the one it propagated. Trace-level correlation (see the
-  [usage ledger](usage-ledger.md#sources-in-summaries)) is therefore the key that can match
-  Claude Code's events to managed records, and only with those settings; by default a Claude
-  Code reported record has no key and stays in its own group.
-- Managed plus reported, after the dev surfaces' beta allowlist was fixed (rerun on the merged
-  branch): a headless Claude Code turn through `/ap/local` completed (a managed `anthropic.messages`
-  record) and the same turn's `claude_code.api_request` arrived at `/otlp` (a reported record).
-  By default the two have no shared key, so a summary shows them as separate groups
-  (`managed` 2 records including a `tools/list`, `reported` 1) and excludes nothing; the pair is
-  **not** de-duplicated, as designed. With `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1` and
-  `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`, the managed record's trace id equalled the reported
-  record's (the log event's span id differs from the one Claude Code propagated, so the
-  managed record's `caller_span_id` does not match), the trace-level fallback paired them, and
-  the summary left the reported record out (`excluded_correlated_reported` 1, no reported group).
-- Inside a hosted Claude Code session, host-managed provider variables (for example
-  `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`) override `ANTHROPIC_AUTH_TOKEN`; the run above used
-  `env -i` to avoid them.
+Tested: file merging, diffs, backup, undo, idempotence and token absence (unit and end-to-end tests against `aiplex dev` with an isolated home), and the MCP handshake, `tools/list` and tool calls over stdio.
 
-Not run: Codex and Gemini CLI telemetry (their mappings come from their documentation and
-Codex's source), the Codex header placeholder form, Gemini CLI's endpoint path handling, and
-any harness telemetry over gRPC (the receiver is OTLP/HTTP only).
+### Observed with real clients
 
-## What has and has not been validated
+Each client was started with an empty `HOME`, the files `connect --write` produced and `aiplex dev`. Environment variables that override settings files (`CLAUDE_CODE_*`, `ANTHROPIC_*`, for example `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST` in a hosted Claude Code session) must be removed from the client's environment.
 
-Config shapes were taken from the vendors' current documentation on 2026-11-10: Claude Code settings, MCP and monitoring pages (code.claude.com/docs/en/settings, /mcp, /monitoring-usage, /authentication, /plugins-reference), Codex config pages (learn.chatgpt.com/docs/config-file/config-advanced and config-reference), Gemini CLI MCP, configuration and extension references (google-gemini/gemini-cli, `docs/`), Antigravity's MCP page (antigravity.google/docs/mcp), and the MCP specification (modelcontextprotocol.io, revision 2026-07-28 and its versioning page).
+| Client and version | Works | Not exercised or does not work |
+| --- | --- | --- |
+| Claude Code 2.1.322 | A headless `claude -p` turn through `/ap/local/v1/messages` against the mock Anthropic model, with `ANTHROPIC_AUTH_TOKEN` or with `--token-helper` (`apiKeyHelper`), recorded in the ledger. `claude mcp list` shows the stdio server connected. `claude plugin validate integrations/claude-code` passes and the plugin loads with its three skills. A turn through z.ai's Anthropic-compatible endpoint, including a tool call, completes. Logs and metrics exported to `/otlp/v1/logs` and `/otlp/v1/metrics` are stored as reported records (harness version, session id, prompt id, request id, token counts, cost basis `reported`). | Sends no `X-Client-Request-Id` or `traceparent` to a gateway by default; see the correlation note below. |
+| Gemini CLI 0.67.0 | `gemini -p` against the mock Gemini model and against the Gemini Developer API through `aiplex dev --provider gemini`, with the written `settings.json`, `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY`. `gemini mcp list` shows the server connected. `gemini extensions link integrations/gemini-cli` works. | Telemetry (the mapping comes from documentation). |
+| Codex CLI 0.167.0 | `codex exec` against the mock Responses model with the written `config.toml`, with `env_key` and with `--token-helper` (`[model_providers.aiplex.auth]`). `codex mcp list` shows the server. | A real OpenAI upstream, telemetry (the mapping comes from documentation and Codex's source) and the Codex header placeholder form. |
+| Antigravity CLI `agy` 1.5.4 | `agy mcp list` lists the entry written by `connect --write`. The CLI uses `~/.gemini/config/mcp_config.json` (`mcpServers.<name>.serverUrl` and `headers`). | The CLI sends `Authorization: Bearer ${AIPLEX_TOKEN}` literally and does not expand environment variables, so AIPlex writes only the stdio server and leaves the access point's MCP endpoint as a manual step. A model turn (needs a Google sign-in) and the Antigravity IDE and App are not exercised. |
 
-Tested here: file merging, diffs, backup, undo, idempotence and token absence (unit and end-to-end tests against `aiplex dev` with an isolated home); the MCP handshake, `tools/list` and tool calls over stdio.
+Receiver limits: harness telemetry over gRPC is not supported (the receiver is OTLP/HTTP only), and Gemini CLI's endpoint path handling has not been checked.
 
-### Observed with real clients (Linux container, 2026-11-10, isolated `HOME`)
+Behaviour of the real clients that affects setup:
 
-Each client was started with `HOME` pointing at an empty directory, with the files `connect --write` produced, against `aiplex dev` (mock models) and, where noted, a real upstream. The container's own `CLAUDE_CODE_*` and `ANTHROPIC_*` variables were removed from the client's environment, because they override settings files.
-
-| Client and version | Observed |
-| --- | --- |
-| Claude Code 2.1.322 | With the written `settings.json` and `ANTHROPIC_AUTH_TOKEN`, a headless `claude -p` turn completed against the mock Anthropic model: the request reached `/ap/local/v1/messages`, the ledger holds a record with the caller `developer@localhost`, the model and token counts. The `--token-helper` variant (`apiKeyHelper`, no `ANTHROPIC_AUTH_TOKEN`) also completed. `claude mcp list` showed `aiplex-local` connected. `claude plugin validate integrations/claude-code` passed (one advisory about a missing icon); `claude --plugin-dir integrations/claude-code` loaded the plugin, connected its stdio `aiplex mcp serve` server and listed its three skills. One turn through a real upstream, z.ai's Anthropic-compatible endpoint (GLM family), also completed, including a tool call to the access point's `echo` tool. |
-| Gemini CLI 0.67.0 | After the written `settings.json`, with `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY` exported, `gemini -p` completed against the mock Gemini model, and against the real Gemini Developer API through `aiplex dev --provider gemini`. Requests arrived at `/ap/local/v1beta/models/...:streamGenerateContent` and the ledger holds them. `gemini mcp list` showed `aiplex-local` connected. `gemini extensions link integrations/gemini-cli` worked and connected the stdio server. |
-| Codex CLI 0.167.0 | `codex exec` completed against the mock Responses model with the written `config.toml`, with `env_key` and with `--token-helper` (`[model_providers.aiplex.auth]`). `codex mcp list` showed `aiplex-local`. A real OpenAI upstream was not exercised: the OpenAI key available for this validation had no credit (HTTP 429 `insufficient_quota` on every generation endpoint). |
-| Antigravity CLI `agy` 1.5.4 | Installed from the official script (antigravity.google/cli/install.sh). `agy mcp add` creates `~/.gemini/config/mcp_config.json` with `mcpServers.<name>.serverUrl` and `headers`; `agy mcp list` listed the entry written by `connect --write`. The CLI connected to a configured MCP server at start-up and sent the header `Authorization: Bearer ${AIPLEX_TOKEN}` literally: it does not expand environment variables. So AIPlex writes only the stdio server and leaves the access point's MCP endpoint, which needs a bearer token, as a manual step. Not observed: a model turn (the CLI needs a Google sign-in), and the Antigravity IDE or App loading the file (the IDE and App were not installed). The commonly reported path `~/.gemini/antigravity/mcp_config.json` is not what the CLI or the official page use. |
-
-Things the real clients showed that the mock-only tests did not:
-
-- **Claude Code sends `anthropic-beta` headers** (`claude-code-20250219`, `interleaved-thinking-2025-05-14`, `context-management-2025-06-27` and others, which change between versions). A surface refuses a beta that is not in its `provider.anthropic_betas`, so the first request failed with 400 until the list was added. `aiplex dev` now seeds the betas observed with 2.1.322 on its Anthropic surfaces. A surface you create yourself needs the same list, and a later Claude Code version may need more.
-- **An `ANTHROPIC_API_KEY` in Claude Code's settings `env` conflicts.** Claude Code sends it as `x-api-key` next to the AIPlex token, the access point answers 401 `conflicting credentials`, and your provider key has been sent to AIPlex. `connect --write` now says so when it finds one; it does not remove it.
+- **Claude Code sends `anthropic-beta` headers** (`claude-code-20250219`, `interleaved-thinking-2025-05-14`, `context-management-2025-06-27` and others, which change between versions). A surface refuses a beta that is not in its `provider.anthropic_betas`, so a request with an unlisted beta fails with 400. `aiplex dev` seeds the betas observed with 2.1.322 on its Anthropic surfaces. A surface you create yourself needs the same list, and a later Claude Code version may need more.
+- **An `ANTHROPIC_API_KEY` in Claude Code's settings `env` conflicts.** Claude Code sends it as `x-api-key` next to the AIPlex token, the access point answers 401 `conflicting credentials`, and your provider key has been sent to AIPlex. `connect --write` warns when it finds one; it does not remove it.
 - **Gemini CLI needs `security.auth.selectedType`** (otherwise "Invalid auth method selected") and chooses its own models. It remaps names (a request for `gemini-3.5-flash` went to `gemini-3.8-flash`) and uses a flash-lite model for routing, so the access point has to offer every model the CLI may ask for, not only the one you configure.
 - Claude Code prints "doesn't recognize the model" for a gateway model name and assumes a 200k window; this is a warning only.
 - Codex warns that it has no metadata for a gateway model name, and prints an error for any other MCP server in your config that it cannot reach.
 
-Telemetry: see "What was run against real clients" above for `--with-telemetry aiplex`; the settings for other collectors have not been checked against a client that exports, or received by an external collector. `~/.claude.json` is also written by Claude Code itself; the command warns to run it while no session is open. `CLAUDE_CONFIG_DIR` is not supported: if it is set, the Claude Code write is refused rather than guessing.
+### Correlating managed and reported records
+
+By default a Claude Code reported record has no key shared with the managed record of the same turn, so a summary shows them as separate groups and excludes nothing; the pair is not de-duplicated. With `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1` and `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`, Claude Code sends a `traceparent` and its log events carry the same trace id (with a different span id from the one it propagated). Trace-level correlation (see the [usage ledger](usage-ledger.md#sources-in-summaries)) then pairs them and the summary leaves the reported record out (`excluded_correlated_reported`).
+
+### Telemetry for other collectors
+
+`--with-telemetry aiplex` points a client at the receiver without writing the token to a file. The settings for other collectors have not been checked against a client that exports, or received by an external collector. `~/.claude.json` is also written by Claude Code itself; the command warns to run it while no session is open. `CLAUDE_CONFIG_DIR` is not supported: if it is set, the Claude Code write is refused rather than guessing.

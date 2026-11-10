@@ -1,8 +1,8 @@
 # Foundation completion and qualification
 
-This increment connects the existing Plex boundaries. It does not change the
-permission intersection, move provider semantics into QuotaPlex, or infer live
-cloud enforcement from a registry entry.
+This page summarises how the Plex boundaries connect. The connections do not
+change the permission intersection, move provider semantics into QuotaPlex, or
+infer live cloud enforcement from a registry entry.
 
 | Construct | Implemented connection | Contract and evidence |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ skew or replace production clock monitoring.
 ## Remaining deployment and capability boundaries
 
 No live cloud apply, native directory synchronization, enterprise sign-in or
-provider invoice collection occurred during this increment. The HTTP membership
+provider invoice collection has been exercised. The HTTP membership
 protocol requires a real trusted directory authority; it does not manufacture
 Google/Entra/AWS directory evidence. Existing native credential brokers still
 need their supported runtime credential sources and target-environment wiring.
@@ -80,5 +80,5 @@ allocations and explicit loans remain available.
 Qualify real provider ceilings/prices, native identity/consent flows, target client
 compatibility, private routing, desired-state convergence, production contention,
 backup restore, admission latency and billing equivalence before expanding the
-hard-enforcement claim. The executable local/CI evidence and remaining live gates
-are deliberately recorded separately.
+hard-enforcement claim. The executable local/CI evidence and the live gates are
+recorded separately in the [qualification runbook](production-qualification.md).

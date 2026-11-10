@@ -19,8 +19,7 @@ const (
 // inconsistent. Callers should join with errors.Is for typed checks.
 var ErrRuntimeInvalid = errors.New("runtime: invalid")
 
-// Validate checks the runtime config against the rules documented in
-// docs/integration/aiplex-tape-survey.md §"Validation":
+// Validate checks the runtime config against these rules:
 //
 //   * engine=tape implies durable=true (no transient Tape runs).
 //   * Non-sqlite stores must reference a Secret rather than inlining a
@@ -75,7 +74,7 @@ func (r RuntimeConfig) Validate(env Environment) error {
 		return fmt.Errorf("%w: outbox.sink=pubsub requires outbox.topic",
 			ErrRuntimeInvalid)
 	}
-	// PR 13: retention windows must be monotonic. compact_after_days
+	// retention windows must be monotonic. compact_after_days
 	// >= hot_days, delete_after_days >= compact_after_days. Zero values
 	// disable each stage and are valid in any order.
 	ret := r.Retention

@@ -1,11 +1,9 @@
 # Durable Tape Runtime — an A2A agent backed by the Tape execution substrate
 #
-# This is the AIPlex side of the integration documented in
-# docs/integration/aiplex-tape-survey.md. The `runtime:` block under
-# config: tells AIPlex's deploy engine (PR 5 — currently round-trips the
-# config but doesn't generate manifests yet) to provision a tape-server
-# alongside this agent and inject AIPLEX_* + TAPE_URL env vars onto the
-# pod. Tape itself handles durability: crash mid-effect, resume from the
+# The `runtime:` block under config: declares a Tape runtime for the agent.
+# The deploy engine currently round-trips this config and validates it; it does
+# not yet generate manifests to provision a tape-server or inject AIPLEX_* and
+# TAPE_URL env vars. Tape itself handles durability: crash mid-effect, resume from the
 # journal, no duplicate side effects.
 #
 # Usage: aiplex apply -f examples/durable-tape-runtime.yaml
@@ -20,7 +18,7 @@ instances:
       # Standard agent config (template-specific fields).
       policy_version: aiplex-treasury-2026.05
 
-      # The new bit (PR 4): a runtime block that selects the Tape engine.
+      # The new bit: a runtime block that selects the Tape engine.
       # Validated by models.RuntimeConfig.Validate at admission time —
       # see internal/models/runtime_validate.go for the rules.
       runtime:

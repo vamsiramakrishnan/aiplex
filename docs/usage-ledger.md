@@ -8,7 +8,6 @@ exchange cost when a price or a quota settlement establishes a cost. Records hol
 identifiers, status, timing and counters. They never hold prompts, completions,
 tool arguments, results or credentials.
 
-The design is in [usage ledger, agent identity and tool auth](design/2026-11-09-usage-ledger-agent-identity-tool-auth.md).
 Quota admission and settlement are documented in [managed QuotaPlex execution](quotaplex-integration.md).
 Which provider usage is exact, advisory or not observed is stated in the generated
 [usage-format coverage matrix](reference/usage-formats/coverage.md). That matrix is the
@@ -185,8 +184,7 @@ them, and are omitted when the provider did not report them (unknown, not zero):
 | `tool_use_prompt_tokens` | tokens | Gemini `toolUsePromptTokenCount`: tokens a built-in tool retrieved, reported apart from `promptTokenCount` and **not** part of `input_tokens`. Never zero-filled. |
 
 A Gemini `promptTokensDetails` or `candidatesTokensDetails` list names only the modalities
-that carried tokens (observed live on the Gemini Developer API, 2026-11-10: a text-only prompt
-lists `TEXT` alone). When the listed counts add up to `promptTokenCount` (or
+that carried tokens (on the Gemini Developer API a text-only prompt lists `TEXT` alone). When the listed counts add up to `promptTokenCount` (or
 `candidatesTokenCount`), the standard modalities that are not listed are recorded as reported
 zeros; when the list does not add up, they stay unknown. Without this a price that rates audio
 could never cost a text-only request.
@@ -272,7 +270,7 @@ A price may carry an optional `source` object (`catalog`, `commit`, `retrieved_a
 `source_url`). It records where an imported price came from and has no effect on matching
 or cost.
 
-The Gemini Developer API omits `cachedContentTokenCount` and `thoughtsTokenCount` when they are zero (observed on the live API, 2026-11-10), so for `gemini-developer` generation a record that reports prompt, candidate and total counts gets `cache_read_tokens` 0 and `reasoning_tokens` equal to the total minus prompt, candidates and tool-use prompt tokens. Gemini reports thinking tokens apart from output tokens and bills them as output, so catalogue imports for `gemini-developer` price `reasoning_tokens` at the output rate.
+The Gemini Developer API omits `cachedContentTokenCount` and `thoughtsTokenCount` when they are zero (observed on the live API), so for `gemini-developer` generation a record that reports prompt, candidate and total counts gets `cache_read_tokens` 0 and `reasoning_tokens` equal to the total minus prompt, candidates and tool-use prompt tokens. Gemini reports thinking tokens apart from output tokens and bills them as output, so catalogue imports for `gemini-developer` price `reasoning_tokens` at the output rate.
 
 If a priced meter's quantity is not reported for a record (for example `cache_read_tokens`
 on a provider that omits cached tokens), that record's cost stays `unknown`; the ledger does
@@ -299,7 +297,7 @@ never switches between priced and unpriced. A record whose `input_tokens` is unk
 select a tier, so its cost is `unknown`.
 
 That is the rule of the providers whose tiers the catalogue imports. A provider that charges
-only the excess cannot be expressed. Where each provider's rule was checked (2026-11-10):
+only the excess cannot be expressed. Each provider's rule, from its documentation as of 2026-11-10:
 
 | Provider | Threshold | What the provider says | Imported |
 | --- | --- | --- | --- |
@@ -345,7 +343,7 @@ tokens (`tool_use_prompt_tokens`) are a separate unit.
 A record's cost is a whole number of minor units at its price's scale. `Estimate` adds exact
 rationals (no floating point) and rounds **up** once, at the price's scale: the amount is the
 smallest whole number of minor units that is not below the exact cost, so one record is at most
-one minor unit above it. Live validation saw 9.25 micro-USD stored as 10; that is this rule.
+one minor unit above it. For example, 9.25 micro-USD is stored as 10.
 
 To keep that from accumulating, the exact value is kept: when the amount was rounded up,
 `cost.exact` holds the unrounded amount in minor units as a fraction (`"37/4"` for 9.25).
@@ -614,7 +612,7 @@ tenant and one verified principal; model, time and token counts are never used t
    at most one reported record this way.
 
 When no key exists the records stay in separate groups. Whether a given harness provides a
-key depends on how it is configured; see [harness onboarding](harness-onboarding.md#what-was-run-against-real-clients).
+key depends on how it is configured; see [harness onboarding](harness-onboarding.md#observed-with-real-clients).
 
 ## Tags
 

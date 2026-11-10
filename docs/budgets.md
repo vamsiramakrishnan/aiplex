@@ -223,4 +223,4 @@ Restore and failover behaviour of the Firestore store is not validated here; see
 * **Tool and agent cost.** Cost and token budgets count model requests only.
 * **Budgets without QuotaPlex.** Direct provider, Envoy and other paths that bypass managed dispatch are not metered, as for all of QuotaPlex.
 * **Per-principal counters inside a budget.** A budget has one shared counter. "Top spenders" come from the usage ledger, which is a separate record.
-* **Live validation.** The tests exercise the mechanisms with the in-memory store, mock upstreams and placeholder prices. Counters against the Firestore store, real provider usage and live billing have not been compared with budgets.
+* **Live validation.** Budgets are exercised with the in-memory store, mock upstreams and placeholder prices. Counters against the Firestore store, real provider usage and live billing have not been compared with budgets.

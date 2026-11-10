@@ -2,7 +2,7 @@
 
 Synthetic, doc-derived samples of how each provider reports token usage and
 rate-limit metadata, used to audit usage observers. One subdirectory per
-provider; this commit adds `anthropic/`. Reference prose lives in
+provider. Reference prose lives in
 `docs/reference/usage-formats/<provider>.md`.
 
 ## File naming

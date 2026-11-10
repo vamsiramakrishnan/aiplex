@@ -7,9 +7,8 @@ package models
 // set to `RuntimeConfig{Engine: RuntimeEngineNone}` — explicit absence
 // over nil, so consumers never branch on a nil pointer.
 //
-// See the Tape integration survey at docs/integration/aiplex-tape-survey.md
-// for the architectural context, and tape/docs/integrations/aiplex.md in
-// the durable-agents repo for the wire contract.
+// The wire contract is documented in tape/docs/integrations/aiplex.md in
+// the durable-agents repo.
 
 // RuntimeEngine names the execution substrate for an instance.
 type RuntimeEngine string
@@ -73,7 +72,7 @@ type RuntimeOutboxConfig struct {
 }
 
 // RuntimeRetention drives the compaction + purge lifecycle for
-// Tape-backed runs (PR 13). Three windows, expressed in days:
+// Tape-backed runs. Three windows, expressed in days:
 //
 //   HotDays           Full event detail kept on AIPlex's
 //                     execution_events. Below this window the

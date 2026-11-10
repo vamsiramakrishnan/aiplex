@@ -9,7 +9,7 @@ and every span, attribute and metric name is in one file,
 The GenAI and MCP semantic conventions that AIPlex follows have **Development**
 status. Their names have changed between releases and will change again. AIPlex
 records the revision it follows (the `open-telemetry/semantic-conventions-genai`
-commit `e6658f14c9d9ea0760825f029cb82e7673f48fab`, 2026-11-06, and core
+commit `e6658f14c9d9ea0760825f029cb82e7673f48fab` of 2026-11-06, and core
 conventions v1.45.0 for HTTP and `error.type`). A rename is a change to that one
 file, and it will be listed in the release notes. Dashboards built on these names
 may need updating when that happens.
@@ -191,9 +191,9 @@ the same requests, so storing them as well would count a request twice; they are
 dropped. A harness that exports only metrics therefore produces no ledger records.
 `aiplex connect --with-telemetry` enables logs.
 
-**What is mapped** (written from the harnesses' documentation, see
-[harness onboarding](harness-onboarding.md#what-was-run-against-real-clients) for what was
-run against a real client):
+**What is mapped** (from the harnesses' documentation; see
+[harness onboarding](harness-onboarding.md#observed-with-real-clients) for what has
+been observed with a real client):
 
 | Harness | Event | Ledger record |
 | --- | --- | --- |
@@ -280,10 +280,9 @@ Development mode without a token serves it to the local developer, as it serves
 everything else on its loopback-only listener.
 
 The public gateway does not route `/metrics`. Scrape the `aiplex-api` service
-inside the cluster. A role-based rule (admin) was rejected because a scraper
-would then need an AIPlex identity token that expires. A public rule was
-rejected because metrics reveal access point and model names and traffic
-volumes.
+inside the cluster. The route is not public because metrics reveal access point and model names
+and traffic volumes, and it is not role-based because a scraper would then
+need an AIPlex identity token that expires.
 
 ## Configuration
 
@@ -391,19 +390,18 @@ before applying (see the comment at the top of `deploy/k8s/otel-collector.yaml`)
 - The OTLP receiver is exercised by unit tests on payloads built from the harnesses'
   documentation, an end-to-end test against `aiplex dev`, and a real Claude Code 2.1.322
   exporting to a local `aiplex dev` (see
-  [harness onboarding](harness-onboarding.md#what-was-run-against-real-clients)). Codex and
+  [harness onboarding](harness-onboarding.md#observed-with-real-clients)). Codex and
   Gemini CLI mappings have not been run against the real clients. The receiver has not been
   measured under load.
 - Export has been verified only against the in-process OTLP/HTTP receiver in
   `tests/e2e/telemetry_test.go`. It has **not** been run against a real
   collector, Jaeger, Cloud Trace or Cloud Monitoring. The gRPC exporter path has
-  no end-to-end test. The Helm templates have not been rendered in this change's
-  checks.
+  no end-to-end test. The Helm templates are not rendered by the repository's checks.
 - The conventions are in Development status, and names may change (see the top
   of this page).
 - The CLIENT span covers admission as well as the upstream call, so its duration
   is the ledger's `latency_ms` and not only the provider's time.
-- Agent invocations use the GenAI `invoke_agent` client convention (checked 2026-11-10 against
+- Agent invocations use the GenAI `invoke_agent` client convention (matching
   `docs/gen-ai/client-invoke-agent.md`: operation name, provider name, usage attributes and
   `gen_ai.client.invoke_agent.duration` match; the span carries `gen_ai.agent.id`, the agent
   connection id). The convention names the span `invoke_agent {gen_ai.agent.name}` when the

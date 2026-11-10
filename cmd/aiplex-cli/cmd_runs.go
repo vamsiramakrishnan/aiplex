@@ -10,8 +10,8 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
-// runsCmd is the AIPlex ↔ Tape run timeline + operator action surface
-// (PR 11 item 12). Subcommands:
+// runsCmd is the AIPlex ↔ Tape run timeline + operator action surface.
+// Subcommands:
 //
 //	aiplex runs list      [--tenant] [--agent] [--has-unknown] [--has-obligations] [--limit]
 //	aiplex runs inspect   <run_id>

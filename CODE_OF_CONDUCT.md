@@ -6,7 +6,7 @@ This project follows the [Contributor Covenant, version 2.1](https://www.contrib
 
 Instances of unacceptable behaviour can be reported to the project maintainer at:
 
-> **TODO (repository owner): replace this line with a contact address before the project is announced. No address has been invented here.**
+> No contact address is configured yet.
 
 Reports are handled privately and in good faith. The maintainer will follow the enforcement guidelines in the Contributor Covenant: correction, warning, temporary ban or permanent ban, depending on the nature of the behaviour.
 

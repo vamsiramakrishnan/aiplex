@@ -1,12 +1,11 @@
 # QuotaPlex foundation design
 
-Status: implementation baseline, independently reviewed against the existing
-foundations. The [shared core](quotaplex-core.md) now implements typed policy,
-exact accounting, atomic admission, durable-backend mechanisms, explicit loans
-and weighted queue selection. Capacity guarantees, host interception and
-production enforcement remain pending. See the [readiness register](quotaplex-prerequisites.md).
+The [shared core](quotaplex-core.md) implements typed policy, exact accounting,
+atomic admission, durable-backend mechanisms, explicit loans and weighted queue
+selection. Capacity guarantees, host interception and production enforcement are
+not established; see the [readiness register](quotaplex-prerequisites.md).
 
-Build one resource-control core for LLMPlex, MCPlex, A2APlex and SkillsPlex.
+QuotaPlex is one resource-control core for LLMPlex, MCPlex, A2APlex and SkillsPlex.
 Provider adapters supply trusted demands, capacity coordinates and usage; they
 do not implement their own funding, window, borrowing or rate-limit logic.
 QuotaPlex stays independently pluggable. Existing gateway ownership, verified
@@ -34,12 +33,12 @@ provider charges. Models can use input/output/cached/reasoning tokens, requests
 and other verified native units. Units have explicit scope: tokens from different
 tokenizers or model families are interchangeable only where policy declares it.
 
-## Baseline policy decisions
+## Policy semantics
 
-These choices make the first core deterministic. Unsupported alternatives must
+These rules make the core deterministic. Unsupported alternatives must
 be rejected explicitly rather than silently approximated.
 
-| Concern | Baseline |
+| Concern | Rule |
 | --- | --- |
 | Funding | One selected eligible payer per billable attempt; deterministic policy priority resolves a missing selection; ambiguous priority is an error |
 | Simultaneous limits | Every matched mandatory user, agent, account, group, tenant and resource constraint must pass together |
@@ -212,18 +211,8 @@ For each supported budget account/window, maintain the invariant:
 Parent ceilings and transfer conservation must hold under simultaneous lender
 demand, borrower demand, expiry, retries and policy changes.
 
-## Implementation order and acceptance gates
+## Unsupported capabilities
 
-| Order | Deliverable | Required evidence before the next layer |
-| --- | --- | --- |
-| 1 | Versioned typed subjects, accounts, meters, money, periods and policy compiler | Unequal group quantities/windows, dual human/agent constraints, frozen headcount strategy, unit errors, overflow and DST/boundary tests |
-| 2 | Transaction contract and executable reference core | Atomic multi-cap budget/rate/concurrency admission, identical/changed replay tests, concurrent contention and rollback/conservation properties |
-| 3 | Durable storage and lifecycle/recovery | Restart at every dispatch/usage/settlement boundary, fencing, duplicate/out-of-order usage, late settlement, unknown work and restore tests |
-| 4 | Sharing and bounded scheduling mechanisms | Protected floors, hard ceilings, unequal weights, finite queues/deadlines, infeasible-capacity rejection and loan/throughput separation |
-| 5 | Narrow host adapters and capability coverage | Trusted membership/demand binding, admit before billable dispatch, acknowledged usage, no silent bypass and preserved native stream semantics |
-| 6 | Shadow rollout, then scoped enforcement | Decision explanations, reconciliation, failure-mode coverage and measured latency/QPS/contention; enable only proven operations/deployments |
-
-Implement the shared mechanisms before a provider-specific vertical slice.
-Declare unsupported capabilities and return stable denied/deferred/advisory
+Unsupported capabilities return stable denied/deferred/advisory
 outcomes explicitly. Registration, a policy document, a native identity link or
 successful unit tests alone must never advertise production quota/QoS enforcement.

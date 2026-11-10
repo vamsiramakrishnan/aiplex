@@ -8,8 +8,6 @@ the caller is in its subjects. A QoS block ties the access point to QuotaPlex co
 The single pane is the overview API and the `aiplex who` and `aiplex connect` commands,
 which show every caller, what each can reach and why, and how to point a client at an
 access point.
-
-The design is in [access points and the single pane](design/2026-11-09-access-points-single-pane.md).
 Quota controls are described in [managed QuotaPlex execution](quotaplex-integration.md).
 Usage records carry `access_point_id` and `caller_kind`; see [usage ledger](usage-ledger.md).
 Client profiles are described in [ClientPlex](clientplex.md).

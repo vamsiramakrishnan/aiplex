@@ -8,8 +8,7 @@ the exact issuer, JWKS URL, audience, subject and required claims from a few
 operator inputs, so no wildcard trust is written by hand. The verifier explains
 each check in a dry run, which helps when a token is rejected.
 
-The design is in [usage ledger, agent identity and tool auth](design/2026-11-09-usage-ledger-agent-identity-tool-auth.md),
-section 2. Registered agents are described in [native agent governance](native-agent-governance.md).
+Registered agents are described in [native agent governance](native-agent-governance.md).
 A binding grants nothing by itself: after it verifies a token, the identity goes through
 the normal role-binding and grant path.
 

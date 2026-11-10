@@ -1,10 +1,10 @@
 # QuotaPlex execution contracts and evidence
 
-The managed integration is already part of merged PR #9. This follow-up qualifies
-the existing integration, fixes cumulative usage replacement inside an SSE final
-tail, and adds model/tool tests over separate host/engine instances sharing one
-transactional store. It does not replace the accounting core, change defaults,
-enable a production policy or deploy resources.
+This page states the contracts of the managed QuotaPlex integration and the
+evidence that covers them: model and tool tests over separate host/engine
+instances sharing one transactional store, and cumulative usage replacement
+inside an SSE final tail. It does not change defaults, enable a production policy
+or deploy resources.
 
 ## Ownership and integration contracts
 
@@ -98,17 +98,13 @@ native async/Live billing and verified provider throughput remain separate gates
 
 ## Test evidence
 
-Validated on November 9, 2026: **1,219 Go tests/subtests pass with the race
-detector**, including **32 new tests/subtests in 15 new top-level tests**. All
-37 tested packages pass; nine emulator-only tests skip in this local run.
-`go vet ./...` and both API/CLI builds pass. Local builds use `-buildvcs=false`
-to omit VCS stamping in the linked workspace checkout.
+The Go tests run with the race detector in CI. Emulator-only tests skip unless
+the Firestore emulator is configured.
 
-The initial new SSE-tail regression failed in both variants against the merged
-implementation: the attempt was `settled` using lower replacement counters and
-the contradictory final tail was delivered. With the fix, both variants leave
-the attempt `unknown`, withhold the tail and retain every budget hold. Equal
-repeated final counters still complete byte-for-byte and charge once.
+For an SSE final tail whose cumulative usage counters are replaced by lower or
+contradictory values, the attempt is left `unknown`, the tail is withheld and
+every budget hold is retained. Equal repeated final counters complete
+byte-for-byte and charge once.
 
 Reproduce the complete Go validation from the repository root:
 

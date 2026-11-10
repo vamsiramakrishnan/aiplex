@@ -892,7 +892,7 @@ func (f *FirestoreStore) DeleteRoleBinding(ctx context.Context, id string) error
 	return DeleteLegacyConfiguration(ctx, f, ConfigRoleBinding, id)
 }
 
-// ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────
+// ── Execution audit ──────────────────────
 //
 // Tape's outbox relay POSTs events to /internal/tape/events; AIPlex
 // dedupes on (RunID, Seq), quarantines unknown agents, and updates the
