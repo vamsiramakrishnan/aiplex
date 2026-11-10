@@ -67,9 +67,12 @@ the table.
 | `workforce-identity` | `organization_id` set | iam | `roles/iam.workforcePoolAdmin` **on the organization** (plus `iam.roleAdmin` and `resourcemanager.projectIamAdmin` on the project) |
 | `alert-email` | `alert_email` set | monitoring | `monitoring.notificationChannelEditor` |
 | `telemetry` | `otel_collector = true` (default; keep equal to Helm `otel.enabled` and `otel.collector`) | cloudtrace, monitoring | nothing beyond core (`iam.serviceAccountAdmin`, `resourcemanager.projectIamAdmin`) |
+| `dedicated-network` | `cluster_network = "aiplex"` (default `"default"`; `aiplex init` writes `"aiplex"` for new installs) | compute | `compute.networkAdmin` (Cloud Router and NAT, Private Google Access on the subnet) |
+| `external-agent-federation` | `aws_account_id` or `azure_agent_tenant_id` set | iam | nothing beyond core (`iam.workloadIdentityPoolAdmin`) |
 
-The Helm step of `aiplex platform apply` also creates namespaced Roles and
-RoleBindings for the API. Kubernetes lets you create a Role only when you hold
+The Helm step of `aiplex platform apply` installs the Gateway, routes and Cloud
+Armor attachment (Gateway API custom resources) and creates namespaced Roles
+and RoleBindings for the API. Kubernetes lets you create a Role only when you hold
 its permissions yourself; `roles/container.developer` covers the objects in
 those Roles. The table covers Terraform and the state bucket, not the Helm
 step.
@@ -103,6 +106,8 @@ operation needs it:
 | `containeranalysis.notes.attachOccurrence` | `google_binary_authorization_attestor` | The permission checked on the note when an attestor references it is not stated. |
 | `datastore.schemas.get`, `datastore.schemas.update` | `google_firestore_field` (TTL) | The role reference names index permissions `datastore.schemas.*`; the exact check for field TTL updates is not stated. |
 | `container.*` (namespaces, deployments, services, config maps, jobs, secrets, service accounts) | `helm_release`, `kubernetes_namespace`, `kubernetes_service_account`, `kubernetes_deployment`, `kubernetes_service` | For the Helm releases it depends on what the Ory charts render; for all of them the GKE mapping from Kubernetes calls to these permissions was not validated against a live cluster. |
+| `container.thirdPartyObjects.*` | `helm_release` | The chart's Gateway, HTTPRoute, ReferenceGrant, GCPBackendPolicy and HealthCheckPolicy are custom resources. Google's reference names no Gateway kinds, so they are assumed to be authorized as `thirdPartyObjects`; the mapping was not confirmed. |
+| `compute.subnetworks.use` | `google_container_cluster` (dedicated network) | GKE docs name Compute Network User on the host project for Shared VPC; whether creating a cluster on a same-project custom subnetwork checks this permission is not stated. |
 | `storage.objects.*` on the state bucket | Terraform GCS backend | Not stated as a permission list by Google. |
 
 ## The custom deployer role (optional)
@@ -146,7 +151,7 @@ Trade-offs:
 | `aiplex-api` service account, secret payloads | `roles/secretmanager.secretAccessor` on the project (every secret) | `roles/secretmanager.secretAccessor` with the condition `resource.name.startsWith("projects/PROJECT_NUMBER/secrets/aiplex-")` (Terraform variable `api_secret_prefix`) |
 | `aiplex-api` service account, secret writes and metadata | nothing, so writes failed | custom role `aiplexApiSecrets` (`secretmanager.secrets.create`, `secretmanager.secrets.get`, `secretmanager.versions.add`, `secretmanager.versions.destroy`, `secretmanager.versions.get`); condition: the same prefix, or a check on the project resource itself (see below) |
 | `aiplex-api` service account, Firestore | `roles/datastore.user` on the project | `roles/datastore.user` with the condition `resource.name == "projects/PROJECT_ID/databases/(default)"` (variable `restrict_firestore_to_database`, default true) |
-| `aiplex-api` Kubernetes service account | no RBAC | Role and RoleBinding `aiplex-api-deployer` in `aiplex-system`, `mcplex`, `a2aplex`, `llmplex` and `skillsplex` (Helm `api.rbac`): get, list, watch, create, patch and delete on exactly the kinds `internal/deploy` renders. No ClusterRole; every object is namespaced. |
+| `aiplex-api` Kubernetes service account | no RBAC | Role and RoleBinding `aiplex-api-deployer` in `aiplex-system`, `mcplex`, `a2aplex`, `llmplex` and `skillsplex` (Helm `api.rbac`): create, patch and delete (server-side apply and cleanup; no reads) on exactly the kinds `internal/deploy` renders. The API calls the Kubernetes API itself (a small built-in client, no `kubectl`); it finds each kind's resource name through API discovery, which every authenticated subject can read. No ClusterRole; every object is namespaced. |
 | `aiplex-alloydb-proxy` (new) | the proxy ran as `aiplex-api`, which had no AlloyDB access | own Kubernetes and Google service accounts with `roles/alloydb.client` and `roles/serviceusage.serviceUsageConsumer` on the project, the roles Google's Auth Proxy guide lists |
 | `aiplex-otel-collector` (new) | the chart's collector ran as `aiplex-api` | own Kubernetes and Google service accounts (`otel_collector = true`) with `roles/cloudtrace.agent` and `roles/monitoring.metricWriter` on the project, the only level these roles support. The collector's exports and its settings are in [observability](observability.md#turn-it-on-in-gke-helm) |
 | `aiplex-firestore-export` service account | `roles/datastore.importExportAdmin` on the project; `roles/storage.admin` on the backup bucket | custom role `aiplexFirestoreExporter` (`datastore.databases.export`, `datastore.databases.getMetadata`, `datastore.operations.get`; no import); `roles/storage.legacyBucketWriter` on the backup bucket (bucket get, object create, delete, list) |
@@ -199,31 +204,43 @@ names its secrets `aiplex-...`, so reads and writes fail.
 
 ### Still open
 
-- **The API image cannot run in-cluster deploys.** The deploy engine shells out
-  to `kubectl`, which the distroless API image does not contain. The RBAC above
-  is what it needs once a client is in place.
-- **The GKE cluster is not on the Terraform VPC.** `google_container_cluster`
-  sets no `network` or `subnetwork`, so it uses the project's default network,
-  and the firewall rules on `aiplex-network` do not apply to it. Moving an
-  existing cluster to another network replaces it, so this was not changed.
 - **Egress is not restricted.** The "Google APIs" egress rule allows that
   traffic, but nothing denies the rest (VPC firewalls allow egress by default).
   A deny-all egress rule was not added because the API must reach
   operator-chosen model providers, MCP servers, agents and identity providers
   on the internet. Restricting egress means a deny rule plus allow rules, or a
   proxy, for your providers.
-- **The Gateway and its Cloud Armor attachment are manual.** The load balancer
-  comes from the Gateway in `deploy/k8s/gateway.yaml`, which `aiplex platform
-  apply` does not apply. That file now attaches `aiplex-waf` to the API and
-  Console Services with `GCPBackendPolicy`; until it is applied, the policy
-  filters nothing.
-- **Workload identity providers carry placeholders.** `identity_pool.tf` has a
-  placeholder AWS account ID (`123456789012`) and Azure issuer; set them before
-  relying on external agent federation.
+- **Existing clusters stay on the default network.** `cluster_network`
+  defaults to `"default"`, so a deployment created before it existed keeps
+  running outside `aiplex-network` and the firewall rules do not apply to it.
+  Moving it replaces the cluster (see "Moving an existing cluster to the
+  dedicated network" below). New installs from `aiplex init` use the dedicated
+  network.
+- **The firewall rule for health checks targets the network tag `gke-aiplex`.**
+  GKE names node tags itself (`gke-CLUSTER-HASH-node`), so that rule probably
+  matches no node. It was not changed; the load balancer's own health-check
+  firewall rules are created by GKE. Check it on the first dedicated-network
+  install.
+- **Nothing here was run against a live project or cluster.** The Gateway,
+  Cloud Armor attachment and health check follow Google's Gateway
+  documentation but were only rendered (`helm template`), never applied;
+  Terraform was parsed, not planned or applied.
 - **Direct Workload Identity Federation.** The API still uses a Google service
   account with `roles/iam.workloadIdentityUser` rather than federated
   principals, because it mints Google ID tokens for `gcp-adc` identity profiles
   and that path has not been validated with federated tokens.
+
+### Moving an existing cluster to the dedicated network
+
+A GKE cluster's network is fixed at creation. Changing `cluster_network` from
+`"default"` to `"aiplex"` on a deployed cluster makes Terraform replace the
+cluster: every workload, the in-cluster state and the load balancer
+attachments are deleted and recreated, and `deletion_protection = true` stops
+the apply until you turn it off. The data in AlloyDB and Firestore is outside
+the cluster, but expect downtime and plan it like a migration: create the new
+cluster beside the old one (a second Terraform workspace with a different
+cluster name), install the chart, move traffic, then remove the old one. Do not
+set `cluster_network = "aiplex"` on a live deployment as a routine change.
 
 ## Upgrading an existing deployment
 
@@ -293,10 +310,69 @@ changes before approving. None of this has been run against a live project.
     an existing `terraform.tfvars` to silence Terraform's undeclared-variable
     warnings.
 
+15. **API deploys without `kubectl`.** The API now applies and deletes its
+    Kubernetes objects through the Kubernetes API with its service account
+    (server-side apply, field manager `aiplex-deploy`). The `aiplex-api-deployer`
+    Roles lose `get`, `list` and `watch` and keep `create`, `patch` and
+    `delete`. Objects an earlier `kubectl` run created keep the field manager
+    `kubectl`; the new manager takes over any field the API sets, and fields
+    only `kubectl` set are left alone. The distroless API image never contained
+    `kubectl`, so in-cluster deploys could not have run before this; if you
+    deployed with a custom image that did, nothing needs changing in it.
+16. **Gateway in the chart.** `helm upgrade` now creates the Gateway, routes,
+    a `ReferenceGrant`, the two `GCPBackendPolicy` objects (Cloud Armor) and a
+    `HealthCheckPolicy` for the API. If you applied `deploy/k8s/gateway.yaml`
+    by hand before (the file is gone), delete those objects first or let Helm
+    adopt them: Helm refuses to take over objects it does not own (label them
+    `app.kubernetes.io/managed-by=Helm` with the `meta.helm.sh/release-name`
+    and `meta.helm.sh/release-namespace` annotations, or `kubectl delete` and
+    let Helm recreate them, which briefly drops the load balancer rules).
+    Differences from the old file: the GatewayClass is not applied (GKE
+    provides it), the Envoy Gateway `SecurityPolicy` and `BackendTrafficPolicy`
+    and the `ExtensionRef` filter on `/mcp/` are off unless
+    `gateway.envoyGatewayPolicies: true` (the GKE controller ignores those
+    kinds), `a2a-discovery-route` is gone (it matched the same path and backend
+    as `a2aplex-route`), and the cross-namespace backends now have the
+    `ReferenceGrant` they always needed. Hostnames come from `global.domain`
+    (or `gateway.hostnames`) instead of the `DOMAIN` placeholder. Set
+    `gateway.enabled: false` on clusters that are not GKE.
+17. **External identity providers.** The AWS provider (placeholder account
+    `123456789012`) and the Azure provider (placeholder tenant) existed in
+    every deployment. They are now created only when `aws_account_id` or
+    `azure_agent_tenant_id` is set, so `terraform plan` shows both being
+    **destroyed** unless you set the variables (a `moved` block keeps them
+    in place when you do). Both bindings of `aiplex-external-agent` go with
+    them. Nothing could authenticate through a placeholder provider. If you
+    had already pointed the provider at a real account or tenant by editing
+    `identity_pool.tf`, put those values in `terraform.tfvars` before applying.
+    The values are validated (12-digit account, tenant GUID).
+18. **Cluster network.** `cluster_network` defaults to `"default"`; an
+    existing deployment's plan shows no change to the cluster. Do not set it
+    to `"aiplex"` unless you intend to replace the cluster. Re-running
+    `aiplex init` over an existing `terraform.tfvars` keeps its network
+    choice (and its AWS and Azure values); only a missing file gets `"aiplex"`.
+    A new install also creates a Cloud Router and Cloud NAT and turns on
+    Private Google Access on `aiplex-subnet`.
+19. **Policy denials.** The authz sidecar's denial reports now go to
+    `POST /internal/policy-denials`, guarded by a shared secret you create
+    (`denialIngest.tokenSecret`); the route answers 503 until it exists. A
+    Firestore TTL on `policy_denials.expires_at` (30 days) is added by
+    Terraform; existing denial documents have no `expires_at` and are not
+    expired. The dashboard's `policy_denials_24h` now counts the last 24 hours
+    (it counted every denial ever stored). See
+    [policy denials](policy-denials.md).
+20. **Permissions.** `internal/gcpsetup` adds the `dedicated-network` and
+    `external-agent-federation` features and `container.thirdPartyObjects.*`
+    to the Helm step. Regenerate and update the custom role if you use it
+    (`aiplex platform preflight --print-role`, then `gcloud iam roles update`).
+
 ## Limits
 
-- Not run against a live Google Cloud project; `terraform validate` and
-  `helm lint` were not run as part of this change either.
+- Not run against a live Google Cloud project. `helm lint` and `helm template`
+  were run on the chart (with the Ory subcharts removed, since their
+  repository was not reachable); Terraform files were parsed with an HCL
+  parser and checked for undeclared variables, but `terraform fmt`,
+  `validate` and `plan` were not run (no Terraform binary was available).
 - The preflight checks permissions, enabled APIs and billing. It does not
   check quotas, organization policies, deny policies, VPC Service Controls,
   or that names (buckets, domains) are free.

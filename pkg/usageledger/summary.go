@@ -13,7 +13,7 @@ import (
 )
 
 // GroupByFields are the record fields a summary may group by.
-var GroupByFields = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "error_class", "usage_bound", "batch", "harness"}
+var GroupByFields = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "error_class", "usage_bound", "batch", "hook_decision", "harness"}
 
 const (
 	BucketHour = "hour"
@@ -182,6 +182,8 @@ func groupValue(r Record, field string) string {
 		return r.UsageBound
 	case "batch":
 		return strconv.FormatBool(r.Batch)
+	case "hook_decision":
+		return hookDecision(r)
 	case "harness":
 		return r.Harness
 	}

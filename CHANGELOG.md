@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 There has been no tagged release yet. This section summarises what exists in the repository, grouped by area. Nothing here has been validated against live model providers, provider invoices or a live cloud project; see the README's project status.
 
+### SDKs
+
+- Unpublished Python (`sdk/python`, package `aiplex`) and TypeScript (`sdk/typescript`, `@aiplex/sdk`) clients for the HTTP API, mirroring the Go SDK's covered routes; tested with `make sdk-test`.
+
+### Packaging and install
+
+- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew formula to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`. The images are distroless, run as a non-root user and carry OCI labels.
+- The release also produces an SBOM and signs `checksums.txt` and the images keyless with the workflow's GitHub identity. The signing and the SBOM have not been run against a real release.
+- `install.sh` refuses an archive when `checksums.txt` cannot be downloaded or does not list it, rejects a malformed `--version`, and names the missing platform asset when a release has no build for it.
+- None of this has been published yet: no release is tagged, and the tap, the images and the signatures have not been produced.
+
 ### Local development
 
 - `aiplex dev` starts the API in memory on loopback with a built-in mock provider and MCP server, seeds an access point `local`, signs you in as a local admin, and prints next steps. The mock provider has four models, one per wire: `mock-gpt` (OpenAI Chat Completions), `mock-responses` (OpenAI Responses), `mock-claude` (Anthropic Messages) and `mock-gemini` (Gemini generateContent). `aiplex dev env` exports `AIPLEX_URL`, `AIPLEX_TOKEN` and, with the mock provider, the base-URL and key variables read by the OpenAI, Anthropic and Gemini SDKs. `--provider openai|anthropic|gemini --api-key-env NAME` forwards to a real provider.
@@ -32,6 +43,10 @@ There has been no tagged release yet. This section summarises what exists in the
 - Record `tags` from access point `labels` and an operator-allowlisted `X-AIPlex-Tags` header (`tag.<key>` filter, `tag:<key>` grouping, a per-key cap with an `(other)` bucket). Append-only record feedback (`POST /api/v1/usage/records/{id}/feedback`, `aiplex usage feedback`), shown in the record and in summaries (`feedback=true`, `-o wide`) with "without feedback" counted apart.
 - The Console shows trace and span ids with copy buttons, a trace viewer link (`AIPLEX_TRACE_URL_TEMPLATE`), a source badge and the harness.
 - Managed `tools/call` requests carry the exchange's trace context in `params._meta` as well as the HTTP headers; the rest of the request is relayed byte for byte. Agent exchanges with known final usage are counted in the GenAI token counters.
+
+### Request hooks
+
+- Hook policies (`/api/v1/hooks/policies`, `aiplex hooks policies list|get|set|delete|test`, operators only) bind ordered hooks to the tenant, an access point, a model surface or a tool connection; narrower scopes add hooks and cannot remove a broader one. Hooks run on model requests and responses (OpenAI Chat, OpenAI Responses, Anthropic Messages, Gemini, Bedrock Converse, embeddings) and MCP `tools/call` arguments and results, after admission and before the quota lease, and can allow, deny with a safe message (HTTP 403 `hook_denied` in the caller's protocol) or mask text. Built-in `redact` (pattern rules, not a guarantee of PII removal) and `size_limit`, and an `http` sidecar hook with the AIPlex contract and Presidio and LLM Guard adapters (written from their documentation; not run against the services). Fail closed: a sidecar that cannot decide refuses the request unless `fail_open` is set. Streams under a response hook are refused by default, or buffered and re-emitted for OpenAI Chat and Anthropic. WebSocket sessions are refused on a hooked scope. Decisions are in the usage ledger (`hooks`, filter `hook_decision`), spans and metrics, without content. See `docs/request-hooks.md`.
 
 ### Observability
 

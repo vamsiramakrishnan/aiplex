@@ -122,11 +122,11 @@ jobs:
       - name: Build console (embedded in CLI)
         run: cd console && npm ci && npm run build
 
-      - name: Snapshot release (no publish)
+      - name: Snapshot release (no publish, docker, signing or SBOM)
         uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --snapshot --clean --skip=publish
+          args: release --snapshot --clean --skip=publish,docker,sign,sbom
 
       - name: Archives contain both binaries and checksums exist
         run: |

@@ -63,6 +63,13 @@ resource "google_compute_subnetwork" "aiplex" {
   network       = google_compute_network.aiplex.id
   project       = var.project_id
 
+  # Private Google Access lets nodes without external IPs reach Google APIs
+  # (Artifact Registry, Secret Manager, Firestore) from this subnet:
+  # https://docs.cloud.google.com/vpc/docs/configure-private-google-access
+  # Turned on only with cluster_network = "aiplex" (gke.tf), so an existing
+  # deployment's subnet is not touched.
+  private_ip_google_access = local.dedicated_network
+
   secondary_ip_range {
     range_name    = "pods"
     ip_cidr_range = "10.1.0.0/16"

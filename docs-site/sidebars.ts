@@ -94,6 +94,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'guides/access-points'},
           items: [L('access-points', 'Specification and routes')],
         },
+        L('request-hooks', 'Request hooks'),
         {
           type: 'category',
           label: 'Identity',
@@ -121,6 +122,7 @@ const sidebars: SidebarsConfig = {
         L('gcp-permissions', 'Google Cloud permissions'),
         L('helm-identity-config', 'Identity configuration (Helm)'),
         L('observability', 'Observability (OpenTelemetry)'),
+        L('policy-denials', 'Policy denials'),
         'operations/authorization-policy',
         L('modules', 'Independent modules'),
         'operations/networking',
@@ -148,6 +150,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'api/usage',
             'api/otlp',
+            'api/hooks',
             'api/access-points',
             'api/overview-pane',
             'api/identity-agents',

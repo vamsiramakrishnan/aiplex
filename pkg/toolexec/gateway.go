@@ -1,6 +1,7 @@
 package toolexec
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -60,11 +61,18 @@ type Options struct {
 	// credential it was sent, so cached tokens can be invalidated.
 	Unauthorized func(context.Context, Credential)
 	// List enables governed tools/list. Nil keeps tools/call only.
-	List              *ListOptions
-	Context           func(*http.Request) (contracts.RequestContext, error)
-	Authorize         func(context.Context, contracts.RequestContext, Connection, Request) error
-	Prepare           func(context.Context, Invocation) (execution.Lease, error)
-	BeforeDispatch    func(context.Context) error
+	List           *ListOptions
+	Context        func(*http.Request) (contracts.RequestContext, error)
+	Authorize      func(context.Context, contracts.RequestContext, Connection, Request) error
+	Prepare        func(context.Context, Invocation) (execution.Lease, error)
+	BeforeDispatch func(context.Context) error
+	// InspectRequest runs once after authorization and before the quota
+	// lease and dispatch. It returns the request body to send (the caller's
+	// bytes unless a hook transformed them). A *Denial refuses the call.
+	InspectRequest func(context.Context, Request) ([]byte, error)
+	// InspectResponse runs once on a complete, valid successful response
+	// before it is written. A *Denial refuses the call.
+	InspectResponse   func(ctx context.Context, request Request, mediaType string, body []byte) ([]byte, error)
 	AllowHTTPForTests bool
 	MaxBodyBytes      int64
 	MaxResponseBytes  int64
@@ -173,6 +181,22 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rpcDenied(w, request.ID, err)
 		return
 	}
+	if g.options.InspectRequest != nil {
+		inspected, err := g.options.InspectRequest(r.Context(), copyRequest(request))
+		if err != nil {
+			rpcDenied(w, request.ID, err)
+			return
+		}
+		if !bytes.Equal(inspected, request.Body) {
+			// The transformed body is parsed again so the quota lease, the
+			// digests and the dispatch all describe the bytes sent.
+			id := request.ID
+			if request, err = ParseRequest(inspected, g.connection.AllowedTools); err != nil {
+				rpcDenied(w, id, &Denial{Status: http.StatusServiceUnavailable, Code: RPCForbidden, Reason: "hook_unavailable", Message: "a content policy check returned an invalid request"})
+				return
+			}
+		}
+	}
 	var lease execution.Lease
 	if g.options.Prepare != nil {
 		headers := http.Header{}
@@ -271,6 +295,14 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	finished = true
+	if g.options.InspectResponse != nil {
+		inspected, err := g.options.InspectResponse(r.Context(), copyRequest(request), media, responseBody)
+		if err != nil {
+			rpcDenied(w, request.ID, err)
+			return
+		}
+		responseBody = inspected
+	}
 	for _, name := range []string{"Content-Type", "Cache-Control", "X-Request-ID"} {
 		if value := response.Header.Get(name); value != "" {
 			w.Header().Set(name, value)

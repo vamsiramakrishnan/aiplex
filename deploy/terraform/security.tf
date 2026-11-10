@@ -1,7 +1,8 @@
 # Cloud Armor — WAF and DDoS protection for the Global HTTPS LB.
-# The load balancer is created by the GKE Gateway in deploy/k8s/gateway.yaml,
-# not by Terraform; that file attaches this policy to the backend Services
-# with GCPBackendPolicy resources. Until those are applied the policy filters
+# The load balancer is created by the GKE Gateway rendered by the Helm chart
+# (deploy/helm/aiplex/templates/gateway.yaml), not by Terraform; the chart
+# attaches this policy to the backend Services with GCPBackendPolicy resources
+# (gateway.cloudArmorPolicy). Until the chart is installed the policy filters
 # nothing.
 
 resource "google_compute_security_policy" "aiplex" {

@@ -4,6 +4,7 @@
 #   examples/openai-sdk   chat.sh always; chat.py and chat.mjs when the OpenAI SDK is available
 #   examples/mcp-tools    mcp.sh, and the MCP URL from `aiplex connect local`
 #   examples/usage-report report.sh
+#   examples/hooks        hooks.sh (redaction policy: masked and refused prompts)
 #
 # SDK handling:
 #   default                   use an SDK that is already installed; otherwise print SKIP
@@ -148,6 +149,16 @@ echo "$out"
 [[ "$out" == *"(estimated)"* ]] || fail "report.sh output lacks the estimated cost"
 ok "report.sh"
 
+# ─── hooks ──────────────────────────────────────────────────────────────────
+step "hooks: hooks.sh"
+out=$(bash "$EX/hooks/hooks.sh" 2>&1) || fail "hooks.sh: $out"
+echo "$out"
+[[ "$out" == *"Output 1: mail [EMAIL]"* ]] || fail "hooks.sh dry run did not mask: $out"
+[[ "$out" == *"You said: Write to [EMAIL]"* ]] || fail "hooks.sh: the model did not receive the masked prompt: $out"
+[[ "$out" == *'"code":"hook_denied"'* ]] || fail "hooks.sh: the private key was not refused: $out"
+[[ "$out" == *"Deleted hook policy pii-guard"* ]] || fail "hooks.sh did not clean up: $out"
+ok "hooks.sh"
+
 # ─── declarative manifests ──────────────────────────────────────────────────
 # Every manifest in examples/ passes `aiplex validate` (the checks `aiplex apply`
 # makes before it writes). The JSON files that are not manifests are the MCP
@@ -160,7 +171,8 @@ for f in quickstart.yaml quickstart.json mcplex-only.yaml durable-tape-runtime.y
 done
 # Every manifest-shaped file is covered by the list above.
 for f in "$EX"/*.yaml "$EX"/*/*.yaml; do
-    case "$f" in */modules/*) continue ;; esac
+    # Hook policies are not manifests; hooks.sh applies policy.yaml above.
+    case "$f" in */modules/*|*/hooks/*) continue ;; esac
     rel="${f#"$EX"/}"
     case " quickstart.yaml mcplex-only.yaml durable-tape-runtime.yaml aiplex-tape-treasury/treasury.yaml " in
         *" $rel "*) ;;
@@ -171,9 +183,16 @@ ok "validate"
 
 step "manifests: apply quickstart.yaml under aiplex dev (agents and routes apply, instances are skipped with a reason)"
 out=$(aiplex apply -f "$EX/quickstart.yaml" 2>&1) || fail "apply quickstart.yaml: $out"
-[[ "$out" == *"Skipping 2 instance(s)"* && "$out" == *"aiplex dev does not have"* ]] || fail "apply did not explain skipping instances: $out"
-[[ "$out" == *"Registering agent tutor-agent... OK"* && "$out" == *"Configuring route gemini-2.5-flash... OK"* ]] || fail "apply quickstart.yaml: $out"
+[[ "$out" == *"skipped"*"instance Knowledge Base"* && "$out" == *"aiplex dev has no Kubernetes"* ]] || fail "apply did not explain skipping instances: $out"
+[[ "$out" == *"created"*"agent tutor-agent"* && "$out" == *"created"*"route gemini-2.5-flash"* ]] || fail "apply quickstart.yaml: $out"
 ok "apply quickstart.yaml"
+
+step "manifests: applying quickstart.yaml again converges (nothing created, everything unchanged)"
+out=$(aiplex apply -f "$EX/quickstart.yaml" 2>&1) || fail "second apply quickstart.yaml: $out"
+[[ "$out" == *"Summary: 0 created, 0 updated, 3 unchanged, 2 skipped, 0 failed"* ]] || fail "second apply was not idempotent: $out"
+out=$(aiplex apply -f "$EX/quickstart.yaml" --dry-run 2>&1) || fail "apply --dry-run: $out"
+[[ "$out" == *"0 created, 0 updated, 3 unchanged"* ]] || fail "dry run disagrees with the second apply: $out"
+ok "apply is idempotent"
 
 step "Stop aiplex dev"
 kill -INT "$DEV_PID"

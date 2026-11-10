@@ -29,7 +29,8 @@ api:
   extraVolumeMounts: []  # name, mountPath, optional subPath; always read-only
   # Namespaced RBAC for the API's in-cluster deploy engine (internal/deploy):
   # one Role + RoleBinding per namespace it deploys into, with exactly the
-  # kinds it renders and the verbs kubectl server-side apply and delete use.
+  # kinds it renders and the verbs its Kubernetes client uses (create, patch,
+  # delete).
   rbac:
     create: true
     namespaces: [aiplex-system, mcplex, a2aplex, llmplex, skillsplex]
@@ -47,6 +48,41 @@ api:
   # Extra environment variables
   # MY_VAR: my-value
 
+# ─── Denial ingest ───
+# POST /internal/policy-denials accepts denials from the authz sidecar. It is
+# guarded by a shared bearer secret and answers 503 until one is configured.
+# Reference an existing Kubernetes Secret (the chart never holds the value);
+# the API reads it as AIPLEX_DENIAL_TOKEN, and authz.reportDenials mounts the
+# same Secret into the sidecar. Create it with, for example:
+#   kubectl -n aiplex-system create secret generic aiplex-denial-token \
+#     --from-literal=token="$(openssl rand -hex 32)"
+denialIngest:
+  tokenSecret:
+    name: ""
+    key: token
+
+# ─── Rust ext_authz sidecar (optional; the default data path is OPA below) ───
+authz:
+  enabled: false
+  replicas: 2
+  image:
+    repository: ""   # defaults to global.registry/aiplex-authz
+    tag: ""          # defaults to the chart appVersion
+  jwt:
+    issuer: ""
+    audience: ""
+    jwksUrl: ""      # must be https
+  # Post each denial of a verified token to the API (needs
+  # denialIngest.tokenSecret.name).
+  reportDenials: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+
 # ─── AIPlex Console ───
 console:
   replicas: 2
@@ -60,6 +96,24 @@ console:
     limits:
       cpu: 200m
       memory: 128Mi
+
+# ─── Gateway (GKE Gateway API) ───
+# The load balancer, listeners, routes and Cloud Armor attachment
+# (templates/gateway.yaml). Needs the Terraform-created address, certificate
+# map and security policy named below, and a cluster with the Gateway API on.
+# Set enabled: false on clusters that are not GKE.
+gateway:
+  enabled: true
+  className: gke-l7-global-external-managed
+  addressName: aiplex-ip          # google_compute_global_address (gateway.tf)
+  certMap: aiplex-cert-map        # google_certificate_manager_certificate_map (gateway.tf)
+  cloudArmorPolicy: aiplex-waf    # google_compute_security_policy (security.tf); "" skips the attachment
+  # Hostnames the routes answer for. Empty: [global.domain].
+  hostnames: []
+  # Also render the Envoy Gateway SecurityPolicy (ext_authz through OPA) and
+  # rate-limit policy, and attach the SecurityPolicy to the /mcp/ route. Only
+  # for clusters running Envoy Gateway; the GKE Gateway controller ignores them.
+  envoyGatewayPolicies: false
 
 # ─── OPA ext_authz ───
 opa:
@@ -161,3 +215,28 @@ kratos:
       requests:
         cpu: 100m
         memory: 128Mi
+
+# Usage ledger settings (docs/usage-ledger.md, docs/observability.md). All are
+# optional; the defaults are what the API uses when the variable is unset.
+usage:
+  # Trace viewer link shown in the Console, for example
+  # https://tempo.example/trace/{trace_id}. Must contain {trace_id} and be an
+  # http(s) URL without credentials, or the API refuses to start.
+  traceUrlTemplate: ""
+  # Accept free-text comments on record feedback (default: refused).
+  feedbackComments: false
+  # Keys a caller may set with the X-AIPlex-Tags header (default: none).
+  tagKeysAllowed: []
+  # Distinct header-supplied values per key and tenant before "(other)" (API default 50).
+  tagMaxValues: ""
+  # OTLP/HTTP receiver for harness telemetry at /otlp/v1/{logs,metrics,traces}.
+  # Empty values use the API defaults: 1000 records, 4 MiB, 20 requests/s and
+  # 2000 records/s per principal (in process, per replica).
+  otlp:
+    maxRecordsPerRequest: ""
+    maxBodyBytes: ""
+    requestsPerSecond: ""
+    recordsPerSecond: ""
+    # Forward the telemetry AIPlex does not record to the collector named by
+    # otel.endpoint (http/protobuf only). Default off.
+    forward: false

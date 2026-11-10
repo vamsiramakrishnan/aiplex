@@ -1,0 +1,5 @@
+{
+  "is_valid": false,
+  "scanners": {"Sensitive": 1.0, "Toxicity": 0.0},
+  "sanitized_output": "[REDACTED]"
+}

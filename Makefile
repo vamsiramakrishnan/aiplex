@@ -62,6 +62,12 @@ test-coverage: ## Run tests with coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+sdk-test: ## Run the Python (sdk/python, in .venv) and TypeScript (sdk/typescript) SDK suites; installs their dependencies
+	python3 -m venv sdk/python/.venv
+	sdk/python/.venv/bin/pip install -q -e 'sdk/python[test]'
+	sdk/python/.venv/bin/python -m pytest sdk/python -q
+	cd sdk/typescript && npm ci --no-audit --no-fund && npm test
+
 demo: ## Scripted first run of `aiplex dev`: chat, stream, MCP tool call, usage, connect (exits non-zero on failure)
 	@bash tools/demo.sh
 
@@ -231,8 +237,8 @@ deps: ## Check the tools each workflow needs
 release-check: ## Validate .goreleaser.yaml
 	goreleaser check
 
-release-dry: ## Build release archives locally into dist/ (no publish)
-	goreleaser release --snapshot --clean --skip=publish
+release-dry: ## Build release archives locally into dist/ (no publish, docker, signing, SBOM)
+	goreleaser release --snapshot --clean --skip=publish,docker,sign,sbom
 
 release: ## Publish a release from the current tag (CI does this on a v* tag; requires GITHUB_TOKEN)
 	goreleaser release --clean

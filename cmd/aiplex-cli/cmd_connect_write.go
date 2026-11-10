@@ -88,8 +88,8 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 	}
 	if !slices.Contains(harness.Writable, client) {
 		why := "choose one of: " + strings.Join(harness.Writable, ", ")
-		if client == "antigravity" || client == "antigravity-acp" {
-			why = "Antigravity's config file location is not documented, so it is print-only: run `aiplex connect " + ap + " --client " + client + "` and apply the fragment by hand"
+		if client == "antigravity-acp" {
+			why = "antigravity-acp is print-only: run `aiplex connect " + ap + " --client " + client + "` and apply the fragment by hand"
 		}
 		return usageError(fmt.Sprintf("--write does not support --client %q", client), why)
 	}
@@ -99,7 +99,7 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 	}
 	cwd, _ := os.Getwd()
 	apiClient := client
-	if client == "gemini-cli" {
+	if client == "gemini-cli" || client == "antigravity" {
 		apiClient = "generic"
 	}
 	c, err := newClient().ConnectAccessPoint(cmd.Context(), ap, apiClient)
@@ -125,6 +125,8 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 		plan, err = harness.PlanCodex(c, opts)
 	case "gemini-cli":
 		plan, err = harness.PlanGeminiCLI(c, opts)
+	case "antigravity":
+		plan, err = harness.PlanAntigravity(c, opts)
 	}
 	if err != nil {
 		return newCLIError(exitError, "connect --write: "+err.Error())

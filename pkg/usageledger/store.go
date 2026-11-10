@@ -42,11 +42,15 @@ type Filter struct {
 	Batch *bool
 	// Harness selects reported records from one harness. Tags selects records
 	// whose tags contain every pair.
-	Harness    string
-	Tags       map[string]string
-	Since      time.Time
-	Until      time.Time
-	Visibility []string
+	Harness string
+	Tags    map[string]string
+	// HookDecision selects records by hooks.decision (allow, deny,
+	// transform, error, skipped), or HookDecisionNone for records no hook
+	// ran on. Empty matches everything.
+	HookDecision string
+	Since        time.Time
+	Until        time.Time
+	Visibility   []string
 }
 
 // Matches applies every filter field, including visibility and the window.
@@ -71,6 +75,9 @@ func (f Filter) Matches(r Record) bool {
 		if got, ok := r.Tags[k]; !ok || got != v {
 			return false
 		}
+	}
+	if f.HookDecision != "" && hookDecision(r) != f.HookDecision {
+		return false
 	}
 	if f.Batch != nil && *f.Batch != r.Batch {
 		return false

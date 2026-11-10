@@ -61,7 +61,7 @@ func TestHelmAPIRoleMatchesDeployEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := map[string]bool{}
-	wantVerbs := "create,delete,get,list,patch,watch"
+	wantVerbs := "create,delete,patch" // server-side apply (patch, create) and cleanup (delete); no reads
 	for _, m := range roleRule.FindAllStringSubmatch(string(b), -1) {
 		verbs := unquote(m[3])
 		sort.Strings(verbs)

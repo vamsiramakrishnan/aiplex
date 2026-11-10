@@ -83,6 +83,7 @@ Flags:
       --error-class string      Error class (error_class)
       --harness string          Reported records from one harness: claude-code, codex or gemini-cli
   -h, --help                    help for records
+      --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
       --limit int               Page size, 1 to 1000 (default 100)
       --model string            Model ID (model_id)
       --plane string            Plane: llmplex, mcplex or a2aplex
@@ -187,6 +188,7 @@ Flags:
       --error-class string      Error class (error_class)
       --harness string          Reported records from one harness: claude-code, codex or gemini-cli
   -h, --help                    help for summary
+      --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
       --merge-sources           Add managed and reported records together (may count a request twice)
       --model string            Model ID (model_id)
       --plane string            Plane: llmplex, mcplex or a2aplex

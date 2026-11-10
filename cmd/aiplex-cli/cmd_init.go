@@ -367,7 +367,7 @@ Examples:
 			fmt.Println("[5/6] Generating configuration...")
 			{
 				tfvarsPath := filepath.Join("deploy", "terraform", "terraform.tfvars")
-				content := renderTFVars(project, region, domain, adminEmail, orgID, workspaceDomain, workspaceClient, alloydbCPU)
+				content := renderTFVars(project, region, domain, adminEmail, orgID, workspaceDomain, workspaceClient, alloydbCPU, tfvarsExtrasFor(tfvarsPath))
 
 				if dryRun {
 					fmt.Println("  [dry-run] Would generate:")
@@ -565,12 +565,53 @@ alloydb_cpu_count = {{.AlloyDBCPU}}
 # DNS (set to false if you manage DNS externally)
 manage_dns = true
 
+# GKE network. "aiplex" runs the cluster on the dedicated VPC (firewall rules
+# apply, Private Google Access, Cloud NAT) and is what new installs get.
+# "default" is the project's default network, the original behaviour.
+# Changing this on an EXISTING cluster REPLACES the cluster.
+cluster_network = "{{.ClusterNetwork}}"
+
+# External agents on AWS or Azure (optional). An identity provider is created
+# only when its variable is set; unset, none exists.
+{{.AWSLine}}
+{{.AzureLine}}
+
 # Every name set here must be a variable declared in deploy/terraform
 # (TestInitTFVarsAreDeclared). GKE Autopilot needs no node sizing; the
 # Artifact Registry repository is always "aiplex"; Hydra's URL comes from Helm.
 `
 
-func renderTFVars(project, region, domain, adminEmail, orgID, workspaceDomain, workspaceClient, alloydbCPU string) string {
+// tfvarsExtras are the settings aiplex init must not change on an existing
+// deployment: rewriting them would replace the GKE cluster or drop identity
+// providers.
+type tfvarsExtras struct {
+	ClusterNetwork string
+	AWSAccountID   string
+	AzureTenantID  string
+}
+
+// tfvarsExtrasFor chooses the network and identity settings for the tfvars at
+// path. With no file this is a new install and gets the dedicated network. With
+// an existing file its values are kept, so re-running init never moves a
+// cluster that was created on the default network.
+func tfvarsExtrasFor(path string) tfvarsExtras {
+	existing, err := gcpsetup.ReadToggles(path)
+	if err != nil || !existing.Found {
+		return tfvarsExtras{ClusterNetwork: "aiplex"}
+	}
+	return tfvarsExtras{ClusterNetwork: existing.ClusterNetwork, AWSAccountID: existing.AWSAccountID, AzureTenantID: existing.AzureTenantID}
+}
+
+func renderTFVars(project, region, domain, adminEmail, orgID, workspaceDomain, workspaceClient, alloydbCPU string, extras tfvarsExtras) string {
+	if extras.ClusterNetwork == "" {
+		extras.ClusterNetwork = "aiplex"
+	}
+	line := func(name, value, example string) string {
+		if value == "" {
+			return "# " + name + " = \"" + example + "\""
+		}
+		return name + " = \"" + value + "\""
+	}
 	t := template.Must(template.New("tfvars").Parse(tfvarsTmpl))
 	var buf strings.Builder
 	t.Execute(&buf, map[string]string{
@@ -582,6 +623,9 @@ func renderTFVars(project, region, domain, adminEmail, orgID, workspaceDomain, w
 		"WorkspaceDomain": workspaceDomain,
 		"WorkspaceClient": workspaceClient,
 		"AlloyDBCPU":      alloydbCPU,
+		"ClusterNetwork":  extras.ClusterNetwork,
+		"AWSLine":         line("aws_account_id", extras.AWSAccountID, "123456789012"),
+		"AzureLine":       line("azure_agent_tenant_id", extras.AzureTenantID, "00000000-0000-0000-0000-000000000000"),
 	})
 	return buf.String()
 }

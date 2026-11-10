@@ -141,7 +141,7 @@ func (h *SSEHandler) sendStats(w http.ResponseWriter, flusher http.Flusher, r *h
 	instances, _ := h.store.ListInstances(ctx, "")
 	agents, _ := h.store.ListAgents(ctx)
 	delegations, _ := h.store.CountDelegations(ctx)
-	denials, _ := h.store.CountPolicyDenials(ctx)
+	denials, _ := h.store.CountPolicyDenialsSince(ctx, time.Now().Add(-24*time.Hour))
 
 	var running, mcplex, a2aplex, llmplex, skillsplex int
 	for _, inst := range instances {

@@ -52,6 +52,10 @@ const (
 	FeatureWorkforce  FeatureID = "workforce-identity"
 	FeatureAlertEmail FeatureID = "alert-email"
 	FeatureTelemetry  FeatureID = "telemetry"
+	// FeatureDedicatedNetwork is the GKE cluster on the aiplex VPC with Cloud NAT.
+	FeatureDedicatedNetwork FeatureID = "dedicated-network"
+	// FeatureExternalAgents is the AWS and Azure workload identity providers.
+	FeatureExternalAgents FeatureID = "external-agent-federation"
 )
 
 // Feature is one switchable part of the Terraform.
@@ -127,6 +131,10 @@ var Features = []Feature{
 		APIs: []string{"monitoring.googleapis.com"}},
 	{ID: FeatureTelemetry, Title: "OpenTelemetry collector identity (Cloud Trace, Cloud Monitoring)", Toggle: "otel_collector = true (default)", Default: true,
 		APIs: []string{"cloudtrace.googleapis.com", "monitoring.googleapis.com"}},
+	{ID: FeatureDedicatedNetwork, Title: "GKE cluster on the dedicated VPC (Private Google Access, Cloud Router and NAT)", Toggle: `cluster_network = "aiplex" (default "default"; aiplex init writes "aiplex" for new installs)`, Default: false,
+		APIs: []string{"compute.googleapis.com"}},
+	{ID: FeatureExternalAgents, Title: "AWS and Azure workload identity providers for external agents", Toggle: `aws_account_id != "" or azure_agent_tenant_id != ""`, Default: false,
+		APIs: []string{"iam.googleapis.com"}},
 }
 
 func p(names ...string) []Permission {
@@ -162,14 +170,15 @@ func crud(prefix string, verbs ...string) []string {
 }
 
 const (
-	whyClusterSA    = "GKE docs require Service Account User on a user-managed node service account; whether Autopilot with the default Compute Engine service account needs actAs is not stated"
-	whyNetworkPeer  = "VPC private services access docs name roles/compute.networkAdmin, not individual permissions"
-	whyFirewall     = "not confirmed in Google docs for firewall rule creation"
-	whyHelm         = "depends on the objects the Ory Hydra and Kratos charts render; not enumerated against the chart"
-	whyAttestor     = "attestor creation references a Container Analysis note; the permission checked on the note is not stated"
-	whyFirestoreTTL = "TTL is configured through the fields API; the role reference names index (schema) permissions, the exact check for fields.patch is not stated"
-	whyStateObject  = "Terraform's GCS backend reads, writes, lists and deletes state and lock objects; not stated as a permission list in Google docs"
-	whyKubernetes   = "GKE authorizes Kubernetes API calls through RBAC and container.* IAM permissions; the mapping for these objects was not validated against a live cluster"
+	whyClusterSA     = "GKE docs require Service Account User on a user-managed node service account; whether Autopilot with the default Compute Engine service account needs actAs is not stated"
+	whyNetworkPeer   = "VPC private services access docs name roles/compute.networkAdmin, not individual permissions"
+	whyFirewall      = "not confirmed in Google docs for firewall rule creation"
+	whyHelm          = "depends on the objects the Ory Hydra and Kratos charts render; not enumerated against the chart. The AIPlex chart's Gateway API objects (Gateway, HTTPRoute, ReferenceGrant, GCPBackendPolicy, HealthCheckPolicy) are custom resources, assumed to be authorized as container.thirdPartyObjects.*; Google's reference does not name Gateway kinds"
+	whyAttestor      = "attestor creation references a Container Analysis note; the permission checked on the note is not stated"
+	whyFirestoreTTL  = "TTL is configured through the fields API; the role reference names index (schema) permissions, the exact check for fields.patch is not stated"
+	whyStateObject   = "Terraform's GCS backend reads, writes, lists and deletes state and lock objects; not stated as a permission list in Google docs"
+	whyClusterSubnet = "GKE docs name Compute Network User on the host project for Shared VPC; whether creating a cluster on a same-project custom subnetwork checks compute.subnetworks.use is not stated"
+	whyKubernetes    = "GKE authorizes Kubernetes API calls through RBAC and container.* IAM permissions; the mapping for these objects was not validated against a live cluster"
 )
 
 // Requirements is the table. One entry per (resource type, feature).
@@ -226,6 +235,18 @@ var Requirements = []Requirement{
 		Permissions: p(crud("datastore.schemas", "create", "delete", "get")...)},
 	{Resource: "google_firestore_field", Feature: FeatureCore, Source: refBase + "firestore",
 		Permissions: unverified(whyFirestoreTTL, "datastore.schemas.get", "datastore.schemas.update")},
+	{Resource: "google_compute_router", Feature: FeatureDedicatedNetwork, Source: refBase + "compute",
+		Note:        "gke.tf: Cloud Router for the dedicated network's NAT",
+		Permissions: join(p(crud("compute.routers", "create", "delete", "get", "update")...), p("compute.regionOperations.get"))},
+	{Resource: "google_compute_router_nat", Feature: FeatureDedicatedNetwork, Source: refBase + "compute",
+		Note:        "gke.tf: Cloud NAT is configured on the router, so it needs router update; subnetworks.use for the NAT subnetwork is not separately stated",
+		Permissions: join(p("compute.routers.get", "compute.routers.update"), p("compute.regionOperations.get"))},
+	{Resource: "google_compute_subnetwork", Feature: FeatureDedicatedNetwork, Source: refBase + "compute",
+		Note:        "alloydb.tf: private_ip_google_access is turned on for the dedicated network",
+		Permissions: p("compute.subnetworks.setPrivateIpGoogleAccess")},
+	{Resource: "google_container_cluster", Feature: FeatureDedicatedNetwork, Source: refBase + "compute",
+		Note:        "creating a cluster on a custom subnetwork",
+		Permissions: unverified(whyClusterSubnet, "compute.subnetworks.use")},
 	{Resource: "google_compute_global_address", Feature: FeatureCore, Source: refBase + "compute",
 		Note: "load balancer address (gateway.tf)", Permissions: p("compute.globalAddresses.create", "compute.globalAddresses.get")},
 	{Resource: "google_certificate_manager_dns_authorization", Feature: FeatureCore, Source: refBase + "certificatemanager",
@@ -245,7 +266,7 @@ var Requirements = []Requirement{
 		Permissions: p(crud("monitoring.alertPolicies", "create", "delete", "get", "update")...)},
 	{Resource: "google_iam_workload_identity_pool", Feature: FeatureCore, Source: refBase + "iam",
 		Permissions: p(crud("iam.googleapis.com/workloadIdentityPools", "create", "delete", "get", "update")...)},
-	{Resource: "google_iam_workload_identity_pool_provider", Feature: FeatureCore, Source: refBase + "iam",
+	{Resource: "google_iam_workload_identity_pool_provider", Feature: FeatureExternalAgents, Source: refBase + "iam",
 		Permissions: p(crud("iam.googleapis.com/workloadIdentityPoolProviders", "create", "delete", "get", "update")...)},
 	{Resource: "google_service_account", Feature: FeatureCore, Source: refBase + "iam",
 		Permissions: p(crud("iam.serviceAccounts", "create", "delete", "get", "update")...)},
@@ -275,7 +296,8 @@ var Requirements = []Requirement{
 			"container.jobs.create", "container.jobs.delete", "container.jobs.get", "container.jobs.update",
 			"container.secrets.create", "container.secrets.delete", "container.secrets.get", "container.secrets.update",
 			"container.serviceAccounts.create", "container.serviceAccounts.delete", "container.serviceAccounts.get", "container.serviceAccounts.update",
-			"container.services.create", "container.services.delete", "container.services.get", "container.services.update")},
+			"container.services.create", "container.services.delete", "container.services.get", "container.services.update",
+			"container.thirdPartyObjects.create", "container.thirdPartyObjects.delete", "container.thirdPartyObjects.get", "container.thirdPartyObjects.update")},
 
 	// ── DNS (manage_dns)
 	{Resource: "google_dns_managed_zone", Feature: FeatureDNS, Source: refBase + "dns",

@@ -9,6 +9,23 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 ```text
 Apply instances, agents, and routes from a YAML/JSON file. The file is checked
 first with the same checks as "aiplex validate"; nothing is applied if it fails.
+
+Apply converges: running it again with the same file changes nothing. Each
+object is reported as created (it was absent), updated (it differed and could
+be replaced), unchanged (it already matched) or skipped, then a summary. The
+exit status is non-zero only when an object failed. --dry-run prints the same
+plan and writes nothing.
+
+  routes     Replaced at the revision just read (If-Match), keeping a saved
+             cache TTL and rate limit the file does not mention. A revision
+             written in the file is a precondition: apply fails if the saved
+             route is at a different revision.
+  agents     Created when absent. The API has no update for an agent (its OAuth
+             client is issued once), so an agent that differs fails and names
+             the field; delete it and apply again.
+  instances  Matched by plane and name. A different template or configuration
+             fails the same way; undeploy it first.
+
 Routes are applied in file order, so a route named as a fallback must come
 before the route that lists it. Under "aiplex dev", instances are skipped
 (they need Kubernetes and a template catalog).
@@ -56,6 +73,7 @@ Examples:
   aiplex apply -f aiplex.yaml
 
 Flags:
+      --dry-run       Show what would be created, updated, or left unchanged, and write nothing
   -f, --file string   Path to manifest file (YAML or JSON)
   -h, --help          help for apply
 

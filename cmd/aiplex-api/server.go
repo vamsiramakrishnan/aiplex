@@ -367,7 +367,8 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		}
 		r.Get("/modules", moduleDiscovery(moduleRegistry))
 		mountUsageLedger(r, usageH, connectedH)
-		connectedH.MountAccessPoints(r) // /api/v1/access-points
+		mountHookPolicies(r, connectedH) // /api/v1/hooks/policies
+		connectedH.MountAccessPoints(r)  // /api/v1/access-points
 		// Single-pane overview: /api/v1/overview
 		api.NewOverviewHandler(connectedH, usageH.Ledger, store, federationH.Bindings).Mount(r)
 
@@ -465,6 +466,16 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		r.Use(api.IPRateLimit(parseFloatEnv("TAPE_INGEST_RPS", 1000), parseIntEnv("TAPE_INGEST_BURST", 1000)))
 		r.Post("/internal/tape/events", runsH.Ingest)
 		r.Post("/internal/projections/rebuild/{run_id}", runsH.RebuildProjection)
+	})
+
+	// Authorization denials reported by the authz sidecar. Same guard style as
+	// the Tape routes: a shared bearer secret (AIPLEX_DENIAL_TOKEN, a Secret
+	// reference in the chart; 503 while unset) and a per-source rate limit. The
+	// handler adds a body limit, a closed schema and a global limit.
+	r.Group(func(r chi.Router) {
+		r.Use(api.BearerToken(api.DenialTokenEnv))
+		r.Use(api.IPRateLimit(parseFloatEnv("AIPLEX_DENIAL_RPS", 20), parseIntEnv("AIPLEX_DENIAL_BURST", 100)))
+		r.Post("/internal/policy-denials", dashH.RecordPolicyDenial)
 	})
 
 	// MCP sub-registry (v0.1 spec)

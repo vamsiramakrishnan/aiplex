@@ -238,3 +238,38 @@ resource "google_firestore_field" "usage_ledger_ttl" {
 
   ttl_config {}
 }
+
+# Policy denial retention. Denials reported by the authz sidecar and recorded
+# by the API carry expires_at (30 days, api.DenialRetention); Firestore deletes
+# them after that.
+resource "google_firestore_field" "policy_denials_ttl" {
+  project    = var.project_id
+  database   = google_firestore_database.aiplex.name
+  collection = "policy_denials"
+  field      = "expires_at"
+
+  ttl_config {}
+}
+
+# Usage feedback retention. Feedback on a usage record lives beside the ledger:
+# usage_ledger_tenants/{digest}/usage_feedback_latest/{record id} (the
+# latest-wins view) and, under it, usage_feedback_events/{id} (the append-only
+# history). Both carry expires_at (the ledger's retention, 90 days from the
+# record's start); Firestore deletes them after that.
+resource "google_firestore_field" "usage_feedback_latest_ttl" {
+  project    = var.project_id
+  database   = google_firestore_database.aiplex.name
+  collection = "usage_feedback_latest"
+  field      = "expires_at"
+
+  ttl_config {}
+}
+
+resource "google_firestore_field" "usage_feedback_events_ttl" {
+  project    = var.project_id
+  database   = google_firestore_database.aiplex.name
+  collection = "usage_feedback_events"
+  field      = "expires_at"
+
+  ttl_config {}
+}

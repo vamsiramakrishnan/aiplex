@@ -1,0 +1,5 @@
+{
+  "is_valid": true,
+  "scanners": {"Anonymize": 1.0, "PromptInjection": 0.0, "Toxicity": 0.0},
+  "sanitized_prompt": "Hi, I am [REDACTED_PERSON_1], mail [REDACTED_EMAIL_ADDRESS_1] today"
+}

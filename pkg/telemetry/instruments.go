@@ -30,6 +30,7 @@ type Instruments struct {
 	upstreamErrors      metric.Int64Counter
 	otlpIngest          metric.Int64Counter
 	tagRejected         metric.Int64Counter
+	hooks               hookInstruments
 }
 
 func newInstruments(m metric.Meter) *Instruments {
@@ -70,6 +71,7 @@ func newInstruments(m metric.Meter) *Instruments {
 		upstreamErrors:      counter(MetricUpstreamErrors, "{exchange}", "Managed exchanges that ended in an error or incomplete (upstream errors passed through included), by error.type."),
 		otlpIngest:          counter(MetricOTLPIngest, "{record}", "Records, data points and spans received over OTLP from harnesses, by signal, harness and outcome (recorded, duplicate, rejected, dropped, forwarded)."),
 		tagRejected:         counter(MetricTagRejected, "{tag}", "Record tags not stored, by reason (not_allowed, invalid, overflow)."),
+		hooks:               newHookInstruments(histogram, counter),
 	}
 }
 

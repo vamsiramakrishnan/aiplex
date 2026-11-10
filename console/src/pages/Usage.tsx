@@ -13,7 +13,7 @@ const card = 'rounded border border-gray-200 p-4 dark:border-gray-800'
 const muted = 'text-xs text-gray-600 dark:text-gray-400'
 
 export const GROUP_LABELS: Record<string, string> = {
-  plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', access_point_id: 'Access point', caller_kind: 'Caller kind', status: 'Status', source: 'Source', error_class: 'Error class', usage_bound: 'Usage bound', batch: 'Batch', harness: 'Harness',
+  plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', access_point_id: 'Access point', caller_kind: 'Caller kind', status: 'Status', source: 'Source', error_class: 'Error class', usage_bound: 'Usage bound', batch: 'Batch', hook_decision: 'Hooks', harness: 'Harness',
 }
 /** Heading for a group field; a tag is shown as "Tag key". */
 export const groupName = (f: string): string => GROUP_LABELS[f] ?? (f.startsWith('tag:') ? `Tag ${f.slice(4)}` : f)
@@ -291,6 +291,7 @@ function StatusCell({ r }: { r: api.UsageRecord }) {
 }
 const when = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : d.toLocaleString() }
 
+const hooksText = (h: api.UsageHooks | undefined): string => (h ? `${h.decision}${h.results?.length ? ` (${h.results.length} run${h.results.length === 1 ? '' : 's'})` : ''}${h.fail_open_used ? ' fail-open' : ''}` : none)
 const labelText = (m: Record<string, string> | undefined): string => (m && Object.keys(m).length ? Object.keys(m).sort().map((k) => `${k}=${m[k]}`).join(' ') : none)
 
 const DETAIL_FIELDS: [string, (r: api.UsageRecord) => string][] = [
@@ -300,7 +301,7 @@ const DETAIL_FIELDS: [string, (r: api.UsageRecord) => string][] = [
   ['Principal', (r) => r.principal_id || none], ['Agent', (r) => r.actor_id || none], ['Client', (r) => r.client_id || none], ['Access point', (r) => r.access_point_id || none], ['Caller kind', (r) => r.caller_kind || none],
   ['Request ID', (r) => r.request_id || none], ['Quota attempt', (r) => r.quota_attempt_id || none],
   ['Streaming', (r) => (r.streaming ? 'yes' : 'no')], ['Status', (r) => r.status], ['HTTP status', (r) => (r.http_status ? String(r.http_status) : none)],
-  ['Error class', (r) => r.error_class || none], ['Source', (r) => r.source], ['Harness', (r) => (r.harness ? `${r.harness}${r.harness_version ? ` ${r.harness_version}` : ''}` : none)], ['Harness session', (r) => r.session_id || none], ['Client request ID', (r) => r.client_request_id || none], ['Caller span ID', (r) => r.caller_span_id || none], ['Tags', (r) => labelText(r.tags)], ['Reported attributes', (r) => labelText(r.reported_attributes)], ['Requests', (r) => api.formatCount(r.requests)],
+  ['Error class', (r) => r.error_class || none], ['Source', (r) => r.source], ['Harness', (r) => (r.harness ? `${r.harness}${r.harness_version ? ` ${r.harness_version}` : ''}` : none)], ['Harness session', (r) => r.session_id || none], ['Client request ID', (r) => r.client_request_id || none], ['Caller span ID', (r) => r.caller_span_id || none], ['Tags', (r) => labelText(r.tags)], ['Hooks', (r) => hooksText(r.hooks)], ['Reported attributes', (r) => labelText(r.reported_attributes)], ['Requests', (r) => api.formatCount(r.requests)],
   ['Input tokens', (r) => counter(r, 'input_tokens')], ['Output tokens', (r) => counter(r, 'output_tokens')], ['Cache read tokens', (r) => counter(r, 'cache_read_tokens')],
   ['Cache write tokens', (r) => counter(r, 'cache_write_tokens')], ['Reasoning tokens', (r) => counter(r, 'reasoning_tokens')], ['Total tokens', (r) => counter(r, 'total_tokens')],
   ['Batch', (r) => (r.batch ? 'yes' : 'no')], ['Image size', (r) => r.image_size || none], ['Image quality', (r) => r.image_quality || none],

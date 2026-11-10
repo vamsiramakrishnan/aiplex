@@ -571,3 +571,33 @@ Limits of this gate:
   Token metering bounds each admitted response or allowance window instead.
 - Provider credentials are references. Values are resolved at dispatch and are not
   returned by any route.
+
+## What was run against live providers
+
+On 2026-11-10 requests were sent through `aiplex dev` to three live providers, with the smallest models and
+short prompts (a few dozen requests each). Nothing here is a performance or reliability claim. Account details
+are left out on purpose.
+
+| Provider and surface | Endpoints exercised | Result |
+| --- | --- | --- |
+| Gemini Developer API (`gemini-developer`), models `gemini-3.1-flash-lite` and `gemini-2.5-flash-lite`, `gemini-embedding-001`/`-2` | `generateContent`, `streamGenerateContent?alt=sse`, `countTokens`, `embedContent`, `batchEmbedContents`, a function-calling request, a thinking request, two identical ~6k-token prompts for implicit caching | Ledger input, output, thinking and cached counts equalled the response's `usageMetadata` in every case. Catalogue price import (with `--accept-partial`) gave estimated costs that were recomputed by hand and matched (rounded up to the price scale). Not run: Live (WebSocket) sessions. |
+| z.ai as `openai-compatible` (`base_path: /api/coding/paas/v4`) | Chat Completions JSON and SSE | Usage captured, including `reasoning_tokens` and `cached_tokens`; the response model (`model_version`) differs from the requested model, as z.ai aliases models. |
+| z.ai's Anthropic-compatible API through the `anthropic` provider | Messages JSON and SSE, `count_tokens`; a Claude Code session | Usage captured (input arrives on `message_delta`, `cache_read_input_tokens` present). The `anthropic` provider takes a bare origin and no path prefix, and z.ai serves the API under `/api/anthropic`, so a local path-rewriting proxy was placed in front of z.ai for this run. A custom base path for `anthropic` is not supported. |
+| OpenAI (`openai`) | `moderations` (free) succeeded; Chat Completions, Responses and embeddings were refused by OpenAI with 429 `insufficient_quota` | The key had no credit, so token capture on OpenAI endpoints (streaming with and without `include_usage`, cached and reasoning tokens) was **not** exercised live. The 429 is recorded as `denied`, `error_class` `rate_limited`, and passed to the caller in OpenAI's error format. |
+
+Error paths, on all three: an unknown model is refused by the access point with a protocol-native 404 and no ledger
+record (the audit log has it); a request the provider rejects (400) is recorded as `error`/`invalid_request`; a
+wrong provider key is passed through as the provider's own 401 (Gemini answers 400 `API_KEY_INVALID`), recorded as
+`denied`/`unauthenticated` (or `invalid_request` for Gemini), so a failed *gateway* credential looks like a failed
+*caller* credential in the ledger. No key value appeared in responses, the API log, the ledger or the audit log
+(scripted search for the literal values).
+
+With `--otel`, spans arrived at an OTLP/HTTP receiver for these calls. The `traceparent` header sent to the provider
+carried the trace and span ID of the ledger record, and both Google and z.ai accepted it.
+
+Things this showed: Google answers 404 for `gemini-2.5-flash` (the former `aiplex dev` default; it is now
+`gemini-3.1-flash-lite`); `gemini-embedding-001` reports usage only as a top-level `tokenCount` string; the
+Developer API omits `cachedContentTokenCount` and `thoughtsTokenCount` when they are zero, which the ledger now
+records as 0 for the Developer API (it used to leave them unknown, which made every imported Gemini price cost
+`unknown`); Gemini reports thinking tokens apart from output tokens, so the catalogue import now also prices
+`reasoning_tokens` for `gemini-developer` at the output rate.

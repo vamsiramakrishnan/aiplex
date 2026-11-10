@@ -95,9 +95,9 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "operation denied", http.StatusForbidden)
 		return
 	}
-	lease, e := g.prepareExecution(r, trusted, op, metadata, body)
+	body, inspect, lease, e := g.prepareDispatch(r, trusted, op, metadata, body)
 	if e != nil {
-		writeExecutionError(w, e)
+		writeDispatchError(w, e)
 		return
 	}
 	var run *executionRun
@@ -161,6 +161,10 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	success := response.StatusCode >= 200 && response.StatusCode < 300
+	if inspect && success {
+		g.serveInspected(w, r, response, owner, op, metadata, run, func(out http.Header) { g.copyProviderResponseHeaders(out, response.Header, response.StatusCode) })
+		return
+	}
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	jsonResponse := mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 	if success && mediaType == "text/event-stream" {

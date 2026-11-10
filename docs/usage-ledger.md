@@ -26,7 +26,7 @@ deployer gets the overview's configuration view with usage withheld (see
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `harness`, `tag.<key>`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
+| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `hook_decision`, `harness`, `tag.<key>`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
 | `GET /api/v1/usage/records/{id}` | One record, with its latest `feedback` when it has any. |
 | `GET /api/v1/usage/records/{id}/feedback` | The record's feedback history, newest first. |
 | `POST /api/v1/usage/records/{id}/feedback` | Add feedback to a record: the record's own principal or actor, or an operator (admin or deployer). See [feedback](#feedback). |
@@ -41,7 +41,7 @@ Unknown query parameters, repeated parameters, and unknown `group_by` fields are
 `400 INVALID_QUERY`. The valid `group_by` fields are `plane`, `provider`,
 `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`,
 `access_point_id`, `caller_kind`, `status`, `source`, `error_class`, `usage_bound`,
-`batch` and `harness`, or `tag:<key>` to group by a record [tag](#tags). A `group_by`
+`batch`, `hook_decision` and `harness`, or `tag:<key>` to group by a record [tag](#tags). A `group_by`
 field may appear once.
 
 Filter values are checked before the query runs:
@@ -57,6 +57,7 @@ Filter values are checked before the query runs:
 | `usage_bound` | `lower_bound`, `ambiguous`, `partial`, `none` |
 | `batch` | `true` or `false`. A record with `batch: true` matches `true`. |
 | `error_class` | Any text up to 512 characters. Matches records with exactly that `error_class`. |
+| `hook_decision` | `allow`, `deny`, `transform`, `error`, `skipped`, or `none` (no [request hook](request-hooks.md) ran). Matches `hooks.decision`. |
 | `since`, `until` | RFC 3339 timestamps. `until` must be after `since`. |
 
 `usage_bound=none` matches records with no `usage_bound`, meaning counters that are final or
@@ -93,6 +94,7 @@ unknown. Any other value is matched exactly.
 | `usage_bound` | Present only when `usage` is not final. One of `lower_bound`, `ambiguous` or `partial`. See [bounded usage](#bounded-usage). |
 | `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`), `scale` and `amount_decimal`, the same amount written as an exact decimal string (for example `0.000006` for `amount` `6` at scale `6`). |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
+| `hooks` | Present when a [request hook](request-hooks.md) ran on the exchange. `decision` is the most significant decision of all runs (`deny`, then `error`, then `transform`, then `allow`, then `skipped`); `uninspected_parts` counts images, audio, files and unknown blocks that were present but not inspected; `fail_open_used` is `true` when a `fail_open` hook failed and the exchange continued without it. `results` lists each hook run: `id` (`policy/hook`), `type`, `phase` (`request` or `response`), `decision`, `rules` (rule identifiers with match `count`; for a denial the denying rule comes first), `duration_ms` and `fail_open_used`. It never holds content or the matched text. |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
 | `session` | `true` for a WebSocket session. One record covers the whole session, and its usage is final only with a terminal observation. Omitted otherwise. |
 | `request_id` | The request's correlation identifier (`X-Request-Id`). |
@@ -222,6 +224,8 @@ A price may carry an optional `source` object (`catalog`, `commit`, `retrieved_a
 `source_url`). It records where an imported price came from and has no effect on matching
 or cost.
 
+The Gemini Developer API omits `cachedContentTokenCount` and `thoughtsTokenCount` when they are zero (observed on the live API, 2026-11-10), so for `gemini-developer` generation a record that reports prompt, candidate and total counts gets `cache_read_tokens` 0 and `reasoning_tokens` equal to the total minus prompt, candidates and tool-use prompt tokens. Gemini reports thinking tokens apart from output tokens and bills them as output, so catalogue imports for `gemini-developer` price `reasoning_tokens` at the output rate.
+
 If a priced meter's quantity is not reported for a record (for example `cache_read_tokens`
 on a provider that omits cached tokens), that record's cost stays `unknown`; the ledger does
 not treat the missing count as zero.
@@ -311,6 +315,9 @@ HTTP-status class below. A quota, capacity or session reason replaces that class
 | `capacity_cooldown` | The request was rejected by the surface's [capacity policy](model-providers.md#capacity-policy) while the provider was throttling. It is not a provider error. |
 | `capacity_shed` | The request was rejected by the capacity policy's headroom rule. Callers below `min_weight` are shed first. It is not a provider error. |
 | Quota reason codes | QuotaPlex refused the exchange before the provider was called. |
+| `hook_denied` | A [request hook](request-hooks.md) refused the request (before the provider was called; no quota is reserved) or withheld the response (after it; usage is still recorded). Status `denied`, HTTP 403. |
+| `hook_unavailable` | A request hook could not decide (timeout, unreachable or invalid sidecar) and is not `fail_open`. Status `error`, HTTP 503. |
+| `hook_policy_unavailable` | The tenant's hook policies could not be read, or a stored one no longer validates. Status `error`, HTTP 503. |
 
 The capacity rejections are status `denied`, with HTTP 429 and a `Retry-After` header.
 
@@ -479,7 +486,7 @@ not change the response to the client.
 
 `aiplex usage records` and `aiplex usage summary` take the same filters: `--plane`,
 `--provider`, `--model`, `--tool`, `--agent`, `--user`, `--client`, `--access-point`,
-`--caller-kind`, `--status`, `--source`, `--error-class`, `--bound`, `--batch`, `--since` and `--until`.
+`--caller-kind`, `--status`, `--source`, `--error-class`, `--bound`, `--batch`, `--hook-decision`, `--since` and `--until`.
 `--error-class` and `--bound` pass through to `error_class` and `usage_bound`. `--bound` accepts
 `lower_bound`, `ambiguous`, `partial` or `none`. `--batch` takes `true` or `false`. Given alone,
 `--batch` means `--batch=true`. `--since` and `--until` also accept a duration such as `24h` or
@@ -502,7 +509,8 @@ untruncated. The default columns are:
 
 `-o wide` adds the columns the default table leaves out: `ID` (the record ID), `PLANE`, `AGENT`, `USER` (the
 readable user name), `PRINCIPAL ID` (the key the caller is recorded under), `CLIENT`, `SESSION`, `BATCH`, `CACHE-W`,
-`MODALITY`, `UNITS` and `LATENCY`. Use `-o json` for every field of each record.
+`MODALITY`, `UNITS`, `LATENCY` and `HOOKS` (the hook decision with rule identifiers and counts, for example
+`deny (private_key×1)`). Use `-o json` for every field of each record.
 
 A record carries two readable names for the caller, set by the server from the verified identity when it
 verified it: `principal_display` for the user (or client) and `actor_display` for the agent. The CLI shows the
@@ -511,7 +519,7 @@ for people to read and is not a key. It can be an email address, so do not publi
 checking it. `principal_id` and `actor_id` are the keys that `--user` and `--agent` filter on.
 
 `aiplex usage get <id>` prints every field of one record, including `principal_display`, `actor_display`,
-`http_status`, `error_class`, `usage_bound`, `batch`, `image_size` and `image_quality`.
+`http_status`, `error_class`, `usage_bound`, `batch`, `image_size`, `image_quality` and each hook run.
 
 `aiplex usage summary` prints one row per group, with the group keys first. The default columns are
 `REQUESTS`, `ERRORS`, `DENIED`, `IN`, `OUT` and `COST`. `-o wide` adds `CACHE-W`, `MODALITY`, `UNITS`,
@@ -549,8 +557,9 @@ mock-gpt  1         0       0       1   9    USD 0.000006 (estimated)
   events are not recorded.
 - Correlation of reported records with managed ones needs a key the harness actually sends.
   Claude Code, for example, sends no `X-Client-Request-Id` and no `traceparent` to a gateway
-  unless `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1` is set; without a key its reported records stay
-  in their own group.
+  unless `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1` (and the traces beta) is set; without a key its
+  reported records stay in their own group, and a summary shows them beside the managed ones
+  rather than merging them. Run against a real Claude Code, the propagated trace did pair them.
 - Feedback is not in list rows. It is in the record detail and, with `feedback=true`, in
   summaries (read page by page from a separate store). The tag value cap is per process.
 - `POST /api/v1/llm/usage` mirrors its counters into the ledger but does not copy

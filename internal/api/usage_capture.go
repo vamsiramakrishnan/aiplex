@@ -59,6 +59,8 @@ type usageCapture struct {
 	// trace_id and span_id. genAIProvider is gen_ai.provider.name.
 	span          trace.Span
 	genAIProvider string
+	// hooks summarizes request-hook decisions (hooks.go); nil when none ran.
+	hooks *usageledger.HookSummary
 }
 
 // beginUsage starts capturing an exchange for a verified tenant. The returned
@@ -414,6 +416,11 @@ func (c *usageCapture) finish() {
 	anthropicRaw, attemptID, code, incomplete := c.anthropicRaw, c.attemptID, c.errorCode, c.incomplete
 	streaming := c.streaming || hijacked
 	bound, terminalSeen := c.bound, c.terminalSeen
+	if c.hooks != nil {
+		summary := *c.hooks
+		summary.Results = append([]usageledger.HookResult(nil), c.hooks.Results...)
+		record.Hooks = &summary
+	}
 	c.mu.Unlock()
 	if hijacked && !terminalSeen {
 		// A relayed session without a final usage observation: whatever was
@@ -540,6 +547,7 @@ func endExchangeSpan(ctx context.Context, span trace.Span, record usageledger.Re
 	}
 	span.SetName(e.SpanName())
 	span.SetAttributes(e.Attributes()...)
+	span.SetAttributes(hookSpanAttributes(record)...)
 	if record.Status != usageledger.StatusOK {
 		span.SetStatus(codes.Error, "")
 	}

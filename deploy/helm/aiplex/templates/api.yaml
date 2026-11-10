@@ -111,6 +111,51 @@ spec:
               key: {{ .key | default "token" | quote }}
         {{- end }}
         {{- end }}
+        {{- with .Values.denialIngest.tokenSecret }}
+        {{- if .name }}
+        - name: AIPLEX_DENIAL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .name | quote }}
+              key: {{ .key | default "token" | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.usage }}
+        {{- with .traceUrlTemplate }}
+        - name: AIPLEX_TRACE_URL_TEMPLATE
+          value: {{ . | quote }}
+        {{- end }}
+        - name: AIPLEX_FEEDBACK_COMMENTS
+          value: {{ ternary "true" "false" (eq .feedbackComments true) | quote }}
+        {{- with .tagKeysAllowed }}
+        - name: AIPLEX_TAG_KEYS_ALLOWED
+          value: {{ join "," . | quote }}
+        {{- end }}
+        {{- with .tagMaxValues }}
+        - name: AIPLEX_TAG_MAX_VALUES
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .otlp }}
+        {{- with .maxRecordsPerRequest }}
+        - name: AIPLEX_OTLP_MAX_RECORDS_PER_REQUEST
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .maxBodyBytes }}
+        - name: AIPLEX_OTLP_MAX_BODY_BYTES
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .requestsPerSecond }}
+        - name: AIPLEX_OTLP_REQUESTS_PER_SECOND
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .recordsPerSecond }}
+        - name: AIPLEX_OTLP_RECORDS_PER_SECOND
+          value: {{ . | quote }}
+        {{- end }}
+        - name: AIPLEX_OTLP_FORWARD
+          value: {{ ternary "true" "false" (eq .forward true) | quote }}
+        {{- end }}
+        {{- end }}
         {{- range $key, $value := .Values.api.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}

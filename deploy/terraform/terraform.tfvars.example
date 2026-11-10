@@ -28,10 +28,19 @@ domain = "aiplex.example.com"
 # Dev: 2, Staging: 4, Production: 8+
 # alloydb_cpu_count = 2
 
-# ── Workload Identity Federation (for external agents) ───
-# Only needed if agents run outside GCP (AWS, Azure, on-prem)
+# GKE network: "default" (the project's default network; the original
+# behaviour and the default) or "aiplex" (the dedicated VPC with Private Google
+# Access and Cloud NAT; `aiplex init` writes this for new installs).
+# Changing it on an existing cluster REPLACES the cluster.
+# cluster_network = "default"
 
-# AWS IAM role external agents assume
+# ── Workload Identity Federation (for external agents) ───
+# Only needed if agents run outside GCP (AWS, Azure, on-prem). Each identity
+# provider is created only when its variable is set.
+
+# AWS account whose IAM roles external agents assume (12 digits), and the role
+# name they assume in it
+# aws_account_id = "123456789012"
 # aws_agent_role = "aiplex-agent"
 
 # Azure AD tenant of external agents

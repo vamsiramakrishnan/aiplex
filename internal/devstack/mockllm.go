@@ -44,6 +44,9 @@ type MockRequest struct {
 	Model               string
 	Stream              bool
 	BodyBytes           int
+	// Body is the request body as received (first 64 KiB), so tests can
+	// prove what reached the provider (for example a masked prompt).
+	Body string
 }
 
 // Requests returns a copy of the recorded requests.
@@ -53,10 +56,14 @@ func (m *MockModels) Requests() []MockRequest {
 	return append([]MockRequest(nil), m.requests...)
 }
 
-func (m *MockModels) record(r *http.Request, model string, stream bool, n int) {
+func (m *MockModels) record(r *http.Request, model string, stream bool, body []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.requests = append(m.requests, MockRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Authorization: r.Header.Get("Authorization"), APIKey: r.Header.Get("X-Api-Key"), GoogAPIKey: r.Header.Get("X-Goog-Api-Key"), Traceparent: r.Header.Get("Traceparent"), Model: model, Stream: stream, BodyBytes: n})
+	kept := body
+	if len(kept) > 64<<10 {
+		kept = kept[:64<<10]
+	}
+	m.requests = append(m.requests, MockRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Authorization: r.Header.Get("Authorization"), APIKey: r.Header.Get("X-Api-Key"), GoogAPIKey: r.Header.Get("X-Goog-Api-Key"), Traceparent: r.Header.Get("Traceparent"), Model: model, Stream: stream, BodyBytes: len(body), Body: string(kept)})
 }
 
 // MockReply is the deterministic assistant text for a prompt.
@@ -106,7 +113,7 @@ func (m *MockModels) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && path == "/v1/messages/count_tokens":
 		var req anthropicRequest
 		_ = json.Unmarshal(body, &req)
-		m.record(r, req.Model, false, len(body))
+		m.record(r, req.Model, false, body)
 		writeJSON(w, 200, map[string]any{"input_tokens": countTokens(req.text())})
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/v1beta/models/"):
 		m.gemini(w, r, body)
@@ -177,7 +184,7 @@ func (m *MockModels) openAIChat(w http.ResponseWriter, r *http.Request, body []b
 		writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "invalid request: model and messages are required", "type": "invalid_request_error"}})
 		return
 	}
-	m.record(r, req.Model, req.Stream, len(body))
+	m.record(r, req.Model, req.Stream, body)
 	if m.behaviour(w, r, req.Model, func() {
 		writeJSON(w, 429, map[string]any{"error": map[string]any{"message": "Rate limit reached for mock model", "type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}})
 	}) {
@@ -284,7 +291,7 @@ func (m *MockModels) openAIResponses(w http.ResponseWriter, r *http.Request, bod
 		writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "invalid request: model and input are required", "type": "invalid_request_error"}})
 		return
 	}
-	m.record(r, req.Model, req.Stream, len(body))
+	m.record(r, req.Model, req.Stream, body)
 	if m.behaviour(w, r, req.Model, func() {
 		writeJSON(w, 429, map[string]any{"error": map[string]any{"message": "Rate limit reached for mock model", "type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}})
 	}) {
@@ -353,7 +360,7 @@ func (m *MockModels) openAIEmbeddings(w http.ResponseWriter, r *http.Request, bo
 		writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "invalid request", "type": "invalid_request_error"}})
 		return
 	}
-	m.record(r, req.Model, false, len(body))
+	m.record(r, req.Model, false, body)
 	var inputs []string
 	var one string
 	if json.Unmarshal(req.Input, &one) == nil {
@@ -397,7 +404,7 @@ func (m *MockModels) anthropicMessages(w http.ResponseWriter, r *http.Request, b
 		writeJSON(w, 400, map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": "model, max_tokens and messages are required"}})
 		return
 	}
-	m.record(r, req.Model, req.Stream, len(body))
+	m.record(r, req.Model, req.Stream, body)
 	if m.behaviour(w, r, req.Model, func() {
 		writeJSON(w, 429, map[string]any{"type": "error", "error": map[string]any{"type": "rate_limit_error", "message": "Rate limit reached for mock model"}})
 	}) {
@@ -462,7 +469,7 @@ func (m *MockModels) gemini(w http.ResponseWriter, r *http.Request, body []byte)
 		return
 	}
 	stream := method == "streamGenerateContent"
-	m.record(r, model, stream, len(body))
+	m.record(r, model, stream, body)
 	if m.behaviour(w, r, model, func() {
 		writeJSON(w, 429, map[string]any{"error": map[string]any{"code": 429, "message": "Resource has been exhausted (mock).", "status": "RESOURCE_EXHAUSTED"}})
 	}) {

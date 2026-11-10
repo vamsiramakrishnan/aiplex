@@ -48,7 +48,7 @@ From the cobra definitions in `cmd/aiplex-cli/cmd_dev.go`:
 | `--console-port` | `9090` | Console port on `127.0.0.1`. |
 | `--provider` | `mock` | Model provider: `mock`, `openai`, `anthropic` or `gemini`. |
 | `--api-key-env` | empty | Name of the environment variable that holds the provider key. Not the key itself. Required with a real provider. |
-| `--model` | per provider | Model to expose. Defaults: `mock-gpt` (mock), `gpt-4o-mini` (openai), `claude-haiku-4-5` (anthropic), `gemini-2.5-flash` (gemini). |
+| `--model` | per provider | Model to expose. Defaults: `mock-gpt` (mock), `gpt-4o-mini` (openai), `claude-haiku-4-5` (anthropic), `gemini-3.1-flash-lite` (gemini; `gemini-2.5-flash` was answered 404 by the live API on 2026-11-10). |
 | `--api-bin` | empty | Path to the `aiplex-api` binary. |
 | `--context` | `local` | CLI context to create for the local API. |
 | `--no-console` | off | Do not serve the Console. |
@@ -118,6 +118,8 @@ Auth wiring per provider, as the seeded surface sets it:
 | `openai` | OpenAI Chat Completions | `Authorization: Bearer` |
 | `anthropic` | Anthropic Messages | `x-api-key` |
 | `gemini` | Gemini GenAI | `x-goog-api-key` |
+
+The seeded Anthropic surfaces list the `anthropic-beta` values Claude Code 2.1.322 sent when observed (a surface refuses betas it does not list), so a real Claude Code session works against them; a later Claude Code version may need more. To use z.ai or another server with your own path prefix, add `--allow-origin` for its origin and create a surface with `aiplex llm surfaces create` (an `openai-compatible` surface takes `base_path`; the `anthropic` provider does not).
 
 With a real provider, no price is seeded. The summary says so. Set contracted rates with
 `aiplex usage prices set <model> --input-per-mtok <price> --output-per-mtok <price>`, or with a full

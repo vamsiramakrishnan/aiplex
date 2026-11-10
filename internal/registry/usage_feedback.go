@@ -16,13 +16,13 @@ import (
 // Feedback layout, beside the usage ledger and keyed the same way:
 //
 //	usage_ledger_tenants/{sha256(tenant)}/usage_feedback_latest/{record id}
-//	usage_ledger_tenants/{sha256(tenant)}/usage_feedback_latest/{record id}/events/{feedback id}
+//	usage_ledger_tenants/{sha256(tenant)}/usage_feedback_latest/{record id}/usage_feedback_events/{feedback id}
 //
 // The latest document is the latest-wins view; events are the append-only
 // history. expires_at supports a Firestore TTL policy on both.
 const (
 	usageFeedbackLatest = "usage_feedback_latest"
-	usageFeedbackEvents = "events"
+	usageFeedbackEvents = "usage_feedback_events"
 	usageFeedbackBatch  = 100
 )
 

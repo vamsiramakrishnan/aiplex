@@ -43,6 +43,7 @@ var intendedRoutePolicy = map[string]string{
 	// Internal callbacks (bearer shared secrets).
 	"POST /auth/token-hook":                       "internal/t",
 	"POST /internal/tape/events":                  "internal/t",
+	"POST /internal/policy-denials":               "internal/t",
 	"POST /internal/projections/rebuild/{run_id}": "internal/t",
 	"GET /metrics":                                "internal/t",
 
@@ -137,6 +138,13 @@ var intendedRoutePolicy = map[string]string{
 	"GET /api/v1/usage/prices/{id}":            "op/t",
 	"PUT /api/v1/usage/prices/{id}":            "admin/t",
 	"DELETE /api/v1/usage/prices/{id}":         "admin/t",
+
+	// Request-hook policies: operator only (they describe detection rules).
+	"GET /api/v1/hooks/policies":            "op/t",
+	"GET /api/v1/hooks/policies/{id}":       "op/t",
+	"PUT /api/v1/hooks/policies/{id}":       "op/t",
+	"DELETE /api/v1/hooks/policies/{id}":    "op/t",
+	"POST /api/v1/hooks/policies/{id}/test": "op/t",
 
 	// Overview (usage roll-ups inside it are admin-only; see overview tests).
 	"GET /api/v1/overview/subjects":             "op/t",

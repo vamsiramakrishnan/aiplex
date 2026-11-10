@@ -295,6 +295,9 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 	if op.ID == "openai.chat-completions" && g.surface.Provider == nil {
 		vertexCompletionComposition(counters)
 	}
+	if result.gemini && geminiGeneration(op) && g.surface.Provider != nil && g.surface.Provider.ID == ProviderGeminiDeveloper {
+		geminiProto3Defaults(counters)
+	}
 	if len(counters) == 0 {
 		return result, nil
 	}
@@ -303,6 +306,29 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 	}
 	result.usage = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, ResourceID: id, Terminal: terminal, Counters: counters, Cumulative: cumulativeUsage(op) || g.anthropicWire(op), ModelVersion: result.modelVersion}
 	return result, nil
+}
+
+// geminiProto3Defaults applies the rule strict settlement uses
+// (normalizeGeminiFinal) to the ledger's observation of a generation usage
+// block that reports prompt, candidates and total: proto3 omits zero counters,
+// so an absent cachedContentTokenCount is 0 (the live Gemini Developer API
+// omits it when nothing was cached), and thoughts are
+// total - prompt - candidates - tool-use prompt. A block missing any of the
+// three counters is left as reported (unknown stays unknown).
+func geminiProto3Defaults(counters map[string]int64) {
+	input, inputOK := counters["input_tokens"]
+	output, outputOK := counters["output_tokens"]
+	total, totalOK := counters["total_tokens"]
+	if !inputOK || !outputOK || !totalOK {
+		return
+	}
+	if _, ok := counters["cached_tokens"]; !ok {
+		counters["cached_tokens"] = 0
+	}
+	thought := total - input - output - counters["tool_use_tokens"]
+	if explicit, ok := counters["thought_tokens"]; thought >= 0 && (!ok || explicit == thought) {
+		counters["thought_tokens"] = thought
+	}
 }
 
 // vertexCompletionComposition gives the Vertex OpenAI-compatible endpoint's

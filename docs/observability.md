@@ -93,6 +93,10 @@ is `0`.
 | `aiplex.cost.amount`, `aiplex.cost.currency` | The exact cost as a decimal string (for example `0.000014`) and its currency, only when the cost is known. |
 | `aiplex.quota.attempt_id` | The QuotaPlex attempt. |
 | `aiplex.quota.decision` | `denied` for a quota refusal; `admitted` when an attempt exists and quota did not refuse. |
+| `aiplex.hooks.decision` | The exchange's [request-hook](request-hooks.md) decision (`deny`, `error`, `transform`, `allow` or `skipped`), when a hook ran. |
+| `aiplex.hooks.count` | The number of hook runs on the exchange (both phases). |
+| `aiplex.hooks.denied_rule` | The rule identifier of a denying hook (an operator-chosen identifier such as `private_key`, never the matched text). |
+| `aiplex.hooks.fail_open_used` | `true` when a `fail_open` hook failed and the exchange continued without its decision. |
 
 The span ends after the cost is resolved (settlement or price), on the ledger's
 background writer, with the exchange's own finish time. It can therefore arrive
@@ -112,6 +116,9 @@ itself holds no payload.
 Tests plant a secret in the prompt, the caller's token, the query string and a
 provider key header, and fail if it appears in any exported span:
 `internal/api/telemetry_spans_test.go` and `tests/e2e/telemetry_test.go`.
+Request hooks add no content either: `internal/api/hooks_test.go` plants a marker
+in a prompt and a tool argument and fails if it appears in a span, ledger record,
+log line, metric label or error body, whether the hook masked it or denied it.
 
 ## Trace context
 
@@ -255,6 +262,8 @@ trace ID is ever a metric attribute**, and exemplars are off.
 | `aiplex.usage.unknown_usage` | counter | `{exchange}` | Exchanges with unknown usage (`aiplex.usage.bound="unknown"`) or non-final usage (`lower_bound`, `ambiguous`). Their tokens are not added to the token counters. |
 | `aiplex.quota.denials` | counter | `{exchange}` | Exchanges refused by QuotaPlex admission, by `error.type`. A provider's own 429 is not counted here. |
 | `aiplex.upstream.errors` | counter | `{exchange}` | Exchanges that ended in `error` or `unknown`, by `error.type`. This includes upstream errors passed through to the caller. |
+| `aiplex.hooks.decisions` | counter | `{decision}` | One per [request-hook](request-hooks.md) run, by `aiplex.hook.type` (`redact`, `size_limit`, `http`, `policy`), `aiplex.hook.phase` (`request`, `response`) and `aiplex.hook.decision` (`allow`, `deny`, `transform`, `error`, `skipped`). No policy, hook or rule identifier is a label. |
+| `aiplex.hooks.duration` | histogram | s | Duration of one hook run, with the same three attributes. |
 
 `GET /metrics` serves one replica's view. Scrape every replica, or use OTLP
 metrics export (each replica pushes its own).
@@ -349,6 +358,15 @@ api:
     name: aiplex-metrics     # an existing Secret; the chart never holds the value
     key: token
 ```
+
+Usage ledger settings are under `usage:` in the chart values: `traceUrlTemplate`,
+`feedbackComments`, `tagKeysAllowed`, `tagMaxValues` and `otlp.*` (receiver bounds and
+`forward`), each passed to the API as the `AIPLEX_*` variable of the same name. The Gateway
+routes `/otlp/` to the API. The GKE Gateway has no request-body-size setting, so none is
+configured; the receiver's own bound (4 MiB as sent by default) applies, and the load
+balancer's limits apply in front of it. Feedback collections need Firestore TTL on
+`usage_feedback_latest` and `usage_feedback_events` (`firestore.tf`). The chart templates were
+not rendered here (no `helm` available).
 
 The chart's collector exports to Cloud Trace and Cloud Monitoring in
 `global.projectId`. It runs as its own `otel-collector` Kubernetes service

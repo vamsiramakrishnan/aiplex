@@ -86,6 +86,8 @@ export interface UsageRecord {
   reported_attributes?: Record<string, string>
   /** Experiment labels from access point configuration and allowlisted request headers. */
   tags?: Record<string, string>
+  /** Request-hook summary; present only when a hook ran on the exchange. Never holds content or matched text. */
+  hooks?: UsageHooks
   streaming: boolean
   /** True for a WebSocket session record (one record per session; usage is advisory). Absent on older servers and on non-session records. */
   session?: boolean
@@ -105,6 +107,13 @@ export interface UsageRecord {
   requests: Count
   usage: UsageCounters | null
   cost: UsageCost
+}
+
+export interface UsageHooks {
+  decision: 'allow' | 'deny' | 'transform' | 'error' | 'skipped'
+  fail_open_used?: boolean
+  uninspected_parts?: Count
+  results?: { id: string; type: string; phase: string; decision: string; rules?: { id: string; count: Count }[]; duration_ms?: Count; fail_open_used?: boolean }[]
 }
 
 export interface UsagePage { records: UsageRecord[]; next_cursor?: string }
@@ -129,11 +138,13 @@ export interface UsageFilter {
   batch?: string
   /** Reported records from one client. */
   harness?: string
+  /** allow, deny, transform, error, skipped or none. */
+  hook_decision?: string
   since?: string
   until?: string
 }
 
-export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status', 'source', 'error_class', 'usage_bound', 'batch', 'harness'] as const
+export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status', 'source', 'error_class', 'usage_bound', 'batch', 'hook_decision', 'harness'] as const
 /** A record field, or a record tag written tag:<key>. */
 export type GroupField = (typeof GROUP_FIELDS)[number] | `tag:${string}`
 export type Bucket = '' | 'hour' | 'day'

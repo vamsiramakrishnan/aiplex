@@ -12,7 +12,7 @@ import (
 )
 
 // Writable lists the client profiles whose configuration can be written.
-var Writable = []string{"claude-code", "codex", "gemini-cli"}
+var Writable = []string{"claude-code", "codex", "gemini-cli", "antigravity"}
 
 // TokenEnv is the environment variable every written file refers to.
 const TokenEnv = "AIPLEX_TOKEN"
@@ -184,6 +184,12 @@ func PlanClaudeCode(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 		if err != nil {
 			return err
 		}
+		if _, has := env.get("ANTHROPIC_API_KEY"); has {
+			// Observed with Claude Code 2.1.322: it sends this as x-api-key
+			// next to the AIPlex token, and the access point refuses a request
+			// whose credentials differ (401 "conflicting credentials").
+			p.Notes = append(p.Notes, "this settings file sets ANTHROPIC_API_KEY, which Claude Code would send to the access point as x-api-key beside your AIPlex token: the access point refuses that (conflicting credentials) and your provider key would reach AIPlex. AIPlex does not remove keys; delete it from env in this file, or use a separate Claude Code settings scope for AIPlex")
+		}
 		env.set("ANTHROPIC_BASE_URL", base)
 		if model != "" {
 			env.set("ANTHROPIC_MODEL", model)
@@ -272,7 +278,11 @@ func PlanGeminiCLI(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	} else {
 		p.Notes = append(p.Notes, "this access point has no Google GenAI endpoint, so Gemini CLI cannot use its models; only the MCP server is configured")
 	}
-	if c.MCPURL == "" && o.Telemetry == "" {
+	model := o.Model
+	if model == "" {
+		model = firstModel(c, "google-genai")
+	}
+	if c.MCPURL == "" && o.Telemetry == "" && c.BaseURLs["genai"] == "" {
 		return p, nil
 	}
 	path := filepath.Join(o.Home, ".gemini", "settings.json")
@@ -280,6 +290,29 @@ func PlanGeminiCLI(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 		path = filepath.Join(o.Cwd, ".gemini", "settings.json")
 	}
 	ch, err := editJSON(path, func(root *object) error {
+		if c.BaseURLs["genai"] != "" {
+			// Observed with Gemini CLI 0.67 (2026-11-10): with only
+			// GEMINI_API_KEY in the environment a headless run stops with
+			// "Invalid auth method selected" unless security.auth.selectedType
+			// names the API-key method, and the CLI asks for its own default
+			// model unless model.name names one the access point serves.
+			sec, err := root.child("security")
+			if err != nil {
+				return err
+			}
+			auth, err := sec.child("auth")
+			if err != nil {
+				return err
+			}
+			auth.set("selectedType", "gemini-api-key")
+			if model != "" {
+				m, err := root.child("model")
+				if err != nil {
+					return err
+				}
+				m.set("name", model)
+			}
+		}
 		if c.MCPURL != "" {
 			servers, err := root.child("mcpServers")
 			if err != nil {
@@ -307,6 +340,53 @@ func PlanGeminiCLI(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	if o.Telemetry != "" && o.TelemetryAIPlex {
 		p.Remaining = append(p.Remaining, "export GEMINI_TELEMETRY_OTLP_HEADERS=\"Authorization=Bearer $"+TokenEnv+"\"   # authenticates the telemetry export to AIPlex; not written to settings.json so the token never lands in a file")
 		p.Notes = append(p.Notes, "AIPlex's OTLP receiver records gemini_cli.api_response and api_error log events as source=reported usage; whether Gemini CLI appends /v1/logs to the endpoint has not been validated")
+	}
+	return p, nil
+}
+
+// PlanAntigravity plans Antigravity's MCP configuration only:
+//
+//	user:    ~/.gemini/config/mcp_config.json
+//	project: ./.agents/mcp_config.json
+//
+// Both paths are from https://antigravity.google/docs/mcp (read 2026-11-10) and
+// the user path was observed: `agy mcp add` (Antigravity CLI 1.5.4, Linux)
+// created ~/.gemini/config/mcp_config.json with serverUrl and headers.
+// The same CLI sent "Bearer ${AIPLEX_TOKEN}" to the MCP server literally, so
+// Antigravity does not expand environment variables in headers and the
+// access point's own MCP endpoint cannot be written without putting a token in
+// the file. The file gets the secret-free stdio server `aiplex mcp serve`
+// instead, and the endpoint is left as a manual step. Model and gateway
+// settings stay print-only.
+func PlanAntigravity(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
+	if err := o.validate(); err != nil {
+		return nil, err
+	}
+	if o.TokenHelper || o.Telemetry != "" {
+		return nil, fmt.Errorf("--token-helper and --with-telemetry do not apply to antigravity: only its MCP server list is written")
+	}
+	path := filepath.Join(o.Home, ".gemini", "config", "mcp_config.json")
+	if o.scope() == "project" {
+		path = filepath.Join(o.Cwd, ".agents", "mcp_config.json")
+	}
+	ch, err := editJSON(path, func(root *object) error {
+		servers, err := root.child("mcpServers")
+		if err != nil {
+			return err
+		}
+		servers.set("aiplex", obj("command", "aiplex", "args", []any{"mcp", "serve"}))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	p := &Plan{Client: "antigravity", Changes: []Change{ch}}
+	p.Notes = append(p.Notes, "wrote the stdio server `aiplex mcp serve` (read-only tools, uses your aiplex login); `aiplex` must be on the PATH of Antigravity. Whether the IDE or App loads this file was not observed; the CLI listed it")
+	if c.MCPURL != "" {
+		p.Remaining = append(p.Remaining, "the access point's MCP endpoint needs a bearer token header and Antigravity does not expand environment variables in mcp_config.json, so AIPlex does not write it. To add it yourself (the token will then be stored in that file): agy mcp add --header \"Authorization: Bearer $"+TokenEnv+"\" "+serverName(c)+" "+c.MCPURL)
+	}
+	if u := c.BaseURLs["genai"]; u != "" {
+		p.Remaining = append(p.Remaining, "model traffic: Antigravity's gateway and model settings are not written (see `aiplex connect "+c.AccessPointID+" --client antigravity` for the print-only fragment, which has not been validated against a running client)")
 	}
 	return p, nil
 }

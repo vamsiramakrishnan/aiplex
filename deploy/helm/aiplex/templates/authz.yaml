@@ -1,0 +1,116 @@
+{{- /*
+The Rust ext_authz sidecar (authz/), off by default: the chart's data path
+authorizes with OPA unless you turn this on and point your gateway's ext_authz
+filter at the aiplex-authz Service (HTTP, path prefix /authorize).
+
+Denial reporting: with authz.reportDenials the sidecar posts each denial of a
+verified token to the API's internal route (POST /internal/policy-denials).
+Both sides authenticate with one shared secret that is a Kubernetes Secret
+reference (denialIngest.tokenSecret): the API reads it as AIPLEX_DENIAL_TOKEN,
+the sidecar from a mounted file. The chart never holds the value.
+*/ -}}
+{{- if .Values.authz.enabled }}
+{{- $ns := include "aiplex.namespace" . }}
+{{- $secret := .Values.denialIngest.tokenSecret }}
+{{- $_ := required "authz.jwt.issuer is required when authz.enabled" .Values.authz.jwt.issuer }}
+{{- $_ := required "authz.jwt.audience is required when authz.enabled" .Values.authz.jwt.audience }}
+{{- $_ := required "authz.jwt.jwksUrl is required when authz.enabled" .Values.authz.jwt.jwksUrl }}
+{{- if and .Values.authz.reportDenials (not $secret.name) }}
+{{- fail "authz.reportDenials needs denialIngest.tokenSecret.name (a Secret the API and the sidecar share), or set authz.reportDenials: false" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiplex-authz
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+    app.kubernetes.io/name: aiplex-authz
+    app.kubernetes.io/component: authz
+spec:
+  replicas: {{ .Values.authz.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aiplex-authz
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aiplex-authz
+    spec:
+      # Verifies tokens against the public JWKS and calls the API; it never
+      # talks to the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: aiplex-authz
+        image: {{ .Values.authz.image.repository | default (printf "%s/aiplex-authz" .Values.global.registry) }}:{{ .Values.authz.image.tag | default .Chart.AppVersion }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        ports:
+        - containerPort: 9191
+          name: http
+        env:
+        - name: JWT_ISSUER
+          value: {{ .Values.authz.jwt.issuer | quote }}
+        - name: JWT_AUDIENCE
+          value: {{ .Values.authz.jwt.audience | quote }}
+        - name: JWT_JWKS_URL
+          value: {{ .Values.authz.jwt.jwksUrl | quote }}
+        {{- if .Values.authz.reportDenials }}
+        - name: DENIAL_WEBHOOK_URL
+          value: {{ printf "http://aiplex-api.%s.svc.cluster.local:8080/internal/policy-denials" $ns | quote }}
+        - name: DENIAL_TOKEN_FILE
+          value: /var/run/aiplex/denial/token
+        {{- end }}
+        {{- if .Values.authz.reportDenials }}
+        volumeMounts:
+        - name: denial-token
+          mountPath: /var/run/aiplex/denial
+          readOnly: true
+        {{- end }}
+        resources:
+          {{- toYaml .Values.authz.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          periodSeconds: 5
+      {{- if .Values.authz.reportDenials }}
+      volumes:
+      - name: denial-token
+        secret:
+          secretName: {{ $secret.name | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ $secret.key | default "token" | quote }}
+            path: token
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiplex-authz
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: aiplex-authz
+  ports:
+  - name: http
+    port: 9191
+    targetPort: http
+{{- end }}
