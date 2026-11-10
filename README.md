@@ -26,7 +26,7 @@ No release has been tagged and nothing is published yet. The release workflow pr
 
 Full details are in the [getting started guide](docs-site/docs/getting-started/index.md).
 
-## Try it in 60 seconds
+## Try it locally
 
 You need `aiplex` installed (see Install) or Go 1.25 or newer, `curl` and a terminal. No Docker, cloud account or API key.
 
@@ -336,7 +336,7 @@ Exercised against live services ([details](docs/model-providers.md#exercised-aga
 
 Not validated:
 
-- Any run against live OpenAI or Anthropic first-party endpoints , or against Azure, Bedrock or Vertex.
+- Any run against live OpenAI or Anthropic first-party endpoints, or against Azure, Bedrock or Vertex.
 - Any comparison of AIPlex's usage or cost figures against a provider invoice, and the Presidio and LLM Guard adapters against the real services.
 - A deployment to a live cloud project, and load, availability or backup-restore behaviour. The Google Cloud permissions table, the preflight, the custom deployer role and the narrowed runtime grants have not been run against a live project.
 - macOS and Windows; the container image build and push; the Homebrew cask; Firestore-backed budgets.

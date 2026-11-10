@@ -159,7 +159,7 @@ Error body (all HTTP errors): `{"type":"error","error":{"type":"<t>","message":"
 - Other: 400 `invalid_request_error` (also user-set spend limit), 401 `authentication_error`, 402 `billing_error`, 403 `permission_error`, 404 `not_found_error`, 409 `conflict_error`, 413 `request_too_large`, 500 `api_error`, 504 `timeout_error`.
 - In batches an `errored` result embeds the same ErrorResponse (types incl. `rate_limit_error`, `overloaded_error`, `timeout_error`).
 
-Bedrock: errors are AWS exceptions (`ThrottlingException` 429, `ServiceUnavailableException` 503, `ModelNotReadyException` 429, `ModelTimeoutException` 408, `ServiceQuotaExceededException` 400, ...). Documented quota statement: default 2M input TPM on the mantle endpoint, request up to 5M input TPM / 500k output TPM; RPM enforced by AWS. Rate-limit response headers on Bedrock: none documented in pages read. Vertex: Google quotas page not fetched; headers **UNCONFIRMED**.
+Bedrock: errors are AWS exceptions (`ThrottlingException` 429, `ServiceUnavailableException` 503, `ModelNotReadyException` 429, `ModelTimeoutException` 408, `ServiceQuotaExceededException` 400, ...). Documented quota statement: default 2M input TPM on the mantle endpoint, request up to 5M input TPM / 500k output TPM; RPM enforced by AWS. Rate-limit response headers on Bedrock: none documented by the provider. Vertex: Google quotas page not fetched; headers **UNCONFIRMED**.
 Fixture: `ratelimit.json`.
 
 ## 6. UNCONFIRMED / open questions
