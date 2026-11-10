@@ -26,7 +26,12 @@ type identitySourceFile struct {
 }
 
 func identityValidator(store auth.IdentityStore, cfg *config.Config) (*auth.WIFValidator, error) {
-	if cfg.DevelopmentMode {
+	// Development mode may run without any identity source (control-plane
+	// routes are then served anonymously on loopback). When an operator does
+	// configure a source in development mode — `aiplex dev` configures a
+	// loopback issuer — it is verified exactly as in production, so routes
+	// that require a verified caller (access points, usage attribution) work.
+	if cfg.DevelopmentMode && cfg.JWTIssuer == "" && cfg.IdentityProvidersFile == "" {
 		return auth.NewWIFValidator(store, auth.WIFConfig{}), nil
 	}
 	sources := []identitySourceSpec{}

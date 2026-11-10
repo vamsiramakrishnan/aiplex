@@ -31,18 +31,8 @@ Checks:
   - DNS resolution for custom domain`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Resolve base URL
-			url := apiURL
-			if url == "" {
-				cfg, err := cliconfig.Load()
-				if err == nil {
-					if ctx, err := cfg.Current(); err == nil {
-						url = ctx.URL
-					}
-				}
-			}
-			if url == "" {
-				url = "http://localhost:8080"
-			}
+			// --url, then AIPLEX_URL, then the context, then the default.
+			url := resolveAPIURL()
 
 			fmt.Println("AIPlex Health Check")
 			fmt.Println("════════════════════════════════════════")
@@ -77,8 +67,12 @@ Checks:
 			}
 			fmt.Println()
 
-			// Run auth checks
+			// Run auth checks (a loopback API from `aiplex dev` has no Hydra/Kratos)
 			fmt.Println("Auth Services:")
+			if isLoopbackURL(url) {
+				fmt.Println("  [SKIP] local API: identity comes from the local issuer")
+				authChecks = nil
+			}
 			for _, c := range authChecks {
 				result := runHealthCheck(client, url+c.path, verbose)
 				if result.healthy {
@@ -130,6 +124,10 @@ Checks:
 			} else {
 				fmt.Println()
 				fmt.Println("Troubleshooting:")
+				if isLoopbackURL(url) {
+					fmt.Println("  Local API: is `aiplex dev` running? Its log is ~/.aiplex/dev-api.log")
+					return fmt.Errorf("health checks failed")
+				}
 				fmt.Println("  Fetching logs from unhealthy pods...")
 				fmt.Println()
 				logsOut, err := exec.Command("kubectl", "logs",
@@ -152,7 +150,8 @@ Checks:
 				fmt.Println("  - Is the API server running? Check: kubectl -n aiplex-system get pods")
 				fmt.Println("  - Is the domain configured? Check DNS and SSL cert")
 				fmt.Println("  - Are you authenticated? Run: aiplex login")
-				fmt.Println("  - For local dev: make run-local (starts on :8080)")
+				fmt.Println("  - For local dev: aiplex dev (starts on 127.0.0.1:8080)")
+				return fmt.Errorf("health checks failed")
 			}
 
 			return nil

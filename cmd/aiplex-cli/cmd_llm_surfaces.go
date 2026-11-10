@@ -43,9 +43,85 @@ func llmxPrint(v any) {
 
 func llmxMachine() bool { return output == "json" || output == "yaml" }
 
+// llmxOperationCatalog returns the server's operations for a provider ("" is
+// a Google Cloud surface).
+type llmxOperationCatalog func(provider string) ([]aiplex.ModelOperation, error)
+
+// llmxExpandOperationIDs replaces operation IDs given as plain strings with
+// the catalog's operation objects, so a surface file can say
+// `operations: [openai.v1.chat-completions]` instead of copying each object.
+func llmxExpandOperationIDs(generic map[string]any, catalog llmxOperationCatalog) error {
+	surface, _ := generic["surface"].(map[string]any)
+	if surface == nil || catalog == nil {
+		return nil
+	}
+	ops, _ := surface["operations"].([]any)
+	needs := false
+	for _, op := range ops {
+		if _, ok := op.(string); ok {
+			needs = true
+		}
+	}
+	if !needs {
+		return nil
+	}
+	provider := ""
+	if p, ok := surface["provider"].(map[string]any); ok {
+		provider, _ = p["id"].(string)
+	}
+	known, err := catalog(provider)
+	if err != nil {
+		return fmt.Errorf("resolve operation IDs: %w", err)
+	}
+	byID := map[string]aiplex.ModelOperation{}
+	for _, op := range known {
+		byID[op.ID] = op
+	}
+	for i, op := range ops {
+		id, ok := op.(string)
+		if !ok {
+			continue
+		}
+		resolved, found := byID[id]
+		if !found {
+			name := provider
+			if name == "" {
+				name = "google"
+			}
+			return fmt.Errorf("operation %q is not in the %s catalog; list valid IDs with: aiplex llm providers %s", id, name, provider)
+		}
+		raw, err := json.Marshal(resolved)
+		if err != nil {
+			return err
+		}
+		var object map[string]any
+		if err := json.Unmarshal(raw, &object); err != nil {
+			return err
+		}
+		ops[i] = object
+	}
+	surface["operations"] = ops
+	return nil
+}
+
+// llmxClientCatalog resolves operation IDs from the server's catalog.
+func llmxClientCatalog(ctx context.Context, c *aiplex.Client) llmxOperationCatalog {
+	return func(provider string) ([]aiplex.ModelOperation, error) {
+		if provider == "" {
+			return c.ListGoogleModelOperations(ctx)
+		}
+		d, err := c.ListModelOperations(ctx, provider)
+		if err != nil {
+			return nil, err
+		}
+		return d.Operations, nil
+	}
+}
+
 // llmxReadSpec reads a surface file in JSON or YAML. It accepts the bare spec
 // or the record `llm surfaces get -o json` prints ({"id","revision","spec"}).
-func llmxReadSpec(r io.Reader) (aiplex.ModelSurfaceSpec, error) {
+// Operations may be given as catalog IDs (strings), resolved through catalog.
+func llmxReadSpec(r io.Reader, catalog ...llmxOperationCatalog) (aiplex.ModelSurfaceSpec, error) {
 	var spec aiplex.ModelSurfaceSpec
 	raw, err := io.ReadAll(io.LimitReader(r, (1<<20)+1))
 	if err != nil || len(raw) > 1<<20 {
@@ -60,6 +136,11 @@ func llmxReadSpec(r io.Reader) (aiplex.ModelSurfaceSpec, error) {
 	}
 	if generic == nil {
 		return spec, fmt.Errorf("surface file is empty")
+	}
+	if len(catalog) == 1 {
+		if err := llmxExpandOperationIDs(generic, catalog[0]); err != nil {
+			return spec, err
+		}
 	}
 	encoded, err := json.Marshal(generic)
 	if err != nil {
@@ -189,6 +270,8 @@ When the surface exists it is replaced at the revision read just before the
 write; pass --revision to require a specific revision instead. A stale revision
 fails with a conflict and changes nothing. The server validates the whole
 specification (provider block, operations, websocket and capacity_policy).
+Operations may be listed by ID (for example "openai.v1.chat-completions"); the
+CLI fills each one in from the server's catalog (aiplex llm providers <id>).
 "-f -" reads standard input.`,
 		Example: "  aiplex llm surfaces apply -f openai-prod.yaml\n  aiplex llm surfaces apply -f openai-prod.yaml --revision 3",
 		Args:    cobra.NoArgs,
@@ -205,12 +288,13 @@ specification (provider block, operations, websocket and capacity_policy).
 				defer f.Close()
 				in = f
 			}
-			spec, err := llmxReadSpec(in)
+			client := newClient()
+			spec, err := llmxReadSpec(in, llmxClientCatalog(cmd.Context(), client))
 			if err != nil {
 				return err
 			}
 			haveRevision = cmd.Flags().Changed("revision")
-			saved, err := llmxApply(cmd.Context(), newClient(), spec, revision, haveRevision)
+			saved, err := llmxApply(cmd.Context(), client, spec, revision, haveRevision)
 			if err != nil {
 				return err
 			}

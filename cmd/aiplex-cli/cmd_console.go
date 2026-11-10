@@ -7,6 +7,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,43 +30,14 @@ The console is embedded in the CLI binary — no separate install needed.`,
 			// Resolve API URL from config
 			apiURL := resolveAPIURL()
 
-			target, err := url.Parse(apiURL)
+			mux, err := consoleHandler(apiURL, resolveToken())
 			if err != nil {
-				return fmt.Errorf("invalid API URL %q: %w", apiURL, err)
+				return err
 			}
-
-			// Reverse proxy for API calls
-			proxy := httputil.NewSingleHostReverseProxy(target)
-
-			// Resolve token for proxy auth
-			resolvedToken := resolveToken()
-
-			originalDirector := proxy.Director
-			proxy.Director = func(req *http.Request) {
-				originalDirector(req)
-				if resolvedToken != "" {
-					req.Header.Set("Authorization", "Bearer "+resolvedToken)
-				}
+			if !consoleBuilt() {
+				fmt.Println("  Note: this binary carries a placeholder Console page. Build the Console with")
+				fmt.Println("  `make console && make build-cli` (Node 22), or run `cd console && npm ci && npm run dev`.")
 			}
-
-			// Embedded SPA filesystem
-			distFS, err := fs.Sub(console.Dist, "dist")
-			if err != nil {
-				return fmt.Errorf("embedded console not found — rebuild with: cd console && npm run build")
-			}
-			spaHandler := spaFileServer(http.FS(distFS))
-
-			// Router: API paths → proxy, everything else → SPA
-			mux := http.NewServeMux()
-
-			// Proxy API paths
-			apiPrefixes := []string{"/api/", "/auth/", "/healthz", "/readyz", "/v0.1/", "/events/", "/oauth2/"}
-			for _, prefix := range apiPrefixes {
-				mux.Handle(prefix, proxy)
-			}
-
-			// SPA for everything else
-			mux.Handle("/", spaHandler)
 
 			addr := fmt.Sprintf("127.0.0.1:%d", port)
 			localURL := fmt.Sprintf("http://%s", addr)
@@ -86,6 +58,40 @@ The console is embedded in the CLI binary — no separate install needed.`,
 
 	cmd.Flags().IntVar(&port, "port", 9090, "Local port for the console")
 	return cmd
+}
+
+// consoleHandler serves the embedded Console and proxies API paths to apiURL,
+// adding the bearer token (when set) to proxied requests.
+func consoleHandler(apiURL, resolvedToken string) (http.Handler, error) {
+	target, err := url.Parse(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid API URL %q: %w", apiURL, err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		if resolvedToken != "" {
+			req.Header.Set("Authorization", "Bearer "+resolvedToken)
+		}
+	}
+	distFS, err := fs.Sub(console.Dist, "dist")
+	if err != nil {
+		return nil, fmt.Errorf("embedded console not found — rebuild with: cd console && npm run build")
+	}
+	mux := http.NewServeMux()
+	for _, prefix := range []string{"/api/", "/auth/", "/healthz", "/readyz", "/v0.1/", "/events/", "/oauth2/"} {
+		mux.Handle(prefix, proxy)
+	}
+	mux.Handle("/", spaFileServer(http.FS(distFS)))
+	return mux, nil
+}
+
+// consoleBuilt reports whether the embedded Console is a real build rather
+// than the placeholder page committed to the repository.
+func consoleBuilt() bool {
+	index, err := fs.ReadFile(console.Dist, "dist/index.html")
+	return err == nil && strings.Contains(string(index), "<script")
 }
 
 // spaFileServer serves static files, falling back to index.html for client-side routing.

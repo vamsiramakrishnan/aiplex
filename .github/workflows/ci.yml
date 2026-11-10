@@ -33,6 +33,12 @@ jobs:
       - name: Build CLI
         run: go build -trimpath -o bin/aiplex ./cmd/aiplex-cli
 
+      - name: Local first run (make demo)
+        run: make demo
+
+      - name: End-to-end (real binaries, local mocks; API under -race)
+        run: E2E_RACE=1 go test -tags e2e ./tests/e2e/ -count=1 -v
+
   console:
     name: Console Build
     runs-on: ubuntu-latest

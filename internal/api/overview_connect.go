@@ -137,7 +137,7 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 			out.Notes = append(out.Notes, fmt.Sprintf("model %q is omitted: its surface %q does not resolve", m.Name, m.SurfaceRef))
 			continue
 		}
-		reach := accessPointWireProtocols(conn.Surface.Protocol)
+		reach := accessPointServedWires(conn.Surface, m.NativeModel)
 		out.Models = append(out.Models, OverviewConnectModel{Name: m.Name, Protocols: reach})
 		for _, wire := range reach {
 			if _, seen := wires[wire]; !seen {

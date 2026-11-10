@@ -104,6 +104,7 @@ func main() {
   LLMPlex — Agent ↔ Model  (LLM providers)
 
 Get started:
+  aiplex dev              Run AIPlex locally with a mock model and tools (no Docker, no cloud)
   aiplex init             Set up AIPlex on a GCP project
   aiplex login            Authenticate with your AIPlex instance
   aiplex config show      View current configuration
@@ -130,6 +131,7 @@ Get started:
 		infrastructureCmd(),
 
 		// Onboarding
+		devCmd(),
 		quickstartCmd(),
 		initCmd(),
 		loginCmd(),
@@ -162,7 +164,12 @@ Get started:
 	)
 	registerModuleCommands(root)
 
+	root.SilenceErrors = true
 	if err := root.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		for _, hint := range errorHints(err) {
+			fmt.Fprintf(os.Stderr, "  %s\n", hint)
+		}
 		os.Exit(1)
 	}
 }

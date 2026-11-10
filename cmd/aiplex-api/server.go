@@ -147,7 +147,15 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	// Handlers
 	catalogH := api.NewCatalogHandler(aggregator, store)
 	instanceH := api.NewInstanceHandler(store, engine)
-	agentH := api.NewAgentHandler(store, hydraClient)
+	// Development mode without an explicitly configured Hydra keeps agent
+	// registrations in the local registry only (no OAuth client is issued);
+	// otherwise every registration fails against the default in-cluster URL.
+	agentHydra := hydraClient
+	if cfg.DevelopmentMode && os.Getenv("HYDRA_ADMIN_URL") == "" {
+		agentHydra = nil
+		log.Info().Msg("development mode without HYDRA_ADMIN_URL: agent registrations are local only")
+	}
+	agentH := api.NewAgentHandler(store, agentHydra)
 	authH := api.NewAuthHandler(hydraClient, store)
 	llmH := api.NewLLMHandler(store, k8sClient, cfg.GatewayName, sm)
 	a2aH := api.NewA2AHandler(store)
@@ -281,8 +289,15 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	r.Use(api.NativeKeyHeaders)                               // provider-native key headers -> bearer, model routes only
 	r.Use(api.WIFAuthMode(wifValidator, cfg.DevelopmentMode)) // Extract WIF identity + sync Dimension B
 	r.Use(api.AuditLog)                                       // Log all mutations
-	r.Use(api.RateLimit(200))                                 // 200 req/min per user (in-process)
-	r.Use(api.Compress)                                       // Response compression hints
+	// 200 req/min per verified caller, else per peer IP (in-process). A
+	// development API serves one local developer whose SDK loops, demos and
+	// tests all come from one identity and one IP, so its default is higher.
+	rateLimit := 200
+	if cfg.DevelopmentMode {
+		rateLimit = 1200
+	}
+	r.Use(api.RateLimit(rateLimit))
+	r.Use(api.Compress) // Response compression hints
 	// Route authorization by mounted pattern (route_policy.go). It needs the
 	// verified identity, so it runs after WIFAuthMode.
 	r.Use(api.RoutePolicy(r, routePolicy(cfg)))

@@ -2,16 +2,26 @@
 # AIPlex CLI — Binary Installer
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | sh
-#   curl -fsSL ... | sh -s -- --version v0.2.0   # specific version
+#   curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash
+#   curl -fsSL ... | bash -s -- --version v0.2.0   # specific version
 #
-# Installs pre-built binary to ~/.local/bin/aiplex
+# Installs the pre-built aiplex CLI (and aiplex-api, used by `aiplex dev`,
+# when the release archive carries it) to ~/.local/bin (AIPLEX_INSTALL_DIR).
 
 set -euo pipefail
 
 REPO="vamsiramakrishnan/aiplex"
 INSTALL_DIR="${AIPLEX_INSTALL_DIR:-$HOME/.local/bin}"
-VERSION="${1:-latest}"
+VERSION="latest"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --version) [[ $# -ge 2 ]] || { echo "--version needs a value, e.g. --version v0.2.0" >&2; exit 1; }; VERSION="$2"; shift 2 ;;
+        --version=*) VERSION="${1#--version=}"; shift ;;
+        -h|--help) sed -n '2,10p' "$0" 2>/dev/null || true; exit 0 ;;
+        v[0-9]*) VERSION="$1"; shift ;;  # bare version, as before
+        *) echo "unknown argument: $1 (use --version vX.Y.Z)" >&2; exit 1 ;;
+    esac
+done
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
@@ -36,6 +46,8 @@ detect_platform() {
 
 # ─── Resolve version ──────────────────────────────────────
 resolve_version() {
+    command -v curl >/dev/null || err "curl is required"
+    command -v tar >/dev/null || err "tar is required"
     if [[ "$VERSION" == "latest" ]]; then
         VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
             | grep '"tag_name"' | cut -d'"' -f4)
@@ -72,8 +84,14 @@ install() {
         tar -xzf "${tmpdir}/${filename}" -C "$tmpdir"
     fi
 
+    [[ -f "${tmpdir}/aiplex" ]] || err "archive ${filename} does not contain the aiplex binary"
     mv "${tmpdir}/aiplex" "${INSTALL_DIR}/aiplex"
     chmod +x "${INSTALL_DIR}/aiplex"
+    if [[ -f "${tmpdir}/aiplex-api" ]]; then
+        mv "${tmpdir}/aiplex-api" "${INSTALL_DIR}/aiplex-api"
+        chmod +x "${INSTALL_DIR}/aiplex-api"
+        HAVE_API=1
+    fi
 }
 
 # ─── Verify PATH ─────────────────────────────────────────
@@ -105,6 +123,11 @@ main() {
 
     echo ""
     info "Get started:"
+    if [[ "${HAVE_API:-0}" == "1" ]]; then
+        echo "  aiplex dev               # run locally: mock model, tools, usage (no cloud account)"
+    else
+        echo "  (this release has no aiplex-api binary; for local mode build from source: make build && bin/aiplex dev)"
+    fi
     echo "  aiplex init              # configure your GCP project"
     echo "  aiplex quickstart        # zero to running platform"
     echo ""

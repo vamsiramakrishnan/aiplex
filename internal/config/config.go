@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/sethvargo/go-envconfig"
 )
@@ -69,10 +70,15 @@ func Load(ctx context.Context) (*Config, error) {
 	if err := envconfig.Process(ctx, &cfg); err != nil {
 		return nil, err
 	}
+	// Development mode binds to loopback unless HOST is set explicitly; an
+	// explicit non-loopback HOST is refused below rather than overridden.
+	if _, set := os.LookupEnv("HOST"); cfg.DevelopmentMode && !set {
+		cfg.Host = "127.0.0.1"
+	}
 	if cfg.DevelopmentMode && cfg.Host != "localhost" {
 		ip := net.ParseIP(cfg.Host)
 		if ip == nil || !ip.IsLoopback() {
-			return nil, fmt.Errorf("AIPLEX_DEV_MODE requires HOST=127.0.0.1 or ::1")
+			return nil, fmt.Errorf("AIPLEX_DEV_MODE requires a loopback HOST (127.0.0.1, ::1 or localhost), got %q: development mode is never served on a network interface", cfg.Host)
 		}
 	}
 	return &cfg, nil
