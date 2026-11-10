@@ -58,6 +58,8 @@ aiplex validate aiplex.json
 aiplex apply -f aiplex.json
 ```
 
+`aiplex apply` converges: running it again with the same file creates nothing and reports each object as `unchanged`. It prints one line per object (`created`, `updated`, `unchanged` or `skipped`) and a summary, exits non-zero only when an object failed, and `--dry-run` shows the same plan without writing. A route that differs is updated in place at the revision just read; an agent or instance that differs cannot be updated by the API, so apply fails for it and names the field (delete or undeploy it, then apply again).
+
 YAML works as well. The repository's `examples/` directory has declarative files to start from (`quickstart.yaml`, `quickstart.json`, `mcplex-only.yaml`); their template IDs must exist in your catalog. `examples/README.md` says which examples are tested.
 
 These model routes configure Envoy. A ClientPlex gateway registration references a separately saved LLMPlex model surface (see [Connected Plexes](../library/connected-plexes.md#client-compatibility)); applying a route does not create that surface. Managed tool authorization and invocation follow the [MCP runtime guide](../library/mcp-runtime-authorization.md).

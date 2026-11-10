@@ -121,6 +121,7 @@ const sidebars: SidebarsConfig = {
         L('gcp-permissions', 'Google Cloud permissions'),
         L('helm-identity-config', 'Identity configuration (Helm)'),
         L('observability', 'Observability (OpenTelemetry)'),
+        L('policy-denials', 'Policy denials'),
         'operations/authorization-policy',
         L('modules', 'Independent modules'),
         'operations/networking',
