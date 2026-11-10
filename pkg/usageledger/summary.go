@@ -418,7 +418,7 @@ func Summarize(ctx context.Context, store Store, tenant string, q SummaryQuery) 
 			q.GroupBy = append(append([]string{}, q.GroupBy...), "source")
 		}
 	}
-	var managed ManagedKeys
+	var managed *ManagedKeys
 	keysTruncated := false
 	if source == "" {
 		var err error
@@ -490,8 +490,8 @@ const correlationWindow = time.Hour
 
 // managedKeys collects the correlation keys of managed records in the
 // summary's window and visibility.
-func managedKeys(ctx context.Context, store Store, tenant string, f Filter) (ManagedKeys, bool, error) {
-	keys := ManagedKeys{}
+func managedKeys(ctx context.Context, store Store, tenant string, f Filter) (*ManagedKeys, bool, error) {
+	keys := NewManagedKeys()
 	scan := Filter{Source: SourceManaged, Visibility: f.Visibility}
 	if !f.Since.IsZero() {
 		scan.Since = f.Since.Add(-correlationWindow)
