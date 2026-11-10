@@ -477,6 +477,10 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 				return
 			}
 		}
+		if path, err = accessPointFacadePath(connection.Surface, protocol, entry.NativeModel, path); err != nil {
+			fail(w, r, http.StatusServiceUnavailable, "SURFACE_UNSUPPORTED", "model surface cannot serve this protocol")
+			return
+		}
 		inner := delegateRequest(r, call, "/api/v1/llm/gateway/"+entry.SurfaceRef+path, entry.SurfaceRef, body)
 		inner.URL.RawQuery = rawQuery
 		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol}
