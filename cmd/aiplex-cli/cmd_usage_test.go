@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -84,7 +85,7 @@ func TestUsageRecordsTableShowsUnknownNotZero(t *testing.T) {
 		w.Write([]byte(cliRecords))
 	}))
 	defer server.Close()
-	out, err := runUsage(t, server, "table", "records", "--model", "gemini-2.5-flash", "--agent", "tutor", "--user", "stu", "--client", "cli", "--tool", "search", "--since", "24h", "--limit", "5")
+	out, err := runUsage(t, server, "wide", "records", "--model", "gemini-2.5-flash", "--agent", "tutor", "--user", "stu", "--client", "cli", "--tool", "search", "--since", "24h", "--limit", "5")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func TestUsageRecordsAllFollowsCursorsAndEmptyState(t *testing.T) {
 	if err != nil || pages != 2 || !strings.Contains(out, `"r1"`) || !strings.Contains(out, `"r2"`) || !strings.Contains(out, `"truncated": false`) {
 		t.Fatal(out, err, pages)
 	}
-	if _, err = runUsage(t, server, "table", "records", "--all", "--cursor", "x"); err == nil {
+	if _, err = runUsage(t, server, "wide", "records", "--all", "--cursor", "x"); err == nil {
 		t.Fatal("--all with --cursor accepted")
 	}
 	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"records":[]}`)) }))
@@ -212,7 +213,7 @@ func TestUsageSummaryAliasesTableUnknownsAndTruncation(t *testing.T) {
 		w.Write([]byte(cliSummary))
 	}))
 	defer server.Close()
-	out, err := runUsage(t, server, "table", "summary", "--by", "model,agent", "--bucket", "day", "--status", "error")
+	out, err := runUsage(t, server, "wide", "summary", "--by", "model,agent", "--bucket", "day", "--status", "error")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +237,7 @@ func TestUsageSummaryAliasesTableUnknownsAndTruncation(t *testing.T) {
 	if unknownRow == "" || strings.Count(unknownRow, "unknown") != 4 || !strings.Contains(unknownRow, "—") {
 		t.Errorf("fully unknown group must say unknown for in/out/cache-w/cost and (none) agent: %q", unknownRow)
 	}
-	if _, err = runUsage(t, server, "table", "summary", "--by", "colour"); err == nil {
+	if _, err = runUsage(t, server, "wide", "summary", "--by", "colour"); err == nil {
 		t.Fatal("unknown group field accepted")
 	}
 	jsonOut, err := runUsage(t, server, "json", "summary")
@@ -277,7 +278,7 @@ func TestUsagePricesLifecycle(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	out, err := runUsage(t, server, "table", "prices", "list")
+	out, err := runUsage(t, server, "wide", "prices", "list")
 	if err != nil || !strings.Contains(out, "input_tokens=3/1000") || !strings.Contains(out, "USD") || !strings.Contains(out, "4") {
 		t.Fatal(out, err)
 	}
@@ -292,9 +293,15 @@ func TestUsagePricesLifecycle(t *testing.T) {
 	if out, err = runUsage(t, server, "json", "prices", "set", "-f", file, "--revision", "4"); err != nil || !strings.Contains(out, `"revision": 5`) {
 		t.Fatal(out, err)
 	}
-	// Creating when the price exists, or replacing with a stale revision, is a clear conflict error.
-	_, err = runUsage(t, server, "json", "prices", "set", "-f", file)
-	if err == nil || !strings.Contains(err.Error(), "prices get p1") {
+	// Without --revision the current revision is read for the user.
+	if out, err = runUsage(t, server, "json", "prices", "set", "-f", file); err != nil || !strings.Contains(out, `"revision": 5`) {
+		t.Fatal("set -f did not read the current revision", out, err)
+	}
+	// Creating when the price exists (--revision 0), or replacing with a stale
+	// revision, is a clear conflict error naming the next command.
+	_, err = runUsage(t, server, "json", "prices", "set", "-f", file, "--revision", "0")
+	var ce *cliError
+	if !errors.As(err, &ce) || ce.code != exitConflict || !strings.Contains(strings.Join(ce.hints, "\n"), "prices get p1") {
 		t.Fatal("conflict not explained", err)
 	}
 	if _, err = runUsage(t, server, "json", "prices", "set", "-f", file, "--revision", "3"); err == nil {

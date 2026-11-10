@@ -14,7 +14,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/pkg/cloudagents"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
@@ -62,7 +64,9 @@ func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, te
 	c.record = usageledger.Record{TenantID: tenant, Plane: plane, ResourceID: resourceID, Source: usageledger.SourceManaged, Requests: 1, RequestID: GetRequestID(r.Context()), TraceID: traceIDFromHeader(r.Header.Get("traceparent"))}
 	if identity := GetWIFIdentity(r.Context()); identity != nil {
 		c.record.PrincipalID = identity.PrincipalID
+		c.record.PrincipalDisplay = principalDisplay(identity)
 		c.record.ActorID = identity.ActorID
+		c.record.ActorDisplay = boundedDisplay(identity.ActorSubject)
 		c.record.ClientID = identity.AuthorizedParty
 	}
 	if call := accessPointCallFrom(r.Context()); call != nil {
@@ -628,4 +632,29 @@ func (w *usageWriter) state() (status int, writeFailed, hijacked bool, contentTy
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.status, w.writeFailed, w.hijacked, w.ResponseWriter.Header().Get("Content-Type")
+}
+
+// principalDisplay is the human label stored beside the canonical principal
+// ID: the verified email, else the display name, else the subject.
+func principalDisplay(identity *models.WIFIdentity) string {
+	for _, v := range []string{identity.Email, identity.DisplayName, identity.Subject} {
+		if d := boundedDisplay(v); d != "" {
+			return d
+		}
+	}
+	return ""
+}
+
+// boundedDisplay keeps a display value only when it is short printable text.
+func boundedDisplay(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" || len(v) > 256 || !utf8.ValidString(v) {
+		return ""
+	}
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f {
+			return ""
+		}
+	}
+	return v
 }
