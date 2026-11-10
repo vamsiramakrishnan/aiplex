@@ -25,6 +25,7 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 )
 
 type contextKey string
@@ -54,11 +55,16 @@ func RequestID(next http.Handler) http.Handler {
 
 var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
-// Logger adds structured request logging.
+// Logger adds structured request logging. It runs inside the tracing
+// middleware, so every request log line carries the request's trace_id.
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid, _ := r.Context().Value(keyRequestID).(string)
-		logger := log.With().Str("request_id", rid).Str("method", r.Method).Str("path", r.URL.Path).Logger()
+		fields := log.With().Str("request_id", rid)
+		if traceID := telemetry.TraceID(r.Context()); traceID != "" {
+			fields = fields.Str("trace_id", traceID)
+		}
+		logger := fields.Str("method", r.Method).Str("path", r.URL.Path).Logger()
 		ctx := logger.WithContext(r.Context())
 		logger.Info().Msg("request started")
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -206,7 +212,30 @@ func credentialPresented(r *http.Request) bool {
 // independentCredentialPath lists routes whose Authorization header is a
 // shared secret checked by the route's own guard, not an identity token.
 func independentCredentialPath(path string) bool {
-	return strings.HasPrefix(path, "/internal/") || path == "/auth/token-hook"
+	return strings.HasPrefix(path, "/internal/") || path == "/auth/token-hook" || path == "/metrics"
+}
+
+// MetricsTokenEnv names the shared secret a metrics scraper sends as a bearer
+// token to GET /metrics.
+const MetricsTokenEnv = "AIPLEX_METRICS_TOKEN"
+
+// MetricsAuth guards GET /metrics with the AIPLEX_METRICS_TOKEN bearer
+// secret, like the other shared-secret internal routes: unset, the route
+// answers 503 (fail closed). Development mode without a token serves it to
+// the local developer, as it serves everything else on its loopback-only
+// listener.
+func MetricsAuth(development bool) func(http.Handler) http.Handler {
+	guard := BearerToken(MetricsTokenEnv)
+	return func(next http.Handler) http.Handler {
+		guarded := guard(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if development && os.Getenv(MetricsTokenEnv) == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			guarded.ServeHTTP(w, r)
+		})
+	}
 }
 
 // anonymousDeveloperPath lists the routes development mode serves to a caller
@@ -728,4 +757,15 @@ func RequireTenant(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Tracing starts the request's SERVER span (see telemetry.Middleware). The
+// span is named after the mounted chi route pattern, never the raw path.
+func Tracing(next http.Handler) http.Handler {
+	return telemetry.Middleware(func(r *http.Request) string {
+		if rctx := chi.RouteContext(r.Context()); rctx != nil {
+			return rctx.RoutePattern()
+		}
+		return ""
+	})(next)
 }

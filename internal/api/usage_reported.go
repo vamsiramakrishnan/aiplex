@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
@@ -60,6 +61,8 @@ func (l reportedUsageLedger) record(r *http.Request, report models.UsageRecord) 
 		return
 	}
 	record := reportedRecord(tenant, GetRequestID(r.Context()), report)
+	// A reported record is correlated with the request that reported it.
+	record.TraceID, record.SpanID = telemetry.TraceID(r.Context()), telemetry.SpanID(r.Context())
 	prices := l.prices
 	l.recorder.Submit(r.Context(), func(ctx context.Context) (usageledger.Record, error) {
 		if prices != nil {

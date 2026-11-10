@@ -51,6 +51,7 @@ const (
 	FeatureBinaryAuth FeatureID = "binary-authorization"
 	FeatureWorkforce  FeatureID = "workforce-identity"
 	FeatureAlertEmail FeatureID = "alert-email"
+	FeatureTelemetry  FeatureID = "telemetry"
 )
 
 // Feature is one switchable part of the Terraform.
@@ -124,6 +125,8 @@ var Features = []Feature{
 		APIs: []string{"iam.googleapis.com"}},
 	{ID: FeatureAlertEmail, Title: "Alert e-mail notification channel", Toggle: `alert_email != ""`, Default: false,
 		APIs: []string{"monitoring.googleapis.com"}},
+	{ID: FeatureTelemetry, Title: "OpenTelemetry collector identity (Cloud Trace, Cloud Monitoring)", Toggle: "otel_collector = true (default)", Default: true,
+		APIs: []string{"cloudtrace.googleapis.com", "monitoring.googleapis.com"}},
 }
 
 func p(names ...string) []Permission {
@@ -322,6 +325,15 @@ var Requirements = []Requirement{
 		Permissions: p("resourcemanager.projects.getIamPolicy", "resourcemanager.projects.setIamPolicy")},
 	{Resource: "google_project_iam_custom_role", Feature: FeatureWorkforce, Source: refBase + "iam",
 		Permissions: p(crud("iam.roles", "create", "delete", "get", "update")...)},
+
+	// ── Telemetry (otel_collector)
+	{Resource: "google_service_account", Feature: FeatureTelemetry, Source: refBase + "iam",
+		Permissions: p(crud("iam.serviceAccounts", "create", "delete", "get", "update")...)},
+	{Resource: "google_service_account_iam_member", Feature: FeatureTelemetry, Source: refBase + "iam",
+		Permissions: p("iam.serviceAccounts.getIamPolicy", "iam.serviceAccounts.setIamPolicy")},
+	{Resource: "google_project_iam_member", Feature: FeatureTelemetry, Source: refBase + "resourcemanager",
+		Note:        "roles/cloudtrace.agent and roles/monitoring.metricWriter for the collector",
+		Permissions: p("resourcemanager.projects.getIamPolicy", "resourcemanager.projects.setIamPolicy")},
 
 	// ── Alert e-mail
 	{Resource: "google_monitoring_notification_channel", Feature: FeatureAlertEmail, Source: refBase + "monitoring",

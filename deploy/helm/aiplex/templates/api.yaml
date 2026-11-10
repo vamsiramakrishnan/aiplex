@@ -92,6 +92,25 @@ spec:
           value: "info"
         - name: GATEWAY_NAME
           value: "aiplex-gateway"
+        {{- if .Values.otel.enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .Values.otel.endpoint | default (printf "http://otel-collector.%s:4318" (include "aiplex.namespace" .)) | quote }}
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: {{ .Values.otel.protocol | default "http/protobuf" | quote }}
+        - name: OTEL_SERVICE_NAME
+          value: "aiplex-api"
+        {{- end }}
+        - name: AIPLEX_TRACE_PROPAGATE_UPSTREAM
+          value: {{ ternary "true" "false" (ne .Values.otel.propagateUpstream false) | quote }}
+        {{- with .Values.api.metricsTokenSecret }}
+        {{- if .name }}
+        - name: AIPLEX_METRICS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .name | quote }}
+              key: {{ .key | default "token" | quote }}
+        {{- end }}
+        {{- end }}
         {{- range $key, $value := .Values.api.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}

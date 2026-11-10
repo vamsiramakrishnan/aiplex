@@ -12,12 +12,13 @@ type Toggles struct {
 	ManageDNS      bool
 	OrganizationID string
 	AlertEmail     string
+	OTelCollector  bool
 	// Found reports whether a tfvars file was read.
 	Found bool
 }
 
 // DefaultToggles are the Terraform variable defaults.
-func DefaultToggles() Toggles { return Toggles{ManageDNS: true} }
+func DefaultToggles() Toggles { return Toggles{ManageDNS: true, OTelCollector: true} }
 
 var tfvarLine = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$`)
 
@@ -54,6 +55,8 @@ func ReadToggles(path string) (Toggles, error) {
 			t.OrganizationID = value
 		case "alert_email":
 			t.AlertEmail = value
+		case "otel_collector":
+			t.OTelCollector = value != "false"
 		}
 	}
 	return t, s.Err()
@@ -69,5 +72,6 @@ func EnabledFeatures(t Toggles) map[FeatureID]bool {
 		FeatureDNS:        t.ManageDNS,
 		FeatureWorkforce:  t.OrganizationID != "",
 		FeatureAlertEmail: t.AlertEmail != "",
+		FeatureTelemetry:  t.OTelCollector,
 	}
 }

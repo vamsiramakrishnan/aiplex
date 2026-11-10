@@ -1,0 +1,153 @@
+{{- if and .Values.otel.enabled (ne .Values.otel.collector false) }}
+{{- $project := required "global.projectId is required for the OpenTelemetry collector's Google Cloud exporters" .Values.global.projectId }}
+# OpenTelemetry collector: receives OTLP from aiplex-api and forwards traces to
+# Cloud Trace and metrics to Cloud Monitoring in global.projectId. It runs as
+# its own Kubernetes service account, mapped by Workload Identity to the
+# aiplex-otel-collector Google service account that Terraform creates when
+# otel_collector = true, holding only roles/cloudtrace.agent and
+# roles/monitoring.metricWriter. It does not use the API's identity, which
+# holds secret, Firestore and Kubernetes deploy rights the collector never needs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: {{ include "aiplex.namespace" . }}
+  annotations:
+    iam.gke.io/gcp-service-account: aiplex-otel-collector@{{ $project }}.iam.gserviceaccount.com
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+# The collector never calls the Kubernetes API (no k8sattributes processor),
+# so its token is not mounted; GKE Workload Identity does not need it.
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: {{ include "aiplex.namespace" . }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 400
+        spike_limit_mib: 100
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+      resource:
+        attributes:
+        - key: service.namespace
+          value: aiplex
+          action: upsert
+    exporters:
+      googlecloud:
+        project: {{ $project }}
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, resource]
+          exporters: [googlecloud]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, resource]
+          exporters: [googlecloud]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: {{ include "aiplex.namespace" . }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+    app.kubernetes.io/name: otel-collector
+spec:
+  replicas: {{ .Values.otel.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector
+    spec:
+      serviceAccountName: otel-collector
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # opentelemetry-collector-contrib images run as uid 10001.
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: otel-collector
+        image: {{ required "otel.image is required" .Values.otel.image | quote }}
+        args: ["--config=/etc/otel/config.yaml"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        ports:
+        - containerPort: 4317
+          name: otlp-grpc
+        - containerPort: 4318
+          name: otlp-http
+        - containerPort: 13133
+          name: health
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otel
+          readOnly: true
+        resources:
+          {{- toYaml .Values.otel.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: config
+        configMap:
+          name: otel-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: {{ include "aiplex.namespace" . }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: otel-collector
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: otlp-grpc
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+{{- end }}

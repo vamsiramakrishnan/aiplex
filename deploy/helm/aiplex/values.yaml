@@ -33,6 +33,12 @@ api:
   rbac:
     create: true
     namespaces: [aiplex-system, mcplex, a2aplex, llmplex, skillsplex]
+  # GET /metrics (Prometheus text) needs the AIPLEX_METRICS_TOKEN bearer
+  # secret; without it the route answers 503. Reference an existing
+  # Kubernetes Secret (the chart never holds the value).
+  metricsTokenSecret:
+    name: ""
+    key: token
   # JWT_ISSUER: https://your-issuer.example
   # JWT_AUDIENCE: aiplex-api
   # JWT_JWKS_URL: https://your-issuer.example/.well-known/jwks.json
@@ -68,11 +74,26 @@ opa:
       cpu: 500m
       memory: 256Mi
 
-# ─── OTel Collector ───
+# ─── OpenTelemetry ───
+# enabled: the API exports traces and metrics over OTLP (OTEL_EXPORTER_OTLP_*
+# env on the API Deployment) and the chart runs a collector that forwards to
+# Cloud Trace and Cloud Monitoring for global.projectId. Disabled, nothing is
+# exported (trace ids are still generated for logs and the usage ledger).
 otel:
   enabled: true
+  # OTLP endpoint for the API. Empty: the in-chart collector
+  # (http://otel-collector.aiplex-system:4318).
+  endpoint: ""
+  protocol: http/protobuf   # or grpc (then use port 4317)
+  # Send W3C traceparent/tracestate on upstream model, tool and agent
+  # requests (trace ids then leave the deployment). false strips them.
+  propagateUpstream: true
+  # Run the collector Deployment from this chart. Set false when endpoint
+  # names a collector you run yourself.
+  collector: true
   replicas: 1
-  image: otel/opentelemetry-collector-contrib:latest
+  # Pinned; update deliberately (never :latest).
+  image: otel/opentelemetry-collector-contrib:0.164.0
   resources:
     requests:
       cpu: 100m

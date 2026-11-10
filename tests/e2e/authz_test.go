@@ -95,7 +95,9 @@ func TestNoRoleCallerSeesOnlyWhatAdmitsIt(t *testing.T) {
 			strip := func(s string) string {
 				var m map[string]any
 				_ = json.Unmarshal([]byte(s), &m)
+				// Per-request correlation identifiers differ by design.
 				delete(m, "request_id")
+				delete(m, "trace_id")
 				out, _ := json.Marshal(m)
 				return string(out)
 			}

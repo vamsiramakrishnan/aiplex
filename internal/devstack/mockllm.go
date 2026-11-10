@@ -40,6 +40,7 @@ type MockRequest struct {
 	Authorization       string
 	APIKey              string // x-api-key
 	GoogAPIKey          string // x-goog-api-key
+	Traceparent         string // W3C trace context AIPlex propagated
 	Model               string
 	Stream              bool
 	BodyBytes           int
@@ -55,7 +56,7 @@ func (m *MockModels) Requests() []MockRequest {
 func (m *MockModels) record(r *http.Request, model string, stream bool, n int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.requests = append(m.requests, MockRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Authorization: r.Header.Get("Authorization"), APIKey: r.Header.Get("X-Api-Key"), GoogAPIKey: r.Header.Get("X-Goog-Api-Key"), Model: model, Stream: stream, BodyBytes: n})
+	m.requests = append(m.requests, MockRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Authorization: r.Header.Get("Authorization"), APIKey: r.Header.Get("X-Api-Key"), GoogAPIKey: r.Header.Get("X-Goog-Api-Key"), Traceparent: r.Header.Get("Traceparent"), Model: model, Stream: stream, BodyBytes: n})
 }
 
 // MockReply is the deterministic assistant text for a prompt.

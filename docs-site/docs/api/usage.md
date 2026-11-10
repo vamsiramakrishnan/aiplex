@@ -85,7 +85,8 @@ The response is a page object.
 | `access_point_id` | string | Omitted unless the exchange entered through an access point |
 | `caller_kind` | string | `agent`, `user` or `client`. Omitted unless entered through an access point. |
 | `request_id` | string | Omitted when empty |
-| `trace_id` | string | Omitted when empty. W3C trace identifier, for correlation only. |
+| `trace_id` | string | W3C trace identifier (32 hex), for correlation only. Set on every record AIPlex writes; continues the caller's `traceparent` when it was valid. Omitted on older records. |
+| `span_id` | string | W3C span identifier (16 hex) of the exchange's span: the CLIENT span of a managed exchange, or the SERVER span of a reporting request. Omitted on older records. |
 | `quota_attempt_id` | string | Omitted when empty. Links the record to its quota attempt. |
 | `streaming` | boolean | `true` for streamed responses |
 | `session` | boolean | Omitted unless `true`. `true` for a WebSocket session covering the whole session. |
@@ -319,6 +320,7 @@ The spec is decoded strictly: unknown fields are rejected.
 | `batch` | boolean | No | `true` matches only batch exchanges, `false` only non-batch exchanges |
 | `image_size` | string | No | Matches the record's `image_size` |
 | `image_quality` | string | No | Matches the record's `image_quality` |
+| `source` | object | No | Provenance of a price imported from the bundled catalogue: `catalog` (required), `commit`, `retrieved_at`, `source_url`. It is a label only; it never changes matching or cost. |
 
 Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `requests`, the modality splits `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens`, `output_text_tokens`, `output_audio_tokens`, `output_image_tokens`, and the unit meters `audio_input_milliseconds`, `voice_session_milliseconds`, `video_output_milliseconds`, `generated_images`. Any other name is rejected.
 

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Usage, { buildFilter, emptyDraft } from '../pages/Usage'
-import { blankDraft, priceFromDraft } from '../pages/UsagePrices'
+import { blankDraft, draftFromPrice, priceFromDraft } from '../pages/UsagePrices'
 import { QuotaOverview } from '../pages/QuotaTabs'
 
 vi.mock('../hooks/useAuth', () => { const session = { user: { sub: 'principal-a', roles: ['admin'], scopes: [] } }; return { useAuth: () => session, useOptionalAuth: () => session } })
@@ -299,6 +299,13 @@ describe('Model prices', () => {
     expect(priceFromDraft(meter('9007199254740993', '1')).errors[0]).toMatch(/numerator/)
     expect(priceFromDraft({ ...meter('1', '1'), scale: '19' }).errors).toContain('Scale must be a whole number from 0 to 18.')
     expect(priceFromDraft({ ...meter('1', '1'), effective_from: '2026-11-02T00:00:00Z', effective_until: '2026-11-01T00:00:00Z' }).errors).toContain('Effective until must be after effective from.')
+  })
+
+  it('keeps the catalogue source of an imported price when it is edited and saved', () => {
+    const source = { catalog: 'litellm', commit: 'a'.repeat(40), retrieved_at: '2026-11-10', source_url: 'https://example.test/pricing' }
+    const price = { id: 'openai-gpt-4o-mini', model_id: 'gpt-4o-mini', provider: 'openai', currency: 'USD', scale: 6, meters: { input_tokens: { numerator: 3, denominator: 20 } }, source }
+    expect(priceFromDraft(draftFromPrice(price)).price?.source).toEqual(source)
+    expect(priceFromDraft(draftFromPrice({ ...price, source: undefined })).price).not.toHaveProperty('source')
   })
 })
 

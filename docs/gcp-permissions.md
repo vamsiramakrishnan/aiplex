@@ -59,13 +59,20 @@ the table.
 
 | Feature | On when | APIs Terraform enables | Predefined roles that cover it |
 | --- | --- | --- | --- |
-| `state` | always | storage | `roles/storage.editor` and `roles/storage.bucketViewer` on the project; `roles/storage.objectUser` on the state bucket |
-| `core` | always | alloydb, artifactregistry, certificatemanager, compute, container, firestore, iam, mesh, monitoring, privateca, secretmanager, servicenetworking | `alloydb.editor`, `artifactregistry.editor`, `certificatemanager.admin`, `compute.networkAdmin`, `compute.securityAdmin`, `container.clusterAdmin`, `container.developer`, `datastore.owner`, `iam.serviceAccountAdmin`, `iam.serviceAccountUser`, `iam.workloadIdentityPoolAdmin`, `monitoring.alertPolicyEditor`, `resourcemanager.projectIamAdmin`, `secretmanager.editor`, `secretmanager.secretAccessor`, `serviceusage.serviceUsageAdmin` |
+| `state` | always | storage | `roles/storage.admin` on the project (the CLI creates the bucket and turns on versioning); `roles/storage.objectUser` on the state bucket |
+| `core` | always | alloydb, artifactregistry, certificatemanager, compute, container, firestore, iam, mesh, monitoring, privateca, secretmanager, servicenetworking | `alloydb.editor`, `artifactregistry.editor`, `certificatemanager.admin`, `compute.networkAdmin`, `compute.securityAdmin`, `container.clusterAdmin`, `container.developer`, `datastore.owner`, `iam.roleAdmin`, `iam.serviceAccountAdmin`, `iam.serviceAccountUser`, `iam.workloadIdentityPoolAdmin`, `monitoring.alertPolicyEditor`, `resourcemanager.projectIamAdmin`, `secretmanager.editor`, `secretmanager.secretAccessor`, `serviceusage.serviceUsageAdmin` |
 | `dns` | `manage_dns = true` (default) | dns | `dns.editor` |
-| `backup` | always | cloudscheduler, storage | `cloudscheduler.admin`, `iam.roleAdmin`, `iam.serviceAccountCreator`, `iam.serviceAccountDeleter`, `storage.admin` (plus `iam.serviceAccountUser` and `resourcemanager.projectIamAdmin` from core) |
+| `backup` | always | cloudscheduler, storage | `cloudscheduler.admin`, `iam.serviceAccountCreator`, `iam.serviceAccountDeleter` (plus roles already listed for core and state) |
 | `binary-authorization` | always | binaryauthorization, cloudkms, containeranalysis | `binaryauthorization.attestorsAdmin`, `binaryauthorization.policyEditor`, `cloudkms.admin`, `cloudkms.publicKeyViewer`, `containeranalysis.admin` |
 | `workforce-identity` | `organization_id` set | iam | `roles/iam.workforcePoolAdmin` **on the organization** (plus `iam.roleAdmin` and `resourcemanager.projectIamAdmin` on the project) |
 | `alert-email` | `alert_email` set | monitoring | `monitoring.notificationChannelEditor` |
+| `telemetry` | `otel_collector = true` (default; keep equal to Helm `otel.enabled` and `otel.collector`) | cloudtrace, monitoring | nothing beyond core (`iam.serviceAccountAdmin`, `resourcemanager.projectIamAdmin`) |
+
+The Helm step of `aiplex platform apply` also creates namespaced Roles and
+RoleBindings for the API. Kubernetes lets you create a Role only when you hold
+its permissions yourself; `roles/container.developer` covers the objects in
+those Roles. The table covers Terraform and the state bucket, not the Helm
+step.
 
 `cloudresourcemanager.googleapis.com` and `serviceusage.googleapis.com` must
 be enabled before Terraform runs (Terraform enables every other API through
@@ -95,7 +102,7 @@ operation needs it:
 | `compute.networks.updatePolicy` | `google_compute_firewall` | Not stated for firewall rule creation. |
 | `containeranalysis.notes.attachOccurrence` | `google_binary_authorization_attestor` | The permission checked on the note when an attestor references it is not stated. |
 | `datastore.schemas.get`, `datastore.schemas.update` | `google_firestore_field` (TTL) | The role reference names index permissions `datastore.schemas.*`; the exact check for field TTL updates is not stated. |
-| `container.*` (deployments, services, config maps, jobs, secrets, service accounts) | `helm_release`, `kubernetes_deployment`, `kubernetes_service` | Depends on what the Ory charts render; not enumerated against the charts. |
+| `container.*` (namespaces, deployments, services, config maps, jobs, secrets, service accounts) | `helm_release`, `kubernetes_namespace`, `kubernetes_service_account`, `kubernetes_deployment`, `kubernetes_service` | For the Helm releases it depends on what the Ory charts render; for all of them the GKE mapping from Kubernetes calls to these permissions was not validated against a live cluster. |
 | `storage.objects.*` on the state bucket | Terraform GCS backend | Not stated as a permission list by Google. |
 
 ## The custom deployer role (optional)
@@ -136,84 +143,154 @@ Trade-offs:
 
 | Identity | Before | Now |
 | --- | --- | --- |
-| `aiplex-api` service account | `roles/secretmanager.secretAccessor` on the project (every secret) | `roles/secretmanager.secretAccessor` on the project **with the condition** `resource.name.startsWith("projects/PROJECT_NUMBER/secrets/aiplex-")` (Terraform variable `api_secret_prefix`) |
-| `aiplex-api` service account | `roles/datastore.user` on the project | `roles/datastore.user` **with the condition** `resource.name == "projects/PROJECT_ID/databases/(default)"` (variable `restrict_firestore_to_database`, default true) |
+| `aiplex-api` service account, secret payloads | `roles/secretmanager.secretAccessor` on the project (every secret) | `roles/secretmanager.secretAccessor` with the condition `resource.name.startsWith("projects/PROJECT_NUMBER/secrets/aiplex-")` (Terraform variable `api_secret_prefix`) |
+| `aiplex-api` service account, secret writes and metadata | nothing, so writes failed | custom role `aiplexApiSecrets` (`secretmanager.secrets.create`, `secretmanager.secrets.get`, `secretmanager.versions.add`, `secretmanager.versions.destroy`, `secretmanager.versions.get`); condition: the same prefix, or a check on the project resource itself (see below) |
+| `aiplex-api` service account, Firestore | `roles/datastore.user` on the project | `roles/datastore.user` with the condition `resource.name == "projects/PROJECT_ID/databases/(default)"` (variable `restrict_firestore_to_database`, default true) |
+| `aiplex-api` Kubernetes service account | no RBAC | Role and RoleBinding `aiplex-api-deployer` in `aiplex-system`, `mcplex`, `a2aplex`, `llmplex` and `skillsplex` (Helm `api.rbac`): get, list, watch, create, patch and delete on exactly the kinds `internal/deploy` renders. No ClusterRole; every object is namespaced. |
+| `aiplex-alloydb-proxy` (new) | the proxy ran as `aiplex-api`, which had no AlloyDB access | own Kubernetes and Google service accounts with `roles/alloydb.client` and `roles/serviceusage.serviceUsageConsumer` on the project, the roles Google's Auth Proxy guide lists |
+| `aiplex-otel-collector` (new) | the chart's collector ran as `aiplex-api` | own Kubernetes and Google service accounts (`otel_collector = true`) with `roles/cloudtrace.agent` and `roles/monitoring.metricWriter` on the project, the only level these roles support |
 | `aiplex-firestore-export` service account | `roles/datastore.importExportAdmin` on the project; `roles/storage.admin` on the backup bucket | custom role `aiplexFirestoreExporter` (`datastore.databases.export`, `datastore.databases.getMetadata`, `datastore.operations.get`; no import); `roles/storage.legacyBucketWriter` on the backup bucket (bucket get, object create, delete, list) |
 | Cloud Build service account | `roles/containeranalysis.notes.attacher` on the project | the same role on the attestor's note only |
+| `aiplex-external-agent` service account | `roles/iam.serviceAccountTokenCreator` on itself, plus IAP access | no token creator: federated AWS and Azure principals get access and ID tokens through `roles/iam.workloadIdentityUser`, and nothing in AIPlex signs blobs or JWTs with it |
 | `aiplex-external-agent` and workforce groups | `roles/iap.httpsResourceAccessor` on the project | unchanged: the Terraform defines no IAP-protected backend service to bind on. The role holds one permission (`iap.webServiceVersions.accessViaIAP`). |
+
+Pods: the API, OPA, console and collector run as non-root with a read-only
+root filesystem, all capabilities dropped and no privilege escalation. Only the
+API mounts a Kubernetes service account token (its deploy engine uses it).
 
 A test (`TestDeployGrantsNoBroadRoles`) fails the build when anything under
 `deploy/` grants `roles/owner` or `roles/editor`, a project-level
 `roles/*.admin` / `roles/*Admin` that is not on an explicit allowlist (empty
 today), `secretAccessor` at project level without a condition, `cluster-admin`,
 or Kubernetes RBAC with a `*` verb, resource or API group.
+`TestHelmAPIRoleMatchesDeployEngine` fails when the API's Role and the kinds
+`internal/deploy` renders differ.
 
-### Secrets the API can read
+### Secrets the API reads and writes
 
 Every secret the API reads or writes is named by the API with the `aiplex-`
 prefix: tool secret references become `aiplex-tool-<tenant hash>-<ref>`,
 sealed tool sessions `aiplex-tool-session-<hash>`, and OAuth client
-credentials `aiplex-oauth-<hash>`. So the prefix condition does not change
-which secret references work: you still create tool secrets under the tenant
-secret namespace that `aiplex tools auth-types` prints ("Secret namespace").
-A test checks that the code's prefix and the Terraform default agree.
+credentials `aiplex-oauth-<hash>`. You still create tool secrets under the
+tenant secret namespace that `aiplex tools auth-types` prints ("Secret
+namespace"). A test checks that the code's prefix and the Terraform default
+agree.
 
-The enforcement is in IAM only. If you change `api_secret_prefix`, the API's
-reads fail with a permission error; the code does not read the variable.
+LLM route provider registrations (`secret_ref` on a provider) name a secret the
+operator chose. With Secret Manager configured, the API now refuses a reference
+that does not start with `aiplex-`, with an error that names the rule, and
+reports a permission denial on the existence check the same way, instead of a
+bare "validation is unavailable". Name those secrets `aiplex-...`.
 
-Model provider registrations (`secret_ref`) check that a secret exists with
-Secret Manager metadata. `roles/secretmanager.secretAccessor` does not include
-`secretmanager.secrets.get`, so this check could not succeed with the runtime
-grant before this change either.
+How the write condition works. Google documents resource-name conditions for
+secrets and secret versions, but not whether `secretmanager.secrets.create` is
+checked on the project (the parent) or on the new secret's name. The condition
+admits both cases: secrets and versions must carry the prefix, and a check made
+on the project resource itself (`resource.type ==
+"cloudresourcemanager.googleapis.com/Project"`) is allowed. If creation is
+checked on the project, the API can create a secret with any name, but it can
+never read, add versions to, destroy or read metadata of a secret outside the
+prefix. This follows Google's resource-type-scoped condition pattern
+(https://docs.cloud.google.com/iam/docs/configuring-resource-based-access) and
+has not been validated live.
 
-### Known gaps in the runtime grants (not changed here)
+The enforcement is in IAM. If you change `api_secret_prefix`, the code still
+names its secrets `aiplex-...`, so reads and writes fail.
 
-- **Secret writes.** Sealing a tool session and storing OAuth client
-  registrations create secrets and add versions. The API service account has
-  no `secretmanager.secrets.create`, `secretmanager.versions.add` or
-  `secretmanager.versions.destroy`, before or after this change, so those
-  paths fail in a Terraform-deployed project until an operator grants them
-  (for example `roles/secretmanager.secretVersionManager` with the same
-  prefix condition, plus a way to create secrets).
-- **AlloyDB proxy.** The `alloydb-proxy` deployment runs as the `aiplex-api`
-  Kubernetes service account, whose Google service account has no
-  `roles/alloydb.client`.
-- **Workload Identity.** The API still uses a Google service account with
-  `roles/iam.workloadIdentityUser` rather than direct Workload Identity
-  Federation principals (`principal://.../subject/ns/aiplex-system/sa/aiplex-api`).
-  The API mints Google ID tokens for `gcp-adc` identity profiles, and that path
-  has not been validated with federated tokens. Switching is a follow-up.
-- **Kubernetes RBAC.** The chart grants the API no Role. The deploy engine
-  talks to the Kubernetes API in-cluster, so in-cluster deploys need a
-  namespaced Role an operator binds; the API keeps its service account token
-  for that reason. The console and OPA no longer mount one.
-- **Console container.** It still runs as root (the image is `nginx:alpine` on
-  port 80). Running it as non-root with a read-only root filesystem needs an
-  unprivileged nginx image first. The API and OPA now run as non-root with a
-  read-only root filesystem, no capabilities and no privilege escalation.
+### Still open
+
+- **The API image cannot run in-cluster deploys.** The deploy engine shells out
+  to `kubectl`, which the distroless API image does not contain. The RBAC above
+  is what it needs once a client is in place.
+- **The GKE cluster is not on the Terraform VPC.** `google_container_cluster`
+  sets no `network` or `subnetwork`, so it uses the project's default network,
+  and the firewall rules on `aiplex-network` do not apply to it. Moving an
+  existing cluster to another network replaces it, so this was not changed.
+- **Egress is not restricted.** The "Google APIs" egress rule allows that
+  traffic, but nothing denies the rest (VPC firewalls allow egress by default).
+  A deny-all egress rule was not added because the API must reach
+  operator-chosen model providers, MCP servers, agents and identity providers
+  on the internet. Restricting egress means a deny rule plus allow rules, or a
+  proxy, for your providers.
+- **The Gateway and its Cloud Armor attachment are manual.** The load balancer
+  comes from the Gateway in `deploy/k8s/gateway.yaml`, which `aiplex platform
+  apply` does not apply. That file now attaches `aiplex-waf` to the API and
+  Console Services with `GCPBackendPolicy`; until it is applied, the policy
+  filters nothing.
+- **Workload identity providers carry placeholders.** `identity_pool.tf` has a
+  placeholder AWS account ID (`123456789012`) and Azure issuer; set them before
+  relying on external agent federation.
+- **Direct Workload Identity Federation.** The API still uses a Google service
+  account with `roles/iam.workloadIdentityUser` rather than federated
+  principals, because it mints Google ID tokens for `gcp-adc` identity profiles
+  and that path has not been validated with federated tokens.
 
 ## Upgrading an existing deployment
 
 Run `terraform plan` (or `aiplex platform apply` without `--yes`) and read the
-IAM changes before approving:
+changes before approving. None of this has been run against a live project.
 
-- The API's Secret Manager and Firestore bindings are replaced by conditional
-  bindings (created before the old ones are removed). If the API cannot read
-  Firestore afterwards, set `restrict_firestore_to_database = false` and apply
-  again.
-- Any secret the API was reading **without** the `aiplex-` prefix stops being
-  readable. The code only reads `aiplex-` secrets, so this matters only if you
-  changed the code or granted something by hand.
-- The backup service account loses `datastore.databases.import` and bucket
-  administration. Check the next scheduled export (Cloud Scheduler job
-  `aiplex-firestore-daily-export`) succeeds; if it fails with a storage
-  permission error, grant `roles/storage.objectAdmin` on the backup bucket to
-  `aiplex-firestore-export` and report it.
-- The Cloud Armor throttle rule now counts per client IP
-  (`enforce_on_key = "IP"`); before, all clients shared one 500 requests per
-  minute budget.
-- The certificate validation DNS records now carry the zone's `count`;
-  `moved` blocks keep existing records in place.
+1. **Secrets.** The API's `secretAccessor` binding is replaced by one
+   conditioned on the `aiplex-` prefix (created before the old one is removed),
+   and a conditioned `aiplexApiSecrets` role is added for writes. The code only
+   uses `aiplex-` secrets, so nothing it reads today breaks; it loses access to
+   every other secret, including the AlloyDB password and the Hydra and Kratos
+   secrets. LLM route providers whose `secret_ref` does not start with
+   `aiplex-` are refused when saved: recreate those secrets under an `aiplex-`
+   name.
+2. **Firestore.** The API's `datastore.user` binding gets a database-name
+   condition. If the API loses Firestore access, set
+   `restrict_firestore_to_database = false` and apply again.
+3. **Backups.** The export service account loses `datastore.databases.import`
+   and bucket administration. Check that the next export (Cloud Scheduler job
+   `aiplex-firestore-daily-export`) succeeds; if it fails on storage, grant
+   `roles/storage.objectAdmin` on the backup bucket to
+   `aiplex-firestore-export`.
+4. **Cloud Armor.** The throttle rule counts per client IP; before, all clients
+   shared one 500 requests per minute budget.
+5. **DNS and certificate.** The certificate validation record carries the
+   zone's `count` (a `moved` block keeps it in place). The second, wildcard DNS
+   authorization and its record are removed, because one authorization covers
+   the domain and its wildcard. Changing the certificate's
+   `dns_authorizations` can make Terraform replace the certificate; TLS can be
+   unavailable until the new one is `ACTIVE`.
+6. **Apply refuses on a failed preflight.** `--skip-preflight` overrides it
+   with a warning.
+7. **Namespace.** Terraform now creates `aiplex-system` with Helm adoption
+   metadata. If the namespace already exists, import it first
+   (`terraform import kubernetes_namespace.aiplex_system aiplex-system`) and
+   make sure it has the label `app.kubernetes.io/managed-by=Helm` and the
+   annotations `meta.helm.sh/release-name=aiplex` and
+   `meta.helm.sh/release-namespace=aiplex-system`.
+8. **Terraform state bucket.** The fixed-name `aiplex-terraform-state` bucket is
+   dropped from Terraform state by a `removed` block; the bucket itself is not
+   deleted. The CLI keeps state in `PROJECT_ID-aiplex-tfstate` and now turns on
+   versioning there. Delete the old bucket by hand once you have checked it
+   holds nothing you need. `removed` blocks need Terraform 1.7, already the
+   minimum.
+9. **AlloyDB proxy identity.** The proxy moves to the new
+   `aiplex-alloydb-proxy` service accounts; its pods restart.
+10. **Collector identity.** The chart's collector moves to the `otel-collector`
+    service account. Apply Terraform (`otel_collector = true`) before or with
+    the Helm upgrade, or exports fail until the Google service account exists.
+    If you run your own collector (`otel.collector: false`), set
+    `otel_collector = false`.
+11. **Console image.** The chart runs the console as uid 101 on port 8080 with a
+    read-only root filesystem. Rebuild the console image from the new
+    `console/Dockerfile` (unprivileged nginx) before upgrading the chart; the
+    old `nginx:alpine` image will not start with these settings.
+12. **External agent token creator.** The self-grant of
+    `roles/iam.serviceAccountTokenCreator` is removed. A client that signed
+    JWTs or blobs as `aiplex-external-agent` through the IAM API stops working;
+    nothing in AIPlex does that.
+13. **Kubernetes RBAC.** The chart adds Roles, RoleBindings and a `skillsplex`
+    namespace. Set `api.rbac.create: false` to manage RBAC yourself.
+14. **AlloyDB size.** `alloydb_cpu_count` is now a declared variable (default
+    2). A tfvars written by an older `aiplex init` with 4 or 8 resizes the
+    instance on the next apply. `aiplex init` no longer writes `admin_email`,
+    `registry_name` or `hydra_admin_url`, which nothing used; remove them from
+    an existing `terraform.tfvars` to silence Terraform's undeclared-variable
+    warnings.
 
 ## Limits
 

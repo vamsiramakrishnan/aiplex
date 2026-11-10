@@ -19,7 +19,9 @@ The API reads its configuration from environment variables when it starts (`inte
 | `TLS_CERT_FILE`, `TLS_KEY_FILE`, `CLIENT_CA_FILE` | empty | Serving certificate, key and client CA |
 | `CONSOLE_ORIGINS` | empty | Comma-separated Console origins for CORS. Empty means permissive, which is for local development only. |
 | `LOG_LEVEL` | `info` | Log level |
-| `OTEL_ENDPOINT` | empty | OpenTelemetry collector endpoint |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` and the other standard `OTEL_*` variables | empty | OpenTelemetry export. Off unless an endpoint is set. See [Observability](../library/observability.md). `OTEL_ENDPOINT` is a deprecated alias of `OTEL_EXPORTER_OTLP_ENDPOINT`. |
+| `AIPLEX_TRACE_PROPAGATE_UPSTREAM` | `true` | Send W3C `traceparent`/`tracestate` on upstream model, tool and agent requests. `false` strips them. |
+| `AIPLEX_METRICS_TOKEN` | empty | Bearer secret for `GET /metrics`. Unset, the route answers 503 (except in development mode). |
 
 ## Modules and files
 

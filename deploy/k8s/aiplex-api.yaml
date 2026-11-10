@@ -50,6 +50,19 @@ spec:
           value: "PROJECT_ID.svc.id.goog"
         - name: LOG_LEVEL
           value: "info"
+        # OpenTelemetry export to the in-cluster collector (otel-collector.yaml).
+        # Remove both to turn export off; trace ids are still generated.
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://otel-collector.aiplex-system:4318"
+        - name: OTEL_SERVICE_NAME
+          value: "aiplex-api"
+        # GET /metrics needs this bearer secret (Secret aiplex-metrics, key token).
+        - name: AIPLEX_METRICS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aiplex-metrics
+              key: token
+              optional: true
         resources:
           requests:
             cpu: 200m
