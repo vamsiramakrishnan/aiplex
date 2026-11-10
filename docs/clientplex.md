@@ -54,7 +54,7 @@ mutations still refresh the saved registration inventory.
 Codex's GCP provider and custom authentication are documented in
 [official OpenAI configuration docs](https://learn.chatgpt.com/docs/config-file/config-advanced).
 A configurable model name does not prove launch availability or project access.
-The November 17 announcement is not an activation switch in this implementation.
+Product availability announcements do not change behaviour: only the documented, configured operations are used.
 
 Antigravity gateway mode uses a centralized service account and consumption
 billing, separately from seat-based included quotas. Plans preserve the required

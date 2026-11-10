@@ -7,7 +7,7 @@ payloads and streaming frames retain their protocol semantics. The module is
 opt-in; default module selection and existing gateway ownership are unchanged.
 
 Read the [core guide](quotaplex-core.md) for accounting contracts and the
-[readiness register](quotaplex-prerequisites.md) for deployment gates.
+[requirements and limits](quotaplex-prerequisites.md) for deployment requirements.
 The [execution coverage and regression matrix](quotaplex-execution-coverage.md)
 maps actual model/tool dispatch, identities, retries, uncertainty and scheduling
 to implementation contracts and test evidence.
@@ -238,7 +238,7 @@ Rolling budgets, minimum-throughput guarantees, native capacity reservation,
 preemption, remote admission RPC, direct-route interception and additional
 specialized model/tool/agent adapters remain explicit work.
 
-## Additional foundational mechanisms
+## Membership, configuration and administration mechanisms
 
 [Signed membership authority](membership-authority.md) can supply complete, expanded
 source-qualified principal and actor snapshots independently of JWT group claims.

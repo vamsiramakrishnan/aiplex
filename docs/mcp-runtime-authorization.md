@@ -1,8 +1,8 @@
 # Owned MCP OAuth execution
 
 MCP client registration and runtime authorization are separate contracts. The
-registration service still selects pre-registration, CIMD or DCR. The runtime
-service now connects that registration to a verified user's authorization-code
+registration service selects pre-registration, CIMD or DCR. The runtime
+service connects that registration to a verified user's authorization-code
 flow and a principal/actor-owned grant consumed by managed tool execution.
 
 ## Connection configuration

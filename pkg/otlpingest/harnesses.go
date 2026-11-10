@@ -8,7 +8,7 @@ import (
 
 // The mappings below were written from the harnesses' published documentation
 // (Claude Code monitoring-usage, Codex otel configuration and source,
-// Gemini CLI telemetry reference), read on 2026-11-10. See
+// Gemini CLI telemetry reference), retrieved 2026-11-10. See
 // docs/observability.md for which were exercised against a real client.
 //
 // Source of truth per harness: per-request log events. Metrics (cumulative or

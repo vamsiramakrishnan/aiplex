@@ -420,7 +420,7 @@ func ValidatePlane(next http.Handler) http.Handler {
 	})
 }
 
-// ── AIPlex ↔ Tape integration (PR 11) ────────────────────────────────────
+// ── AIPlex ↔ Tape integration ────────────────────────────────────
 
 // BearerToken is a strict bearer-token middleware for internal endpoints
 // (currently /internal/tape/events and /internal/projections/*). Compares

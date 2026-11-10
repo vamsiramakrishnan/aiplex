@@ -5,10 +5,10 @@ the running platform's identities are granted, and how to check before you
 apply.
 
 **Not validated against a live project.** The permission table, the
-preflight, the custom role and the narrowed runtime grants below were built
-from Google's documentation and checked by unit tests with a fake Google API.
-None of it has been run against a real Google Cloud project yet. Treat the
-first deployment with these changes as a test.
+preflight, the custom role and the narrowed runtime grants below are based
+on Google's documentation and checked by unit tests with a fake Google API.
+None of it has been run against a real Google Cloud project. Treat a first
+deployment as a test.
 
 ## Check before you deploy
 
@@ -36,7 +36,7 @@ reported as a warning and does not fail the check.
 
 `aiplex platform apply` runs the same check before it creates anything and
 refuses on failure; `--skip-preflight` skips it with a warning. `aiplex init`
-runs it as information (it no longer asks for Owner or Editor), and
+runs it as information (it does not ask for Owner or Editor), and
 `aiplex doctor` reports its failures as warnings.
 
 **The check is advisory.** `testIamPermissions` answers from allow policies.
@@ -85,17 +85,17 @@ them); the preflight fails when either is disabled.
 `gcloud` commands for your account and enabled features.
 `aiplex platform preflight -o json` lists every permission it found missing.
 
-### How the table was built, and what is unverified
+### How the table is built, and what is unverified
 
 Permission names, and which predefined roles contain them, come from Google's
 IAM role reference (`https://docs.cloud.google.com/iam/docs/roles-permissions/<service>`),
-read on 2026-11-10; each table entry cites its page. "Narrowest role" means the
+each table entry cites its page. "Narrowest role" means the
 predefined role that contains the permission with the fewest other
 permissions, preferring a role of the same service and skipping basic, legacy
 and service-agent roles.
 
 Every permission in the table exists in that reference. A permission is marked
-**unverified** when Google's documentation did not confirm that the Terraform
+**unverified** when Google's documentation does not confirm that the Terraform
 operation needs it:
 
 | Permission | Resource | Why unverified |
@@ -182,10 +182,10 @@ namespace"). A test checks that the code's prefix and the Terraform default
 agree.
 
 LLM route provider registrations (`secret_ref` on a provider) name a secret the
-operator chose. With Secret Manager configured, the API now refuses a reference
+operator chose. With Secret Manager configured, the API refuses a reference
 that does not start with `aiplex-`, with an error that names the rule, and
-reports a permission denial on the existence check the same way, instead of a
-bare "validation is unavailable". Name those secrets `aiplex-...`.
+reports a permission denial on the existence check the same way. Name those
+secrets `aiplex-...`.
 
 How the write condition works. Google documents resource-name conditions for
 secrets and secret versions, but not whether `secretmanager.secrets.create` is
@@ -202,11 +202,11 @@ has not been validated live.
 The enforcement is in IAM. If you change `api_secret_prefix`, the code still
 names its secrets `aiplex-...`, so reads and writes fail.
 
-### Still open
+### Known limits
 
 - **Egress is not restricted.** The "Google APIs" egress rule allows that
   traffic, but nothing denies the rest (VPC firewalls allow egress by default).
-  A deny-all egress rule was not added because the API must reach
+  No deny-all egress rule is added because the API must reach
   operator-chosen model providers, MCP servers, agents and identity providers
   on the internet. Restricting egress means a deny rule plus allow rules, or a
   proxy, for your providers.
@@ -231,12 +231,12 @@ names its secrets `aiplex-...`, so reads and writes fail.
   [probe ranges](https://cloud.google.com/load-balancing/docs/health-check-concepts#ip-ranges)).
   In that case, set the real node tag as the rule's `target_tags` (or drop
   `target_tags` to cover every instance in the network). This comes from Google's
-  documentation; it was not tested against a live cluster, so check on the
+  documentation; it has not been tested against a live cluster, so check on the
   first dedicated-network install that the Gateway's backends report healthy.
-- **Nothing here was run against a live project or cluster.** The Gateway,
+- **Nothing here has been applied to a live project or cluster.** The Gateway,
   Cloud Armor attachment and health check follow Google's Gateway
-  documentation but were only rendered (`helm template`), never applied;
-  Terraform was parsed, not planned or applied.
+  documentation but are only rendered (`helm template`); Terraform is parsed,
+  not planned or applied.
 - **Direct Workload Identity Federation.** The API still uses a Google service
   account with `roles/iam.workloadIdentityUser` rather than federated
   principals, because it mints Google ID tokens for `gcp-adc` identity profiles
@@ -315,9 +315,9 @@ changes before approving. None of this has been run against a live project.
     nothing in AIPlex does that.
 13. **Kubernetes RBAC.** The chart adds Roles, RoleBindings and a `skillsplex`
     namespace. Set `api.rbac.create: false` to manage RBAC yourself.
-14. **AlloyDB size.** `alloydb_cpu_count` is now a declared variable (default
+14. **AlloyDB size.** `alloydb_cpu_count` is a declared variable (default
     2). A tfvars written by an older `aiplex init` with 4 or 8 resizes the
-    instance on the next apply. `aiplex init` no longer writes `admin_email`,
+    instance on the next apply. `aiplex init` does not write `admin_email`,
     `registry_name` or `hydra_admin_url`, which nothing used; remove them from
     an existing `terraform.tfvars` to silence Terraform's undeclared-variable
     warnings.
@@ -381,12 +381,11 @@ changes before approving. None of this has been run against a live project.
 ## Limits
 
 - Not run against a live Google Cloud project. `helm lint` and `helm template`
-  were run on the chart (with the Ory subcharts removed, since their
-  repository was not reachable); Terraform files were parsed with an HCL
-  parser and checked for undeclared variables, but `terraform fmt`,
-  `validate` and `plan` were not run (no Terraform binary was available).
+  are run on the chart; Terraform files are parsed with an HCL parser and
+  checked for undeclared variables, but `terraform validate` and `plan` are
+  not part of the repository's checks.
 - The preflight checks permissions, enabled APIs and billing. It does not
   check quotas, organization policies, deny policies, VPC Service Controls,
   or that names (buckets, domains) are free.
 - Role contents change over time. The narrowest-role suggestions and the
-  custom role reflect Google's reference as read on 2026-11-10.
+  custom role reflect Google's reference as of 2026-11-10.

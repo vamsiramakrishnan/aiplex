@@ -81,7 +81,7 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		return nil, fmt.Errorf("template plane %q does not match requested plane %q", template.Plane, plane)
 	}
 
-	// PR 11 item 16: refuse to change the runtime config of an existing
+	// refuse to change the runtime config of an existing
 	// logical instance in place. We look up by (plane, template_id,
 	// display_name) — the natural key from the deploy request — and
 	// compare the persisted Runtime to the incoming spec. A `force`
@@ -144,11 +144,10 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		DeployedAt:  time.Now(),
 		UpdatedAt:   time.Now(),
 		DeployedBy:  owner,
-		// AIPlex integration PR 4: every Instance carries a runtime config.
-		// PR 5 will read this and emit tape-server manifests when
-		// Runtime.Engine == "tape"; for now we default to the
-		// explicit "no durable runtime" value so the field round-trips
-		// cleanly through storage and the API.
+		// Every Instance carries a runtime config. Manifest generation emits
+		// the tape-server resources when Runtime.Engine == "tape"; otherwise
+		// the config defaults to the explicit "no durable runtime" value so
+		// the field round-trips cleanly through storage and the API.
 		Runtime: runtimeFromConfig(config),
 	}
 	routes, err := e.routes.Generate(inst, template, e.gatewayName)
@@ -395,8 +394,8 @@ func generateID(prefix string) string {
 }
 
 // runtimeFromConfig extracts the runtime block from the deploy config map,
-// or returns the explicit "no durable runtime" value. PR 5 wires the
-// generated manifests off of inst.Runtime.Engine; PR 4 only persists it.
+// or returns the explicit "no durable runtime" value. Manifest
+// generation reads inst.Runtime.Engine (see tapeRuntimeManifests).
 //
 // Config shape:
 //
@@ -440,7 +439,7 @@ func runtimeFromConfig(config map[string]any) models.RuntimeConfig {
 			Topic: asString(o["topic"]),
 		}
 	}
-	// PR 13: retention windows for the compactor + purge reactor.
+	// retention windows for the compactor + purge reactor.
 	// Map int fields tolerantly — YAML decoded via map[string]any
 	// surfaces ints as either int or float64 depending on parser.
 	if rt, ok := raw["retention"].(map[string]any); ok {
@@ -489,7 +488,7 @@ func asBool(v any) bool {
 	return false
 }
 
-// checkRuntimeMutation enforces PR 11 item 16: runtime config is
+// checkRuntimeMutation enforces that runtime config is
 // immutable on the natural key (plane, template, display_name). If an
 // existing instance matches and its persisted Runtime differs from the
 // incoming spec, refuse with ErrRuntimeMutation. `force_runtime_change:

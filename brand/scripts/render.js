@@ -11,9 +11,9 @@
 //   logo-<name>-<mode>.png         each logo at 16, 24, 32, 64, 256 px; light and dark, both colour schemes
 //   logo-<name>-<mode>-pixels.png  the real 16 and 24 px rasters enlarged 8x
 //   icons.png                      the icon family at 16, 24 and 48 px, light and dark
-//   sheet-<name>-<mode>.png        composed files (brand sheets, social, launch, explorations) at 1:1
+//   sheet-<name>-<mode>.png        composed files (brand sheets, social, architecture diagrams) at 1:1
 //   social-card.png                1200x630 raster of the social card
-//   export/<name>.png              (export) social card, banner, launch images, carousel, architecture at
+//   export/<name>.png              (export) social card, banner and architecture diagrams at
 //                                  native size; banner and architecture also @2x
 //   preview-400/, preview-400.png  (export) the same at 400 px wide, to read at phone-feed size
 // Checks (non-zero exit on failure): outlined text runs lie inside the viewBox and do not
@@ -30,9 +30,7 @@ const BG = { light: { bg: '#FFFFFF', fg: '#141A2E' }, dark: { bg: '#0B0D13', fg:
 const uri = (svg) => 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
 const read = (p) => fs.readFileSync(p, 'utf8');
 const composed = () => [...fs.readdirSync(BRAND).filter((f) => /^brand-sheet.*\.svg$/.test(f)).map((f) => path.join(BRAND, f)),
-  ...['social', 'launch'].filter((d) => fs.existsSync(path.join(BRAND, d))).flatMap((d) => list(d)),
-  ...exploration().filter((f) => f.endsWith('-explorations.svg'))];
-const exploration = () => (fs.existsSync(path.join(BRAND, 'explorations')) ? list('explorations') : []);
+  ...['social', 'diagrams'].flatMap((d) => list(d))];
 const list = (dir) => fs.readdirSync(path.join(BRAND, dir)).filter((f) => f.endsWith('.svg')).sort()
   .map((f) => path.join(BRAND, dir, f));
 
@@ -60,7 +58,7 @@ async function shot(page, html, out, width = 1400) {
   let problems = 0;
 
   // 1. logos
-  for (const file of [...list('logo'), ...exploration().filter((f) => !f.endsWith('-explorations.svg'))]) {
+  for (const file of list('logo')) {
     if (filter && !file.includes(filter)) continue;
     const name = path.basename(file, '.svg');
     // one screenshot per mode so prefers-color-scheme inside the SVG (favicon) is exercised too
@@ -143,14 +141,14 @@ async function shot(page, html, out, width = 1400) {
     for (const i of issues.out) { console.log('  - ' + i); problems++; }
   }
 
-  // 5. export: upload-ready PNGs of the launch images, social card and banner at their native size
+  // 5. export: upload-ready PNGs of the social card, banner and architecture diagrams at their native size
   //    (and 2x for the banner), plus 400 px wide previews to check phone-feed legibility.
   if (filter === 'export') {
     const exp = path.join(OUT, 'export');
     const prev = path.join(OUT, 'preview-400');
     fs.mkdirSync(exp, { recursive: true });
     fs.mkdirSync(prev, { recursive: true });
-    const targets = [...list('social'), ...(fs.existsSync(path.join(BRAND, 'launch')) ? list('launch') : [])];
+    const targets = [...list('social'), ...list('diagrams')];
     for (const file of targets) {
       const svg = read(file);
       const name = path.basename(file, '.svg');

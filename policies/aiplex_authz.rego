@@ -51,7 +51,7 @@ allow if {
                     "skills/list", "ping"}
 }
 
-# ── Runs (AIPlex ↔ Tape, PR 11 item 5) ──
+# ── Runs ──
 # GET /api/v1/runs* and per-run subroutes require aiplex:runs:read.
 # Operator-action POSTs each require their own action-scoped grant.
 

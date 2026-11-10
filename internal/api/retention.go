@@ -15,7 +15,7 @@ import (
 )
 
 // RetentionReactor drives the compaction + purge lifecycle for
-// Tape-backed runs (PR 13). Loops on a configurable tick (default
+// Tape-backed runs. Loops on a configurable tick (default
 // 15 minutes — payload-zero updates and event purges are heavy in
 // aggregate and don't need to fire often). On each tick:
 //

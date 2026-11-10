@@ -2,7 +2,7 @@
 title: OTLP receiver
 ---
 
-The OTLP receiver takes OpenTelemetry exports from coding harnesses and turns the usage events it recognizes into `source=reported` records in the [usage ledger](./usage.md). It speaks OTLP/HTTP only. What is mapped, what is not, and what was run against a real client are in [observability](../library/observability.md#harness-telemetry-received-over-otlp) and [harness onboarding](../library/harness-onboarding.md#what-was-run-against-real-clients).
+The OTLP receiver takes OpenTelemetry exports from coding harnesses and turns the usage events it recognizes into `source=reported` records in the [usage ledger](./usage.md). It speaks OTLP/HTTP only. What is mapped, what is not, and what was run against a real client are in [observability](../library/observability.md#harness-telemetry-received-over-otlp) and [harness onboarding](../library/harness-onboarding.md#observed-with-real-clients).
 
 ## Routes
 

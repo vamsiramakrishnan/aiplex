@@ -1,10 +1,10 @@
 # QuotaPlex execution contracts and evidence
 
-The managed integration is already part of merged PR #9. This follow-up qualifies
-the existing integration, fixes cumulative usage replacement inside an SSE final
-tail, and adds model/tool tests over separate host/engine instances sharing one
-transactional store. It does not replace the accounting core, change defaults,
-enable a production policy or deploy resources.
+This page states the contracts of the managed QuotaPlex integration and the
+evidence that covers them: model and tool tests over separate host/engine
+instances sharing one transactional store, and cumulative usage replacement
+inside an SSE final tail. It does not change defaults, enable a production policy
+or deploy resources.
 
 ## Ownership and integration contracts
 
@@ -89,34 +89,31 @@ Provider transport regressions are in
 [cumulative_stream_test.go](../pkg/modelapi/cumulative_stream_test.go).
 Scheduler integration is in
 [quota_scheduler_test.go](../cmd/aiplex-api/quota_scheduler_test.go).
-Accounting recovery remains covered by the existing quota core tests.
+Accounting recovery is covered by the quota core tests in `pkg/quotaplex`.
 
-This maps Q03 to request-bound identity, Q06/Q15 to actual dispatch and bypass
-exclusion, Q11 to trusted terminal usage/recovery, Q19/Q22 to shared model/tool
-controls, and Q21 to admitted capacity composition. Deployment-wide routing,
-native async/Live billing and verified provider throughput remain separate gates.
+These tests cover request-bound identity, actual dispatch and bypass exclusion,
+trusted terminal usage and recovery, shared model and tool controls, and admitted
+capacity composition (see [requirements and limits](quotaplex-prerequisites.md)).
+Deployment-wide routing, native async and Live billing, and verified provider
+throughput are not covered.
 
 ## Test evidence
 
-Validated on November 9, 2026: **1,219 Go tests/subtests pass with the race
-detector**, including **32 new tests/subtests in 15 new top-level tests**. All
-37 tested packages pass; nine emulator-only tests skip in this local run.
-`go vet ./...` and both API/CLI builds pass. Local builds use `-buildvcs=false`
-to omit VCS stamping in the linked workspace checkout.
+The Go tests run with the race detector in CI. Emulator-only tests skip unless
+the Firestore emulator is configured.
 
-The initial new SSE-tail regression failed in both variants against the merged
-implementation: the attempt was `settled` using lower replacement counters and
-the contradictory final tail was delivered. With the fix, both variants leave
-the attempt `unknown`, withhold the tail and retain every budget hold. Equal
-repeated final counters still complete byte-for-byte and charge once.
+For an SSE final tail whose cumulative usage counters are replaced by lower or
+contradictory values, the attempt is left `unknown`, the tail is withheld and
+every budget hold is retained. Equal repeated final counters complete
+byte-for-byte and charge once.
 
 Reproduce the complete Go validation from the repository root:
 
 ```sh
 go test -race ./... -count=1 -json
 go vet ./...
-go build -buildvcs=false -trimpath -o /tmp/aiplex-quota-api ./cmd/aiplex-api
-go build -buildvcs=false -trimpath -o /tmp/aiplex-quota-cli ./cmd/aiplex-cli
+go build -buildvcs=false -trimpath -o <out>/aiplex-api ./cmd/aiplex-api
+go build -buildvcs=false -trimpath -o <out>/aiplex ./cmd/aiplex-cli
 ```
 
 Focused execution evidence:
@@ -129,9 +126,9 @@ go test -race ./pkg/execution ./pkg/modelapi ./pkg/toolexec ./internal/api \
 The cross-plane regression uses the reference transactional store and distinct
 host/engine instances; it is not a production multi-replica load test. The
 ordinary Go suite skips emulator-only tests when `FIRESTORE_EMULATOR_HOST` is
-unset. The existing dedicated emulator CI lane and
-[production qualification guide](production-qualification.md) describe that
-separate qualification. No live provider invoice, cloud deployment, production
+unset. The dedicated Firestore emulator CI job and the
+[production qualification guide](production-qualification.md) cover that
+separate qualification, including how to run the emulator tests locally. No live provider invoice, cloud deployment, production
 enforcement or provider capacity reservation is produced by these tests.
 
 ### Media, unit and batch operations

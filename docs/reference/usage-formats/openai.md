@@ -1,6 +1,6 @@
 # OpenAI usage and rate-limit formats
 
-Purpose: let an engineer audit AIPlex usage observers against what OpenAI documents. Every field name below was read in OpenAI's official docs on 2026-11-09 (API reference pages under `https://developers.openai.com/api/reference/resources/...` and guides under `https://developers.openai.com/api/docs/guides/...`; `platform.openai.com` redirects there or returns 403 to scripted fetches). Anything not seen is marked UNCONFIRMED. Model names in doc examples are placeholders and are not repeated here.
+Purpose: let an engineer audit AIPlex usage observers against what OpenAI documents. Source: OpenAI's official docs, retrieved 2026-11-09 (API reference pages under `https://developers.openai.com/api/reference/resources/...` and guides under `https://developers.openai.com/api/docs/guides/...`). Details the documentation does not state are marked UNCONFIRMED. Model names in doc examples are placeholders and are not repeated here.
 
 Fixtures for each section live in `pkg/modelapi/testdata/usage-formats/openai/` (see `expected.json` there).
 
@@ -151,16 +151,16 @@ Fixture: the `rate_limits.updated` event is inside `realtime.ws.jsonl` (not a us
 3. Responses: whether `response.incomplete`, `response.failed`, and cancelled responses ever carry non-null `usage` in real traffic (docs examples show `null`); `event:` line presence on the SSE wire (fixtures use it in `responses.sse` and omit it elsewhere to exercise both); usage on background responses; usage for `generate:false` warmups; parent object of `svg_usage`.
 4. Realtime: usage on cancelled/failed/incomplete `response.done`; location of the model id per response; WebRTC data-channel name for Realtime (seen for Live); byte-level event equivalence across WebSocket/WebRTC/SIP; whether `rate_limits.updated` is also sent over WebRTC/SIP.
 5. Realtime translation/transcription sessions: where duration is reported in-band (none seen).
-6. Live API: exact endpoint and event names were read in the reference/guides; behaviour on `connection_lost` (final seconds) is not documented.
+6. Live API: endpoint and event names are in the reference and guides; behaviour on `connection_lost` (final seconds) is not documented.
 7. Speech (TTS) SSE: event names and any usage payload; billing unit of speech and translations.
 8. Images: usage for non-GPT image models; whether partial-image tokens are inside the final usage; model id location on image responses.
 9. Batch: no explicit example of usage inside output-file lines; per-request 4xx representation (output line with non-200 `status_code` vs error file); batch-level usage cache-write counter absent.
 10. Rate limits: which endpoints and transports emit `x-ratelimit-*`; full 429 JSON body example; whether `rate_limit_exceeded` is still used.
 11. Doc pages are rendered for the current model generation; older SDK/proxy behaviour (e.g. pre-2025 Chat usage without `cache_write_tokens`) is not covered.
 
-## Fixture notes (media, Live voice and batch operations, 2026-11-10)
+## Fixture notes (media, Live voice and batch operations)
 
 - `transcription*.json/.sse` and `images*.json/.sse` are served by `openai.v1.audio-transcriptions` and `openai.v1.images-generations`. Duration usage is observed as `audio_input_milliseconds` (seconds rounded up), images as `generated_images`, detail splits as `input_*_tokens` / `output_*_tokens`.
 - `live*.ws.jsonl` are served by the `openai.v1.live` relay (`/v1/live/sessions?model=`, the model pinned against `session.start`). `session.closed` `usage.seconds` = 45.8 is recorded once as 45800 ms.
-- `batch.output.jsonl`, `batch.errors.jsonl` and `batch.object.json` are aggregated by the gateway's batch settlement. Paths re-read on 2026-11-10: `POST /v1/batches` (https://developers.openai.com/api/reference/resources/batches/methods/create) and `GET /v1/files/{file_id}/content` (https://developers.openai.com/api/reference/resources/files/methods/content). Retrieve, cancel and list paths (`GET /v1/batches/{id}`, `POST /v1/batches/{id}/cancel`, `GET /v1/batches`) were not shown on the create page and are taken from the reference index.
-- Speech: re-read https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create on 2026-11-10; `stream_format: "sse"` is confirmed, but no SSE event names or usage fields are shown. Third-party sources describe `speech.audio.done` with usage; not used. Speech stays request-count with unknown usage.
+- `batch.output.jsonl`, `batch.errors.jsonl` and `batch.object.json` are aggregated by the gateway's batch settlement. Paths (retrieved 2026-11-10): `POST /v1/batches` (https://developers.openai.com/api/reference/resources/batches/methods/create) and `GET /v1/files/{file_id}/content` (https://developers.openai.com/api/reference/resources/files/methods/content). Retrieve, cancel and list paths (`GET /v1/batches/{id}`, `POST /v1/batches/{id}/cancel`, `GET /v1/batches`) are not shown on the create page and are taken from the reference index.
+- Speech: https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create (retrieved 2026-11-10) documents `stream_format: "sse"` but shows no SSE event names or usage fields. Third-party sources describe `speech.audio.done` with usage; not used. Speech stays request-count with unknown usage.

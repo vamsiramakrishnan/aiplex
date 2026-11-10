@@ -25,7 +25,7 @@ package modelapi
 //     DELETE /v1beta/interactions/{id}; the Api-Revision header pins the
 //     revision (https://aistudio.google.com/api-reference/interactions).
 //
-// NOT confirmed from the pages read: whether GET /interactions/{id} accepts a
+// Not documented by the provider's reference: whether GET /interactions/{id} accepts a
 // stream/last_event_id resume query on the Developer API (documented for
 // Vertex only), the list pagination parameter names of cachedContents.list
 // (pageSize/pageToken are the Google API standard and are forwarded), and

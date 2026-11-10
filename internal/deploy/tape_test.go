@@ -10,7 +10,7 @@ import (
 
 // tapeInstance returns a Tape-backed A2A agent instance for the
 // manifest tests below. The runtime config matches what the deploy
-// engine builds from `runtime:` in the YAML — see PR 4's
+// engine builds from `runtime:` in the YAML — see
 // runtimeFromConfig.
 func tapeInstance() *models.Instance {
 	return &models.Instance{

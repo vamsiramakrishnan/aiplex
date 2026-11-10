@@ -108,7 +108,7 @@ run-local: ## Run API server locally (port 8080)
 
 dev: docker-up run-local ## Start local deps + API server
 
-# ─── Dev with Tape (PR 11 item 14) ──────────────────────
+# ─── Dev with Tape ──────────────────────
 #
 # Brings up the full AIPlex ↔ Tape pipeline locally:
 #   1. Builds tape-server from the sibling durable-agents checkout

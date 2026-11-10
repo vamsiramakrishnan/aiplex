@@ -35,8 +35,9 @@ aiplex quota reconcile-plan --help
 | Managed model and tool execution, acknowledgement and recovery | [Managed QuotaPlex execution](../library/quotaplex-integration.md) |
 | Inspection, loans, reviewed reconciliation | [Quota administration](../library/quotaplex-administration.md) |
 | What is and is not covered | [Execution coverage](../library/quotaplex-execution-coverage.md) |
-| Everything still required before hard limits | [Prerequisites and readiness](../library/quotaplex-prerequisites.md) |
-| Allocation, metering and scheduling contracts | [Foundation design](../library/quotaplex-foundation-design.md) |
+| What hard limits require, and what is not supported | [Requirements and limits](../library/quotaplex-prerequisites.md) |
+| Allocation, metering and scheduling semantics | [Allocation and metering](../library/quotaplex-allocation-and-metering.md) |
+| How the mechanisms connect | [Connected mechanisms](../library/quotaplex-connected-mechanisms.md) |
 | Group membership for eligibility | [Authoritative membership](../library/membership-authority.md) |
 
 ## Usage ledger

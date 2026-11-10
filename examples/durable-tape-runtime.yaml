@@ -1,12 +1,17 @@
 # Durable Tape Runtime — an A2A agent backed by the Tape execution substrate
 #
-# This is the AIPlex side of the integration documented in
-# docs/integration/aiplex-tape-survey.md. The `runtime:` block under
-# config: tells AIPlex's deploy engine (PR 5 — currently round-trips the
-# config but doesn't generate manifests yet) to provision a tape-server
-# alongside this agent and inject AIPLEX_* + TAPE_URL env vars onto the
-# pod. Tape itself handles durability: crash mid-effect, resume from the
-# journal, no duplicate side effects.
+# The `runtime:` block under config: selects the Tape runtime for the agent.
+# The config is validated when the instance is admitted. When the manifests are
+# generated, the deploy engine adds, next to the agent's own ServiceAccount,
+# Deployment, Service and NetworkPolicy, three shared resources in the
+# aiplex-system namespace (a tape-server Deployment, its Service on port 7878
+# and a reactors Deployment, all using the image
+# ghcr.io/vamsiramakrishnan/tape-server:latest), and injects AIPLEX_* and
+# TAPE_URL environment variables on the agent pod. Applying them to a cluster
+# has not been exercised in this repository. Tape itself handles durability:
+# crash mid-effect, resume from the journal, no duplicate side effects.
+# It needs the separate durable-agents (Tape) repository for the server and
+# the agent code.
 #
 # Usage: aiplex apply -f examples/durable-tape-runtime.yaml
 
@@ -20,7 +25,7 @@ instances:
       # Standard agent config (template-specific fields).
       policy_version: aiplex-treasury-2026.05
 
-      # The new bit (PR 4): a runtime block that selects the Tape engine.
+      # The new bit: a runtime block that selects the Tape engine.
       # Validated by models.RuntimeConfig.Validate at admission time —
       # see internal/models/runtime_validate.go for the rules.
       runtime:

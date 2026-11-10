@@ -161,7 +161,7 @@ defaults limit retries to "not executed" signals, but a provider can still have
 done work before answering 429, 503 or 529.
 
 AIPlex sends no idempotency key to any provider, and **never forwards a
-caller's `Idempotency-Key` to any provider**. Checked on 2026-11-10:
+caller's `Idempotency-Key` to any provider**. Provider documentation as of 2026-11-10:
 
 - OpenAI: the API reference documents no idempotency header for Chat
   Completions or Responses, and the official Python SDK leaves its idempotency
@@ -178,8 +178,7 @@ caller's `Idempotency-Key` to any provider**. Checked on 2026-11-10:
   `StartAsyncInvoke`.
 - Gemini API: no idempotency or client-token parameter is documented for
   `generateContent` (<https://ai.google.dev/api/generate-content>); the
-  response carries a `responseId` only. The request-body page was not
-  available when this was checked, so this rests on the method reference.
+  response carries a `responseId` only.
 
 The caller's `Idempotency-Key` keeps its existing meaning: it is QuotaPlex's
 attempt identity. A retry on the same backend uses a key derived from it
@@ -338,7 +337,7 @@ Every response of a cached model carries `X-AIPlex-Cache: hit`, `miss` or
 
 **Storage** is an in-memory LRU bounded to 64 MiB per API process, behind an
 interface (`routing.CacheStore`). Replicas do not share it and a restart empties
-it; there is no Redis or other shared store in this increment.
+it; there is no Redis or other shared store.
 `POST /api/v1/access-points/{id}/cache/purge[?model=]` (admins; CLI
 `aiplex access-points purge-cache`) empties the access point's entries in the
 process that answers.
@@ -396,7 +395,7 @@ more (after 100 ms) when its transport failed (no HTTP response was read) for:
   is `true` (the same observation the connection `read_only` policy uses).
 
 Every other call, any HTTP status and any JSON-RPC error is never retried. A
-tool's `idempotentHint` is not consulted in this increment. The access point answers
+tool's `idempotentHint` is not consulted. The access point answers
 `initialize` itself; nothing is sent upstream for it, so there is nothing to
 retry.
 

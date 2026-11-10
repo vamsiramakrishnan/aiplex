@@ -813,7 +813,7 @@ func (c *Client) Health(ctx context.Context) error {
 	return c.do(ctx, "GET", "/healthz", nil, nil)
 }
 
-// ── Runs (AIPlex ↔ Tape audit, PR 7 + 10 + 11) ────────────────────────────
+// ── Runs ────────────────────────────
 
 // ExecutionRun is the projected per-run summary returned by /api/v1/runs.
 type ExecutionRun struct {

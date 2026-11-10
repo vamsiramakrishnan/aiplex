@@ -45,12 +45,12 @@ func writeStoreError(w http.ResponseWriter, err error) {
 }
 
 // RunsHandler serves the AIPlex ↔ Tape audit ingestion endpoint,
-// (PR 7) the read API on top of the projected events, and
-// (PR 10) the operator actions that mutate runtime state via Tape's
+// the read API on top of the projected events, and
+// the operator actions that mutate runtime state via Tape's
 // admin gRPC surface.
 type RunsHandler struct {
 	store registry.Store
-	admin TapeAdmin // optional; defaults to NoopTapeAdmin (see PR 10)
+	admin TapeAdmin // optional; defaults to NoopTapeAdmin
 }
 
 // NewRunsHandler constructs the handler with Noop admin (default).
@@ -83,9 +83,6 @@ type IngestResponse struct {
 //     for operator triage; the rest of the batch still lands.
 //   * Empty events array is a valid 200 (lets the outbox relay's
 //     polling loop hold a connection open without errors).
-//
-// PR 6 ships the wire contract + idempotency + projection. PR 7 adds
-// the read API on top of the projected runs.
 func (h *RunsHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -224,7 +221,7 @@ func applyEventToRun(run *models.ExecutionRun, ev *models.ExecutionEvent) {
 			run.BudgetUSDCharged += amount
 		}
 	case models.ExecutionEventRunCompacted:
-		// PR 13: Tape's compactor reactor emitted the entry. The Console
+		// Tape's compactor reactor emitted the entry. The Console
 		// renders compacted runs with a "details archived" badge.
 		// Compaction is one-way; we set the flag and remember the
 		// timestamp (defaulting to the event ts if the payload doesn't
@@ -248,17 +245,17 @@ func compactedAtFromPayload(payload string, fallback time.Time) time.Time {
 	return time.Unix(0, p.CompactedAtMs*int64(time.Millisecond)).UTC()
 }
 
-// ── Read API (AIPlex integration PR 7) ───────────────────────────────────
+// ── Read API ───────────────────────────────────
 //
 // All routes mounted under /api/v1/runs/* require the aiplex:runs:read
 // scope at the gateway authz layer (the JWT-scope check in
-// policies/aiplex_authz.rego). Operator-action scopes — redrive /
-// reconcile / cancel / signal / compensate — arrive in PR 10.
+// policies/aiplex_authz.rego). Operator-action scopes (redrive /
+// reconcile / cancel / signal / compensate) are listed with the operator actions below.
 
 // List returns the most recent runs for a tenant / agent.
 //   GET /api/v1/runs?tenant_id=...&agent_id=...&limit=100
 //
-// Multi-tenant enforcement (PR 11 item 6): if the caller carries a
+// Multi-tenant enforcement: if the caller carries a
 // tenant claim, the result set is filtered to that tenant unless they
 // also hold `aiplex:runs:read:cross_tenant`. A `tenant_id=` filter
 // from a single-tenant caller for *another* tenant returns empty
@@ -401,23 +398,23 @@ func filterRuns(runs []models.ExecutionRun, keep func(models.ExecutionRun) bool)
 	return out
 }
 
-// ── Operator actions (AIPlex integration PR 10) ──────────────────────────
+// ── Operator actions ──────────────────────────
 //
 // These endpoints govern *runtime mutations* on a Tape-backed run —
 // redrive a stuck one, reconcile an UNKNOWN effect, cancel cooperatively,
 // signal a waiting gate, kick off compensation. Each one:
 //
-//   * checks an aiplex:runs:* scope at the gateway (PR 10 also adds
-//     the scope strings to the authz layer; the handler trusts the
-//     middleware did its job and focuses on translating the request
-//     into a Tape admin RPC + recording the action in audit);
+//   * checks an aiplex:runs:* scope at the gateway (the scope strings are
+//     in the authz layer; the handler trusts the middleware and focuses
+//     on translating the request into a Tape admin RPC + recording the
+//     action in audit);
 //   * calls Tape's admin gRPC surface through the TapeAdmin interface.
-//     PR 11 ships GRPCTapeAdmin — a real adapter that dials TAPE_URL
+//     GRPCTapeAdmin is a real adapter that dials TAPE_URL
 //     and maps each action to the matching Tape RPC (ResumeRun for
 //     redrive/reconcile/compensate, EndRun for cancel, SendSignal for
 //     signal). NoopTapeAdmin remains the default for tests and dev
 //     paths without a tape-server.
-//   * appends an OperatorAudit row (PR 11 item 8) — a SEPARATE
+//   * appends an OperatorAudit row — a SEPARATE
 //     collection from execution_events, so the Tape journal stays
 //     clean and projection rebuild from outbox can re-derive the
 //     run timeline without losing the operator trail.
@@ -547,9 +544,9 @@ func (h *RunsHandler) Compact(w http.ResponseWriter, r *http.Request) {
 	}, nil)
 }
 
-// operatorAction is the shared body of every PR 10 handler: resolve
+// operatorAction is the shared body of every operator-action handler: resolve
 // the run id, call the Tape admin action, and append an OperatorAudit
-// row (a separate collection from execution_events — see PR 11 item 8).
+// row (a separate collection from execution_events).
 // The Console reads the two timelines side by side: Tape's journal and
 // AIPlex's operator trail.
 //
@@ -631,7 +628,7 @@ func budgetUSDFromPayload(payload string) float64 {
 }
 
 // Health returns the last-ingest timestamp + total runs known. The
-// Runs page (PR 11 item 13) uses this to render a "is the pipeline
+// Runs page uses this to render a "is the pipeline
 // live?" checklist on its empty state.
 //   GET /api/v1/runs/_health
 func (h *RunsHandler) Health(w http.ResponseWriter, r *http.Request) {
@@ -648,7 +645,7 @@ func (h *RunsHandler) Health(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListOperatorAudit returns the operator-action trail for a run —
-// PR 11 item 8's parallel timeline. Distinct from /events (Tape's
+// parallel timeline. Distinct from /events (Tape's
 // journal projection).
 //   GET /api/v1/runs/{run_id}/operator-audit
 func (h *RunsHandler) ListOperatorAudit(w http.ResponseWriter, r *http.Request) {

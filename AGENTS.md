@@ -58,4 +58,4 @@ go build ./... && go vet ./...
 go test ./... -count=1
 ```
 
-The code is the source of truth. `docs/` holds the verified guides; `design/` is superseded.
+The code is the source of truth. `docs/` holds the verified guides.

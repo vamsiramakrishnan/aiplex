@@ -7,7 +7,7 @@ import "time"
 // own journal projected for the run timeline; OperatorAudit is AIPlex's
 // trail of what an operator did (clicked redrive / cancel / signal / …).
 //
-// Keeping them in separate collections solves the muddle PR 10 left:
+// Keeping them in separate collections avoids mixing the two:
 // projection rebuild from Tape's outbox doesn't lose operator history,
 // and idempotent (RunID, Seq) semantics on ExecutionEvent stay clean.
 //

@@ -61,7 +61,7 @@ func GenerateManifests(inst *models.Instance, tmpl *models.Template, trustDomain
 //
 // Internal keys:
 //   - runtime               — RuntimeConfig block (handled separately)
-//   - force_runtime_change  — bypass flag for PR 11 item 16
+//   - force_runtime_change  — bypass flag for the runtime-mutation check
 func filterRuntimeEnv(config map[string]any) map[string]any {
 	if config == nil {
 		return nil

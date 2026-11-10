@@ -245,7 +245,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	})
 	sseH := api.NewSSEHandler(store)
 	runsH := api.NewRunsHandler(store)
-	// PR 11 item 3: real Tape admin client when TAPE_URL is set.
+	// Real Tape admin client when TAPE_URL is set.
 	// Falls back to NoopTapeAdmin (the default) in dev paths where
 	// no tape-server is reachable, so the API still starts cleanly.
 	if tapeAdmin, ok := api.NewGRPCTapeAdmin(); ok {
@@ -253,7 +253,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		srv.closers = append(srv.closers, func() { tapeAdmin.Close() })
 		log.Info().Str("tape_url", os.Getenv("TAPE_URL")).
 			Msg("Tape admin client wired (operator actions live)")
-		// PR 13: retention reactor. Ticks every TAPE_RETENTION_INTERVAL
+		// retention reactor. Ticks every TAPE_RETENTION_INTERVAL
 		// (default 15m). Compacts settled runs older than each
 		// instance's runtime.retention.compact_after_days; surfaces
 		// purge-eligible runs to the projection. Off by default —
@@ -380,13 +380,13 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 			r.Post("/denials", dashH.RecordPolicyDenial)
 		})
 
-		// Runs — AIPlex ↔ Tape run timeline (AIPlex integration PR 7).
+		// Runs — AIPlex ↔ Tape run timeline.
 		// Read-only projection of Tape's journal, indexed by tenant /
 		// agent / actor / subject for the Console. Requires
 		// aiplex:runs:read at the gateway authz layer; operator
 		// actions (redrive / reconcile / cancel / signal / compensate)
-		// arrive in PR 10 under aiplex:runs:* scopes.
-		// Multi-tenant enforcement (PR 11 item 6): require a tenant
+		// are under aiplex:runs:* scopes.
+		// Multi-tenant enforcement: require a tenant
 		// claim or aiplex:runs:read:cross_tenant before any /runs route.
 		// Opt-in via AIPLEX_REQUIRE_TENANT=1 so existing dev paths
 		// don't break overnight.
@@ -407,7 +407,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 				r.Get("/{run_id}/budgets", runsH.Budgets)
 				r.Get("/{run_id}/operator-audit", runsH.ListOperatorAudit)
 			})
-			// Operator actions (PR 10 + PR 11 item 7 idempotency wrap). The
+			// Operator actions (with idempotency wrap). The
 			// Idempotency middleware dedupes double-clicks for 5 minutes; it
 			// runs after the grant and visibility checks so a cached reply is
 			// never served to a caller who may not act on the run.
@@ -458,7 +458,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	// agents, and updates the ExecutionRun projection. See
 	// internal/api/runs.go and docs/guides/tape-runtime.md.
 	//
-	// PR 11 layers: bearer token (TAPE_INGEST_TOKEN) + per-IP rate
+	// Layers: bearer token (TAPE_INGEST_TOKEN) + per-IP rate
 	// limit (TAPE_INGEST_RPS, default 1000). Defence-in-depth so a
 	// misbehaving outbox can't flood projection storage and an
 	// unauthorized writer can't poison the audit trail.

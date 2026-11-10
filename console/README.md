@@ -38,7 +38,7 @@ A 403 that still happens renders as "You need the admin role for this", never a 
 
 Plain Node scripts that drive the built Console in Chromium against a real local API, using the pre-installed
 Playwright library (`require('playwright')`; nothing is added to `package.json`). Each check is a regression test for
-a defect found by walking the product.
+a defect that was fixed.
 
 ```
 make build                                   # bin/aiplex, bin/aiplex-api (repository root)
