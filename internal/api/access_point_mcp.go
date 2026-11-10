@@ -411,21 +411,15 @@ func (h *ConnectedHandler) mcpToolsList(w http.ResponseWriter, r *http.Request, 
 		writeRPCError(w, http.StatusOK, id, rpcInvalidParams, "the aggregate endpoint returns a single page; cursors are not supported", nil)
 		return
 	}
-	out := listedEntries{Tools: []json.RawMessage{}}
-	for _, tool := range ap.Tools {
-		// A connection that fails, is denied or is unavailable is omitted; its
-		// upstream error is never relayed through the aggregate.
-		listed, _, err := h.managedList(r, call, tool.ConnectionRef, json.RawMessage(`"aiplex-aggregate"`), nil)
-		if err != nil {
-			continue
-		}
-		for _, entry := range listed.Tools {
-			if renamed, ok := renameTool(entry, tool.ConnectionRef, tool); ok {
-				out.Tools = append(out.Tools, renamed)
-			}
-		}
+	// A connection that fails, is denied or is unavailable is omitted; its
+	// upstream error is never relayed through the aggregate. Pagination is
+	// followed within bounds; see aggregateTools.
+	tools, truncated := h.aggregateTools(r, call, ap)
+	result := map[string]any{"tools": tools}
+	if len(truncated) > 0 {
+		result["_meta"] = map[string]any{aggregateTruncationMeta: truncated}
 	}
-	writeRPCResult(w, http.StatusOK, id, out)
+	writeRPCResult(w, http.StatusOK, id, result)
 }
 
 func (h *ConnectedHandler) mcpToolsCall(w http.ResponseWriter, r *http.Request, call *accessPointCall, ap AccessPoint, connection string, id, rawParams json.RawMessage) {

@@ -309,8 +309,32 @@ func (h *ConnectedHandler) governToolExecution(r *http.Request, tenant string, r
 type toolAnnotations struct {
 	ConnectionID string          `json:"connection_id"`
 	Revision     uint64          `json:"connection_revision"`
-	ObservedAt   time.Time       `json:"observed_at"`
-	ReadOnly     map[string]bool `json:"read_only_hints"`
+	// ObservedAt is when the record was last written. Hint validity is per
+	// tool (ObservedBy); records written before per-tool times existed have
+	// ObservedBy == nil and their tools count as observed at ObservedAt.
+	ObservedAt time.Time `json:"observed_at"`
+	// ObservedBy is when each tool's own listing entry was last seen.
+	ObservedBy map[string]time.Time `json:"observed_at_by_tool,omitempty"`
+	ReadOnly   map[string]bool      `json:"read_only_hints"`
+}
+
+// toolAnnotationClock is the clock for annotation ages; tests replace it.
+var toolAnnotationClock = time.Now
+
+// observedAt is when the tool's hint was seen, or false when it has no
+// recorded observation.
+func (a toolAnnotations) observedAt(name string) (time.Time, bool) {
+	if a.ObservedBy == nil {
+		return a.ObservedAt, true
+	}
+	at, ok := a.ObservedBy[name]
+	return at, ok
+}
+
+// fresh reports whether the tool itself was observed within the TTL.
+func (a toolAnnotations) fresh(name string, now time.Time) bool {
+	at, ok := a.observedAt(name)
+	return ok && now.Sub(at) <= toolAnnotationTTL && !at.After(now.Add(time.Minute))
 }
 
 func (h *ConnectedHandler) readOnlyHint(ctx context.Context, tenant string, record resources.Record, name string) (bool, bool) {
@@ -319,7 +343,7 @@ func (h *ConnectedHandler) readOnlyHint(ctx context.Context, tenant string, reco
 		return false, false
 	}
 	var annotations toolAnnotations
-	if json.Unmarshal(saved.Spec, &annotations) != nil || annotations.ConnectionID != record.ID || annotations.Revision != record.Revision || time.Since(annotations.ObservedAt) > toolAnnotationTTL || annotations.ObservedAt.After(time.Now().Add(time.Minute)) {
+	if json.Unmarshal(saved.Spec, &annotations) != nil || annotations.ConnectionID != record.ID || annotations.Revision != record.Revision || !annotations.fresh(name, toolAnnotationClock()) {
 		return false, false
 	}
 	value, ok := annotations.ReadOnly[name]
@@ -329,14 +353,19 @@ func (h *ConnectedHandler) readOnlyHint(ctx context.Context, tenant string, reco
 // observeAnnotations merges explicit readOnlyHint values for configured tools.
 // Writes are best effort: a lost write leaves the hint unknown (fail closed).
 func (h *ConnectedHandler) observeAnnotations(ctx context.Context, tenant string, record resources.Record, allowed map[string]bool, tools []toolexec.ListedTool) {
-	next := toolAnnotations{ConnectionID: record.ID, Revision: record.Revision, ObservedAt: time.Now().UTC(), ReadOnly: map[string]bool{}}
+	now := toolAnnotationClock().UTC()
+	next := toolAnnotations{ConnectionID: record.ID, Revision: record.Revision, ObservedAt: now, ObservedBy: map[string]time.Time{}, ReadOnly: map[string]bool{}}
 	expected := uint64(0)
 	if saved, err := h.Store.Get(ctx, tenant, toolAnnotationsKind, record.ID); err == nil {
 		expected = saved.Revision
 		var previous toolAnnotations
-		if json.Unmarshal(saved.Spec, &previous) == nil && previous.ConnectionID == record.ID && previous.Revision == record.Revision && time.Since(previous.ObservedAt) <= toolAnnotationTTL {
+		if json.Unmarshal(saved.Spec, &previous) == nil && previous.ConnectionID == record.ID && previous.Revision == record.Revision {
+			// Other tools keep the time they were actually observed; expired
+			// ones are dropped rather than refreshed by this listing.
 			for name, value := range previous.ReadOnly {
-				next.ReadOnly[name] = value
+				if at, ok := previous.observedAt(name); ok && previous.fresh(name, now) {
+					next.ReadOnly[name], next.ObservedBy[name] = value, at
+				}
 			}
 		}
 	} else if !errors.Is(err, resources.ErrNotFound) {
@@ -350,11 +379,12 @@ func (h *ConnectedHandler) observeAnnotations(ctx context.Context, tenant string
 		if tool.ReadOnlyHint == nil {
 			if _, had := next.ReadOnly[tool.Name]; had {
 				delete(next.ReadOnly, tool.Name)
+				delete(next.ObservedBy, tool.Name)
 				changed = true
 			}
 			continue
 		}
-		next.ReadOnly[tool.Name] = *tool.ReadOnlyHint
+		next.ReadOnly[tool.Name], next.ObservedBy[tool.Name] = *tool.ReadOnlyHint, now
 		changed = true
 	}
 	if !changed && expected != 0 {
