@@ -210,6 +210,15 @@ func (c *usageCapture) instrumentTool(opts *toolexec.Options) {
 		return
 	}
 	c.set(func(r *usageledger.Record) { r.Provider = "mcp"; r.Operation = "tools/call" })
+	if opts.List != nil && opts.List.Authorize != nil {
+		list := *opts.List
+		listAuthorize := list.Authorize
+		list.Authorize = func(ctx context.Context, request contracts.RequestContext, connection toolexec.Connection) error {
+			c.set(func(r *usageledger.Record) { r.Operation = "tools/list" })
+			return listAuthorize(ctx, request, connection)
+		}
+		opts.List = &list
+	}
 	authorize := opts.Authorize
 	opts.Authorize = func(ctx context.Context, request contracts.RequestContext, connection toolexec.Connection, call toolexec.Request) error {
 		c.set(func(r *usageledger.Record) { r.ToolName = call.Name })

@@ -164,7 +164,7 @@ func TestLLMSurfacesApplyGetListDelete(t *testing.T) {
 	if err != nil || !strings.Contains(table, "bedrock") || !strings.Contains(table, "secret-ref:bedrock-key") || !strings.Contains(table, "AUTH (reference)") {
 		t.Fatal(table, err)
 	}
-	if out, err = runLLMX(t, server, "table", "llm", "surfaces", "delete", "bedrock-prod"); err != nil || !strings.Contains(out, "Deleted") {
+	if out, err = runLLMX(t, server, "table", "llm", "surfaces", "delete", "bedrock-prod", "--yes"); err != nil || !strings.Contains(out, "Deleted") {
 		t.Fatal(out, err)
 	}
 	if _, err = runLLMX(t, server, "table", "llm", "surfaces", "apply", "-f", filepath.Join(t.TempDir(), "missing.yaml")); err == nil {

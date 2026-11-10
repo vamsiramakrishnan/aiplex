@@ -29,8 +29,9 @@ issued it, and is minted by the local token issuer (loopback only), which
 accepts the request only with your own developer token.
 
   --role none      (default) no role: the caller sees only the access points
-                   that admit it. It still needs model and tool grants:
-                   aiplex agents user-scopes set <principal id> --scopes ...
+                   that admit it. It still needs model and tool grants (the
+                   "agents user-scopes set" command, with the principal ID
+                   this command prints)
   --role deployer  configuration screens and commands, no admin-only actions
   --role admin     the same role as you
   --groups         extra identity-provider groups in the token (for access
@@ -39,8 +40,7 @@ accepts the request only with your own developer token.
 The caller's email is <name>@localhost, and its subject is <name>, so
 "aiplex access-points create team --allow-users <name>@localhost ..." admits it.`,
 		Example: `  aiplex dev token --user bob
-  BOB=$(aiplex dev token --user bob --role deployer 2>/dev/null)
-  AIPLEX_TOKEN=$BOB aiplex access-points list
+  aiplex dev token --user dana --role deployer
   aiplex dev token --user carol --groups eng,research`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

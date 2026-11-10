@@ -631,7 +631,7 @@ func confirm(cmd *cobra.Command, yes bool, question string) error {
 		return nil
 	}
 	if !stdinIsTerminal() || !stderrIsTerminal() {
-		return usageError("refusing to proceed without confirmation: "+strings.TrimSuffix(question, "?")+" is destructive and there is no terminal to ask on",
+		return usageError("refusing to proceed: this is destructive and there is no terminal to ask for confirmation. "+question,
 			"Add --yes (-y) to run it non-interactively")
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)

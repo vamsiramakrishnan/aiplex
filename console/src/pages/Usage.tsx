@@ -139,6 +139,8 @@ function sortValue(g: api.SummaryGroup, key: SortKey, currency: string): bigint 
 /** Display text of one group key; batch is a boolean the server sends as "true" or "false". */
 export function keyText(field: api.GroupField, value: string | undefined): string {
   if (field === 'batch') return value === 'true' ? 'provider batch' : value === 'false' ? 'not a batch' : '(none)'
+  if (!value && field === 'model_id') return '(no model)'
+  if (!value && field === 'tool_name') return '(no tool)'
   return value || '(none)'
 }
 function groupLabel(g: api.SummaryGroup, fields: readonly api.GroupField[]): string {
@@ -245,7 +247,15 @@ function SummarySection({ filter }: { filter: api.UsageFilter }) {
 
 const statusClass: Record<string, string> = { ok: 'text-status-ok-fg', error: 'text-status-denied-fg', denied: 'text-status-warning-fg', unknown: 'text-gray-600 dark:text-gray-400' }
 const none = '—'
-const target = (r: api.UsageRecord) => r.model_id || r.tool_name || r.resource_id || none
+/** What the request was for: the model, the tool called, or for discovery the connection and what was done ("local-tools (list)"). Same rule as `aiplex usage records`. */
+export function recordTarget(r: Pick<api.UsageRecord, 'model_id' | 'tool_name' | 'resource_id' | 'operation'>): string {
+  if (r.model_id) return r.model_id
+  if (r.tool_name) return r.tool_name
+  if (!r.resource_id) return none
+  const what = r.operation === 'tools/list' ? 'list' : r.operation === 'initialize' ? 'initialize' : r.operation && r.operation !== 'tools/call' ? r.operation : ''
+  return what ? `${r.resource_id} (${what})` : r.resource_id
+}
+const target = recordTarget
 const counter = (r: api.UsageRecord, name: api.TokenCounter) => {
   const text = api.formatCount(r.usage?.[name])
   if (!r.usage_bound || text === api.UNKNOWN) return text

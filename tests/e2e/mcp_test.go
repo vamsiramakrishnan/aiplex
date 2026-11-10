@@ -244,5 +244,13 @@ func TestMCPToolConnectionsThroughAccessPoint(t *testing.T) {
 		for _, tool := range []string{"echo", "add"} {
 			contains(t, r.Out, fmt.Sprintf(`"tool_name": %q`, tool), "mcplex usage")
 		}
+		// Discovery is recorded as tools/list, and the default view names the
+		// connection and what was done instead of a bare connection name.
+		contains(t, r.Out, `"operation": "tools/list"`, "tools/list record")
+		table := e.mustCLI("usage", "records", "--plane", "mcplex")
+		contains(t, table.Out, "(list)", "discovery row in the default view")
+		contains(t, table.Out, "echo", "tool call row in the default view")
+		sum := e.mustCLI("usage", "summary", "--by", "model")
+		contains(t, sum.Out, "(no model)", "non-model group is labelled")
 	})
 }
