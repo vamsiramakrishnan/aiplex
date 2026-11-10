@@ -497,5 +497,27 @@ await section('keyboard-and-login', async () => {
   }
 })
 
+await section('permissions', async () => {
+  const s = await session('admin')
+  const { page } = s
+  await page.goto(base + '/permissions')
+  await settle(page)
+  await page.getByLabel('Canonical principal ID').fill(h.norole_principal)
+  await page.getByRole('button', { name: 'Load scopes' }).click()
+  await settle(page)
+  report.ok('loading shows the principal and its current grants', (await page.textContent('main')).includes('llm:model:mock-gpt'))
+  await page.getByLabel('Add custom scope').fill('llm:model:extra-model')
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await page.getByRole('button', { name: 'Save permissions' }).click()
+  await settle(page)
+  const stored = await api('admin', 'GET', `/auth/users/${h.norole_principal}/scopes`)
+  report.ok('saving stores the added scope', JSON.stringify(stored.json).includes('llm:model:extra-model'), JSON.stringify(stored.json).slice(0, 200))
+  await page.getByRole('tab', { name: 'Native governance' }).click()
+  await settle(page)
+  report.ok('native governance tab loads', (await page.textContent('main')).includes('Native agent governance'))
+  report.ok('permissions had no unexpected requests', unexpected(s, [/Failed to load resource/]).length === 0, JSON.stringify(unexpected(s, [/Failed to load resource/])))
+  await s.context.close()
+})
+
 await browser.close()
 report.finish()

@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 import NativeGovernance from './NativeGovernance'
 
 const canonicalPrincipal = /^principal-[0-9a-f]{64}$/
-interface UserScopes { user_id: string; scopes: string[]; by_plane: Record<string, string[]> }
+interface UserScopes { user_id: string; scopes: string[]; by_plane: Record<string, string[]>; revision?: number }
 export default function Permissions() {
   const cache = useQueryClient()
   const { user } = useAuth()
@@ -14,15 +14,17 @@ export default function Permissions() {
   const [principal, setPrincipal] = useState('')
   const [loadedPrincipal, setLoadedPrincipal] = useState('')
   const [selected, setSelected] = useState<string[]>([])
+  // The server requires the revision the grants were read at (If-Match); a stale one is a 409, never a silent overwrite.
+  const [revision, setRevision] = useState(0)
   const scopes = useQuery({ queryKey: ['permission-scope-options'], queryFn: () => listInstances(), enabled: tab === 'users' })
   const available = [...new Set(scopes.data?.flatMap((instance) => instance.scopes ?? []) ?? [])]
   const load = useMutation({
     mutationFn: (id: string) => authenticatedRequest<UserScopes>(`/auth/users/${encodeURIComponent(id)}/scopes`),
-    onSuccess: (result, id) => { if (result.user_id !== id) throw new Error('Permission response identity mismatch.'); setLoadedPrincipal(id); setSelected(result.scopes ?? []) },
+    onSuccess: (result, id) => { if (result.user_id !== id) throw new Error('Permission response identity mismatch.'); setLoadedPrincipal(id); setSelected(result.scopes ?? []); setRevision(result.revision ?? 0) },
   })
   const save = useMutation({
-    mutationFn: ({ id, values }: { id: string; values: string[] }) => authenticatedRequest<void>(`/auth/users/${encodeURIComponent(id)}/scopes`, { method: 'PUT', body: JSON.stringify({ scopes: values }) }),
-    onSuccess: () => cache.invalidateQueries({ queryKey: ['userScopes'] }),
+    mutationFn: ({ id, values }: { id: string; values: string[] }) => authenticatedRequest<void>(`/auth/users/${encodeURIComponent(id)}/scopes`, { method: 'PUT', body: JSON.stringify({ scopes: values }), headers: { 'If-Match': String(revision) } }),
+    onSuccess: (_r, { id }) => { void cache.invalidateQueries({ queryKey: ['userScopes'] }); load.mutate(id) },
   })
   function changePrincipal(value: string) { setPrincipal(value); setLoadedPrincipal(''); setSelected([]); load.reset(); save.reset() }
   const busy = load.isPending || save.isPending
