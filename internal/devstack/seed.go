@@ -128,7 +128,9 @@ type APIError struct {
 	Body   string
 }
 
-func (e *APIError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.Status, strings.TrimSpace(e.Body)) }
+func (e *APIError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.Status, strings.TrimSpace(e.Body))
+}
 
 // Do sends a JSON request and decodes a JSON response into out (when non-nil).
 func (a API) Do(ctx context.Context, method, path string, headers map[string]string, body, out any) error {
