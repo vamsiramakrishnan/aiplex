@@ -64,14 +64,18 @@ func consoleHandler(apiURL, resolvedToken string) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid API URL %q: %w", apiURL, err)
 	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
+	// Rewrite (not Director) so the proxy adds no X-Forwarded-* headers: the
+	// browser and this proxy are on this machine, and a development API
+	// refuses unauthenticated requests that carry forwarding headers.
+	proxy := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
+		pr.SetURL(target)
+		pr.Out.Header.Del("X-Forwarded-For")
+		pr.Out.Header.Del("Forwarded")
+		pr.Out.Header.Del("X-Real-IP")
 		if resolvedToken != "" {
-			req.Header.Set("Authorization", "Bearer "+resolvedToken)
+			pr.Out.Header.Set("Authorization", "Bearer "+resolvedToken)
 		}
-	}
+	}}
 	distFS, err := fs.Sub(console.Dist, "dist")
 	if err != nil {
 		return nil, fmt.Errorf("embedded console not found — rebuild with: cd console && npm run build")
