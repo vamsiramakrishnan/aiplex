@@ -525,13 +525,16 @@ func (c *usageCapture) finish() {
 // operator price) and submits it; the span ends once the cost is resolved,
 // at the exchange's own finish time.
 func (h *ConnectedHandler) submitExchange(parent context.Context, span trace.Span, record usageledger.Record, genAIProvider string, firstWrite time.Time, attemptID string) {
+	// Handler fields are read here, on the request's goroutine, not in the
+	// background write.
+	quota := h.Quota
 	h.Ledger.Submit(parent, func(ctx context.Context) (out usageledger.Record, err error) {
 		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
 		if record.Cost.Basis == usageledger.BasisCached {
 			return record, nil
 		}
-		if attemptID != "" && h.Quota != nil {
-			if cost, ok := h.Quota.settledCost(ctx, record.TenantID, attemptID); ok {
+		if attemptID != "" && quota != nil {
+			if cost, ok := quota.settledCost(ctx, record.TenantID, attemptID); ok {
 				record.Cost = cost
 				return record, nil
 			}
