@@ -9,7 +9,8 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 ```text
 Runs a comprehensive diagnostic of your AIPlex setup:
   - CLI configuration and credentials
-  - GCP project access and permissions
+  - GCP project access, and the deployer permissions, APIs and billing
+    the Terraform needs (same check as aiplex platform preflight)
   - Kubernetes cluster connectivity
   - API server health
   - Auth services (Hydra/Kratos)

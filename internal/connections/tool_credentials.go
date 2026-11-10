@@ -27,9 +27,16 @@ type SecretReader interface {
 // reference another tenant's secrets or arbitrary project secrets.
 type ToolSecrets struct{ Manager SecretReader }
 
+// SecretIDPrefix starts every Secret Manager secret ID the API reads or
+// writes. Deployments grant the API secretAccessor only on secrets with this
+// prefix (Terraform variable api_secret_prefix, IAM condition on the
+// binding), so a secret the API should read must be named with it; tool
+// secret references get it automatically (see ToolSecretID).
+const SecretIDPrefix = "aiplex-"
+
 func toolSecretPrefix(tenant string) string {
 	sum := sha256.Sum256([]byte(tenant))
-	return "aiplex-tool-" + hex.EncodeToString(sum[:8]) + "-"
+	return SecretIDPrefix + "tool-" + hex.EncodeToString(sum[:8]) + "-"
 }
 
 // ToolSecretID is the Secret Manager secret ID for a tenant's reference.

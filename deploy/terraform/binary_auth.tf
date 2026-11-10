@@ -128,9 +128,12 @@ data "google_project" "current" {
   project_id = var.project_id
 }
 
-# Grant Cloud Build permission to create attestations
-resource "google_project_iam_member" "cloudbuild_containeranalysis" {
+# Grant Cloud Build permission to create attestations, on the attestor's note
+# only (it was project-wide before; roles/containeranalysis.notes.attacher can
+# be granted on a single note).
+resource "google_container_analysis_note_iam_member" "cloudbuild_attacher" {
   project = var.project_id
+  note    = google_container_analysis_note.aiplex.name
   role    = "roles/containeranalysis.notes.attacher"
   member  = "serviceAccount:${data.google_project.current.number}@cloudbuild.gserviceaccount.com"
 }
