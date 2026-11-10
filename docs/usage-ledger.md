@@ -84,10 +84,13 @@ unknown. Any other value is matched exactly.
 | `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`), `scale` and `amount_decimal`, the same amount written as an exact decimal string (for example `0.000006` for `amount` `6` at scale `6`). |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
 | `hooks` | Present when a [request hook](request-hooks.md) ran on the exchange. `decision` is the most significant decision of all runs (`deny`, then `error`, then `transform`, then `allow`, then `skipped`); `uninspected_parts` counts images, audio, files and unknown blocks that were present but not inspected; `fail_open_used` is `true` when a `fail_open` hook failed and the exchange continued without it. `results` lists each hook run: `id` (`policy/hook`), `type`, `phase` (`request` or `response`), `decision`, `rules` (rule identifiers with match `count`; for a denial the denying rule comes first), `duration_ms` and `fail_open_used`. It never holds content or the matched text. |
+| `attempts`, `backend`, `routing_strategy` | Set for an exchange of a routed access-point model ([reliability and routing](reliability-and-routing.md)). `attempts` lists every attempt in order: `surface_ref`, `native_model`, `outcome` (`ok`, `connect_error`, `rate_limited`, `overloaded`, `unavailable`, `server_error`, `bad_gateway`, `gateway_timeout`, `request_timeout`, `upstream_error`, `transport_error`, `capacity_refused`, `quota_denied`, `not_granted`, `breaker_open`, `refused`, `body_mismatch`, `backend_unavailable`, `deadline_exceeded`, `cache_hit`), `upstream_status`, `retry_after_ms`, `duration_ms`, `breaker_state` and `reason` (why the backend was in the order). `backend` is the `{surface_ref, native_model}` that served. One record covers the whole exchange; its `provider`, `resource_id`, `model_id`, usage and cost are the serving backend's. Usage of failed attempts that a provider billed is not known to AIPlex and is in no record. A caller who is not an admin reading its own records sees backends numbered (`backend-1`, ...) instead of named. |
+| `cache` | Set when the access-point model has a response cache: `status` (`hit`, `miss`, `bypass`), `reason` (why it bypassed or was not stored) and `scope`. |
+| `cached_response_usage` | On a cache hit, the usage of the original exchange whose answer was replayed. It is not provider usage of this exchange: on a hit `usage` is all zero and the cost is `{"basis": "cached", "amount": "0"}`. Summaries never add it to token totals. |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
 | `session` | `true` for a WebSocket session. One record covers the whole session, and its usage is final only with a terminal observation. Omitted otherwise. |
 | `request_id` | The request's correlation identifier (`X-Request-Id`). |
-| `trace_id`, `span_id` | W3C trace and span identifiers of the exchange's span: for a managed record, the CLIENT span that covers the exchange (see [observability](observability.md)); for a `reported` record, the SERVER span of the request that reported it. `trace_id` continues the caller's `traceparent` when it sent a valid one; otherwise AIPlex starts a trace. Both are set on every record whether or not telemetry export is configured, so request logs (`trace_id`), traces and records correlate. Records written before this field existed have no `span_id`. |
+| `trace_id`, `span_id` | W3C trace and span identifiers of the exchange's span: for a managed record, the CLIENT span that covers the exchange (for a routed access-point model, the INTERNAL `aiplex.route` span that is the parent of every attempt's CLIENT span; see [observability](observability.md)); for a `reported` record, the SERVER span of the request that reported it. `trace_id` continues the caller's `traceparent` when it sent a valid one; otherwise AIPlex starts a trace. Both are set on every record whether or not telemetry export is configured, so request logs (`trace_id`), traces and records correlate. Records written before this field existed have no `span_id`. |
 
 ## Unknown is not zero
 
@@ -95,13 +98,14 @@ A counter that the provider did not report is `null`. A reported zero is `0`.
 Summaries count records with unknown usage separately, so an absent counter never
 lowers a total silently.
 
-Cost has three bases:
+Cost has four bases:
 
 | Basis | Source |
 | --- | --- |
 | `settled` | The QuotaPlex attempt for the exchange settled with a money meter in one currency. |
 | `estimated` | A `model-price` resource matched the record. The amount is the exact rational sum of the priced quantities, rounded up once to the price's scale. |
-| `unknown` | Neither source applies. The record carries no currency, amount or scale. |
+| `cached` | The answer came from the AIPlex [response cache](reliability-and-routing.md#response-cache): no provider ran. The amount is `"0"` with no currency. Summaries count these records in `cached_response_records`, not in `cost` and not in `unknown_cost_records`. |
+| `unknown` | None of the above applies. The record carries no currency, amount or scale. |
 
 A record gets `unknown` cost when:
 

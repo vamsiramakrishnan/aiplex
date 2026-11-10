@@ -54,7 +54,7 @@ The table groups routes by API area. It is not a full list. For the complete tab
 | Hydra consent | `authenticated` | tenant | `GET` and `POST /auth/consent`. The handler binds the consent to the caller. |
 | User scopes | `admin` | deployment | `GET` and `PUT /auth/users/{userId}/scopes` |
 | Access point clients | `authenticated` | tenant | `/ap/{id}/…`. The handler applies access point admission, then the model or tool checks. |
-| Access point resource | reads `authenticated`; writes `admin` | tenant | `GET /api/v1/access-points`, `GET /api/v1/access-points/{id}`, `PUT` and `DELETE` on `{id}`, `POST {id}/quota-plan` (admin). See [filtered access-point view](#filtered-access-point-view). |
+| Access point resource | reads `authenticated`; writes `admin` | tenant | `GET /api/v1/access-points`, `GET /api/v1/access-points/{id}`, `PUT` and `DELETE` on `{id}`, `POST {id}/quota-plan` (admin), `GET {id}/routing` (operator: admin or deployer), `POST {id}/cache/purge` (admin). See [filtered access-point view](#filtered-access-point-view). |
 | Self-service and static metadata | `authenticated` | tenant | `/api/v1/iam/whoami`, `/api/v1/iam/roles`, `/api/v1/modules`, `/api/v1/agents/identity-presets`, `/api/v1/identity/user-provider-presets`, `/api/v1/mcp/auth-types`, `/api/v1/llm/operations`, `/api/v1/clients/profiles` |
 | Usage ledger | reads `authenticated`; prices read `operator`; price writes `admin` | tenant | `/api/v1/usage/records` and `/api/v1/usage/summary` (own records unless admin). See [usage ledger](usage-ledger.md). |
 | Quota attempts | `authenticated` | tenant | `GET /api/v1/quota/attempts/{id}`. See [quota attempt reads](#quota-attempt-reads). |

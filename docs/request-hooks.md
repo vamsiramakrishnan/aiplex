@@ -318,6 +318,14 @@ never contains the matched text or any part of the request.
 5. Usage observation (the same observers as without hooks).
 6. **Response hooks**, then delivery to the caller.
 
+For an access-point model with several backends ([reliability and
+routing](reliability-and-routing.md)), steps 2 and 4 run for each attempt on its
+backend, but step 3 runs once: the first attempt runs the request hooks with the
+policies of every backend's surface, and later attempts (retries and fallbacks)
+dispatch the same hooked body with only the model name rewritten. Step 6 runs
+once, on the response that is delivered. A response-cache lookup sits between
+steps 4 and the dispatch; on a hit the response hooks run on the cached answer.
+
 A request refused at step 3 reserves no quota and calls no provider; there is
 nothing to release. Admission at step 2 has already counted the request against
 capacity limits, so a stream of refused requests still uses request-rate

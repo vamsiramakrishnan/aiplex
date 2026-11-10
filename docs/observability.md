@@ -19,9 +19,9 @@ may need updating when that happens.
 | Signal | What |
 | --- | --- |
 | SERVER span | One per HTTP request. |
-| CLIENT span | One per managed model, tool or agent exchange (the same exchanges the [usage ledger](usage-ledger.md) records). It is a child of the request's SERVER span. |
+| CLIENT span | One per managed model, tool or agent exchange (the same exchanges the [usage ledger](usage-ledger.md) records). It is a child of the request's SERVER span. For a routed access-point model, one per attempt, under an INTERNAL `aiplex.route` span (see [below](#routing-and-the-response-cache)). |
 | Trace context | `traceparent` and `tracestate` on upstream model, tool and agent requests, taken from the CLIENT span. |
-| Ledger correlation | Every [usage record](usage-ledger.md) carries `trace_id` and `span_id`. For a managed record, `span_id` is the CLIENT span. |
+| Ledger correlation | Every [usage record](usage-ledger.md) carries `trace_id` and `span_id`. For a managed record, `span_id` is the CLIENT span; for a routed access-point model, the `aiplex.route` span. |
 | Log correlation | Every `request started` log line carries `trace_id`. API error bodies carry `trace_id`. |
 | Metrics | Request and exchange durations, token counters, cost, unknown cost and usage, quota denials and errors. See [metrics](#metrics). |
 
@@ -299,3 +299,39 @@ before applying (see the comment at the top of `deploy/k8s/otel-collector.yaml`)
 - Upstream model requests are made by AIPlex's own HTTP client. No HTTP-level
   child span is created for each upstream attempt; the CLIENT span covers them.
 - No performance measurement of the telemetry overhead has been recorded.
+
+## Routing and the response cache
+
+An exchange of a routed access-point model ([reliability and
+routing](reliability-and-routing.md)) has an INTERNAL span named
+`aiplex.route {model}` under the request's SERVER span. It covers the whole
+exchange, waits between attempts included, and is the span the ledger record's
+`span_id` names. Each attempt that reached the managed path has its own CLIENT
+span under it, with the attributes above for its backend. Only the attempt whose
+response was delivered records the exchange metrics (durations, tokens, cost);
+the other attempts' CLIENT spans are named `attempt {operation}` and add no
+exchange metrics. A backend that was skipped (breaker open, not granted, priced
+out) has no span; it is in the record's `attempts`.
+
+| Attribute | Span | Value |
+| --- | --- | --- |
+| `aiplex.routing.strategy` | route | `priority`, `weighted` or `lowest_cost`. |
+| `aiplex.routing.attempts` | route | Number of entries in the record's `attempts`. |
+| `aiplex.routing.backend` | route, attempt | The backend surface that served (route) or was tried (attempt). Spans are operator data; this is never a metric label. |
+| `aiplex.cache.status` | route | `hit`, `miss` or `bypass`, when the model has a cache. |
+| `aiplex.routing.attempt` | attempt | The attempt's number on its backend (1 is the first). |
+| `aiplex.routing.outcome` | attempt | The attempt's outcome class. |
+| `aiplex.routing.breaker_state` | attempt | The backend's breaker state when the attempt was admitted. |
+| `aiplex.routing.retry_after_ms` | attempt | The provider's `Retry-After`, when it sent one on a failure. |
+
+| Metric | Type | Unit | What |
+| --- | --- | --- | --- |
+| `aiplex.routing.attempts` | counter | `{attempt}` | One per attempt (skips included), by `aiplex.routing.outcome`. |
+| `aiplex.routing.retries` | counter | `{retry}` | Retries on the same backend, by the outcome that caused them. |
+| `aiplex.routing.fallbacks` | counter | `{fallback}` | Moves to the next backend, by the outcome that caused them. |
+| `aiplex.routing.breaker.transitions` | counter | `{transition}` | Breakers entering `aiplex.routing.breaker_state` (`closed`, `open`, `half_open`). |
+| `aiplex.routing.breakers` | gauge | `{backend}` | Backends tracked by this process, by breaker state. Per process. |
+| `aiplex.cache.lookups` | counter | `{lookup}` | Response-cache decisions by `aiplex.cache.status`. |
+
+Labels are bounded sets; no backend, model, principal or access point is a
+metric label.

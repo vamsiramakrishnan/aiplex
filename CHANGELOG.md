@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 There has been no tagged release yet. This section summarises what exists in the repository, grouped by area. Nothing here has been validated against live model providers, provider invoices or a live cloud project; see the README's project status.
 
+### Reliability and routing
+
+- An access-point model can list several `backends` with a `routing` block: `priority`, `weighted` or `lowest_cost` order (an unknown price is never assumed cheap), same-backend retries (opt-in; by default only for connection failures and 429/503/529), fallback to the next backend, and a per-backend circuit breaker (in memory, per API process). Nothing is retried or failed over after a byte was sent to the caller, and stateful requests never fall over. Each attempt takes its own grants check, capacity admission, quota lease and credential; request hooks run once. See `docs/reliability-and-routing.md`.
+- An exact-match response cache per access-point model, off unless configured, scoped to the principal by default, in memory per process; a hit is recorded with cost basis `cached` and the original usage in `cached_response_usage`.
+- Ledger records of routed exchanges carry `attempts`, `backend`, `routing_strategy` and `cache`; `aiplex access-points routing` shows live breaker state and `aiplex usage records -o wide` the attempts. A provably unsent attempt now settles its quota lease at zero.
+- Tool calls: one retry after a transport failure for `tools/list` and for tools annotated `readOnlyHint: true`.
+- Not measured for performance and not run against real providers' failures.
+
 ### SDKs
 
 - Unpublished Python (`sdk/python`, package `aiplex`) and TypeScript (`sdk/typescript`, `@aiplex/sdk`) clients for the HTTP API, mirroring the Go SDK's covered routes; tested with `make sdk-test`.

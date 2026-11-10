@@ -33,6 +33,12 @@ the mock MCP server and the issuer run inside the `aiplex dev` process. The API 
 | `local-messages` | Model surface | Mock provider only. Anthropic Messages wire, model `mock-claude`. |
 | `local-gemini` | Model surface | Mock provider only. Gemini generateContent wire, model `mock-gemini`. |
 | `mock-gpt`, `mock-responses`, `mock-claude`, `mock-gemini` | Prices | Mock provider only, one per model. Placeholder rates, so estimated cost shows in usage. The rates are illustrative, not a provider's prices. A real provider gets no price; set one with `aiplex usage prices set`. |
+
+`aiplex dev` also starts a second mock provider (printed as `Mock B`; its replies start
+with `[b]`) with no surface of its own, for trying [reliability and
+routing](reliability-and-routing.md#trying-it-locally): create surfaces on both mocks and list
+them as backends of one model. Both mocks fail on demand for model names that contain `fault`
+(for example `gpt-fault-s503-n2` fails twice with 503).
 | `local-tools` | MCP tool connection | The built-in MCP server, with its three tools. Not created with `--no-tools`. |
 | `local` | Access point | Admits callers of kinds `user`, `agent` and `client`, with no subject filter. Exposes the models of the surfaces above and, unless `--no-tools`, the tool connection. |
 
