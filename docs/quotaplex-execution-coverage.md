@@ -91,10 +91,11 @@ Scheduler integration is in
 [quota_scheduler_test.go](../cmd/aiplex-api/quota_scheduler_test.go).
 Accounting recovery remains covered by the existing quota core tests.
 
-This maps Q03 to request-bound identity, Q06/Q15 to actual dispatch and bypass
-exclusion, Q11 to trusted terminal usage/recovery, Q19/Q22 to shared model/tool
-controls, and Q21 to admitted capacity composition. Deployment-wide routing,
-native async/Live billing and verified provider throughput remain separate gates.
+These tests cover request-bound identity, actual dispatch and bypass exclusion,
+trusted terminal usage and recovery, shared model and tool controls, and admitted
+capacity composition (see [requirements and limits](quotaplex-prerequisites.md)).
+Deployment-wide routing, native async and Live billing, and verified provider
+throughput are not covered.
 
 ## Test evidence
 

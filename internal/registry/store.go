@@ -770,7 +770,7 @@ func sortExecutionEvents(es []models.ExecutionEvent) {
 	}
 }
 
-// ── PR 11 extensions ──────────────────────────────────────────────────────
+// ── Runs extensions ──────────────────────────────────────────────────────
 
 func (m *MemoryStore) DeleteExecutionRun(_ context.Context, runID string) error {
 	m.mu.Lock()

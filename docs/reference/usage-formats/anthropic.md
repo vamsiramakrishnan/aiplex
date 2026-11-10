@@ -177,7 +177,7 @@ Fixture: `ratelimit.json`.
 11. Whether `message_delta` can emit multiple times with differing cumulative values (docs say "one or more"); the fixtures assume last-wins.
 12. Docs model/version names in examples (e.g. `anthropic-version: 2026-10-21`) reflect the pages as read on 2026-11-09 and may move.
 
-## Fixture notes (Message Batches and Managed Agents, 2026-11-10)
+## Fixture notes (Message Batches and Managed Agents)
 
 - `batch-results.jsonl` and `batch-results-partial.jsonl` are aggregated by the Message Batches results relay (`GET /v1/messages/batches/{id}/results`). A cache counter absent on one succeeded line leaves its sum unknown (the partial fixture's expectation already says so; the full fixture's cache_write sum is therefore unknown, not 2000).
-- Managed Agents: https://platform.claude.com/docs/en/managed-agents/session-observability was re-read on 2026-11-10. It confirms the session `usage` snapshot fields and that `session.usage` carries "the same cumulative snapshot", emitted before idle and on a budget pause, but still shows no event envelope. Left unsupported.
+- Managed Agents: https://platform.claude.com/docs/en/managed-agents/session-observability (retrieved 2026-11-10) documents the session `usage` snapshot fields and that `session.usage` carries "the same cumulative snapshot", emitted before idle and on a budget pause. It shows no event envelope, so Managed Agents usage is unsupported.

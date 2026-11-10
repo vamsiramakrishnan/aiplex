@@ -16,7 +16,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
-// PR 11 item 9 — projection rebuild.
+// Projection rebuild.
 
 func TestRebuildProjection_RecomputesFromEvents(t *testing.T) {
 	store := registry.NewMemoryStore()
@@ -87,7 +87,7 @@ func TestRebuildProjection_NoEvents_404(t *testing.T) {
 	}
 }
 
-// PR 11 item 13 — runs health.
+// Runs health.
 
 func TestRunsHealth_ReturnsState(t *testing.T) {
 	store := registry.NewMemoryStore()
@@ -125,7 +125,7 @@ func TestRunsHealth_ReturnsState(t *testing.T) {
 	}
 }
 
-// PR 11 item 8 — operator audit listing endpoint.
+// Operator audit listing endpoint.
 
 func TestListOperatorAudit_ReturnsAppendedRows(t *testing.T) {
 	store := registry.NewMemoryStore()
@@ -156,7 +156,7 @@ func TestListOperatorAudit_ReturnsAppendedRows(t *testing.T) {
 	}
 }
 
-// PR 11 item 6 — multi-tenant filter. Without a tenant context the
+// Multi-tenant filter. Without a tenant context the
 // caller-supplied query value is used as-is (legacy behaviour).
 // With a tenant context, cross-tenant requests return empty rather
 // than 403 (silent denial — see TestTenantFromContext_FromScope

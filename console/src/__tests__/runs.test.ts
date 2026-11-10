@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockFetch = vi.fn();
 const originalFetch = global.fetch;
 
-describe('Runs API client (AIPlex integration PR 8)', () => {
+describe('Runs API client ', () => {
   beforeEach(() => {
     global.fetch = mockFetch;
     mockFetch.mockReset();

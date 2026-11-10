@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestBugbashToolRequestShapeCannotAcknowledgeResponse(t *testing.T) {
+func TestToolRequestShapeCannotAcknowledgeResponse(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "JSON", true: "SSE"}[stream], func(t *testing.T) {
 			const ambiguous = `{"jsonrpc":"2.0","id":"rpc","method":"tools/call","params":{"name":"other"},"result":{"content":[]}}`

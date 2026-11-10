@@ -300,8 +300,8 @@ Creating a surface on the mock model's loopback origin (the address of the seede
 `aiplex llm surfaces get local-models` shows) succeeds:
 
 ```text
-$ aiplex llm surfaces create mock-b --provider openai-compatible --origin http://127.0.0.1:40731 --models mock-gpt
-Created model surface mock-b (revision 1): openai-compatible at http://127.0.0.1:40731, models mock-gpt, 1 operations.
+$ aiplex llm surfaces create mock-b --provider openai-compatible --origin http://127.0.0.1:9000 --models mock-gpt
+Created model surface mock-b (revision 1): openai-compatible at http://127.0.0.1:9000, models mock-gpt, 1 operations.
 
 Next: expose a model on an access point:
   aiplex access-points create <id> --model mock-gpt=mock-b --allow-users <email>

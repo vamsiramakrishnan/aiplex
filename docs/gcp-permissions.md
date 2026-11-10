@@ -36,7 +36,7 @@ reported as a warning and does not fail the check.
 
 `aiplex platform apply` runs the same check before it creates anything and
 refuses on failure; `--skip-preflight` skips it with a warning. `aiplex init`
-runs it as information (it no longer asks for Owner or Editor), and
+runs it as information (it does not ask for Owner or Editor), and
 `aiplex doctor` reports its failures as warnings.
 
 **The check is advisory.** `testIamPermissions` answers from allow policies.
@@ -182,10 +182,10 @@ namespace"). A test checks that the code's prefix and the Terraform default
 agree.
 
 LLM route provider registrations (`secret_ref` on a provider) name a secret the
-operator chose. With Secret Manager configured, the API now refuses a reference
+operator chose. With Secret Manager configured, the API refuses a reference
 that does not start with `aiplex-`, with an error that names the rule, and
-reports a permission denial on the existence check the same way, instead of a
-bare "validation is unavailable". Name those secrets `aiplex-...`.
+reports a permission denial on the existence check the same way. Name those
+secrets `aiplex-...`.
 
 How the write condition works. Google documents resource-name conditions for
 secrets and secret versions, but not whether `secretmanager.secrets.create` is
@@ -315,9 +315,9 @@ changes before approving. None of this has been run against a live project.
     nothing in AIPlex does that.
 13. **Kubernetes RBAC.** The chart adds Roles, RoleBindings and a `skillsplex`
     namespace. Set `api.rbac.create: false` to manage RBAC yourself.
-14. **AlloyDB size.** `alloydb_cpu_count` is now a declared variable (default
+14. **AlloyDB size.** `alloydb_cpu_count` is a declared variable (default
     2). A tfvars written by an older `aiplex init` with 4 or 8 resizes the
-    instance on the next apply. `aiplex init` no longer writes `admin_email`,
+    instance on the next apply. `aiplex init` does not write `admin_email`,
     `registry_name` or `hydra_admin_url`, which nothing used; remove them from
     an existing `terraform.tfvars` to silence Terraform's undeclared-variable
     warnings.

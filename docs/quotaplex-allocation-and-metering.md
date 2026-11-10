@@ -1,9 +1,9 @@
-# QuotaPlex foundation design
+# QuotaPlex allocation and metering
 
 The [shared core](quotaplex-core.md) implements typed policy, exact accounting,
 atomic admission, durable-backend mechanisms, explicit loans and weighted queue
 selection. Capacity guarantees, host interception and production enforcement are
-not established; see the [readiness register](quotaplex-prerequisites.md).
+not established; see [requirements and limits](quotaplex-prerequisites.md).
 
 QuotaPlex is one resource-control core for LLMPlex, MCPlex, A2APlex and SkillsPlex.
 Provider adapters supply trusted demands, capacity coordinates and usage; they

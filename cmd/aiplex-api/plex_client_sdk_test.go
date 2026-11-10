@@ -16,7 +16,7 @@ import (
 
 // Exercise the SDK through the actual module mount. Supplying PathValue by hand
 // hides differences between the module's Chi router and net/http handlers.
-func TestBugbashClientSDKThroughMountedModule(t *testing.T) {
+func TestClientSDKThroughMountedModule(t *testing.T) {
 	ctx := context.Background()
 	store := resources.NewMemoryStore()
 	tenant := func(*http.Request) (string, error) { return "tenant", nil }

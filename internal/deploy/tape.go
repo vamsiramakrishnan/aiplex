@@ -17,7 +17,7 @@ const tapeRuntimeNamespace = "aiplex-system"
 // `tape-server_<version>_<target>.tar.gz`; for the GKE / Cloud Run
 // images the convention is ghcr.io/vamsiramakrishnan/tape-server:<version>.
 // Overridable per-environment via the runtime config model
-// (Store.SecretRef etc are already there; image override is a follow-up).
+// (Store.SecretRef etc are already there; the image is not yet configurable).
 const tapeServerImage = "ghcr.io/vamsiramakrishnan/tape-server:latest"
 
 // tapeServerPort is the gRPC port the tape-server listens on (matches

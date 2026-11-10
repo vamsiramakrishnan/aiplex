@@ -1,10 +1,17 @@
 # Durable Tape Runtime — an A2A agent backed by the Tape execution substrate
 #
-# The `runtime:` block under config: declares a Tape runtime for the agent.
-# The deploy engine currently round-trips this config and validates it; it does
-# not yet generate manifests to provision a tape-server or inject AIPLEX_* and
-# TAPE_URL env vars. Tape itself handles durability: crash mid-effect, resume from the
-# journal, no duplicate side effects.
+# The `runtime:` block under config: selects the Tape runtime for the agent.
+# The config is validated when the instance is admitted. When the manifests are
+# generated, the deploy engine adds, next to the agent's own ServiceAccount,
+# Deployment, Service and NetworkPolicy, three shared resources in the
+# aiplex-system namespace (a tape-server Deployment, its Service on port 7878
+# and a reactors Deployment, all using the image
+# ghcr.io/vamsiramakrishnan/tape-server:latest), and injects AIPLEX_* and
+# TAPE_URL environment variables on the agent pod. Applying them to a cluster
+# has not been exercised in this repository. Tape itself handles durability:
+# crash mid-effect, resume from the journal, no duplicate side effects.
+# It needs the separate durable-agents (Tape) repository for the server and
+# the agent code.
 #
 # Usage: aiplex apply -f examples/durable-tape-runtime.yaml
 

@@ -208,7 +208,7 @@ Counters are QuotaPlex counters, so they have QuotaPlex's durability and sharing
 * With the process-local store (explicit development mode only), counters live in one process and are lost on restart. Under `aiplex dev` the resource store is in memory too, so a restart also forgets the budgets.
 * The 5 second definition cache means another replica may admit under the previous definition of a budget for that long after an edit.
 
-Restore and failover behaviour of the Firestore store is not validated here; see the [production qualification](production-qualification.md) and the QuotaPlex readiness register.
+Restore and failover behaviour of the Firestore store is not validated here; see the [production qualification](production-qualification.md) and [QuotaPlex requirements and limits](quotaplex-prerequisites.md).
 
 ## Local development
 

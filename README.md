@@ -54,7 +54,7 @@ aiplex dev
   CLI context    "local" (current)
   Console        not in this binary (a source build without Node). Release binaries include it;
                  from source: make console && make build (Node 22), then restart aiplex dev
-  API log        /root/.aiplex/dev-api.log
+  API log        ~/.aiplex/dev-api.log
 
   WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy 127.0.0.1:8080.
 

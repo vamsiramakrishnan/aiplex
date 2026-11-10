@@ -9,8 +9,8 @@ This foundation does not implement QuotaPlex allocation, reservations, pricing,
 borrowing, or accounting. A future QuotaPlex can use the same lifecycle and
 discovery contracts as any other independently deployed service.
 
-See [QuotaPlex prerequisites and readiness](quotaplex-prerequisites.md) for the
-current foundation status, required contracts and production enforcement gates.
+See [QuotaPlex requirements and limits](quotaplex-prerequisites.md) for the
+contracts and what hard enforcement requires.
 
 ## Registration and compatibility
 

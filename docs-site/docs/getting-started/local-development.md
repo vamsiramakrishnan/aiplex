@@ -34,7 +34,7 @@ aiplex dev
   CLI context    "local" (current)
   Console        not in this binary (a source build without Node). Release binaries include it;
                  from source: make console && make build (Node 22), then restart aiplex dev
-  API log        /root/.aiplex/dev-api.log
+  API log        ~/.aiplex/dev-api.log
 
   WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy 127.0.0.1:8080.
 
@@ -64,7 +64,7 @@ Keep this terminal open. Ctrl+C stops everything and discards the state, and the
 To run it in the background instead, use `aiplex dev --detach`. The summary then ends with the pid and the log file (`~/.aiplex/dev.log`). Check it with `aiplex dev status` and stop it with `aiplex dev stop`. A second `aiplex dev` is refused while one is running:
 
 ```text
-Error: aiplex dev is already running (pid 13956) at http://127.0.0.1:18571
+Error: aiplex dev is already running (pid <pid>) at http://127.0.0.1:8080
   Use it: eval "$(aiplex dev env)"
   Or stop it first: aiplex dev stop
 ```

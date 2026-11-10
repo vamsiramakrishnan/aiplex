@@ -31,8 +31,7 @@ type AuthSchemeInfo struct {
 
 // Delegation records an agent-to-agent task delegation. TraceID and SpanID
 // follow W3C Trace Context conventions so delegations can be stitched into
-// distributed traces (currently in-process audit; full OTel export is a
-// future Phase 6 deliverable).
+// distributed traces (currently in-process audit; full OTel export of delegations is not implemented).
 type Delegation struct {
 	// ReportedBy identifies the verified collector that submitted this audit
 	// event. Caller/callee/user IDs describe reported history, not authenticated

@@ -1,4 +1,4 @@
-# Foundation completion and qualification
+# QuotaPlex connected mechanisms
 
 This page summarises how the Plex boundaries connect. The connections do not
 change the permission intersection, move provider semantics into QuotaPlex, or
@@ -57,7 +57,7 @@ skew or replace production clock monitoring.
   Decimal fractions, exponent underflow and browser-unsafe integers are rejected
   before JSON parsing can round them. Exact larger int64 values use the API/CLI.
 
-## Remaining deployment and capability boundaries
+## Deployment and capability limits
 
 No live cloud apply, native directory synchronization, enterprise sign-in or
 provider invoice collection has been exercised. The HTTP membership

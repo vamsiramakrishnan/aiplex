@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockFetch = vi.fn();
 const originalFetch = global.fetch;
 
-describe('Runs operator API client (PR 11)', () => {
+describe('Runs operator API client ', () => {
   beforeEach(() => {
     global.fetch = mockFetch;
     mockFetch.mockReset();

@@ -11,7 +11,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
-func TestBugbashSDKDoesNotAcknowledgeNonSuccessMutation(t *testing.T) {
+func TestSDKDoesNotAcknowledgeNonSuccessMutation(t *testing.T) {
 	for _, status := range []int{http.StatusNotModified, http.StatusTemporaryRedirect, http.StatusPermanentRedirect, http.StatusServiceUnavailable} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) }))

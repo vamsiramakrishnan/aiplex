@@ -47,7 +47,7 @@ On `aiplex dev`, the built-in MCP server is the `local-tools` connection. Its de
 ```text
 $ aiplex mcp connections list
 ID           URL                     AUTH  TOOLS
-local-tools  http://127.0.0.1:44691  none  3
+local-tools  http://127.0.0.1:9001  none  3
 
 $ aiplex mcp connections test local-tools
 tools/list through the gateway: 3 tools in 3ms

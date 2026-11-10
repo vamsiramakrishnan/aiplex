@@ -1008,7 +1008,7 @@ func (f *FirestoreStore) ListExecutionEvents(ctx context.Context, runID string, 
 	return out, nil
 }
 
-// ── PR 11 extensions ──────────────────────────────────────────────────────
+// ── Runs extensions ──────────────────────────────────────────────────────
 
 func (f *FirestoreStore) DeleteExecutionRun(ctx context.Context, runID string) error {
 	_, err := f.client.Collection("execution_runs").Doc(runID).Delete(ctx)

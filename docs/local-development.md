@@ -78,7 +78,7 @@ From the cobra definitions in `cmd/aiplex-cli/cmd_dev.go`:
 Only one `aiplex dev` runs at a time. A second start is refused, and it exits with code 5 (conflict):
 
 ```text
-Error: aiplex dev is already running (pid 13956) at http://127.0.0.1:18571
+Error: aiplex dev is already running (pid <pid>) at http://127.0.0.1:8080
   Use it: eval "$(aiplex dev env)"
   Or stop it first: aiplex dev stop
 ```
@@ -127,7 +127,7 @@ Auth wiring per provider, as the seeded surface sets it:
 | `anthropic` | Anthropic Messages | `x-api-key` |
 | `gemini` | Gemini GenAI | `x-goog-api-key` |
 
-The seeded Anthropic surfaces list the `anthropic-beta` values Claude Code 2.1.322 sent when observed (a surface refuses betas it does not list), so a real Claude Code session works against them; a later Claude Code version may need more. To use z.ai or another server with your own path prefix, add `--allow-origin` for its origin and create a surface with `aiplex llm surfaces create` (an `openai-compatible` surface takes `base_path`; the `anthropic` provider does not).
+The seeded Anthropic surfaces accept the `anthropic-beta` values that Claude Code 2.1.322 sends (for example `claude-code-20250219`, `interleaved-thinking-2025-05-14` and `context-management-2025-06-27`); any other beta value is refused, so a later Claude Code version may need more values added to the surface's `provider.anthropic_betas`. To use z.ai or another server with your own path prefix, add `--allow-origin` for its origin and create a surface with `aiplex llm surfaces create` (an `openai-compatible` surface takes `base_path`; the `anthropic` provider does not).
 
 With a real provider, no price is seeded. The summary says so. Set contracted rates with
 `aiplex usage prices set <model> --input-per-mtok <price> --output-per-mtok <price>`, or with a full
@@ -299,7 +299,7 @@ and [the usage ledger](usage-ledger.md#cli).
 
 ```text
   Running in the background. Stop it with: aiplex dev stop
-  Background pid 14557; its output goes to /root/.aiplex/dev.log
+  Background pid <pid>; its output goes to ~/.aiplex/dev.log
 ```
 
 ### Errors in the local stack

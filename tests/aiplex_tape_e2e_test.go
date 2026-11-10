@@ -20,20 +20,20 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
-// TestE2E_AIPlexTape_TreasuryStory wires the full PR 4–8 pipeline in
+// TestE2E_AIPlexTape_TreasuryStory wires the full Tape integration pipeline in
 // one in-process test so a regression in any layer surfaces here
 // before it reaches a real Tape server. The story:
 //
-//   1. AIPlex deploys a Tape-backed treasury agent (PR 4 model +
-//      PR 5 manifest generation).
+//   1. AIPlex deploys a Tape-backed treasury agent (runtime model +
+//      manifest generation).
 //   2. Tape (simulated here) journals: run.started, a decision, an
 //      effect.begin against the bank, and then crashes — leaving the
 //      effect in UNKNOWN state.
 //   3. The reconciler resolves UNKNOWN by asking the bank; the effect
 //      transitions to CONFIRMED. The reconciler's outbox relay then
 //      POSTs the new events to AIPlex's /internal/tape/events
-//      endpoint (PR 6).
-//   4. A Console request to GET /api/v1/runs/{run_id} (PR 7) returns
+//      endpoint.
+//   4. A Console request to GET /api/v1/runs/{run_id} returns
 //      the projected timeline; the test asserts: one effect.begin,
 //      one effect.unknown, one effect.confirmed — NO second
 //      effect.begin and NO duplicate wire. That is the integration's

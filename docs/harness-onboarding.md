@@ -125,7 +125,7 @@ A stdio MCP server. Configure a client with the command `aiplex mcp serve`; the 
 
 Every tool is annotated read-only (`readOnlyHint`), and there are no mutating tools. Usage queries are filtered to the caller's own principal. Unknown counts and costs stay unknown, as in the CLI. Tool errors carry the API's message with the token removed. Diagnostics go to stderr; stdout carries only protocol messages.
 
-Protocol: the server answers `server/discover` and requests that carry the per-request `_meta` of the 2026-07-28 revision (the current one at the time of writing), and answers the `initialize` handshake of 2025-11-25 and 2025-06-18, which today's harnesses use. A request naming any other version gets the `UnsupportedProtocolVersion` error listing the supported ones. There is no tool for explaining a denial; `usage_records` with `status` `denied` and its `error_class` is the available evidence.
+Protocol: the server answers `server/discover` and requests that carry the per-request `_meta` of the 2026-07-28 revision, and answers the `initialize` handshake of 2025-11-25 and 2025-06-18, which current harnesses use. A request naming any other version gets the `UnsupportedProtocolVersion` error listing the supported ones. There is no tool for explaining a denial; `usage_records` with `status` `denied` and its `error_class` is the available evidence.
 
 ## Integrations
 

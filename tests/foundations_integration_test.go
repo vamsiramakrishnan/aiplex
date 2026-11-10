@@ -17,9 +17,9 @@ import (
 
 // This adapter represents an identity source after verification. Arbitrary
 // request tokens, including caller-supplied IAP assertions, remain untrusted.
-type bugbashVerifier struct{}
+type verifier struct{}
 
-func (bugbashVerifier) Verify(_ context.Context, token string) (map[string]any, error) {
+func (verifier) Verify(_ context.Context, token string) (map[string]any, error) {
 	switch token {
 	case "verified-admin", "verified-deployer", "verified-viewer":
 		return map[string]any{"iss": "https://trusted.example", "sub": token, "groups": []any{token}}, nil
@@ -40,7 +40,7 @@ func TestFoundationsControlPlaneMutationBoundaries(t *testing.T) {
 	}
 	validator := auth.NewWIFValidator(store, auth.WIFConfig{
 		TrustedIssuers: []string{"https://trusted.example"}, WorkforcePoolID: "people",
-		IsWorkforce: true, Verifier: bugbashVerifier{},
+		IsWorkforce: true, Verifier: verifier{},
 	})
 	leaf := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	handler := api.WIFAuth(validator)(api.RequireIdentity(false)(api.ControlPlaneAccess(false)(leaf)))
@@ -88,7 +88,7 @@ func TestFoundationsDisabledPlaneCannotPersistDeployment(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	engine := deploy.NewEngine(store, "bugbash.local").WithRouteRegistry(deploy.NewRouteRegistry())
+	engine := deploy.NewEngine(store, "tests.local").WithRouteRegistry(deploy.NewRouteRegistry())
 	_, err := engine.Deploy(ctx, models.PlaneLLMPlex, "disabled-model", nil, "user", "disabled")
 	if !errors.Is(err, deploy.ErrRouteGeneratorMissing) {
 		t.Fatalf("disabled plane should reject deployment, got %v", err)

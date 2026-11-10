@@ -38,7 +38,7 @@ func trustedRequest() enforcement.Request {
 	return enforcement.Request{Version: contracts.Version, TenantID: "tenant", RequestID: "request", PrincipalID: "principal", ResourceID: "model"}
 }
 
-func TestBugbashCancellationAfterFinalAdmissionReleasesWithDeadline(t *testing.T) {
+func TestCancellationAfterFinalAdmissionReleasesWithDeadline(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	aborted := 0
@@ -67,7 +67,7 @@ func TestBugbashCancellationAfterFinalAdmissionReleasesWithDeadline(t *testing.T
 	}
 }
 
-func TestBugbashSettlementCannotChangeAcrossRetriesOrProviders(t *testing.T) {
+func TestSettlementCannotChangeAcrossRetriesOrProviders(t *testing.T) {
 	firstCalls, secondCalls := 0, 0
 	first := callbackReceipt{complete: func(_ context.Context, out enforcement.Outcome) error {
 		firstCalls++

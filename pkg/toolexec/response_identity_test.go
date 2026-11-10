@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestBugbashRPCResponseRejectsRequestMembers(t *testing.T) {
+func TestRPCResponseRejectsRequestMembers(t *testing.T) {
 	for _, body := range []string{
 		`{"jsonrpc":"2.0","id":"rpc","method":"tools/call","result":{}}`,
 		`{"jsonrpc":"2.0","id":"rpc","method":null,"result":{}}`,
@@ -21,7 +21,7 @@ func TestBugbashRPCResponseRejectsRequestMembers(t *testing.T) {
 	}
 }
 
-func FuzzBugbashToolResponseIdentity(f *testing.F) {
+func FuzzToolResponseIdentity(f *testing.F) {
 	for _, body := range []string{
 		`{"jsonrpc":"2.0","id":"rpc","result":{"content":[]}}`,
 		`{"jsonrpc":"2.0","id":"foreign","result":{}}`,

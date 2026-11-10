@@ -11,7 +11,7 @@ func manifestFixture() Manifest {
 	return Manifest{APIVersion: "v1", Kind: "ConfigMap", Name: "declared", Namespace: "owned"}
 }
 
-func TestBugbashManifestCannotOverrideOwnershipOrSmuggleDocuments(t *testing.T) {
+func TestManifestCannotOverrideOwnershipOrSmuggleDocuments(t *testing.T) {
 	for _, tc := range []struct{ name, payload string }{
 		{"invalid YAML", "metadata: [unterminated"},
 		{"array document", "- name: other"},
@@ -41,7 +41,7 @@ func TestBugbashManifestCannotOverrideOwnershipOrSmuggleDocuments(t *testing.T) 
 	}
 }
 
-func TestBugbashManifestRetainsPayloadAndDeclaredIdentity(t *testing.T) {
+func TestManifestRetainsPayloadAndDeclaredIdentity(t *testing.T) {
 	for _, payload := range []string{
 		"data:\n  answer: yes",
 		"metadata:\n  labels:\n    managed-by: custom-module\ndata:\n  answer: yes",
@@ -67,7 +67,7 @@ func TestBugbashManifestRetainsPayloadAndDeclaredIdentity(t *testing.T) {
 	}
 }
 
-func TestBugbashDeploymentConfigurationCannotInjectYAMLStructure(t *testing.T) {
+func TestDeploymentConfigurationCannotInjectYAMLStructure(t *testing.T) {
 	config := map[string]any{
 		"INPUT":              "value\"\n      hostNetwork: true\n      injected: \"yes",
 		"QUOTED\"\nINJECTED": "line one\nline two\twith a tab and \\backslash",

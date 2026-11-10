@@ -17,7 +17,7 @@ type cleanupModule struct {
 	readyErr     error
 }
 
-func TestBugbashCleanupGraphMatchesDependencyRetentionModel(t *testing.T) {
+func TestCleanupGraphMatchesDependencyRetentionModel(t *testing.T) {
 	random := rand.New(rand.NewSource(20261109))
 	for sample := range 64 {
 		registry := NewRegistry()
@@ -94,7 +94,7 @@ func (m *cleanupModule) Stop(context.Context) error {
 	return nil
 }
 
-func TestBugbashFailedConsumerCleanupRetainsTransitiveDependencies(t *testing.T) {
+func TestFailedConsumerCleanupRetainsTransitiveDependencies(t *testing.T) {
 	for _, rollback := range []bool{false, true} {
 		t.Run(fmt.Sprintf("startup-rollback=%t", rollback), func(t *testing.T) {
 			identity := &cleanupModule{d: descriptor("identity")}

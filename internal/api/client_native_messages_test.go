@@ -16,7 +16,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 )
 
-func TestBugbashClientPlanReachesProtectedNativeMessages(t *testing.T) {
+func TestClientPlanReachesProtectedNativeMessages(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "HTTP", true: "SSE"}[stream], func(t *testing.T) {
 			body := `{"model":"model-v1","messages":[{"role":"user","content":"hello"}],"max_tokens":3}`
@@ -40,7 +40,7 @@ func TestBugbashClientPlanReachesProtectedNativeMessages(t *testing.T) {
 				cfg.Bindings[0].OperationID, cfg.Bindings[0].Provider = "anthropic.messages", "anthropic"
 				cfg.Tenants[0].Policy.Budgets[0].Limit = 1
 			})
-			connection := bugbashMessagesSurface(t, f, "anthropic.messages")
+			connection := messagesSurface(t, f, "anthropic.messages")
 			f.handler.PublicURL = "https://gateway.example"
 			plan, err := clientplex.BuildPlan(context.Background(), "tenant", clientplex.Registration{ID: "developer", ProfileID: "claude-code", Mode: "gateway", Protocol: clientplex.Messages, DestinationRef: connection.Surface.ID, PrincipalBinding: f.identity.PrincipalID, AuthMode: "gateway-key", CredentialEnv: "MODEL_TOKEN", CredentialRef: "credential-reference"}, f.handler)
 			if err != nil || len(plan.Artifacts) == 0 || !strings.Contains(plan.Artifacts[0].Content, "/api/v1/llm/gateway/surface") {
@@ -86,7 +86,7 @@ func TestBugbashClientPlanReachesProtectedNativeMessages(t *testing.T) {
 	}
 }
 
-func bugbashMessagesSurface(t *testing.T, f *quotaHostModelFixture, operation string) ModelConnection {
+func messagesSurface(t *testing.T, f *quotaHostModelFixture, operation string) ModelConnection {
 	t.Helper()
 	record, err := f.resources.Get(context.Background(), "tenant", "model-surface", "surface")
 	if err != nil {
@@ -111,12 +111,12 @@ func bugbashMessagesSurface(t *testing.T, f *quotaHostModelFixture, operation st
 	return connection
 }
 
-func TestBugbashVertexFacadeAmbiguityCannotReserveQuota(t *testing.T) {
+func TestVertexFacadeAmbiguityCannotReserveQuota(t *testing.T) {
 	f := quotaHostModelNew(t, false, func(http.ResponseWriter, *http.Request) { t.Error("ambiguous client request reached provider") }, func(cfg *QuotaHostConfig) {
 		cfg.Bindings = cfg.Bindings[:1]
 		cfg.Bindings[0].OperationID, cfg.Bindings[0].Provider = "models.rawPredict", "anthropic"
 	})
-	bugbashMessagesSurface(t, f, "models.rawPredict")
+	messagesSurface(t, f, "models.rawPredict")
 	t.Setenv("QUOTA_HOST_MODEL_TOKEN", "")
 	for _, body := range []string{
 		`{"model":"model-v1","model":"model-v1","messages":[],"max_tokens":3}`,
@@ -133,7 +133,7 @@ func TestBugbashVertexFacadeAmbiguityCannotReserveQuota(t *testing.T) {
 	}
 }
 
-func TestBugbashClientCapabilityChecksExecutionContract(t *testing.T) {
+func TestClientCapabilityChecksExecutionContract(t *testing.T) {
 	for _, mutate := range []func(*modelapi.Operation){
 		func(op *modelapi.Operation) { op.Transport = modelapi.WebSocket },
 		func(op *modelapi.Operation) { op.Action = modelapi.Read },
@@ -148,7 +148,7 @@ func TestBugbashClientCapabilityChecksExecutionContract(t *testing.T) {
 	}
 }
 
-func TestBugbashMessagesFacadeUsesInstalledNativeMessagesOperation(t *testing.T) {
+func TestMessagesFacadeUsesInstalledNativeMessagesOperation(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "HTTP", true: "SSE"}[stream], func(t *testing.T) {
 			body := "{\n  \"model\":\"model\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"max_tokens\":3}"
@@ -192,7 +192,7 @@ func TestBugbashMessagesFacadeUsesInstalledNativeMessagesOperation(t *testing.T)
 	}
 }
 
-func TestBugbashVertexFacadeRejectsAmbiguityBeforeReencoding(t *testing.T) {
+func TestVertexFacadeRejectsAmbiguityBeforeReencoding(t *testing.T) {
 	surface := modelapi.Surface{Protocol: clientplex.Messages, APIVersion: "v1", Project: "project", Location: "global", Publisher: "anthropic"}
 	surface.Operations, _ = modelapi.SelectOperations("models.rawPredict", "models.streamRawPredict")
 	for _, test := range []struct{ name, body string }{
@@ -211,7 +211,7 @@ func TestBugbashVertexFacadeRejectsAmbiguityBeforeReencoding(t *testing.T) {
 	}
 }
 
-func TestBugbashManagedModelAcceptsCaseInsensitiveNativeMediaTypes(t *testing.T) {
+func TestManagedModelAcceptsCaseInsensitiveNativeMediaTypes(t *testing.T) {
 	for _, test := range []struct{ name, media, operation, body string }{
 		{"JSON", "Application/JSON; Charset=UTF-8", "generateContent", quotaHostModelTerminal},
 		{"SSE", "Text/Event-Stream; Charset=UTF-8", "streamGenerateContent", quotaHostModelSSEFirst + quotaHostModelSSEFinal},

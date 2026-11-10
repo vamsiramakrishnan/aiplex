@@ -144,10 +144,10 @@ func (e *Engine) Deploy(ctx context.Context, plane models.Plane, templateID stri
 		DeployedAt:  time.Now(),
 		UpdatedAt:   time.Now(),
 		DeployedBy:  owner,
-		// Every Instance carries a runtime config. The engine will read this and emit tape-server manifests when
-		// Runtime.Engine == "tape"; for now we default to the
-		// explicit "no durable runtime" value so the field round-trips
-		// cleanly through storage and the API.
+		// Every Instance carries a runtime config. Manifest generation emits
+		// the tape-server resources when Runtime.Engine == "tape"; otherwise
+		// the config defaults to the explicit "no durable runtime" value so
+		// the field round-trips cleanly through storage and the API.
 		Runtime: runtimeFromConfig(config),
 	}
 	routes, err := e.routes.Generate(inst, template, e.gatewayName)
@@ -394,8 +394,8 @@ func generateID(prefix string) string {
 }
 
 // runtimeFromConfig extracts the runtime block from the deploy config map,
-// or returns the explicit "no durable runtime" value. Generated
-// manifests are not wired off inst.Runtime.Engine yet; the engine only persists it.
+// or returns the explicit "no durable runtime" value. Manifest
+// generation reads inst.Runtime.Engine (see tapeRuntimeManifests).
 //
 // Config shape:
 //
