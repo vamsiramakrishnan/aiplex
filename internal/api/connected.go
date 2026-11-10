@@ -665,6 +665,12 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 400, "INVALID_INVOCATION", "invalid native invocation")
 		return
 	}
+	if strings.TrimSpace(in.Operation) == "" || in.Operation != strings.TrimSpace(in.Operation) {
+		// An empty operation would be checked as "a2a:agent:{id}:", which
+		// wildcard grants match.
+		Error(w, r, 400, "INVALID_INVOCATION", "operation required")
+		return
+	}
 	usage.agent(c.Provider, in.Operation)
 	if e = h.authorize(r, "a2a:agent:"+id+":"+in.Operation); e != nil {
 		Error(w, r, 403, "ACTION_DENIED", e.Error())
