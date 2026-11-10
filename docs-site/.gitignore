@@ -4,6 +4,9 @@
 # Production
 /build
 
+# Synced from ../docs by scripts/sync-docs.mjs
+/docs/library
+
 # Generated files
 .docusaurus
 .cache-loader
