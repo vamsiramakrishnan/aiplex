@@ -40,6 +40,7 @@ type devState struct {
 	ConsoleNote string   `json:"console_note,omitempty"`
 	StartedAt   string   `json:"started_at,omitempty"`
 	APILog      string   `json:"api_log,omitempty"`
+	DevLog      string   `json:"dev_log,omitempty"`
 }
 
 func devStatePath() (string, error) {
@@ -90,8 +91,11 @@ this machine.
 The CLI context "local" is created and made current while this runs. The
 previous context is restored when you stop it.
 
---detach runs it in the background (output in ~/.aiplex/dev.log); stop it with
-"aiplex dev stop" and check it with "aiplex dev status". When aiplex dev stops
+--detach runs it in the background; stop it with
+"aiplex dev stop" and check it with "aiplex dev status". Two logs are kept:
+~/.aiplex/dev-api.log holds what aiplex-api prints (requests, errors) and, for
+a background run, ~/.aiplex/dev.log holds what aiplex dev itself prints (this
+summary and its messages). When aiplex dev stops
 or is killed, the local API stops with it.
 
 The local API calls only loopback upstreams and the public OpenAI, Anthropic
@@ -201,7 +205,7 @@ func runDev(parent context.Context, o devOptions) error {
 		consoleURL, consoleNote = startDevConsole(ctx, stack.APIURL, stack.Token, o.consolePort)
 	}
 	statePath, _ := devStatePath()
-	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, IssuerURL: stack.IssuerURL, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath}
+	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, IssuerURL: stack.IssuerURL, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath, DevLog: detachedLogPath()}
 	if raw, e := json.MarshalIndent(state, "", "  "); e == nil && statePath != "" {
 		_ = os.WriteFile(statePath, raw, 0o600)
 		defer os.Remove(statePath)
@@ -220,6 +224,19 @@ func runDev(parent context.Context, o devOptions) error {
 		return fmt.Errorf("aiplex-api exited unexpectedly (%v); see %s", stack.ExitErr(), logPath)
 	}
 	return nil
+}
+
+// detachedLogPath is where a background aiplex dev writes its own output, or ""
+// when it runs in a terminal.
+func detachedLogPath() string {
+	if os.Getenv(devDetachedEnv) == "" {
+		return ""
+	}
+	dir, err := cliconfig.Dir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "dev.log")
 }
 
 func validEnvName(name string) bool {
@@ -445,7 +462,12 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	} else if !o.noConsole {
 		row("Console", consoleNote)
 	}
-	row("API log", logPath)
+	row("API log", logPath+"  (what aiplex-api prints: requests, errors, startup)")
+	if detached {
+		if dir, err := cliconfig.Dir(); err == nil {
+			row("Dev log", filepath.Join(dir, "dev.log")+"  (what aiplex dev prints: this summary and its own messages)")
+		}
+	}
 	fmt.Println()
 	fmt.Println("  WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy " + strings.TrimPrefix(s.APIURL, "http://") + ".")
 	fmt.Printf("\n  Ready in %.1fs. Try next, in another terminal:\n\n", took.Seconds())
