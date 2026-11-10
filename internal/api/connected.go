@@ -73,6 +73,9 @@ type ConnectedHandler struct {
 	Capacity *providerlimits.Store
 	// CapacityGate acts on Capacity for surfaces with a capacity_policy.
 	CapacityGate *providerlimits.Gate
+	// Tags resolves record tags (access point labels and the allowlisted
+	// X-AIPlex-Tags header). Nil allows no caller-supplied tags.
+	Tags *TagPolicy
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {

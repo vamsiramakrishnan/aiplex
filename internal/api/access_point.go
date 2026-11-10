@@ -18,6 +18,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 // AccessPointKind is the tenant resource kind of an access point: one stable
@@ -46,6 +47,9 @@ type AccessPoint struct {
 	Tools       []AccessPointTool   `json:"tools,omitempty"`
 	Skills      []AccessPointSkill  `json:"skills,omitempty"`
 	QoS         *AccessPointQoS     `json:"qos,omitempty"`
+	// Labels are trusted experiment tags stored on every usage record of an
+	// exchange through this access point (see usage_tags.go).
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // AccessPointSubjects narrows who may call. Principals, groups and agents are
@@ -233,7 +237,24 @@ func (h *ConnectedHandler) validateAccessPoint(ctx context.Context, tenant, id s
 	if err = h.validateAccessPointQoS(tenant, ap.QoS); err != nil {
 		return ap, err
 	}
+	if err = validateAccessPointLabels(ap.Labels); err != nil {
+		return ap, withField("labels", err)
+	}
 	return ap, nil
+}
+
+// validateAccessPointLabels bounds the labels an access point stamps on usage
+// records.
+func validateAccessPointLabels(labels map[string]string) error {
+	if len(labels) > usageledger.MaxTags {
+		return fmt.Errorf("labels is bounded to %d entries", usageledger.MaxTags)
+	}
+	for k, v := range labels {
+		if !usageledger.ValidTagKey(k) || !usageledger.ValidTagValue(v) || v == usageledger.TagOverflowValue {
+			return fmt.Errorf("labels need keys of [a-z][a-z0-9_.-]{0,31} and values of up to %d characters of [A-Za-z0-9_.:/@+() -], other than %q", usageledger.MaxTagValueLength, usageledger.TagOverflowValue)
+		}
+	}
+	return nil
 }
 
 func (h *ConnectedHandler) validateAccessPointSubjects(ctx context.Context, tenant string, s AccessPointSubjects) error {
