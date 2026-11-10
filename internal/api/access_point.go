@@ -289,6 +289,9 @@ func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant
 		if len(accessPointWireProtocols(connection.Surface.Protocol)) == 0 {
 			return fmt.Errorf("model surface %q protocol %q is not served by any access-point wire protocol", m.SurfaceRef, connection.Surface.Protocol)
 		}
+		if err = accessPointSurfaceServes(connection.Surface, m.NativeModel); err != nil {
+			return fmt.Errorf("model surface %q cannot serve native model %q: %w", m.SurfaceRef, m.NativeModel, err)
+		}
 		if _, err = connection.Surface.ModelID(m.NativeModel); err != nil {
 			return fmt.Errorf("model surface %q does not list native model %q", m.SurfaceRef, m.NativeModel)
 		}

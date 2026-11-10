@@ -107,6 +107,10 @@ type fixtureCall struct {
 	media    string // upstream content type override
 	// ws marks a WebSocket fixture replayed through a relay.
 	ws string
+	// method overrides POST; bind pre-binds resources to the test caller so
+	// that retrieval-style operations pass their ownership check.
+	method string
+	bind   []Resource
 }
 
 type fixtureRoute struct {
@@ -458,7 +462,9 @@ func usageRoutes() []fixtureRoute {
 		exact("openai", "responses.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 	}
-	return routes
+	// Utility operations (ops_utility_routes_test.go) replace the matching
+	// unsupported/format-checked entries above.
+	return overrideRoutes(routes, utilityRoutes())
 }
 
 // usageFixtureProviders are the fixture directories under testdata/usage-formats.
@@ -585,7 +591,13 @@ func runFixtureHTTP(t *testing.T, route fixtureRoute, data []byte, mode leaseMod
 	}))
 	defer upstream.Close()
 	s := call.surface(upstream.URL)
-	opts := options(t, upstream.URL, newOwnership())
+	ownership := newOwnership()
+	for _, resource := range call.bind {
+		if err := ownership.Bind(context.Background(), Owner{"tenant", "alice", "native"}, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opts := options(t, upstream.URL, ownership)
 	if s.Provider != nil {
 		opts.LiveDialer = nil
 		opts.TokenSource = nil
@@ -612,7 +624,11 @@ func runFixtureHTTP(t *testing.T, route fixtureRoute, data []byte, mode leaseMod
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := httptest.NewRequest("POST", call.path, strings.NewReader(call.body))
+	method := call.method
+	if method == "" {
+		method = "POST"
+	}
+	r := httptest.NewRequest(method, call.path, strings.NewReader(call.body))
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	g.ServeHTTP(w, r)

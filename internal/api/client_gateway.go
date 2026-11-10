@@ -13,7 +13,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 )
 
-var genaiClientPath = regexp.MustCompile(`^/v1beta/models/([A-Za-z0-9._@-]+):(generateContent|streamGenerateContent|countTokens|embedContent)$`)
+var genaiClientPath = regexp.MustCompile(`^/v1beta/models/([A-Za-z0-9._@-]+):(generateContent|streamGenerateContent|countTokens|embedContent|batchEmbedContents)$`)
 
 // ClientGateway adapts only documented client wire paths to the configured
 // Cloud surface. Authorization, ownership and server credentials stay in the

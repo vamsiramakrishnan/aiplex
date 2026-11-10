@@ -136,7 +136,7 @@ func providerCatalog() map[string][]providerOp {
 	bedrock := func(id, suffix string, transport Transport, format, protocol string) providerOp {
 		return providerOp{Operation{ID: id, Method: "POST", Path: "/model/{model}/" + suffix, Transport: transport, Action: Invoke, SourceURL: bedrockRef}, format, protocol}
 	}
-	return map[string][]providerOp{
+	catalog := map[string][]providerOp{
 		ProviderOpenAI: {
 			chat("openai.v1.chat-completions", "/v1/chat/completions", openaiRef+"/resources/chat/subresources/completions/methods/create"),
 			responses("openai.v1.responses", "/v1/responses", openaiRef+"/resources/responses/methods/create"),
@@ -162,12 +162,17 @@ func providerCatalog() map[string][]providerOp {
 			chat("compat.chat-completions", "{base}/chat/completions", openaiRef+"/resources/chat/subresources/completions/methods/create"),
 		},
 	}
+	// Text and utility operations (ops_*.go) append to the catalogs above.
+	for provider, ops := range utilityProviderCatalog() {
+		catalog[provider] = append(catalog[provider], ops...)
+	}
+	return catalog
 }
 
 // Providers returns every non-Google provider descriptor. Each call owns its slices.
 func Providers() []ProviderDescriptor {
 	out := []ProviderDescriptor{}
-	for _, id := range []string{ProviderOpenAI, ProviderAnthropic, ProviderAzureOpenAI, ProviderBedrock, ProviderOpenAICompatible} {
+	for _, id := range []string{ProviderOpenAI, ProviderAnthropic, ProviderAzureOpenAI, ProviderBedrock, ProviderOpenAICompatible, ProviderGeminiDeveloper} {
 		d, _ := ProviderByID(id)
 		out = append(out, d)
 	}
@@ -205,6 +210,10 @@ func ProviderByID(id string) (ProviderDescriptor, bool) {
 	case ProviderOpenAICompatible:
 		d.CredentialSchemes = []CredentialScheme{SchemeBearer, SchemeNone}
 		d.DefaultStreamUsage = StreamUsageOff
+	case ProviderGeminiDeveloper:
+		// API key in the documented header, never in the URL query.
+		d.CredentialSchemes = []CredentialScheme{SchemeHeader}
+		d.APIKeyHeader = "x-goog-api-key"
 	}
 	return d, true
 }
@@ -326,6 +335,10 @@ func (s Surface) validateProvider() error {
 		if origin.Scheme == "https" && !strings.HasSuffix(host, ".openai.azure.com") && !strings.HasSuffix(host, ".services.ai.azure.com") && !strings.HasSuffix(host, ".cognitiveservices.azure.com") {
 			return fmt.Errorf("azure-openai origin must be an Azure OpenAI or Foundry resource endpoint")
 		}
+	case ProviderGeminiDeveloper:
+		if origin.Scheme == "https" && host != "generativelanguage.googleapis.com" {
+			return fmt.Errorf("gemini-developer origin must be generativelanguage.googleapis.com")
+		}
 	}
 	if p.Region != "" && p.ID != ProviderBedrock {
 		return fmt.Errorf("provider.region applies only to bedrock")
@@ -388,11 +401,11 @@ func (s Surface) validateProvider() error {
 			return fmt.Errorf("operation %q is not a %s catalog operation", o.ID, p.ID)
 		}
 		seen[o.ID] = true
-		if o.ID == "azure.deployments.chat-completions" && !azureVersionPattern.MatchString(p.APIVersion) {
+		if azureDeploymentOperation(o.ID) && !azureVersionPattern.MatchString(p.APIVersion) {
 			return fmt.Errorf("deployment-scoped Azure operations require a pinned provider.api_version")
 		}
 	}
-	if p.APIVersion != "" && !seen["azure.deployments.chat-completions"] {
+	if p.APIVersion != "" && !seen["azure.deployments.chat-completions"] && !seen["azure.deployments.embeddings"] {
 		return fmt.Errorf("provider.api_version applies only to deployment-scoped Azure operations")
 	}
 	return nil
@@ -436,4 +449,8 @@ func BearerCredential(source TokenSource) Credential {
 // NoCredential sends no upstream credential (operator-declared local models).
 func NoCredential() Credential {
 	return CredentialFunc(func(context.Context, *http.Request) error { return nil })
+}
+
+func azureDeploymentOperation(id string) bool {
+	return id == "azure.deployments.chat-completions" || id == "azure.deployments.embeddings"
 }

@@ -48,10 +48,10 @@ cannot hold).
 
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
-| anthropic | 8 | 0 | 5 |
+| anthropic | 8 | 1 | 4 |
 | azure-openai | 5 | 0 | 0 |
-| google | 10 | 2 | 12 |
-| openai | 6 | 0 | 11 |
+| google | 10 | 10 | 4 |
+| openai | 6 | 4 | 7 |
 | openai-compatible | 2 | 0 | 0 |
 
 ## Matrix
@@ -63,7 +63,7 @@ cannot hold).
 | anthropic | bedrock-invoke | json | exact | `bedrock-invoke.json` |  |
 | anthropic | bedrock-invoke-stream | aws-eventstream | exact | `bedrock-invoke-stream-interrupted.jsonl`<br>`bedrock-invoke-stream.jsonl` |  |
 | anthropic | bedrock-mantle-messages | sse | unsupported | `bedrock-mantle.sse (format-checked)` | no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer |
-| anthropic | count-tokens | json | unsupported | `count-tokens.json` | no /v1/messages/count_tokens operation (an estimate, never consumption) |
+| anthropic | count-tokens | json | advisory | `count-tokens.json` | POST /v1/messages/count_tokens: an input-size estimate, never consumption; only the request is counted and the response is never read for usage |
 | anthropic | managed-agents | json | unsupported | `managed-agents-session.json` | no Managed Agents operation |
 | anthropic | message-batches | jsonl-file | unsupported | `batch-results-partial.jsonl`<br>`batch-results.jsonl` | no Message Batches operation; results files are downloaded artifacts |
 | anthropic | messages | json | exact | `messages-code-execution.json`<br>`messages-iterations.json`<br>`messages.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed)<br>observation exact; strict settlement fails closed for this fixture: server-tool quantities are outside the output-inclusive token profile (fail closed) |
@@ -77,16 +77,16 @@ cannot hold).
 | azure-openai | v1-responses | json | exact | `responses.json` |  |
 | azure-openai | v1-responses | sse | exact | `responses.sse` |  |
 | google | gemini-batch | json | unsupported | `gemini-batch-inlined.json` | no Developer API batch operation; job resources carry no token totals |
-| google | gemini-cachedContents | json | unsupported | `gemini-cachedcontent-create.json` | no Gemini Developer API surface and not replayed: DA cache names (cachedContents/{id}) are outside the Vertex resource scope, and how cache creation is billed is UNCONFIRMED (cache.create is request-count; usageMetadata.totalTokenCount is not mapped to cache writes) |
-| google | gemini-countTokens | json | unsupported | `gemini-count-tokens.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it; countTokens is an estimate and must never be recorded as usage |
-| google | gemini-embedContent | json | unsupported | `gemini-embed.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
-| google | gemini-generateContent | json | unsupported | `gemini-generate-error-429.json (format-checked)`<br>`gemini-generate-tooluse.json (format-checked)`<br>`gemini-generate.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
-| google | gemini-interactions | json | unsupported | `gemini-interactions.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
-| google | gemini-interactions | sse | unsupported | `gemini-interactions-interrupted.sse (format-checked)`<br>`gemini-interactions.sse (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
+| google | gemini-cachedContents | json | advisory | `gemini-cachedcontent-create.json` | cachedContents create/get/list/update/delete are request-count and never read for usage: usageMetadata.totalTokenCount is the cache size, repeated on every get/list, and how creation is billed is UNCONFIRMED |
+| google | gemini-countTokens | json | advisory | `gemini-count-tokens.json` | countTokens: an input-size estimate, never consumption; only the request is counted and the response is never read for usage |
+| google | gemini-embedContent | json | advisory | `gemini-embed.json` | input tokens only (usageMetadata.promptTokenCount); operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
+| google | gemini-generateContent | json | advisory | `gemini-generate-error-429.json`<br>`gemini-generate-tooluse.json`<br>`gemini-generate.json` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
+| google | gemini-interactions | json | advisory | `gemini-interactions.json` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
+| google | gemini-interactions | sse | advisory | `gemini-interactions-interrupted.sse`<br>`gemini-interactions.sse` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
 | google | gemini-live | websocket | unsupported | `gemini-live-interrupted.ws.jsonl (format-checked)`<br>`gemini-live.ws.jsonl (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it (Live messages replayed through the Vertex Live relay) |
 | google | gemini-predictLongRunning | json | unsupported | `gemini-veo-operation.json` | no Developer API surface; video is billed per output second and the operation result carries no usage |
-| google | gemini-streamGenerateContent | json-array | unsupported | `gemini-generate.stream.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
-| google | gemini-streamGenerateContent | sse | unsupported | `gemini-generate-interrupted.sse (format-checked)`<br>`gemini-generate.sse (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it |
+| google | gemini-streamGenerateContent | json-array | advisory | `gemini-generate.stream.json` | JSON-array framing (no alt=sse) is observed exactly; operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
+| google | gemini-streamGenerateContent | sse | advisory | `gemini-generate-interrupted.sse`<br>`gemini-generate.sse` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
 | google | vertex-batch | jsonl-file | unsupported | `vertex-batch-gcs.jsonl` | batch output rows are Cloud Storage artifacts, not gateway responses; batch.create counts the submission only |
 | google | vertex-countTokens | json | advisory | `vertex-count-tokens.json` | countTokens is an input-size estimate, never consumption; only the request is counted |
 | google | vertex-generateContent | json | exact | `vertex-generate-error-429.json`<br>`vertex-generate-flex.json`<br>`vertex-generate-image.json`<br>`vertex-generate.json` |  |
@@ -106,16 +106,16 @@ cannot hold).
 | openai | batch | jsonl-file | unsupported | `batch.errors.jsonl`<br>`batch.output.jsonl` | batch output files are downloaded artifacts, not gateway responses; no /v1/batches operation<br>batch error files are downloaded artifacts, not gateway responses |
 | openai | chat-completions | json | exact | `chat.json` |  |
 | openai | chat-completions | sse | exact | `chat.interrupted.sse`<br>`chat.nousage.sse`<br>`chat.sse` |  |
-| openai | embeddings | json | unsupported | `embeddings.json` | no /v1/embeddings operation on the OpenAI provider surface |
+| openai | embeddings | json | advisory | `embeddings.json` | input tokens only (prompt_tokens, total_tokens); operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation): embeddings report no output counter, which the token profiles require |
 | openai | images | json | unsupported | `images.json` | no /v1/images operation; non-GPT image models bill per image |
 | openai | images | sse | unsupported | `images.interrupted.sse`<br>`images.sse` | no /v1/images operation |
 | openai | live-voice-sessions | websocket | unsupported | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens |
-| openai | moderations | json | unsupported | `moderation.json` | no /v1/moderations operation (no usage documented) |
+| openai | moderations | json | advisory | `moderation.json` | request-count; the response documents no usage |
 | openai | realtime | websocket | exact | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` |  |
 | openai | responses | json | exact | `responses.json` |  |
 | openai | responses | sse | exact | `responses.error.sse`<br>`responses.failed.sse`<br>`responses.incomplete.sse`<br>`responses.sse` |  |
 | openai | responses | websocket | exact | `responses.interrupted.ws.jsonl`<br>`responses.ws.jsonl` |  |
-| openai | responses-cancel | json | unsupported | `responses.background.cancelled.json (format-checked)` | POST /v1/responses/{id}/cancel is not an OpenAI provider operation; response body checked through the Responses observer |
-| openai | responses-retrieve | json | unsupported | `responses.background.queued.json (format-checked)` | GET /v1/responses/{id} (background poll) is not an OpenAI provider operation; response body checked through the Responses observer |
+| openai | responses-cancel | json | advisory | `responses.background.cancelled.json` | POST /v1/responses/{id}/cancel: request-count, owner-only; never read for usage |
+| openai | responses-retrieve | json | advisory | `responses.background.queued.json` | GET /v1/responses/{id}: request-count, owner-only; never read for usage, so a retrieved background response is not settled a second time |
 | openai-compatible | chat-completions | json | exact | `chat.json` | observation exact; strict settlement fails closed for this fixture: server reports no prompt_tokens_details; openai-text requires the cached-input breakdown (fail closed) |
 | openai-compatible | chat-completions | sse | exact | `chat.final-usage.sse`<br>`chat.no-done.sse`<br>`chat.nousage.sse` |  |

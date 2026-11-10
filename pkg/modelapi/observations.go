@@ -31,7 +31,7 @@ func cumulativeUsage(op Operation) bool {
 		"openai.v1.chat-completions", "openai.v1.responses", "azure.v1.chat-completions", "azure.v1.responses", "azure.deployments.chat-completions", "compat.chat-completions", "bedrock.converse", "bedrock.converse-stream":
 		return true
 	default:
-		return false
+		return utilityCumulative(op)
 	}
 }
 
@@ -43,6 +43,12 @@ func (g *Gateway) anthropicWire(op Operation) bool {
 }
 
 func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, data []byte, terminal, includeUsage bool) (jsonObservation, error) {
+	if utilityNoUsage(op) {
+		includeUsage = false // ops_utility.go: never a usage-bearing response
+	}
+	if result, handled, err := inspectStateless(g.surface.ID, op, data, includeUsage); handled {
+		return result, err
+	}
 	if bedrockOperation(op) && !(bedrockInvoke(op) && anthropicShaped(data)) {
 		return g.inspectBedrockJSON(op, data, includeUsage)
 	}

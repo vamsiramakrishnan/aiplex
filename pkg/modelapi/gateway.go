@@ -83,6 +83,10 @@ type Options struct {
 	// ObserveLimits receives each provider response's normalized rate-limit
 	// metadata (provider surfaces only). It is advisory telemetry.
 	ObserveLimits func(context.Context, Owner, providerlimits.Limits)
+	// Admit runs after authorization and before any quota lease, credential
+	// acquisition or upstream I/O (HTTP requests and WebSocket session
+	// admission alike). An *execution.StatusError becomes the response.
+	Admit func(context.Context, contracts.RequestContext, Operation, Metadata) error
 }
 type compiledOperation struct {
 	operation Operation
@@ -593,6 +597,9 @@ func (g *Gateway) validateBody(ctx context.Context, owner Owner, op Operation, m
 func (g *Gateway) resourceID(kind, name string) (string, error) {
 	if validSegment(name) {
 		return name, nil
+	}
+	if g.surface.Provider != nil {
+		return g.providerResourceID(kind, name)
 	}
 	if kind == "prediction-operation" {
 		prefix := "projects/" + g.surface.Project + "/locations/" + g.surface.Location + "/"

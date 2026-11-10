@@ -179,7 +179,7 @@ Chat Completions streams report usage only when the request asks for it. The
 | `GET /api/v1/llm/surfaces/{id}` | One surface, including its `provider` block. Surface writes use the shared resource routes. |
 | `/api/v1/llm/native/{id}/*` | Native provider requests through the surface. The path after `{id}` is the provider's own path. |
 | `/api/v1/llm/gateway/{id}/*` | Client facade for unmodified provider SDKs. See below. |
-| `GET /api/v1/llm/surfaces/{id}/capacity` | The last provider limit observation for this surface on this replica. Admin only. |
+| `GET /api/v1/llm/surfaces/{id}/capacity` | The last provider limit observation for this surface on this replica, the surface's `capacity_policy` with defaults applied, and its cooldown state. Admin only. |
 
 Client facade base URLs, relative to `/api/v1/llm/gateway/{id}`:
 
@@ -208,11 +208,87 @@ The observation records the classification (`rate_limited`, `overloaded` or
 `quota_exceeded`), retry-after, and any requests, tokens, input-tokens or output-tokens
 windows the provider reported. The store is in memory, bounded, and kept per process.
 
+### Capacity policy
+
+A provider surface can act on the limit signals it observes. The `capacity_policy` block on
+the surface spec is off by default. A surface without it, or with an empty block, behaves
+exactly as before: every request is forwarded and the provider's own 429 reaches the caller.
+
+```json
+"capacity_policy": {
+  "cooldown_enabled": true,
+  "max_cooldown_seconds": 60,
+  "headroom_fraction": 0.1,
+  "min_weight": 10,
+  "default_weight": 1,
+  "signal_max_age_seconds": 60
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `cooldown_enabled` | Back off while the provider is throttling. Default `false`. |
+| `max_cooldown_seconds` | Upper bound on any cooldown, 1 to 3600. Default 60. Requires `cooldown_enabled`. |
+| `headroom_fraction` | Between 0 and 1. When remaining requests or tokens fall below this fraction of the limit, only callers with `min_weight` or more are admitted. `0` or absent disables it. |
+| `min_weight` | The lowest access-point QoS `weight` still admitted under low headroom, 1 to 1000. Required with `headroom_fraction`. |
+| `default_weight` | The weight of a request that has no access-point QoS, or a QoS block without a weight. Default 1. Requires `headroom_fraction`. |
+| `signal_max_age_seconds` | How old an observation may be and still be used, 1 to 3600. Default 60. |
+
+The block is validated strictly when the surface is saved. Unknown fields, out-of-range
+values, and settings that would have no effect (for example `min_weight` without
+`headroom_fraction`) are rejected. Only provider surfaces accept it. It is part of the
+surface configuration that the quota host pins, so changing it changes that configuration.
+
+**Cooldown.** When the last response for the tenant's surface was a 429 or an overloaded
+response, new requests are rejected until the wait ends. The wait is the provider's
+`Retry-After` or `retry-after-ms`, else the reset of an exhausted requests or tokens window
+(the later one when several are exhausted), else the earliest window reset on a rate-limit
+response, else a default of 2 to 3 seconds with a stable jitter. It is capped by
+`max_cooldown_seconds`, so a bad header cannot hold a surface closed. A `Retry-After` of `0`
+means retry now and starts no cooldown. `quota_exceeded` responses start no cooldown because
+waiting does not change the outcome. When the wait ends, one request is let through as a
+probe; the others are rejected with a one-second hint until the probe answers. A probe whose
+response is not itself limiting ends the cooldown. A limiting response starts a new one. A
+probe that never reaches the provider releases its slot, and a probe that never answers is
+replaced after 30 seconds.
+
+**Headroom.** When any reported requests or token window has `remaining` below
+`headroom_fraction` of its `limit`, callers whose weight is below `min_weight` are rejected.
+The retry hint is the time to the window's reset, capped by `max_cooldown_seconds`, or the
+default backoff when the provider reports no reset. A window whose reset time has passed is
+ignored. Windows missing a limit or a remaining value are ignored; an unknown value is never
+treated as zero.
+
+A rejected request is answered in the calling protocol's native rate-limit error with a
+`Retry-After` header. It makes no upstream call, acquires no credential, and charges no
+quota, and WebSocket sessions are rejected at admission before the upgrade. The usage ledger
+records it as a denied exchange with `error_class` `capacity_cooldown` or `capacity_shed`,
+which are not provider errors.
+
+The gate scope is the tenant and the surface. Providers that scope limits per model or per
+deployment (OpenAI, Anthropic, Azure OpenAI) do not tell AIPlex which model a stored
+observation belongs to, so a throttled model puts the whole surface in cooldown. Put models
+that should not throttle each other on separate surfaces.
+
+Limits of this gate:
+
+- Observations are per replica, in memory, and are not shared. Each replica learns about
+  throttling only from its own responses, and a restart forgets it. With several replicas
+  the provider can still throttle traffic that arrives at a replica that has not seen it.
+- Signals are advisory and stale by nature. They are used only while younger than
+  `signal_max_age_seconds`, and an absent signal admits the request.
+- The last observation wins. A later successful response with rate-limit headers replaces a
+  throttling observation, and a response without headers leaves it in place.
+- It is an extra gate before upstream dispatch. It never admits what QuotaPlex denies and
+  does not replace QuotaPlex limits, budgets or weighted scheduling.
+- It acts at request and session admission. It does not interrupt a stream or WebSocket
+  session in progress.
+
 ## Limits
 
-- **Nothing enforces on provider limit signals yet.** The capacity store is read by the
-  capacity route only. No admission, scheduling or quota decision uses it. The narrow
-  `CapacitySignal` interface is available for a scheduler to consume later.
+- Provider limit signals are enforced only when a surface opts in with a
+  `capacity_policy` (see below), and then only as an additional, advisory gate. QuotaPlex
+  remains the only accounting and quota authority.
 - Limit observations describe the shared upstream credential at one instant. Restarts and
   other replicas do not share them.
 - `limit_header_passthrough` forwards the upstream credential's limit headers to callers,

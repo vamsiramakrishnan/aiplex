@@ -50,7 +50,7 @@ func Coverage(op Operation) ExecutionCoverage {
 	case "models.predictLongRunning", "batch.create", "cache.create", "tuning.create", "operation.get", "models.fetchPredictOperation", "response.get", "response.delete", "interaction.get", "interaction.cancel", "interaction.delete", "cache.get", "cache.list", "cache.update", "cache.delete", "batch.get", "batch.list", "batch.cancel", "batch.delete", "tuning.get", "tuning.list", "tuning.cancel", "operation.cancel", "operation.delete":
 		return ExecutionCoverage{RequestCount: true, Asynchronous: true}
 	default:
-		return ExecutionCoverage{}
+		return utilityCoverage(op)
 	}
 }
 
