@@ -82,7 +82,7 @@ Set on provider surfaces only. Provider surfaces select their upstream credentia
 | Field | Type | Meaning |
 |---|---|---|
 | `id` | string | Provider identifier. One of `openai`, `anthropic`, `azure-openai`, `bedrock`, `openai-compatible` or `gemini-developer`. |
-| `base_path` | string | Omitted when empty. Prefix for OpenAI-compatible operation paths. Default `/v1`. |
+| `base_path` | string | Omitted when empty. For `openai-compatible`, the prefix of operation paths (default `/v1`). For `anthropic`, a path prefix before every upstream path (for an Anthropic-compatible endpoint served under one, such as `/api/anthropic`); clients still call `/v1/messages`. An absolute path of 1 to 4 plain segments, with no query, fragment, dot segment or trailing slash. Refused for the other providers. |
 | `api_version` | string | Omitted when empty. Pinned Azure `api-version` query value. |
 | `region` | string | Omitted when empty. Bedrock signing region. Must match the origin. |
 | `organization` | string | Omitted when empty. Sent as `OpenAI-Organization`. |

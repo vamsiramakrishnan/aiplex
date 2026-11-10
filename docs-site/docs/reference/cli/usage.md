@@ -72,6 +72,7 @@ Flags:
       --bound string            Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
       --caller-kind string      Caller kind: agent, user or client (caller_kind)
       --client string           Client ID (client_id)
+      --cost-basis string       Cost basis: settled, estimated or unknown (cost_basis)
       --cursor string           Continue from a next_cursor value
       --error-class string      Error class (error_class)
   -h, --help                    help for records
@@ -167,6 +168,7 @@ Flags:
       --by strings              Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,status,source,error-class,bound,batch
       --caller-kind string      Caller kind: agent, user or client (caller_kind)
       --client string           Client ID (client_id)
+      --cost-basis string       Cost basis: settled, estimated or unknown (cost_basis)
       --error-class string      Error class (error_class)
   -h, --help                    help for summary
       --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
@@ -218,7 +220,8 @@ Available Commands:
   get         Show one price and its current revision
   set         Set a model's price per million tokens (or -f for a full spec)
   delete      Delete a price (uses the current revision unless --revision is given)
-  catalog     Look up list prices in the bundled catalogue and import the ones you choose
+  catalog     Look up list prices in the bundled catalogues and import the ones you choose
+  backfill    Price records that were written before a price existed (admin)
 
 Flags:
   -h, --help   help for prices
@@ -403,11 +406,15 @@ Exit codes:
 #### `aiplex usage prices catalog`
 
 ```text
-The binary carries a pinned snapshot of a third-party price list (LiteLLM's
-model_prices_and_context_window.json, MIT licence). Nothing is priced from it
-automatically: a model stays unknown until you import its price, which creates
-an ordinary price resource marked with its source and snapshot date. The cost
-basis stays "estimated": these are list prices, not invoices.
+The binary carries pinned snapshots of two third-party price lists: LiteLLM's
+model_prices_and_context_window.json (the default) and the models.dev model
+database (both MIT licence). Nothing is priced from them automatically: a model
+stays unknown until you import its price, which creates an ordinary price
+resource marked with its source and snapshot date. The cost basis stays
+"estimated": these are list prices, not invoices.
+
+When the two sources state different values for the same model and meter, search
+and show flag it, and an import needs --source to say which one to believe.
 
 Usage:
   aiplex usage prices catalog [flags]
@@ -417,10 +424,11 @@ Examples:
   aiplex usage prices catalog search claude --provider anthropic
   aiplex usage prices catalog show openai/gpt-4o-mini
   aiplex usage prices catalog import openai/gpt-4o-mini --dry-run
+  aiplex usage prices catalog import mistral/open-mistral-nemo --source models.dev --dry-run
 
 Available Commands:
   search      Search catalogue models by id
-  show        Show one catalogue model and what importing it would write
+  show        Show one catalogue model in each source and what importing it would write
   import      Create price resources from catalogue models (shows exactly what is written first)
 
 Flags:
@@ -450,8 +458,10 @@ Exit codes:
 
 ```text
 Lists catalogue models whose <provider>/<model> contains every word of the
-text (case-insensitive substring match only). Prices are USD per million tokens.
-Providers: anthropic, azure-openai, bedrock, deepseek, gemini-developer, google, groq, mistral, openai, vertex-anthropic, xai.
+text (case-insensitive substring match only), from both sources. Prices are USD
+per million tokens, from LiteLLM when it lists the model, otherwise from
+models.dev. A model both sources list with different values for the same meter
+is flagged. Providers: anthropic, azure-openai, bedrock, deepseek, gemini-developer, google, groq, mistral, openai, vertex-anthropic, xai.
 
 Usage:
   aiplex usage prices catalog search <text> [--provider p] [flags]
@@ -487,7 +497,8 @@ Exit codes:
 ##### `aiplex usage prices catalog show`
 
 ```text
-Show one catalogue model and what importing it would write
+Shows the model as each bundled source states it, what importing it would
+write, and every meter on which the two sources disagree.
 
 Usage:
   aiplex usage prices catalog show <provider>/<model> [flags]
@@ -521,14 +532,19 @@ Exit codes:
 
 ```text
 Creates ordinary model-price resources from catalogue entries, marked with
-their source (catalogue, commit, snapshot date, source URL). It shows every meter
+their source (catalogue, commit, snapshot date, source URL). The default source
+is litellm; --source models.dev imports from the models.dev snapshot instead.
+When both sources list a model and state different values for the same meter,
+the import is refused until --source names the one to use, and both values are
+printed. It shows every meter
 as an exact decimal before writing anything, and never overwrites an existing
 price unless --replace is given. Cost from these prices has the basis "estimated".
 
 Meters the catalogue does not state stay unset, so cost for usage of that kind
 stays unknown. Fields an AIPlex price cannot express are listed. When one of
-them changes what a request costs (context-length tiers, audio or image token
-rates), the import is refused unless you pass --accept-partial. Reasoning tokens
+them changes what a request costs (context-length tiers whose billing rule is
+not confirmed for the provider, token rates for modalities the ledger does not
+hold), the import is refused unless you pass --accept-partial. Reasoning tokens
 are never priced from the catalogue; add --reasoning-included only when you know
 the provider's output tokens already include them (OpenAI, Anthropic), otherwise
 records that report reasoning tokens stay unknown cost.
@@ -544,6 +560,7 @@ Examples:
   aiplex usage prices catalog import anthropic/claude-haiku-4-5 --reasoning-included --yes
   aiplex usage prices catalog import --all-for-access-point team --yes
   aiplex usage prices catalog import gemini-developer/gemini-2.5-flash --accept-partial --replace
+  aiplex usage prices catalog import mistral/open-mistral-nemo --source models.dev --yes
 
 Flags:
       --accept-partial                Import base rates even when the model has pricing a price cannot express
@@ -553,7 +570,62 @@ Flags:
   -h, --help                          help for import
       --reasoning-included            Declare reasoning tokens as included in output tokens (free meter); only when the provider does
       --replace                       Replace an existing price with the same id (never done without this flag)
+      --source string                 Catalogue source: litellm, models.dev (needed when the two disagree on a model) (default "litellm")
   -y, --yes                           Do not ask for confirmation (required when there is no terminal)
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+#### `aiplex usage prices backfill`
+
+```text
+Records written when no price covered them have an unknown cost. This computes it
+now, for records whose cost is unknown and whose usage is final and fully known,
+using the price effective at each record's own start time (a price created later
+with an effective window covering the record applies; a price outside its window
+never does).
+
+The cost becomes "estimated" and carries backfilled_at (the record was unknown
+when written) and the id of the price used. A settled or estimated cost is never
+changed, nothing is overwritten, and running it twice changes nothing. The
+original usage and every other field stay as they were. Records that no single
+price can cost exactly stay unknown.
+
+--dry-run reports counts and the total per currency without writing. Without it
+the command shows the dry-run result first and asks before writing (or needs
+--yes when there is no terminal). The work is done in bounded batches.
+
+Usage:
+  aiplex usage prices backfill [--since 7d] [--until 1h] [--model m] [--provider p] [--dry-run] [--yes] [flags]
+
+Examples:
+  aiplex usage prices backfill --dry-run
+  aiplex usage prices backfill --since 30d --model gemini-2.5-flash --yes
+  aiplex usage prices backfill --provider anthropic --until 2026-11-01T00:00:00Z --dry-run -o json
+
+Flags:
+      --dry-run           Report counts and totals and write nothing
+  -h, --help              help for backfill
+      --model string      Only this model ID (model_id)
+      --provider string   Only this provider
+      --since string      Start of window: duration like 24h, 7d, or an RFC3339 time
+      --until string      End of window (exclusive): duration ago like 1h, or an RFC3339 time
+  -y, --yes               Do not ask for confirmation (required when there is no terminal)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

@@ -15,6 +15,7 @@ The usage API reads the tenant's usage ledger: one append-only record per manage
 | GET | `/api/v1/usage/prices/{id}` | Read one model-price resource | Verified identity and tenant |
 | PUT | `/api/v1/usage/prices/{id}` | Create or update a model-price resource | `admin` role (outside development mode) |
 | DELETE | `/api/v1/usage/prices/{id}` | Delete a model-price resource | `admin` role (outside development mode) |
+| POST | `/api/v1/usage/backfill` | Price records whose cost was unknown when written | `admin` role (outside development mode) |
 
 The API is mounted under `/api/v1` and all routes require a verified identity. Requests and responses are JSON. Errors use this shape:
 
@@ -49,6 +50,7 @@ All filters are exact matches. Each parameter may appear at most once. Unknown p
 | `caller_kind` | string | No | `agent`, `user` or `client` |
 | `status` | string | No | `ok`, `error`, `denied` or `unknown` |
 | `source` | string | No | `managed` (exchanges through AIPlex) or `reported` (mirrored from a legacy usage report) |
+| `cost_basis` | string | No | `settled`, `estimated` or `unknown` |
 | `since` | RFC 3339 timestamp | No | Inclusive lower bound on `started_at` |
 | `until` | RFC 3339 timestamp | No | Exclusive upper bound on `started_at`. Must be after `since` when both are set. |
 | `limit` | integer | No | Page size from 1 to 1000. Default 100. |
@@ -92,7 +94,7 @@ The response is a page object.
 | `session` | boolean | Omitted unless `true`. `true` for a WebSocket session covering the whole session. |
 | `status` | string | `ok`, `error`, `denied` or `unknown` |
 | `http_status` | integer | Omitted when zero |
-| `error_class` | string | Omitted when empty. Stable class such as `unauthenticated`, `forbidden`, `rate_limited`, `upstream_error`, `timeout` or `client_disconnected`. |
+| `error_class` | string | Omitted when empty. Stable class such as `unauthenticated`, `forbidden`, `rate_limited`, `upstream_error`, `timeout`, `client_disconnected`, `upstream_auth` (the provider refused the gateway's own credential), `upstream_quota_exhausted` (the provider's quota or balance is exhausted) or `model_not_found` (an admitted caller asked an access point for a model it does not offer). |
 | `source` | string | `managed` or `reported` |
 | `requests` | integer | Number of requests the record counts |
 | `usage` | object or null | Token and unit counters. `null` when no counter is known. See Usage counters. |
@@ -100,7 +102,9 @@ The response is a page object.
 | `batch` | boolean | Omitted unless `true`. Provider batch exchange. |
 | `image_size` | string | Omitted when empty. Reported image dimension, for example `1024x1024`. |
 | `image_quality` | string | Omitted when empty. Reported image quality, for example `high`. |
-| `cost` | object | Cost basis and amount. See Behaviour notes. |
+| `service_tier` | string | Omitted when empty. The processing tier the provider reported (`default`, `standard`, `flex`, `priority`), or `mixed`. |
+| `server_tools` | object of integer | Omitted when empty. Provider-side tool requests the provider reported, by kind (`web_search`, `file_search`, `google_search`, ...). At most 16 kinds. |
+| `cost` | object | Cost basis and amount: `basis`, and for a known cost `currency`, `amount`, `scale`, `amount_decimal`. An estimate adds `price_id`, `exact` (the unrounded amount in minor units as a fraction, present when `amount` was rounded up) and, for a cost computed after the record was written, `backfilled_at`. See Behaviour notes. |
 | `provider_limits` | object | Omitted unless the provider reported rate-limit metadata on the exchange |
 
 ### Usage counters
@@ -121,6 +125,8 @@ The response is a page object.
 | `voice_session_milliseconds` | Milliseconds of a voice session |
 | `video_output_milliseconds` | Milliseconds of generated video |
 | `generated_images` | Count of generated images |
+| `cache_write_1h_tokens` | The part of `cache_write_tokens` written with the one-hour TTL. A subset, never added to it. |
+| `tool_use_prompt_tokens` | Gemini tool-use prompt tokens. Not part of `input_tokens`. |
 
 ### Status codes and errors
 
@@ -233,9 +239,9 @@ Aggregates the visible records that match the filters. It accepts every filter p
 | `lower_bound_records` | integer | Omitted when zero |
 | `ambiguous_usage_records` | integer | Omitted when zero |
 | `partial_usage_records` | integer | Omitted when zero |
-| `cost` | array of object | Exact totals per currency and basis. Each entry has `currency`, `basis`, `amount` (decimal string), `amount_decimal` (the same amount as an exact decimal string), `scale` and `records`. |
+| `cost` | array of object | Exact totals per currency and basis. Each entry has `currency`, `basis`, `amount` (decimal string), `amount_decimal` (the same amount as an exact decimal string), `scale` and `records`. Estimated costs are added by their unrounded `exact` value and the total is rounded up once. |
 | `unknown_cost_records` | integer | Records with no amount |
-| `modality_tokens` | object of integer | Omitted when empty. Sums of the per-modality token splits over records that reported them. |
+| `modality_tokens` | object of integer | Omitted when empty. Sums of the per-modality token splits and of `cache_write_1h_tokens` over records that reported them. |
 | `units` | object of integer | Omitted when empty. Sums of the unit fields. |
 | `unit_records` | object of integer | Omitted when empty. Number of records that reported each unit. Records that did not report a unit are not counted as zero. |
 | `batch_records` | integer | Omitted when zero. Records of provider batch exchanges. |
@@ -320,9 +326,11 @@ The spec is decoded strictly: unknown fields are rejected.
 | `batch` | boolean | No | `true` matches only batch exchanges, `false` only non-batch exchanges |
 | `image_size` | string | No | Matches the record's `image_size` |
 | `image_quality` | string | No | Matches the record's `image_quality` |
+| `service_tier` | string | No | Matches the record's `service_tier` (`flex`, `priority`, ...). A price without it covers standard-tier exchanges only (no tier reported, `default`, `standard` or `batch`). |
+| `tiers` | array | No | Context-length overrides, at most 8: each `{"above_input_tokens": n, "meters": {...}}` with `n` positive and strictly increasing. When the record's `input_tokens` (total input, cache included) is greater than `n`, the whole request is priced at that tier's `meters`, which must name exactly the base meters. An unknown `input_tokens` makes the cost unknown. |
 | `source` | object | No | Provenance of a price imported from the bundled catalogue: `catalog` (required), `commit`, `retrieved_at`, `source_url`. It is a label only; it never changes matching or cost. |
 
-Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `requests`, the modality splits `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens`, `output_text_tokens`, `output_audio_tokens`, `output_image_tokens`, and the unit meters `audio_input_milliseconds`, `voice_session_milliseconds`, `video_output_milliseconds`, `generated_images`. Any other name is rejected.
+Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `requests`, the modality splits `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens`, `output_text_tokens`, `output_audio_tokens`, `output_image_tokens`, the unit meters `audio_input_milliseconds`, `voice_session_milliseconds`, `video_output_milliseconds`, `generated_images`, `tool_use_prompt_tokens`, `cache_write_1h_tokens` (which requires `cache_write_tokens` to be priced too), and per-call server-tool meters named `server_tool.<kind>` with a lowercase kind such as `server_tool.web_search`. Any other name is rejected.
 
 ### Status codes and errors
 
@@ -337,6 +345,66 @@ Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `c
 
 ```bash
 curl -sS "$AIPLEX_URL/api/v1/usage/prices" -H "Authorization: Bearer $AIPLEX_TOKEN"
+```
+
+## POST /api/v1/usage/backfill
+
+Prices records whose cost was `unknown` when they were written, using the price effective at each record's own `started_at` (a price created later with a window that covers the record applies; a price outside its window never does). Requires the `admin` role. It never changes a `settled` or `estimated` cost, writes only while a record's cost is still unknown, and is idempotent. A record qualifies when its usage is known and final (no `usage_bound`) and one price covers it exactly. Its cost becomes `estimated` with `price_id` and `backfilled_at`; its usage and other fields are untouched.
+
+### Request body
+
+All fields are optional. Unknown fields are rejected.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `since` | RFC 3339 timestamp | Inclusive lower bound on `started_at` |
+| `until` | RFC 3339 timestamp | Exclusive upper bound. Must be after `since`. |
+| `model_id` | string | Only this model |
+| `provider` | string | Only this provider |
+| `dry_run` | boolean | Report counts and totals and write nothing |
+| `limit` | integer | Most records scanned by this call, 1 to 1000. Default 500. |
+| `cursor` | string | The previous response's `next_cursor` |
+
+### Response
+
+| Field | Type | Meaning |
+|---|---|---|
+| `scanned` | integer | Unknown-cost records examined |
+| `eligible` | integer | Records a price covers. On a dry run, what would be written. |
+| `updated` | integer | Records written. `0` on a dry run. |
+| `skipped` | object | `usage_not_final` (no usage, or a `usage_bound`), `no_price` (no single price covers the record, or a priced quantity is unknown), `changed` (another writer gave the record a cost first). Each omitted when zero. |
+| `totals` | array | Per currency, the eligible records' costs: `currency`, `basis`, `amount`, `amount_decimal`, `scale`, `records`, and `exact` when `amount` was rounded up. Totals add exact values and round up once. |
+| `next_cursor` | string | Present when more records remain. Call again with it. |
+| `dry_run` | boolean | Echoes the request |
+
+### Status codes and errors
+
+| Status | Code | When |
+|---|---|---|
+| 200 | none | Batch processed |
+| 400 | `INVALID_REQUEST` | Malformed body, unknown field, `limit` out of range, malformed `cursor`, `until` not after `since` |
+| 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `FORBIDDEN` | Caller lacks the `admin` role |
+| 501 | `NOT_IMPLEMENTED` | The ledger store cannot back-estimate |
+| 503 | `PRICES_UNAVAILABLE` | Model prices could not be read |
+
+### Example
+
+```bash
+curl -sS -X POST "$AIPLEX_URL/api/v1/usage/backfill" \
+  -H "Authorization: Bearer $AIPLEX_TOKEN" -H "Content-Type: application/json" \
+  -d '{"model_id":"model-example","dry_run":true}'
+```
+
+```json
+{
+  "scanned": 4,
+  "eligible": 1,
+  "updated": 0,
+  "skipped": {"no_price": 3},
+  "totals": [{"currency": "USD", "basis": "estimated", "amount": "8", "amount_decimal": "0.000008", "scale": 6, "records": 1, "exact": "31/4"}],
+  "dry_run": true
+}
 ```
 
 ## GET `/api/v1/usage/prices/{id}`

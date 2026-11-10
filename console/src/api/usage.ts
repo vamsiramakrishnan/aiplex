@@ -48,6 +48,14 @@ export interface UsageCost {
   /** Decimal-integer string of minor units at `scale` decimal places. */
   amount?: string
   scale?: number
+  /** The same amount as an exact decimal string. */
+  amount_decimal?: string
+  /** The price an estimate used. */
+  price_id?: string
+  /** The unrounded amount in minor units as a fraction ("37/4"), present when `amount` was rounded up. */
+  exact?: string
+  /** Set when the cost was unknown at write time and a price was applied afterwards (back-estimation). */
+  backfilled_at?: string
 }
 
 export interface UsageRecord {
@@ -85,6 +93,10 @@ export interface UsageRecord {
   /** Billing dimensions the provider reported for generated images, for example "1024x1024" and "high". */
   image_size?: string
   image_quality?: string
+  /** The processing tier the provider reported (default, standard, flex, priority), or "mixed". */
+  service_tier?: string
+  /** Provider-side tool requests the provider reported, by kind (web_search, file_search, google_search, ...). */
+  server_tools?: Record<string, Count>
   /** Set when the exchange ended without final usage evidence; the counters are then not a final exact count. */
   usage_bound?: UsageBound
   requests: Count
@@ -171,9 +183,14 @@ export interface ModelPrice {
   batch?: boolean
   image_size?: string
   image_quality?: string
+  /** Matches the tier the provider reported; a price without it covers standard-tier exchanges only. */
+  service_tier?: string
+  /** Context-length overrides: when a request's total input exceeds `above_input_tokens`, the whole request is priced at `meters`. */
+  tiers?: PriceTier[]
   /** Provenance of a price imported from the bundled catalogue (a label only; it does not affect matching or cost). */
   source?: PriceSource
 }
+export interface PriceTier { above_input_tokens: number; meters: Partial<Record<string, PriceRate>> }
 export interface PriceSource { catalog: string; commit?: string; retrieved_at?: string; source_url?: string }
 export interface PriceResource { id: string; revision: number; spec: ModelPrice }
 

@@ -240,7 +240,7 @@ Other model errors:
 | Status and code | Meaning |
 | --- | --- |
 | `403 permission_denied` | The caller is admitted but lacks a model, surface or agent grant. The message lists them. |
-| `404 MODEL_NOT_FOUND` | The model is not in the access point, or the caller may not use it. |
+| `404 MODEL_NOT_FOUND` | The model is not in the access point, or the caller may not use it. For a caller the access point admitted, the refusal is recorded in the usage ledger: status `error`, `error_class` `model_not_found`, operation `unknown-model`, the requested name as `model_id` (control characters dropped, at most 128 characters), no usage and no cost. A caller the access point does not admit, or that is not authenticated, gets its refusal with no ledger record, so strangers cannot fill the ledger. |
 | `404 UNSUPPORTED_OPERATION` | A GenAI operation that the surface does not implement. |
 | `503 SURFACE_UNAVAILABLE` | The surface cannot be resolved right now. |
 | `503 MODEL_ALIAS_UNSUPPORTED` | The client name differs from `native_model`, and the wire and surface cannot rewrite the name (see the aliasing table). |
