@@ -450,6 +450,9 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		row("Price", "placeholder rates for each mock model, so estimated cost shows in usage")
 	} else {
 		row("Price", "none (prices are your contracted rates: aiplex usage prices set -f price.json)")
+		if hint := devPriceHint(seeded.Provider, seeded.Model); hint != "" {
+			row("", hint)
+		}
 	}
 	row("Quota", "off (optional: QuotaPlex reads an operator policy file named by AIPLEX_QUOTA_FILE)")
 	ctxNote := "\"" + o.contextName + "\" (current"

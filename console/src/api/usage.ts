@@ -171,7 +171,10 @@ export interface ModelPrice {
   batch?: boolean
   image_size?: string
   image_quality?: string
+  /** Provenance of a price imported from the bundled catalogue (a label only; it does not affect matching or cost). */
+  source?: PriceSource
 }
+export interface PriceSource { catalog: string; commit?: string; retrieved_at?: string; source_url?: string }
 export interface PriceResource { id: string; revision: number; spec: ModelPrice }
 
 // ---- exact decoding ------------------------------------------------------

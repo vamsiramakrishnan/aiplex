@@ -45,6 +45,16 @@ type Rational struct {
 	Denominator int64 `json:"denominator"`
 }
 
+// PriceSource records where a price came from when it was imported from a
+// third-party catalogue rather than written by an operator. It is provenance
+// only: it never changes how a price matches or how cost is computed.
+type PriceSource struct {
+	Catalog     string `json:"catalog"`
+	Commit      string `json:"commit,omitempty"`
+	RetrievedAt string `json:"retrieved_at,omitempty"`
+	SourceURL   string `json:"source_url,omitempty"`
+}
+
 // Price is the spec of a model-price resource.
 type Price struct {
 	ID             string              `json:"id"`
@@ -62,6 +72,8 @@ type Price struct {
 	Batch        *bool  `json:"batch,omitempty"`
 	ImageSize    string `json:"image_size,omitempty"`
 	ImageQuality string `json:"image_quality,omitempty"`
+	// Source is optional provenance for imported prices.
+	Source *PriceSource `json:"source,omitempty"`
 }
 
 // Validate checks a price spec.
@@ -71,6 +83,9 @@ func (p Price) Validate() error {
 	}
 	if !ValidCurrency(p.Currency) || p.Scale > MaxScale {
 		return invalid("price needs a three-letter uppercase currency and scale up to %d", MaxScale)
+	}
+	if p.Source != nil && (!validText(p.Source.Catalog, true) || !validText(p.Source.Commit, false) || !validText(p.Source.RetrievedAt, false) || !validText(p.Source.SourceURL, false)) {
+		return invalid("price source needs a catalogue name and plain-text fields")
 	}
 	if len(p.Meters) == 0 {
 		return invalid("price needs at least one meter")

@@ -216,6 +216,7 @@ Available Commands:
   get         Show one price and its current revision
   set         Set a model's price per million tokens (or -f for a full spec)
   delete      Delete a price (uses the current revision unless --revision is given)
+  catalog     Look up list prices in the bundled catalogue and import the ones you choose
 
 Flags:
   -h, --help   help for prices
@@ -378,6 +379,179 @@ Flags:
   -h, --help            help for delete
       --revision uint   Expected revision
   -y, --yes             Do not ask for confirmation (required when there is no terminal)
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+#### `aiplex usage prices catalog`
+
+```text
+The binary carries a pinned snapshot of a third-party price list (LiteLLM's
+model_prices_and_context_window.json, MIT licence). Nothing is priced from it
+automatically: a model stays unknown until you import its price, which creates
+an ordinary price resource marked with its source and snapshot date. The cost
+basis stays "estimated": these are list prices, not invoices.
+
+Usage:
+  aiplex usage prices catalog [flags]
+  aiplex usage prices catalog [command]
+
+Examples:
+  aiplex usage prices catalog search claude --provider anthropic
+  aiplex usage prices catalog show openai/gpt-4o-mini
+  aiplex usage prices catalog import openai/gpt-4o-mini --dry-run
+
+Available Commands:
+  search      Search catalogue models by id
+  show        Show one catalogue model and what importing it would write
+  import      Create price resources from catalogue models (shows exactly what is written first)
+
+Flags:
+  -h, --help   help for catalog
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Use "aiplex usage prices catalog [command] --help" for more information about a command.
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+##### `aiplex usage prices catalog search`
+
+```text
+Lists catalogue models whose <provider>/<model> contains every word of the
+text (case-insensitive substring match only). Prices are USD per million tokens.
+Providers: anthropic, azure-openai, bedrock, deepseek, gemini-developer, google, groq, mistral, openai, vertex-anthropic, xai.
+
+Usage:
+  aiplex usage prices catalog search <text> [--provider p] [flags]
+
+Examples:
+  aiplex usage prices catalog search gpt-4o
+  aiplex usage prices catalog search claude --provider anthropic
+  aiplex usage prices catalog search "gemini flash" -o json
+
+Flags:
+  -h, --help              help for search
+      --limit int         Most rows to show (0 for all) (default 50)
+      --provider string   Only this catalogue provider
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+##### `aiplex usage prices catalog show`
+
+```text
+Show one catalogue model and what importing it would write
+
+Usage:
+  aiplex usage prices catalog show <provider>/<model> [flags]
+
+Examples:
+  aiplex usage prices catalog show openai/gpt-4o-mini
+  aiplex usage prices catalog show bedrock/anthropic.claude-sonnet-4-6 -o json
+
+Flags:
+  -h, --help   help for show
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+##### `aiplex usage prices catalog import`
+
+```text
+Creates ordinary model-price resources from catalogue entries, marked with
+their source (catalogue, commit, snapshot date, source URL). It shows every meter
+as an exact decimal before writing anything, and never overwrites an existing
+price unless --replace is given. Cost from these prices has the basis "estimated".
+
+Meters the catalogue does not state stay unset, so cost for usage of that kind
+stays unknown. Fields an AIPlex price cannot express are listed. When one of
+them changes what a request costs (context-length tiers, audio or image token
+rates), the import is refused unless you pass --accept-partial. Reasoning tokens
+are never priced from the catalogue; add --reasoning-included only when you know
+the provider's output tokens already include them (OpenAI, Anthropic), otherwise
+records that report reasoning tokens stay unknown cost.
+
+--all-for-access-point resolves each model on the access point to its provider
+and native model and imports those the catalogue lists; the rest are listed.
+
+Usage:
+  aiplex usage prices catalog import <provider>/<model>... [--all-for-access-point <ap>] [flags]
+
+Examples:
+  aiplex usage prices catalog import openai/gpt-4o-mini --dry-run
+  aiplex usage prices catalog import anthropic/claude-haiku-4-5 --reasoning-included --yes
+  aiplex usage prices catalog import --all-for-access-point team --yes
+  aiplex usage prices catalog import gemini-developer/gemini-2.5-flash --accept-partial --replace
+
+Flags:
+      --accept-partial                Import base rates even when the model has pricing a price cannot express
+      --all-for-access-point string   Import every model of this access point that the catalogue lists
+      --currency string               Currency (the catalogue is USD only) (default "USD")
+      --dry-run                       Show what would be written and write nothing
+  -h, --help                          help for import
+      --reasoning-included            Declare reasoning tokens as included in output tokens (free meter); only when the provider does
+      --replace                       Replace an existing price with the same id (never done without this flag)
+  -y, --yes                           Do not ask for confirmation (required when there is no terminal)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
