@@ -220,6 +220,7 @@ func modelErrorWriter(protocol string) accessPointErrorWriter {
 type nativeErrorWriter struct {
 	http.ResponseWriter
 	protocol  string
+	call      *accessPointCall // set when the refusal can be explained
 	status    int
 	wrote     bool
 	buffering bool
@@ -323,6 +324,11 @@ func (w *nativeErrorWriter) finish() {
 			code = googleErrorStatus(w.status)
 		}
 		w.Header().Del("X-Content-Type-Options")
+		if w.status == http.StatusForbidden && w.call != nil && w.call.missingGrant != "" {
+			// The access point admitted this caller, but a model grant is
+			// missing: say which, and how to add it.
+			code, message = "permission_denied", w.call.missingGrant
+		}
 		writeNativeError(w.ResponseWriter, w.protocol, w.status, code, message)
 		return
 	}
@@ -578,7 +584,7 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 		}
 		inner := delegateRequest(r, call, "/api/v1/llm/gateway/"+entry.SurfaceRef+path, entry.SurfaceRef, body)
 		inner.URL.RawQuery = rawQuery
-		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol}
+		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol, call: call}
 		defer writer.finish()
 		h.ClientGateway(writer, inner)
 	}
@@ -669,4 +675,31 @@ func (h *ConnectedHandler) AccessPointListGenAIModels(w http.ResponseWriter, r *
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	JSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+// missingGrantMessage explains a 403 from an admitted caller who lacks model
+// grants. Admission lets a caller reach the access point; the model, surface
+// and agent grants are separate and are set by an operator. The missing grants
+// are named exactly; the suggested command grants the whole surface
+// (llm:surface:{surface}:*) rather than the one operation. `user-scopes set`
+// replaces the whole list, so the message tells the operator to keep the
+// caller's existing scopes.
+func missingGrantMessage(principal string, missing []string) string {
+	if principal == "" {
+		principal = "<principal-id>"
+	}
+	var suggest []string
+	seen := map[string]bool{}
+	for _, scope := range missing {
+		if rest, ok := strings.CutPrefix(scope, "llm:surface:"); ok {
+			if surface, _, found := strings.Cut(rest, ":"); found {
+				scope = "llm:surface:" + surface + ":*"
+			}
+		}
+		if !seen[scope] {
+			seen[scope] = true
+			suggest = append(suggest, scope)
+		}
+	}
+	return fmt.Sprintf("this access point admits you, but your account is missing the grant(s): %s. An operator can add them with: aiplex agents user-scopes set %s --scopes %s (set replaces the list: include the scopes shown by `aiplex agents user-scopes get %s`)", strings.Join(missing, ", "), principal, strings.Join(suggest, ","), principal)
 }

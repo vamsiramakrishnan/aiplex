@@ -234,7 +234,7 @@ func (h *ConnectedHandler) AccessPointResource(protocol string) http.HandlerFunc
 			return
 		}
 		inner := delegateRequest(r, call, "/api/v1/llm/gateway/"+chosen.ref+local, chosen.ref, data)
-		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol}
+		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol, call: call}
 		defer writer.finish()
 		h.ClientGateway(writer, inner)
 	}

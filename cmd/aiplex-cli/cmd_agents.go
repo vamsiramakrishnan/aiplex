@@ -163,7 +163,19 @@ func userScopesCmd() *cobra.Command {
 	var scopes []string
 	setCmd := &cobra.Command{
 		Use:   "set <principal-id>",
-		Short: "Set user scopes",
+		Short: "Replace a user's scopes",
+		Long: `Replaces the whole list of manual grants for a user (it does not add to it): run
+"aiplex agents user-scopes get <principal-id>" first and include what it shows.
+
+Being admitted by an access point does not grant model access. A model call
+through an access point needs both of:
+
+  llm:model:<model>          the model, for example llm:model:mock-gpt
+  llm:surface:<surface>:*    the model surface that serves it, for example
+                             llm:surface:local-models:*
+
+The 403 a caller gets without them names the missing grants. Find the
+principal ID with: aiplex whoami (as that caller), or aiplex dev token --user NAME.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
@@ -181,7 +193,7 @@ func userScopesCmd() *cobra.Command {
 			return nil
 		},
 	}
-	setCmd.Flags().StringSliceVar(&scopes, "scopes", nil, "Scopes to set")
+	setCmd.Flags().StringSliceVar(&scopes, "scopes", nil, "Scopes to set (comma separated); replaces the current list")
 	setCmd.MarkFlagRequired("scopes")
 
 	cmd.AddCommand(getCmd, setCmd)

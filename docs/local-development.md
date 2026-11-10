@@ -154,9 +154,24 @@ AIPLEX_TOKEN=$(aiplex dev token --user dana --role deployer) aiplex access-point
 
 | `--role` | What the caller gets |
 | --- | --- |
-| `none` (default) | No role. It sees only the access points that admit it. Model calls were refused with `403 permission_denied` in a test run. The CLI help says it needs model and tool grants, set with `aiplex agents user-scopes set <principal-id>`; that grant was tried in the same test run and the call was still refused, so the grant path is not confirmed here. |
+| `none` (default) | No role. It sees only the access points that admit it. Admission is not a grant: to call a model it also needs `llm:model:<model>` and `llm:surface:<surface>:*`, set by you with `aiplex agents user-scopes set <principal-id> --scopes ...` (see below). Without them the call is refused with `403` and a message that lists what is missing. |
 | `deployer` | Configuration screens and commands, without admin-only actions. |
 | `admin` | The same role as the developer. |
+
+To let a no-role caller use the seeded model through an access point that admits it (the `aiplex dev` summary shows
+the same steps):
+
+```sh
+aiplex access-points create team --model mock-gpt=local-models --allow-users bob@localhost
+BOB=$(aiplex dev token --user bob)        # stderr prints bob's principal ID
+aiplex agents user-scopes set PRINCIPAL_ID --scopes llm:model:mock-gpt,llm:surface:local-models:*
+curl -s "$AIPLEX_URL/ap/team/v1/chat/completions" -H "Authorization: Bearer $BOB" \
+  -H "Content-Type: application/json" -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hi"}]}'
+```
+
+`user-scopes set` replaces the whole list. With only `llm:model:mock-gpt` the call is still refused (the surface
+grant is missing); this is covered by `tests/e2e/model_grants_test.go`. Before, the refusal said only
+`operation denied`; it now names the missing grants and the command.
 
 `--groups a,b` adds identity-provider groups to the token, for access points that admit a group. The caller's
 principal ID is printed by `aiplex whoami` when run with that token.
@@ -251,8 +266,10 @@ After the summary, `Ready in 0.1s. Try next` lists numbered steps, each with rea
    OpenAI Chat Completions example for `mock-gpt`.
 2. `aiplex usage records`, to see what it cost and who made it.
 3. `aiplex connect local` for client configuration, and `aiplex dev status` to see the Console address.
-4. With the mock provider, a second caller: `aiplex access-points create team --model mock-gpt=local-models --allow-users bob@localhost`,
-   then `AIPLEX_TOKEN=$(aiplex dev token --user bob 2>/dev/null) aiplex connect team`.
+4. With the mock provider, a second caller with no role: create `team`, which admits `bob@localhost`, mint bob's token
+   with `aiplex dev token --user bob`, grant bob the model and its surface with `aiplex agents user-scopes set`, then call
+   the model with bob's token. Admission alone is not enough for a model call; see
+   [other local callers](#other-local-callers).
 
 A background run (`--detach`) prints the same summary, then `Running in the background`, the pid and the log file.
 The summary states the Console line in one of two ways. When the binary carries a built Console, it gives the

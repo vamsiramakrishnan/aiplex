@@ -164,11 +164,11 @@ Usage:
 
 Examples:
   aiplex agents user-scopes get principal-0123abcd
-  aiplex agents user-scopes set principal-0123abcd --scopes llm:model:mock-gpt
+  aiplex agents user-scopes set principal-0123abcd --scopes llm:model:mock-gpt,llm:surface:local-models:*
 
 Available Commands:
   get         Get user scopes
-  set         Set user scopes
+  set         Replace a user's scopes
 
 Flags:
   -h, --help   help for user-scopes
@@ -228,17 +228,28 @@ Exit codes:
 #### `aiplex agents user-scopes set`
 
 ```text
-Set user scopes
+Replaces the whole list of manual grants for a user (it does not add to it): run
+"aiplex agents user-scopes get <principal-id>" first and include what it shows.
+
+Being admitted by an access point does not grant model access. A model call
+through an access point needs both of:
+
+  llm:model:<model>          the model, for example llm:model:mock-gpt
+  llm:surface:<surface>:*    the model surface that serves it, for example
+                             llm:surface:local-models:*
+
+The 403 a caller gets without them names the missing grants. Find the
+principal ID with: aiplex whoami (as that caller), or aiplex dev token --user NAME.
 
 Usage:
   aiplex agents user-scopes set <principal-id> [flags]
 
 Examples:
-  aiplex agents user-scopes set principal-0123abcd --scopes llm:model:mock-gpt,mcp:tools:*
+  aiplex agents user-scopes set principal-0123abcd --scopes llm:model:mock-gpt,llm:surface:local-models:*,mcp:tools:*
 
 Flags:
   -h, --help             help for set
-      --scopes strings   Scopes to set
+      --scopes strings   Scopes to set (comma separated); replaces the current list
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

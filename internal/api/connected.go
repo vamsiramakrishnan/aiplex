@@ -601,22 +601,36 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		headers.Set("X-Goog-User-Project", connection.BillingProject)
 	}
 	opts := modelapi.Options{UpstreamHeaders: headers, HTTPClient: h.Runtime.Streaming, TokenSource: modelapi.TokenSourceFunc(func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, connection.IdentityRef) }), Context: func(req *http.Request) (contracts.RequestContext, error) { return h.trusted(req, id) }, Authorize: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
-		if e := h.authorize(r, "llm:surface:"+id+":"+op.ID); e != nil {
-			return e
-		}
+		// Every required grant is checked (not just the first) so a refusal
+		// through an access point can name all that are missing.
+		required := []string{"llm:surface:" + id + ":" + op.ID}
 		if m.Agent != "" {
-			if e := h.authorize(r, "llm:agent:"+m.Agent); e != nil {
-				return e
-			}
+			required = append(required, "llm:agent:"+m.Agent)
 		}
 		if m.Model != "" {
 			model, e := s.ModelID(m.Model)
 			if e != nil {
 				return e
 			}
-			return h.authorize(r, "llm:model:"+model)
+			required = append(required, "llm:model:"+model)
 		}
-		return nil
+		var missing []string
+		for _, scope := range required {
+			if h.authorize(r, scope) != nil {
+				missing = append(missing, scope)
+			}
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		if call := accessPointCallFrom(r.Context()); call != nil {
+			principal := ""
+			if identity := GetWIFIdentity(r.Context()); identity != nil {
+				principal = identity.PrincipalID
+			}
+			call.missingGrant = missingGrantMessage(principal, missing)
+		}
+		return fmt.Errorf("action grant required")
 	}, AllowShared: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation) bool {
 		return h.authorize(r, "llm:surface:"+id+":shared-admin") == nil
 	}, Ownership: resourceOwnership{store: h.Store, namespace: strconv.FormatUint(record.Revision, 10)}, LiveDialer: liveDialer, AllowHTTPForTests: h.Development}

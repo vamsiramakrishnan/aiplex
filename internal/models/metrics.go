@@ -22,10 +22,11 @@ type DashboardStats struct {
 	LLMPlexInstances    int `json:"llmplex_instances"`
 	SkillsPlexInstances int `json:"skillsplex_instances"`
 
-	// Usage (last 24h), from the usage ledger. A null value is unknown or
-	// unavailable, never zero: daily_cost_usd is null when no record carried a
-	// USD cost, daily_tokens when no record reported tokens, and all four are
-	// null when usage_source is "unavailable".
+	// Usage (last 24h), from the usage ledger. A null value is unknown, never
+	// zero: daily_cost_usd is null when no record carried a USD cost and
+	// daily_tokens when no record reported tokens. If the ledger cannot be read
+	// the dashboard handler answers 503 STATS_UNAVAILABLE rather than a body,
+	// so no usage figure is ever reported for an unreadable source.
 	DailyCostUSD  *float64 `json:"daily_cost_usd"`
 	DailyTokens   *int64   `json:"daily_tokens"`
 	DailyRequests *int64   `json:"daily_requests"`
@@ -33,8 +34,7 @@ type DashboardStats struct {
 	// the totals above could not include (no price, or no token usage).
 	DailyUnknownCostRecords  int64 `json:"daily_unknown_cost_records"`
 	DailyUnknownUsageRecords int64 `json:"daily_unknown_usage_records"`
-	// UsageSource is "ledger", "legacy-store" (no ledger configured) or
-	// "unavailable".
+	// UsageSource is "ledger", or "legacy-store" (no ledger configured).
 	UsageSource string `json:"usage_source"`
 
 	// Activity (last 24h)

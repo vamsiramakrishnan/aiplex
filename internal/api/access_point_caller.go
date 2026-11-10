@@ -140,6 +140,11 @@ type accessPointCall struct {
 	QoS        bool
 	Weight     uint32 // QoS weight; zero without QoS
 	recheck    func(context.Context) error
+	// missingGrant is set by the model authorizer when it refuses a caller the
+	// access point admitted: the operator-facing explanation of which grants
+	// are missing. It only changes the wording of the refusal; it never
+	// permits anything.
+	missingGrant string
 }
 
 type accessPointKey struct{}
