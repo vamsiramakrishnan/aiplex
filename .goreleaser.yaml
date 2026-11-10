@@ -7,12 +7,19 @@
 #
 # Usage:
 #   goreleaser check                       # validate this file
-#   goreleaser release --snapshot --clean --skip=publish   # local dry run (make release-dry)
+#   goreleaser release --snapshot --clean --skip=publish,docker,sign,sbom   # snapshot dry run (local + CI)
 #   git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0  # real release, by CI
 #
 # The release workflow (.github/workflows/release.yml) runs on a v* tag, builds the
 # Console first (it is embedded in the CLI), and uses the matching section of
 # CHANGELOG.md as the release notes.
+#
+# On a version tag the release also publishes:
+#   - container images to ghcr.io/vamsiramakrishnan/{aiplex,aiplex-api}
+#   - a Homebrew formula to vamsiramakrishnan/homebrew-tap (only when
+#     HOMEBREW_TAP_TOKEN is set; the release still succeeds without it)
+#   - SBOMs (syft) over the release archives
+#   - keyless cosign signatures of checksums.txt and of the container images
 
 version: 2
 
@@ -82,6 +89,150 @@ archives:
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
+
+sboms:
+  - id: archives
+    artifacts: archive
+    cmd: syft
+
+# Keyless signing of checksums.txt with the GitHub OIDC token; the cosign
+# certificate (.pem) and signature (.sig) are attached to the release.
+signs:
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    output: true
+    args:
+      - sign-blob
+      - --output-certificate=${certificate}
+      - --output-signature=${signature}
+      - --yes
+      - "${artifact}"
+
+# Keyless signing of the pushed container images (by digest).
+docker_signs:
+  - id: images
+    cmd: cosign
+    artifacts: all
+    args:
+      - sign
+      - --yes
+      - "${artifact}@${digest}"
+
+dockers:
+  # aiplex-api, linux/amd64
+  - id: aiplex-api-amd64
+    ids:
+      - aiplex-api
+    goarch: amd64
+    use: buildx
+    dockerfile: Dockerfile.release-api
+    image_templates:
+      - "ghcr.io/vamsiramakrishnan/aiplex-api:{{ .Version }}-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/vamsiramakrishnan/aiplex"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}-api"
+      - "--label=org.opencontainers.image.description=API server for aiplex"
+  # aiplex-api, linux/arm64
+  - id: aiplex-api-arm64
+    ids:
+      - aiplex-api
+    goarch: arm64
+    use: buildx
+    dockerfile: Dockerfile.release-api
+    image_templates:
+      - "ghcr.io/vamsiramakrishnan/aiplex-api:{{ .Version }}-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/vamsiramakrishnan/aiplex"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}-api"
+      - "--label=org.opencontainers.image.description=API server for aiplex"
+  # aiplex (CLI), linux/amd64
+  - id: aiplex-amd64
+    ids:
+      - aiplex
+    goarch: amd64
+    use: buildx
+    dockerfile: Dockerfile.release-cli
+    image_templates:
+      - "ghcr.io/vamsiramakrishnan/aiplex:{{ .Version }}-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.source=https://github.com/vamsiramakrishnan/aiplex"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.description=CLI for aiplex"
+  # aiplex (CLI), linux/arm64
+  - id: aiplex-arm64
+    ids:
+      - aiplex
+    goarch: arm64
+    use: buildx
+    dockerfile: Dockerfile.release-cli
+    image_templates:
+      - "ghcr.io/vamsiramakrishnan/aiplex:{{ .Version }}-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.source=https://github.com/vamsiramakrishnan/aiplex"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.description=CLI for aiplex"
+
+docker_manifests:
+  - id: aiplex-api-manifest
+    name_template: "ghcr.io/vamsiramakrishnan/aiplex-api:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/vamsiramakrishnan/aiplex-api:{{ .Version }}-amd64"
+      - "ghcr.io/vamsiramakrishnan/aiplex-api:{{ .Version }}-arm64"
+  - id: aiplex-api-manifest-latest
+    name_template: "ghcr.io/vamsiramakrishnan/aiplex-api:latest"
+    image_templates:
+      - "ghcr.io/vamsiramakrishnan/aiplex-api:{{ .Version }}-amd64"
+      - "ghcr.io/vamsiramakrishnan/aiplex-api:{{ .Version }}-arm64"
+    skip_push: auto
+  - id: aiplex-manifest
+    name_template: "ghcr.io/vamsiramakrishnan/aiplex:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/vamsiramakrishnan/aiplex:{{ .Version }}-amd64"
+      - "ghcr.io/vamsiramakrishnan/aiplex:{{ .Version }}-arm64"
+  - id: aiplex-manifest-latest
+    name_template: "ghcr.io/vamsiramakrishnan/aiplex:latest"
+    image_templates:
+      - "ghcr.io/vamsiramakrishnan/aiplex:{{ .Version }}-amd64"
+      - "ghcr.io/vamsiramakrishnan/aiplex:{{ .Version }}-arm64"
+    skip_push: auto
+
+brews:
+  - repository:
+      owner: vamsiramakrishnan
+      name: homebrew-tap
+      # `index` rather than .Env.X: a missing variable must read as empty, not fail the template.
+      token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'
+    # Skip the tap upload when HOMEBREW_TAP_TOKEN is empty or absent so the
+    # release still succeeds without it.
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    homepage: "https://github.com/vamsiramakrishnan/aiplex"
+    description: "CLI and API server for aiplex."
+    license: "Apache-2.0"
+    install: |
+      bin.install "aiplex"
+      bin.install "aiplex-api"
+    test: |
+      output = shell_output("#{bin}/aiplex version")
+      assert_includes output, "aiplex version"
 
 # Used when no --release-notes file is given (for example `make release-dry`).
 # The release workflow passes the CHANGELOG.md section instead.

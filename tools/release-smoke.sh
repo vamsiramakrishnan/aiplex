@@ -2,8 +2,9 @@
 # Emulates the release archive for this machine and checks the first run of a
 # user who installs only the archive (no clone, no Go, no Node on PATH):
 #
-#   1. builds the Console (when Node is available), then aiplex and aiplex-api
-#      with release ldflags, CGO disabled, like .goreleaser.yaml;
+#   1. builds the Console (when Node is available), runs `goreleaser check` and
+#      a snapshot build that skips docker, signing, SBOM and the Homebrew upload,
+#      then builds aiplex and aiplex-api with release ldflags, CGO disabled, like .goreleaser.yaml;
 #   2. packs them as goreleaser does: aiplex_<version>_<os>_<arch>.tar.gz with
 #      the binaries at the archive root, plus checksums.txt;
 #   3. installs that archive with install.sh (AIPLEX_DOWNLOAD_BASE=file://...)
@@ -11,8 +12,9 @@
 #   4. runs aiplex version, aiplex dev --detach, a chat request, aiplex usage
 #      records, aiplex dev status and aiplex dev stop.
 #
-# What it does not cover: goreleaser itself, other OS/arch archives, Homebrew,
-# and downloading from GitHub. Exits non-zero on the first failure.
+# What it does not cover: the container image build (needs a Docker daemon),
+# cosign signing, the SBOM, the Homebrew formula install, other OS/arch
+# archives, and downloading from GitHub. Exits non-zero on the first failure.
 #
 #   bash tools/release-smoke.sh            # or: make release-smoke
 set -euo pipefail
@@ -37,6 +39,25 @@ if command -v npm >/dev/null; then
 else
     echo "npm not found: the archive will carry the placeholder Console (aiplex version says so)"
 fi
+
+step "goreleaser check and snapshot (no publish, no docker images, no signing, no SBOM, no Homebrew upload)"
+GORELEASER_VERSION="v2.13.1"   # same major line as release.yml and ci.yml; bump them together
+GR="$(command -v goreleaser || true)"
+if [ -z "$GR" ]; then
+    echo "goreleaser not on PATH: installing $GORELEASER_VERSION with go install"
+    go install "github.com/goreleaser/goreleaser/v2@$GORELEASER_VERSION" || fail "go install goreleaser"
+    GR="$(go env GOPATH)/bin/goreleaser"
+fi
+[ -s "$ROOT/console/built/index.html" ] || fail "console/built/index.html is missing: goreleaser's before hook needs the built Console"
+(cd "$ROOT" && "$GR" check) || fail "goreleaser check"
+# goreleaser writes ./dist (as make release-dry does); the output is moved into the scratch
+# directory afterwards so the worktree is left as it was.
+(cd "$ROOT" && "$GR" release --snapshot --clean --skip=publish,docker,sign,sbom) || fail "goreleaser snapshot"
+mv "$ROOT/dist" "$WORK/goreleaser-dist" || fail "snapshot output directory dist/ not found"
+[ -s "$WORK/goreleaser-dist/checksums.txt" ] || fail "snapshot has no checksums.txt"
+SNAP_ARCHIVE="$(ls "$WORK/goreleaser-dist"/aiplex_*_"$OS"_"$ARCH".tar.gz 2>/dev/null | head -n 1 || true)"
+[ -n "$SNAP_ARCHIVE" ] || fail "snapshot has no archive for $OS/$ARCH"
+tar -tzf "$SNAP_ARCHIVE" | grep -qx aiplex-api || fail "snapshot archive lacks aiplex-api"
 
 step "Build aiplex and aiplex-api ($OS/$ARCH, release ldflags)"
 (cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" -o "$STAGE/aiplex" ./cmd/aiplex-cli) || fail "build aiplex"

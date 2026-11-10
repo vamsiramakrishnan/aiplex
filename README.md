@@ -9,9 +9,26 @@ AIPlex is a gateway that sits between the people, agents and developer tools tha
   <img alt="Callers (agents, users, clients) reach one access point, which checks identity and policy and writes a usage record before forwarding to models, tools and skills." src="brand/launch/architecture.svg">
 </picture>
 
+## Install
+
+Tagged releases publish the install script, release archives, a Homebrew formula and container images. No release has been tagged yet, so until the first one, build from source (below).
+
+- **Install script** (Linux and macOS, amd64 or arm64). This installs `aiplex` and `aiplex-api` into `~/.local/bin`, verifies the archive against the release `checksums.txt` first, and needs no sudo:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash -s -- --version v0.1.0
+  ```
+
+- **Homebrew** (from the first tagged release): `brew install vamsiramakrishnan/tap/aiplex`. The tap is the `vamsiramakrishnan/homebrew-tap` repository.
+- **Container images** (from the first tagged release): `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex` (the CLI), each for linux/amd64 and linux/arm64.
+- **Build from source**: Go 1.25 or newer, then `make build`, which writes `bin/aiplex` and `bin/aiplex-api`.
+
+Full details are in the [getting started guide](docs-site/docs/getting-started/index.md).
+
 ## Try it in 60 seconds
 
-You need Go 1.25 or newer, `curl` and a terminal. No Docker, cloud account or API key.
+You need `aiplex` installed (see Install) or Go 1.25 or newer, `curl` and a terminal. No Docker, cloud account or API key.
 
 ```bash
 git clone https://github.com/vamsiramakrishnan/aiplex.git
