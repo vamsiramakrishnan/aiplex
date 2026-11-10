@@ -10,7 +10,9 @@ import (
 // MetadataHandler serves only operator-configured Client ID Metadata Documents.
 // publicOrigin must be the canonical HTTPS origin, not an untrusted Host header.
 func (s *Service) MetadataHandler(publicOrigin string) (http.Handler, error) {
-	if e := validateURL(publicOrigin, false); e != nil {
+	// Loopback HTTP is accepted only when the operator opted into loopback
+	// upstreams, which the API permits in development mode alone.
+	if e := validateURL(publicOrigin, s.allowLoopback); e != nil {
 		return nil, e
 	}
 	origin, _ := url.Parse(publicOrigin)
