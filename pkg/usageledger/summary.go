@@ -45,7 +45,10 @@ type Summary struct {
 // UnknownUsageRecords counts records with no usage at all. Cost holds exact
 // per-currency, per-basis totals; UnknownCostRecords counts unpriced records.
 type SummaryGroup struct {
-	Key                 map[string]string `json:"key"`
+	Key map[string]string `json:"key"`
+	// Labels holds display labels for identity keys (principal_id,
+	// actor_id), taken from the newest record of the group that carried one.
+	Labels              map[string]string `json:"labels,omitempty"`
 	BucketStart         *time.Time        `json:"bucket_start,omitempty"`
 	Records             int64             `json:"records"`
 	Requests            int64             `json:"requests"`
@@ -285,6 +288,16 @@ func (a *Aggregator) Add(r Record) error {
 		}
 		g = &groupAccumulator{group: SummaryGroup{Key: values, BucketStart: start, Tokens: map[string]int64{}, TokensUnknown: map[string]int64{}, Cost: []CostTotal{}}, costs: map[[2]string]*costAccumulator{}}
 		a.groups[joined] = g
+	}
+	for field, label := range map[string]string{"principal_id": r.PrincipalDisplay, "actor_id": r.ActorDisplay} {
+		if _, grouped := values[field]; grouped && label != "" {
+			if g.group.Labels == nil {
+				g.group.Labels = map[string]string{}
+			}
+			if _, set := g.group.Labels[field]; !set {
+				g.group.Labels[field] = label
+			}
+		}
 	}
 	return g.add(r)
 }

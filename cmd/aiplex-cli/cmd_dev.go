@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -33,6 +34,9 @@ type devState struct {
 	Protocol    string `json:"protocol"`
 	PID         int    `json:"pid"`
 	Console     string `json:"console,omitempty"`
+	ConsoleNote string `json:"console_note,omitempty"`
+	StartedAt   string `json:"started_at,omitempty"`
+	APILog      string `json:"api_log,omitempty"`
 }
 
 func devStatePath() (string, error) {
@@ -50,7 +54,8 @@ func devCmd() *cobra.Command {
 		model, apiBin     string
 		contextName       string
 		noConsole, open   bool
-		noTools           bool
+		noTools, detach   bool
+		allowOrigins      []string
 	)
 	cmd := &cobra.Command{
 		Use:   "dev",
@@ -72,16 +77,31 @@ What is created through the normal APIs:
 The CLI context "local" is created and made current while this runs. The
 previous context is restored when you stop it.
 
+--detach runs it in the background (output in ~/.aiplex/dev.log); stop it with
+"aiplex dev stop" and check it with "aiplex dev status". When aiplex dev stops
+or is killed, the local API stops with it.
+
+The local API calls only loopback upstreams and the public OpenAI, Anthropic
+and Gemini APIs; allow another origin with --allow-origin https://host.
+
 A real provider key is read from the environment variable you name with
 --api-key-env. It is passed only to the local API process's environment; it
 is never printed, accepted as a flag value, or written to disk.`,
 		Example: `  aiplex dev
+  aiplex dev --detach && aiplex dev status
   aiplex dev --provider openai --api-key-env OPENAI_API_KEY
   aiplex dev --provider anthropic --api-key-env ANTHROPIC_API_KEY --model claude-haiku-4-5
   eval "$(aiplex dev env)"    # in another terminal: AIPLEX_URL, AIPLEX_TOKEN, OPENAI_BASE_URL, ...`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDev(cmd.Context(), devOptions{port: port, consolePort: consolePort, provider: provider, keyEnv: keyEnv, model: model, apiBin: apiBin, contextName: contextName, noConsole: noConsole, open: open, noTools: noTools})
+			o := devOptions{port: port, consolePort: consolePort, provider: provider, keyEnv: keyEnv, model: model, apiBin: apiBin, contextName: contextName, noConsole: noConsole, open: open, noTools: noTools, allowOrigins: allowOrigins}
+			if err := refuseIfDevRunning(); err != nil {
+				return err
+			}
+			if detach {
+				return runDevDetached(cmd, o)
+			}
+			return runDev(cmd.Context(), o)
 		},
 	}
 	cmd.Flags().IntVar(&port, "port", 8080, "API port on 127.0.0.1")
@@ -94,7 +114,9 @@ is never printed, accepted as a flag value, or written to disk.`,
 	cmd.Flags().BoolVar(&noConsole, "no-console", false, "Do not serve the Console")
 	cmd.Flags().BoolVar(&open, "open", false, "Open the Console in a browser")
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Do not start the built-in MCP server's tool connection")
-	cmd.AddCommand(devEnvCmd())
+	cmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in the background; stop with: aiplex dev stop")
+	cmd.Flags().StringSliceVar(&allowOrigins, "allow-origin", nil, "Extra upstream origin the local API may call, e.g. https://mcp.example.com (repeatable)")
+	cmd.AddCommand(devEnvCmd(), devStatusCmd(), devStopCmd())
 	return cmd
 }
 
@@ -105,6 +127,7 @@ type devOptions struct {
 	contextName       string
 	noConsole, open   bool
 	noTools           bool
+	allowOrigins      []string
 }
 
 func runDev(parent context.Context, o devOptions) error {
@@ -139,7 +162,11 @@ func runDev(parent context.Context, o devOptions) error {
 		p := strconv.Itoa(o.consolePort)
 		origins = []string{"http://127.0.0.1:" + p, "http://localhost:" + p}
 	}
-	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins})
+	extra, err := devAllowedOrigins(o.allowOrigins)
+	if err != nil {
+		return err
+	}
+	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins, ExtraOrigins: extra})
 	if err != nil {
 		return fmt.Errorf("%w\n  API log: %s", err, logPath)
 	}
@@ -161,13 +188,13 @@ func runDev(parent context.Context, o devOptions) error {
 		consoleURL, consoleNote = startDevConsole(ctx, stack.APIURL, stack.Token, o.consolePort)
 	}
 	statePath, _ := devStatePath()
-	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, PID: os.Getpid(), Console: consoleURL}
+	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath}
 	if raw, e := json.MarshalIndent(state, "", "  "); e == nil && statePath != "" {
 		_ = os.WriteFile(statePath, raw, 0o600)
 		defer os.Remove(statePath)
 	}
 
-	printDevSummary(stack, seeded, o, previous, consoleURL, consoleNote, logPath, time.Since(started))
+	printDevSummary(stack, seeded, o, previous, consoleURL, consoleNote, logPath, time.Since(started), os.Getenv(devDetachedEnv) != "")
 	if consoleURL != "" && o.open {
 		_ = openBrowser(consoleURL)
 	}
@@ -244,6 +271,27 @@ func findAPIBinary(ctx context.Context, flag string) (string, error) {
 		return path, nil
 	}
 	return "", fmt.Errorf("aiplex-api not found. Install it next to the aiplex CLI (release archives include it), run `make build` in the source repository, or pass --api-bin PATH")
+}
+
+// findAPIBinaryQuiet locates aiplex-api without building it.
+func findAPIBinaryQuiet() (string, error) {
+	if env := os.Getenv("AIPLEX_API_BIN"); env != "" {
+		return requireExecutable(env)
+	}
+	name := "aiplex-api"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if exe, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = resolved
+		}
+		sibling := filepath.Join(filepath.Dir(exe), name)
+		if _, err := os.Stat(sibling); err == nil {
+			return sibling, nil
+		}
+	}
+	return exec.LookPath(name)
 }
 
 func requireExecutable(path string) (string, error) {
@@ -329,7 +377,7 @@ func restoreContext(name, previous string) {
 
 func startDevConsole(ctx context.Context, apiURL, tok string, port int) (string, string) {
 	if !consoleBuilt() {
-		return "", "not built into this binary. Build it with `make console && make build` (needs Node 22), or run\n                 `cd console && npm ci && npm run dev` (it proxies /api to http://localhost:8080)"
+		return "", "not in this binary (a source build without Node). Release binaries include it;\n                 from source: make console && make build (Node 22), then restart aiplex dev"
 	}
 	handler, err := consoleHandler(apiURL, tok)
 	if err != nil {
@@ -348,7 +396,7 @@ func startDevConsole(ctx context.Context, apiURL, tok string, port int) (string,
 	return "http://" + l.Addr().String(), ""
 }
 
-func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, previous, consoleURL, consoleNote, logPath string, took time.Duration) {
+func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, previous, consoleURL, consoleNote, logPath string, took time.Duration, detached bool) {
 	row := func(label, value string) { fmt.Printf("  %-14s %s\n", label, value) }
 	row("API", s.APIURL+"  (development mode, in memory, loopback only)")
 	row("You", devstack.DevEmail+"  (admin; token from a local issuer, valid 12h)")
@@ -367,7 +415,7 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	} else {
 		row("Price", "none (prices are your contracted rates: aiplex usage prices set -f price.json)")
 	}
-	row("Quota", "off. QuotaPlex needs an operator quota policy file (AIPLEX_QUOTA_FILE); see docs/quotaplex-administration.md")
+	row("Quota", "off (optional: QuotaPlex reads an operator policy file named by AIPLEX_QUOTA_FILE)")
 	ctxNote := "\"" + o.contextName + "\" (current"
 	if previous != "" {
 		ctxNote += "; \"" + previous + "\" is restored when you stop"
@@ -381,18 +429,41 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	row("API log", logPath)
 	fmt.Println()
 	fmt.Println("  WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy " + strings.TrimPrefix(s.APIURL, "http://") + ".")
-	fmt.Printf("\n  Ready in %.1fs. In another terminal:\n\n", took.Seconds())
+	fmt.Printf("\n  Ready in %.1fs. Try next, in another terminal:\n\n", took.Seconds())
+	fmt.Println("    # 1. Send a chat request through the access point")
 	fmt.Println(`    eval "$(aiplex dev env)"`)
-	fmt.Println()
 	for _, line := range devTryLines(seeded) {
 		fmt.Println("    " + line)
 	}
 	fmt.Println()
+	fmt.Println("    # 2. See what it cost and who made it")
 	fmt.Println("    aiplex usage records")
-	fmt.Println("    aiplex usage summary --by model")
-	fmt.Println("    aiplex connect " + seeded.AccessPoint)
 	fmt.Println()
-	fmt.Println("  Press Ctrl+C to stop. State is in memory and is discarded on stop.")
+	if consoleURL != "" {
+		fmt.Println("    # 3. Open the Console (URL also shown by: aiplex dev status)")
+		fmt.Println("    " + openCommand() + " " + consoleURL)
+	} else {
+		fmt.Println("    # 3. Point an MCP client or IDE at it, and see where the Console is")
+		fmt.Println("    aiplex connect " + seeded.AccessPoint)
+		fmt.Println("    aiplex dev status")
+	}
+	fmt.Println()
+	if detached {
+		fmt.Println("  Running in the background. Stop it with: aiplex dev stop")
+	} else {
+		fmt.Println("  Press Ctrl+C to stop. State is in memory and is discarded on stop.")
+	}
+}
+
+// openCommand is the shell command that opens a URL on this OS.
+func openCommand() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "open"
+	case "windows":
+		return "start"
+	}
+	return "xdg-open"
 }
 
 // devTryLines are the example requests for the seeded wire.
@@ -404,8 +475,7 @@ func devTryLines(seeded *devstack.Seeded) []string {
 			"curl -s " + ap + `/v1/messages" \`,
 			`  -H "x-api-key: $AIPLEX_TOKEN" -H "anthropic-version: 2023-06-01" -H "Content-Type: application/json" \`,
 			`  -d '{"model":"` + seeded.Model + `","max_tokens":256,"messages":[{"role":"user","content":"Hello"}]}'`,
-			"",
-			"# Any Anthropic SDK works with ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY (set by the eval line).",
+			"# (any Anthropic SDK works too: the eval line sets ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY)",
 		}
 	case "google-genai":
 		return []string{
@@ -418,9 +488,7 @@ func devTryLines(seeded *devstack.Seeded) []string {
 		"curl -s " + ap + `/v1/chat/completions" \`,
 		`  -H "Authorization: Bearer $AIPLEX_TOKEN" -H "Content-Type: application/json" \`,
 		`  -d '{"model":"` + seeded.Model + `","messages":[{"role":"user","content":"Hello"}]}'`,
-		"",
-		"# Any OpenAI SDK works with OPENAI_BASE_URL and OPENAI_API_KEY (set by the eval line):",
-		`python3 -c 'from openai import OpenAI; print(OpenAI().chat.completions.create(model="` + seeded.Model + `", messages=[{"role":"user","content":"Hello"}]).choices[0].message.content)'`,
+		"# (any OpenAI SDK works too: the eval line sets OPENAI_BASE_URL and OPENAI_API_KEY)",
 	}
 }
 

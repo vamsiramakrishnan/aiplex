@@ -50,6 +50,20 @@ type Error struct {
 	Code       string `json:"code"`
 	Message    string `json:"message"`
 	StatusCode int    `json:"-"`
+	// Details carries structured context, such as {"field": "models/0/surface_ref"}
+	// for a specification the server rejected.
+	Details   map[string]any `json:"details,omitempty"`
+	RequestID string         `json:"request_id,omitempty"`
+}
+
+// Field returns the specification field the server named in a validation
+// error, or "".
+func (e *Error) Field() string {
+	if e == nil || e.Details == nil {
+		return ""
+	}
+	f, _ := e.Details["field"].(string)
+	return f
 }
 
 func (e *Error) Error() string {

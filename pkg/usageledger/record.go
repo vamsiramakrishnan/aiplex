@@ -169,7 +169,13 @@ type Record struct {
 	ModelVersion string    `json:"model_version,omitempty"`
 	ToolName     string    `json:"tool_name,omitempty"`
 	PrincipalID  string    `json:"principal_id,omitempty"`
-	ActorID      string    `json:"actor_id,omitempty"`
+	// PrincipalDisplay is a human label for the principal (verified email,
+	// display name or subject) recorded by the server when the identity was
+	// verified. It is for display only; PrincipalID stays the key.
+	PrincipalDisplay string `json:"principal_display,omitempty"`
+	ActorID          string `json:"actor_id,omitempty"`
+	// ActorDisplay is the verified actor subject (an agent), for display only.
+	ActorDisplay string `json:"actor_display,omitempty"`
 	// ClientID is the verified token's authorized party. A public OAuth client
 	// id is attribution, not a security boundary.
 	ClientID string `json:"client_id,omitempty"`
@@ -260,7 +266,7 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "actor_id": r.ActorID, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}

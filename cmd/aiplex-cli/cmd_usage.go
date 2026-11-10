@@ -184,8 +184,10 @@ func usageRecordsCmd() *cobra.Command {
 				if len(records) == 0 {
 					fmt.Println("No usage records match.")
 				} else {
-					headers, rows := usageRecordRows(records)
-					printTable(headers, rows)
+					usageRecordTable(records).render(os.Stdout)
+					if !wideOutput() {
+						fmt.Println("\nRecord IDs and every counter: -o wide. One record in full: aiplex usage get <id>.")
+					}
 				}
 				if next != "" {
 					fmt.Printf("\nMore records available: --cursor %s\n", next)
@@ -263,8 +265,7 @@ records and the command says so.`,
 			if len(summary.Groups) == 0 {
 				fmt.Println("No usage records match.")
 			} else {
-				headers, rows := usageSummaryRows(summary)
-				printTable(headers, rows)
+				usageSummaryTable(summary).render(os.Stdout)
 			}
 			fmt.Printf("\n%d records scanned.\n", summary.RecordsScanned)
 			for _, g := range summary.Groups {
@@ -335,17 +336,56 @@ func usageTarget(r usageledger.Record) string {
 	return "—"
 }
 
-func usageRecordRows(records []usageledger.Record) ([]string, [][]string) {
-	headers := []string{"ID", "TIME", "PLANE", "MODEL/TOOL", "AGENT", "USER", "CLIENT", "SESSION", "BATCH", "STATUS", "IN", "OUT", "CACHE-W", "MODALITY", "UNITS", "COST", "LATENCY"}
-	rows := make([][]string, 0, len(records))
+// usageRecordTable renders records under the table policy: by default the
+// columns needed to answer "who used what, did it work, what did it cost";
+// -o wide adds identifiers and every counter.
+func usageRecordTable(records []usageledger.Record) *outTable {
+	t := newTable(
+		wideCol("ID").trunc(truncNever), col("TIME"), wideCol("PLANE"), col("MODEL/TOOL"), col("CALLER").trunc(truncMiddle),
+		wideCol("AGENT"), wideCol("USER").trunc(truncNever), wideCol("CLIENT"), col("ACCESS POINT"), wideCol("SESSION"), wideCol("BATCH"),
+		col("STATUS"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST").trunc(truncNever), wideCol("LATENCY"),
+	)
 	for _, r := range records {
-		rows = append(rows, []string{
-			r.ID, r.StartedAt.UTC().Format("2006-01-02T15:04:05Z"), r.Plane, usageTarget(r), usageDash(r.ActorID), usageDash(r.PrincipalID), usageDash(r.ClientID), usageSessionCell(r), usageBatchCell(r), usageStatusCell(r),
+		cost := usageCost(r.Cost)
+		latency := humanDuration(r.LatencyMS)
+		if wideOutput() {
+			latency = fmt.Sprintf("%dms", r.LatencyMS)
+		} else {
+			cost = shortMoney(r.Cost.Currency, r.Cost.Amount, r.Cost.Scale, r.Cost.Basis)
+		}
+		t.add(r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalID), usageDash(r.ClientID),
+			usageDash(r.AccessPointID), usageSessionCell(r), usageBatchCell(r), usageStatusCell(r),
 			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageRecordCounter(r, usageledger.CounterCacheWrite),
-			usageModalityCell(r), usageUnitsCell(r), usageCost(r.Cost), fmt.Sprintf("%dms", r.LatencyMS),
-		})
+			usageModalityCell(r), usageUnitsCell(r), cost, latency)
 	}
-	return headers, rows
+	return t
+}
+
+// usageCaller is the human label of who made the request: the user's
+// display label (email) when the server recorded one, else a short form of
+// the principal ID; an agent is shown with the user it acts for.
+func usageCaller(r usageledger.Record) string {
+	user := r.PrincipalDisplay
+	if user == "" && r.PrincipalID != "" {
+		user = shortPrincipal(r.PrincipalID)
+	}
+	agent := usageAgentLabel(r)
+	switch {
+	case user != "" && agent != "":
+		return agent + " (" + user + ")"
+	case user != "":
+		return user
+	case agent != "":
+		return agent
+	}
+	return "—"
+}
+
+func usageAgentLabel(r usageledger.Record) string {
+	if r.ActorDisplay != "" {
+		return r.ActorDisplay
+	}
+	return r.ActorID
 }
 
 func usageBatchCell(r usageledger.Record) string {
@@ -466,7 +506,7 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		{"id", r.ID}, {"started_at", r.StartedAt.UTC().Format(time.RFC3339Nano)}, {"finished_at", r.FinishedAt.UTC().Format(time.RFC3339Nano)},
 		{"latency", fmt.Sprintf("%dms", r.LatencyMS)}, {"plane", r.Plane}, {"provider", usageDash(r.Provider)}, {"resource_id", usageDash(r.ResourceID)},
 		{"operation", usageDash(r.Operation)}, {"model_id", usageDash(r.ModelID)}, {"model_version", usageDash(r.ModelVersion)}, {"tool_name", usageDash(r.ToolName)},
-		{"principal_id", usageDash(r.PrincipalID)}, {"actor_id", usageDash(r.ActorID)}, {"client_id", usageDash(r.ClientID)}, {"request_id", usageDash(r.RequestID)},
+		{"principal_id", usageDash(r.PrincipalID)}, {"principal_display", usageDash(r.PrincipalDisplay)}, {"actor_id", usageDash(r.ActorID)}, {"actor_display", usageDash(r.ActorDisplay)}, {"client_id", usageDash(r.ClientID)}, {"request_id", usageDash(r.RequestID)},
 		{"access_point_id", usageDash(r.AccessPointID)}, {"caller_kind", usageDash(r.CallerKind)},
 		{"trace_id", usageDash(r.TraceID)}, {"quota_attempt_id", usageDash(r.QuotaAttemptID)}, {"streaming", strconv.FormatBool(r.Streaming)}, {"session", strconv.FormatBool(r.Session)},
 		{"usage_bound", usageDash(r.UsageBound)},
@@ -593,7 +633,11 @@ func usageCostTotals(g usageledger.SummaryGroup) string {
 	}
 	parts := make([]string, 0, len(g.Cost))
 	for _, c := range g.Cost {
-		parts = append(parts, aiplex.FormatCostTotal(c))
+		if wideOutput() {
+			parts = append(parts, aiplex.FormatCostTotal(c))
+		} else {
+			parts = append(parts, shortMoney(c.Currency, c.Amount, c.Scale, c.Basis))
+		}
 	}
 	return strings.Join(parts, "; ")
 }
@@ -637,24 +681,37 @@ func usageGroupBatch(g usageledger.SummaryGroup) string {
 	return strconv.FormatInt(g.BatchRecords, 10)
 }
 
-func usageSummaryRows(s *usageledger.Summary) ([]string, [][]string) {
-	var headers []string
+// usageSummaryTable renders summary groups: requests, errors, tokens and
+// cost by default; -o wide adds cache writes, modalities, units, batch and the
+// unknown/bounded counts.
+func usageSummaryTable(s *usageledger.Summary) *outTable {
+	var cols []column
 	for _, field := range s.GroupBy {
 		name := usageGroupHeader[field]
 		if name == "" {
 			name = strings.ToUpper(field)
 		}
-		headers = append(headers, name)
+		c := col(name)
+		if field == "principal_id" || field == "actor_id" {
+			c = c.trunc(truncMiddle)
+		}
+		cols = append(cols, c)
 	}
 	if s.Bucket != "" {
-		headers = append(headers, "BUCKET")
+		cols = append(cols, col("BUCKET"))
 	}
-	headers = append(headers, "REQUESTS", "ERRORS", "DENIED", "IN", "OUT", "CACHE-W", "MODALITY", "UNITS", "BATCH", "COST", "UNKNOWN", "BOUNDED")
-	rows := make([][]string, 0, len(s.Groups))
+	cols = append(cols, col("REQUESTS"), col("ERRORS"), col("DENIED"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), wideCol("BATCH"), col("COST"), wideCol("UNKNOWN"), wideCol("BOUNDED"))
+	t := newTable(cols...)
 	for _, g := range s.Groups {
 		var row []string
 		for _, field := range s.GroupBy {
-			row = append(row, usageDash(g.Key[field]))
+			v := g.Key[field]
+			if label := g.Labels[field]; label != "" && !wideOutput() {
+				v = label
+			} else if field == "principal_id" && !wideOutput() {
+				v = shortPrincipal(v)
+			}
+			row = append(row, usageDash(v))
 		}
 		if s.Bucket != "" {
 			start := "—"
@@ -666,9 +723,9 @@ func usageSummaryRows(s *usageledger.Summary) ([]string, [][]string) {
 		row = append(row, strconv.FormatInt(g.Requests, 10), strconv.FormatInt(g.Errors, 10), strconv.FormatInt(g.Denied, 10),
 			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageTokens(g, usageledger.CounterCacheWrite),
 			usageGroupModality(g), usageGroupUnits(g), usageGroupBatch(g), usageCostTotals(g), usageUnknownCounts(g), usageBoundedCounts(g))
-		rows = append(rows, row)
+		t.add(row...)
 	}
-	return headers, rows
+	return t
 }
 
 // ---- prices --------------------------------------------------------------
@@ -735,7 +792,7 @@ func usagePricesListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
 		Short:   "List configured model prices",
-		Example: "  aiplex usage prices list",
+		Example: "  aiplex usage prices list\n  aiplex usage prices list -o wide",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			prices, err := newClient().ListModelPrices(cmd.Context())
@@ -751,13 +808,14 @@ func usagePricesListCmd() *cobra.Command {
 			}
 			if len(prices) == 0 {
 				fmt.Println("No prices configured. Cost is unknown until a price is set or quota settles it.")
+				fmt.Println("Set one with: aiplex usage prices set <model> --input-per-mtok 3 --output-per-mtok 15")
 				return nil
 			}
-			rows := make([][]string, 0, len(prices))
+			t := newTable(keyCol("ID"), col("MODEL"), wideCol("PROVIDER"), col("PRICE"), wideCol("CURRENCY"), wideCol("SCALE"), wideCol("METERS (money per denominator)"), col("SELECTORS"), col("EFFECTIVE"), wideCol("REVISION"))
 			for _, p := range prices {
-				rows = append(rows, []string{p.ID, p.Price.ModelID, usageDash(p.Price.Provider), p.Price.Currency, strconv.Itoa(int(p.Price.Scale)), usagePriceMeters(p.Price), usagePriceSelectors(p.Price), usageEffective(p.Price), strconv.FormatUint(p.Revision, 10)})
+				t.add(p.ID, p.Price.ModelID, usageDash(p.Price.Provider), humanPriceMeters(p.Price), p.Price.Currency, strconv.Itoa(int(p.Price.Scale)), usagePriceMeters(p.Price), usagePriceSelectors(p.Price), usageEffective(p.Price), strconv.FormatUint(p.Revision, 10))
 			}
-			printTable([]string{"ID", "MODEL", "PROVIDER", "CURRENCY", "SCALE", "METERS (money per denominator)", "SELECTORS", "EFFECTIVE", "REVISION"}, rows)
+			t.render(os.Stdout)
 			return nil
 		},
 	}
@@ -767,59 +825,196 @@ func usagePricesGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "get <id>",
 		Short:   "Show one price and its current revision",
-		Example: "  aiplex usage prices get gemini-flash",
+		Example: "  aiplex usage prices get mock-gpt\n  aiplex usage prices get mock-gpt -o json",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			price, err := newClient().GetModelPrice(cmd.Context(), args[0])
 			if err != nil {
 				return fmt.Errorf("get price: %w", err)
 			}
-			usagePrint(price)
+			if usageMachineOutput() {
+				usagePrint(price)
+				return nil
+			}
+			p := price.Price
+			fmt.Printf("Price %s (revision %d)\n", price.ID, price.Revision)
+			fmt.Printf("  Model:      %s\n", p.ModelID)
+			if p.Provider != "" {
+				fmt.Printf("  Provider:   %s\n", p.Provider)
+			}
+			fmt.Printf("  Rates:      %s\n", humanPriceMeters(p))
+			fmt.Printf("  Stored as:  %s %s, scale %d\n", p.Currency, usagePriceMeters(p), p.Scale)
+			fmt.Printf("  Selectors:  %s\n", usagePriceSelectors(p))
+			fmt.Printf("  Effective:  %s\n", usageEffective(p))
 			return nil
 		},
 	}
 }
 
+type priceFlags struct {
+	file, currency, provider                             string
+	input, output, cacheRead, cacheWrite, reasoning, req string
+	scale                                                uint8
+	revision                                             uint64
+}
+
+var priceMeterFlags = []struct{ flag, meter string }{
+	{"input-per-mtok", usageledger.MeterInput}, {"output-per-mtok", usageledger.MeterOutput},
+	{"cache-read-per-mtok", usageledger.MeterCacheRead}, {"cache-write-per-mtok", usageledger.MeterCacheWrite},
+	{"reasoning-per-mtok", usageledger.MeterReasoning}, {"per-request", usageledger.MeterRequests},
+}
+
 func usagePricesSetCmd() *cobra.Command {
-	var file string
-	var revision uint64
+	var f priceFlags
 	cmd := &cobra.Command{
-		Use:   "set -f <price.json>",
-		Short: "Create a price, or replace one with --revision",
-		Long: `Reads a price specification (id, model_id, provider?, currency, scale, meters,
-effective_from?, effective_until?) and writes it. Without --revision the
-price must not exist yet; to replace one, pass the revision shown by
-"usage prices get". A stale revision fails with a conflict and changes nothing.`,
-		Example: `  aiplex usage prices set -f gemini-flash.json
-  aiplex usage prices set -f gemini-flash.json --revision 3`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if file == "" {
-				return fmt.Errorf("-f/--file is required")
+		Use:   "set <model> --input-per-mtok <price> --output-per-mtok <price> [--currency USD]",
+		Short: "Set a model's price per million tokens (or -f for a full spec)",
+		Long: `Sets the price used to estimate cost for one model. Prices are given per
+million tokens (or per request) as decimals and converted to the exact rational
+form the API stores: no floating point, no rounding. With aiplex dev the mock
+model already has a placeholder price.
+
+When the price exists, only the rates you pass change (the revision is read for
+you; a concurrent change fails with a conflict). Changing --scale or
+--currency of an existing price needs every rate it should keep.
+
+-f reads a full specification (id, model_id, currency, scale, meters, ...),
+creating it or replacing the existing one. --revision pins the revision you
+expect instead of reading it.`,
+		Example: `  aiplex usage prices set gpt-4o-mini --input-per-mtok 0.15 --output-per-mtok 0.60
+  aiplex usage prices set claude-sonnet-4 --input-per-mtok 3 --output-per-mtok 15 --cache-read-per-mtok 0.30 --currency USD
+  aiplex usage prices set gpt-4o-mini --output-per-mtok 0.50
+  aiplex usage prices set -f gemini-flash.json`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c := newClient()
+			ctx := cmd.Context()
+			if f.file != "" {
+				if len(args) > 0 {
+					return usageError("give either <model> with rate flags or -f <file>, not both")
+				}
+				var price aiplex.ModelPrice
+				if err := quotaReadFile(f.file, &price); err != nil {
+					return fmt.Errorf("read price: %w", err)
+				}
+				revision := f.revision
+				if !cmd.Flags().Changed("revision") {
+					if current, err := c.GetModelPrice(ctx, price.ID); err == nil {
+						revision = current.Revision
+					} else if !spIsNotFound(err) {
+						return fmt.Errorf("read price: %w", err)
+					}
+				}
+				saved, err := c.PutModelPrice(ctx, price, revision)
+				if err != nil {
+					return usagePriceError("set price", price.ID, err)
+				}
+				return printSavedPrice(saved, revision > 0)
+			}
+			if len(args) == 0 {
+				return usageError("missing <model>", "Example: aiplex usage prices set gpt-4o-mini --input-per-mtok 0.15 --output-per-mtok 0.60", "Or a full specification: aiplex usage prices set -f price.json")
+			}
+			model := args[0]
+			given := false
+			for _, m := range priceMeterFlags {
+				given = given || cmd.Flags().Changed(m.flag)
+			}
+			if !given {
+				return usageError("give at least one rate, e.g. --input-per-mtok 3 --output-per-mtok 15", "Rates: --input-per-mtok --output-per-mtok --cache-read-per-mtok --cache-write-per-mtok --reasoning-per-mtok --per-request")
 			}
 			var price aiplex.ModelPrice
-			if err := quotaReadFile(file, &price); err != nil {
+			var revision uint64
+			current, err := c.GetModelPrice(ctx, model)
+			switch {
+			case err == nil:
+				price, revision = current.Price, current.Revision
+				if (cmd.Flags().Changed("scale") && f.scale != price.Scale) || (cmd.Flags().Changed("currency") && f.currency != price.Currency) {
+					for _, m := range priceMeterFlags {
+						if _, kept := price.Meters[m.meter]; kept && !cmd.Flags().Changed(m.flag) {
+							return usageError(fmt.Sprintf("changing --scale or --currency of price %s needs every rate it should keep; --%s is missing", model, m.flag))
+						}
+					}
+					price.Meters = map[string]usageledger.Rational{}
+				}
+			case spIsNotFound(err):
+				price = aiplex.ModelPrice{ID: model, ModelID: model, Currency: "USD", Scale: 6, Meters: map[string]usageledger.Rational{}}
+			default:
 				return fmt.Errorf("read price: %w", err)
 			}
-			saved, err := newClient().PutModelPrice(cmd.Context(), price, revision)
-			if err != nil {
-				return usagePriceError("set price", price.ID, err)
+			if cmd.Flags().Changed("currency") {
+				price.Currency = strings.ToUpper(f.currency)
 			}
-			usagePrint(saved)
-			return nil
+			if cmd.Flags().Changed("scale") {
+				price.Scale = f.scale
+			}
+			if cmd.Flags().Changed("provider") {
+				price.Provider = f.provider
+			}
+			if cmd.Flags().Changed("revision") {
+				revision = f.revision
+			}
+			values := map[string]string{"input-per-mtok": f.input, "output-per-mtok": f.output, "cache-read-per-mtok": f.cacheRead, "cache-write-per-mtok": f.cacheWrite, "reasoning-per-mtok": f.reasoning, "per-request": f.req}
+			if price.Meters == nil {
+				price.Meters = map[string]usageledger.Rational{}
+			}
+			for _, m := range priceMeterFlags {
+				if !cmd.Flags().Changed(m.flag) {
+					continue
+				}
+				var rate usageledger.Rational
+				var e error
+				if m.meter == usageledger.MeterRequests {
+					rate, e = perUnitRate(values[m.flag], price.Scale)
+				} else {
+					rate, e = perMillionRate(values[m.flag], price.Scale)
+				}
+				if e != nil {
+					return usageError("--" + m.flag + ": " + e.Error())
+				}
+				price.Meters[m.meter] = rate
+			}
+			saved, err := c.PutModelPrice(ctx, price, revision)
+			if err != nil {
+				return usagePriceError("set price", model, err)
+			}
+			return printSavedPrice(saved, revision > 0)
 		},
 	}
-	cmd.Flags().StringVarP(&file, "file", "f", "", "Price specification JSON file")
-	cmd.Flags().Uint64Var(&revision, "revision", 0, "Current revision to replace (0 creates)")
+	fl := cmd.Flags()
+	fl.StringVarP(&f.file, "file", "f", "", "Full price specification (JSON or YAML)")
+	fl.StringVar(&f.input, "input-per-mtok", "", "Price per million input tokens, e.g. 3 or 0.075")
+	fl.StringVar(&f.output, "output-per-mtok", "", "Price per million output tokens")
+	fl.StringVar(&f.cacheRead, "cache-read-per-mtok", "", "Price per million cached input tokens read")
+	fl.StringVar(&f.cacheWrite, "cache-write-per-mtok", "", "Price per million cache-write tokens")
+	fl.StringVar(&f.reasoning, "reasoning-per-mtok", "", "Price per million reasoning tokens, charged on top of output (only for providers that report them separately)")
+	fl.StringVar(&f.req, "per-request", "", "Price per request")
+	fl.StringVar(&f.currency, "currency", "USD", "Three-letter currency code")
+	fl.Uint8Var(&f.scale, "scale", 6, "Decimal places costs are computed to (6 = millionths)")
+	fl.StringVar(&f.provider, "provider", "", "Only apply to records from this provider")
+	fl.Uint64Var(&f.revision, "revision", 0, "Expected current revision (default: read it for you)")
 	return cmd
+}
+
+func printSavedPrice(saved *aiplex.ModelPriceResource, updated bool) error {
+	if usageMachineOutput() {
+		usagePrint(saved)
+		return nil
+	}
+	verb := "Created"
+	if updated {
+		verb = "Updated"
+	}
+	fmt.Printf("%s price %s (revision %d): %s\n", verb, saved.ID, saved.Revision, humanPriceMeters(saved.Price))
+	return nil
 }
 
 func usagePricesDeleteCmd() *cobra.Command {
 	var revision uint64
+	var yes bool
 	cmd := &cobra.Command{
 		Use:     "delete <id>",
 		Short:   "Delete a price (uses the current revision unless --revision is given)",
-		Example: "  aiplex usage prices delete gemini-flash --revision 4",
+		Example: "  aiplex usage prices delete gemini-flash --yes",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := newClient()
@@ -830,6 +1025,9 @@ func usagePricesDeleteCmd() *cobra.Command {
 				}
 				revision = current.Revision
 			}
+			if err := confirm(cmd, yes, "Delete price "+args[0]+"? Cost of new records for its model becomes unknown."); err != nil {
+				return err
+			}
 			if err := client.DeleteModelPrice(cmd.Context(), args[0], revision); err != nil {
 				return usagePriceError("delete price", args[0], err)
 			}
@@ -838,12 +1036,14 @@ func usagePricesDeleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Uint64Var(&revision, "revision", 0, "Expected revision")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
 	return cmd
 }
 
 func usagePriceError(action, id string, err error) error {
 	if aiplex.IsRevisionConflict(err) {
-		return fmt.Errorf("%s: %q was changed by someone else or already exists; run `aiplex usage prices get %s` and retry with its --revision: %w", action, id, id, err)
+		return &cliError{msg: fmt.Sprintf("%s: price %q was changed by someone else since it was read", action, id), code: exitConflict, err: err,
+			hints: []string{"Nothing was changed.", "See the current price with: aiplex usage prices get " + id, "Run the command again to apply your change on top of it."}}
 	}
 	return fmt.Errorf("%s: %w", action, err)
 }

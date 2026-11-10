@@ -16,7 +16,7 @@
 #   make deploy       Helm install
 #   make verify       Health check + status
 
-.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race examples-test \
+.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race examples-test release-smoke \
         infra infra-plan infra-destroy deploy deploy-dry verify \
         docker-up docker-down console
 
@@ -64,6 +64,9 @@ test-coverage: ## Run tests with coverage report
 
 demo: ## Scripted first run of `aiplex dev`: chat, stream, MCP tool call, usage, connect (exits non-zero on failure)
 	@bash tools/demo.sh
+
+release-smoke: ## Build the release archive for this machine, install it with install.sh and run aiplex dev from it
+	@bash tools/release-smoke.sh
 
 e2e: ## End-to-end tests: real aiplex-api + aiplex CLI against local mock upstreams
 	$(GO) test -tags e2e ./tests/e2e/ -count=1 -v

@@ -8,6 +8,7 @@
 # Installs the pre-built aiplex CLI (and aiplex-api, used by `aiplex dev`,
 # when the release archive carries it) to ~/.local/bin (AIPLEX_INSTALL_DIR).
 # AIPLEX_DOWNLOAD_BASE overrides the release download URL (for mirrors and tests).
+# The archive is checked against the release's checksums.txt when one is there.
 
 set -euo pipefail
 
@@ -19,7 +20,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --version) [[ $# -ge 2 ]] || { echo "--version needs a value, e.g. --version v0.2.0" >&2; exit 1; }; VERSION="$2"; shift 2 ;;
         --version=*) VERSION="${1#--version=}"; shift ;;
-        -h|--help) sed -n '2,11p' "$0" 2>/dev/null || true; exit 0 ;;
+        -h|--help) sed -n '2,12p' "$0" 2>/dev/null || true; exit 0 ;;
         v[0-9]*) VERSION="$1"; shift ;;  # bare version, as before
         *) echo "unknown argument: $1 (use --version vX.Y.Z)" >&2; exit 1 ;;
     esac
@@ -74,7 +75,23 @@ install() {
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "${tmpdir:-}"' EXIT
 
-    curl -fsSL "$url" -o "${tmpdir}/${filename}" || err "Download failed. Check version: $VERSION"
+    curl -fsSL "$url" -o "${tmpdir}/${filename}" || err "Download failed: ${url}. Check the version (releases: https://github.com/${REPO}/releases)"
+
+    # Verify the archive against the release checksums.
+    if curl -fsSL "${DOWNLOAD_BASE}/${VERSION}/checksums.txt" -o "${tmpdir}/checksums.txt" 2>/dev/null; then
+        local want got
+        want="$(awk -v f="$filename" '$2 == f || $2 == "*"f {print $1}' "${tmpdir}/checksums.txt")"
+        [[ -n "$want" ]] || err "checksums.txt does not list ${filename}"
+        if command -v sha256sum >/dev/null; then
+            got="$(sha256sum "${tmpdir}/${filename}" | awk '{print $1}')"
+        else
+            got="$(shasum -a 256 "${tmpdir}/${filename}" | awk '{print $1}')"
+        fi
+        [[ "$want" == "$got" ]] || err "checksum mismatch for ${filename} (expected ${want}, got ${got})"
+        ok "Checksum verified"
+    else
+        info "No checksums.txt next to the archive; skipping checksum verification"
+    fi
 
     info "Installing to ${INSTALL_DIR}..."
     mkdir -p "$INSTALL_DIR"
@@ -122,6 +139,7 @@ main() {
     install
 
     ok "aiplex ${VERSION} installed → ${INSTALL_DIR}/aiplex"
+    "${INSTALL_DIR}/aiplex" version 2>/dev/null | sed 's/^/  /' || true
     check_path
 
     echo ""
@@ -131,8 +149,12 @@ main() {
     else
         echo "  (this release has no aiplex-api binary; for local mode build from source: make build && bin/aiplex dev)"
     fi
-    echo "  aiplex init              # configure your GCP project"
-    echo "  aiplex quickstart        # zero to running platform"
+    echo "  aiplex --help            # every command, grouped by task"
+    echo ""
+    info "Shell completion (optional):"
+    echo "  bash: echo 'source <(aiplex completion bash)' >> ~/.bashrc   (needs the bash-completion package)"
+    echo "  zsh:  echo 'source <(aiplex completion zsh)' >> ~/.zshrc"
+    echo "  fish: aiplex completion fish > ~/.config/fish/completions/aiplex.fish"
     echo ""
 }
 

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"regexp"
 	"strings"
@@ -161,9 +162,12 @@ func extractOwner(r *http.Request) string {
 // proceeds without WIF identity (for unauthenticated/dev endpoints).
 func WIFAuth(wif *auth.WIFValidator) func(http.Handler) http.Handler { return WIFAuthMode(wif, false) }
 
-// WIFAuthMode enriches verified requests. Missing service/user credentials are
-// handled by the route's own authentication policy. Invalid supplied JWTs fail
-// closed; credentials for internal callbacks use their independent route guard.
+// WIFAuthMode attaches the verified identity to the request. A request whose
+// credential is missing or does not verify (including an invalid supplied
+// JWT) is passed on with no identity: routes that require one answer 401
+// (outside development mode; in development mode an unauthenticated request
+// is served as the local developer). Credentials for internal callbacks use
+// their independent route guard.
 func WIFAuthMode(wif *auth.WIFValidator, development bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -458,22 +462,87 @@ func IPRateLimit(eventsPerSecond float64, burst int) func(http.Handler) http.Han
 	}
 }
 
-// clientIP returns the request's source IP, preferring X-Forwarded-For
-// (set by the Envoy gateway in production) then RemoteAddr.
+// trustedProxyHops is how many reverse proxies in front of this server append
+// to X-Forwarded-For (TRUSTED_PROXY_HOPS). Zero, the default, ignores the
+// header: it is written by the client and cannot identify it.
+var trustedProxyHops atomic.Int32
+
+// SetTrustedProxyHops sets the number of trusted proxy hops (see clientIP).
+func SetTrustedProxyHops(n int) {
+	if n < 0 {
+		n = 0
+	}
+	if n > 16 {
+		n = 16
+	}
+	trustedProxyHops.Store(int32(n))
+}
+
+// maxForwardedFor bounds the X-Forwarded-For value that is parsed.
+const maxForwardedFor = 2048
+
+// clientIP returns the request's source address: the peer address, or, with
+// N trusted proxy hops, the Nth X-Forwarded-For entry counted from the right
+// (each trusted proxy appends the address it received the request from, so
+// entries further left were written by the client and are never used). A
+// malformed, oversized or too short header falls back to the peer address.
 func clientIP(r *http.Request) string {
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		// First entry is the original client; subsequent are proxies.
-		if comma := strings.IndexByte(v, ','); comma >= 0 {
-			return strings.TrimSpace(v[:comma])
+	return clientIPWithHops(r, int(trustedProxyHops.Load()))
+}
+
+func clientIPWithHops(r *http.Request, hops int) string {
+	peer := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(peer); err == nil {
+		peer = host
+	}
+	if hops <= 0 {
+		return peer
+	}
+	values := r.Header.Values("X-Forwarded-For")
+	joined := strings.Join(values, ",")
+	if joined == "" || len(joined) > maxForwardedFor {
+		return peer
+	}
+	parts := strings.Split(joined, ",")
+	if len(parts) < hops {
+		return peer
+	}
+	for i := range parts {
+		addr, err := netip.ParseAddr(strings.TrimSpace(parts[i]))
+		if err != nil {
+			return peer
 		}
-		return strings.TrimSpace(v)
+		parts[i] = addr.String()
 	}
-	// RemoteAddr is host:port — strip the port.
-	host := r.RemoteAddr
-	if i := strings.LastIndexByte(host, ':'); i >= 0 {
-		host = host[:i]
+	return parts[len(parts)-hops]
+}
+
+// forwardingHeaders are set by proxies, never by a direct local client.
+var forwardingHeaders = []string{"X-Forwarded-For", "Forwarded", "X-Real-IP"}
+
+// RefuseProxiedAnonymousInDevelopment refuses, in development mode only, a
+// request without a verified identity that carries a forwarding header. A
+// development API serves unauthenticated requests as the local developer;
+// such a request reaching it through a proxy means the loopback-only API has
+// been exposed. Outside development mode it does nothing.
+func RefuseProxiedAnonymousInDevelopment(development bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if !development {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if GetWIFIdentity(r.Context()) == nil {
+				for _, h := range forwardingHeaders {
+					if r.Header.Get(h) != "" {
+						Error(w, r, http.StatusForbidden, "PROXIED_DEVELOPMENT_REQUEST",
+							"this development-mode API serves unauthenticated requests only to direct local clients, and this request came through a proxy ("+h+" is set); send a bearer token, or do not expose a development API through a proxy or tunnel")
+						return
+					}
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
 	}
-	return host
 }
 
 // Idempotency caches operator-action responses keyed by Idempotency-Key

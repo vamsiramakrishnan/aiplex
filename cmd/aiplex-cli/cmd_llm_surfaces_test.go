@@ -234,7 +234,8 @@ func TestLLMBatchesListStatesPlainlyAboutExposure(t *testing.T) {
 			b2 = l
 		}
 	}
-	if !strings.HasSuffix(strings.TrimSpace(b1), "unknown    unknown") || !strings.HasSuffix(strings.TrimSpace(b2), "completed  0") {
+	f1, f2 := strings.Fields(b1), strings.Fields(b2)
+	if len(f1) < 2 || len(f2) < 2 || f1[len(f1)-2] != "unknown" || f1[len(f1)-1] != "unknown" || f2[len(f2)-2] != "completed" || f2[len(f2)-1] != "0" {
 		t.Fatalf("unknown vs zero item count:\n%s", out)
 	}
 	if !strings.Contains(out, "holds quota exposure and a concurrency slot until its results are fetched through AIPlex") {

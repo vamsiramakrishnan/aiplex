@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	rdebug "runtime/debug"
 	"strings"
 	"time"
 
@@ -22,10 +23,30 @@ func versionCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Show CLI version and check for updates",
+		Short: "Show the CLI version, commit and whether the Console is built in",
+		Example: `  aiplex version
+  aiplex version --check
+  aiplex version -o json`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Printf("aiplex version %s\n", version)
-			fmt.Printf("  commit:   %s\n", commit)
+			v, c := buildVersion()
+			console := "embedded"
+			if !consoleBuilt() {
+				console = "not embedded (source build without Node; make console && make build to include it)"
+			}
+			apiPath, apiErr := findAPIBinaryQuiet()
+			api := apiPath
+			if apiErr != nil {
+				api = "not found (aiplex dev needs it next to this binary or on PATH)"
+			}
+			if machineOutput() {
+				spStructured(cmd, map[string]any{"version": v, "commit": c, "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "console_embedded": consoleBuilt(), "api_binary": apiPath})
+				return nil
+			}
+			fmt.Printf("aiplex version %s\n", v)
+			fmt.Printf("  commit:   %s\n", c)
+			fmt.Printf("  console:  %s\n", console)
+			fmt.Printf("  api:      %s\n", api)
 			fmt.Printf("  go:       %s\n", runtime.Version())
 			fmt.Printf("  os/arch:  %s/%s\n", runtime.GOOS, runtime.GOARCH)
 
@@ -40,6 +61,25 @@ func versionCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&checkUpgrade, "check", false, "Check for newer version")
 	return cmd
+}
+
+// buildVersion prefers the release ldflags and falls back to the module
+// version and VCS revision Go records (go install ...@version).
+func buildVersion() (string, string) {
+	v, c := version, commit
+	if info, ok := rdebug.ReadBuildInfo(); ok {
+		if v == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			v = info.Main.Version
+		}
+		if c == "unknown" {
+			for _, s := range info.Settings {
+				if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+					c = s.Value[:7]
+				}
+			}
+		}
+	}
+	return v, c
 }
 
 func checkForUpgrade() {

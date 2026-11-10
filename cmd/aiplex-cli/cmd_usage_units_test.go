@@ -51,7 +51,7 @@ func unitsServer(t *testing.T) *httptest.Server {
 func TestUsageRecordsTableShowsUnitsAndModalitiesWithoutMixingWithTokens(t *testing.T) {
 	server := unitsServer(t)
 	defer server.Close()
-	out, err := runUsage(t, server, "table", "records")
+	out, err := runUsage(t, server, "wide", "records")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestUsageGetShowsUnitsModalitiesCacheWriteAndLimits(t *testing.T) {
 func TestUsageSummaryShowsUnitsAndModalitiesSeparatelyFromTokens(t *testing.T) {
 	server := unitsServer(t)
 	defer server.Close()
-	out, err := runUsage(t, server, "table", "summary", "--by", "model")
+	out, err := runUsage(t, server, "wide", "summary", "--by", "model")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,6 +177,9 @@ func TestUsagePricesSetAcceptsUnitModalityMetersAndSelectors(t *testing.T) {
 			b, _ := io.ReadAll(r.Body)
 			sent = string(b)
 			w.Write([]byte(`{"id":"img","revision":1,"spec":` + sent + `}`))
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/img"):
+			w.WriteHeader(404)
+			w.Write([]byte(`{"code":"NOT_FOUND","message":"resource not found"}`))
 		case r.Method == "GET":
 			w.Write([]byte(`[{"id":"img","revision":1,"spec":{"id":"img","model_id":"img-model","currency":"USD","scale":6,"batch":false,"image_size":"1024x1024","image_quality":"high","meters":{"generated_images":{"numerator":40000,"denominator":1},"input_audio_tokens":{"numerator":3,"denominator":1000},"voice_session_milliseconds":{"numerator":1,"denominator":1000}}}}]`))
 		}
@@ -208,7 +211,7 @@ func TestUsagePricesSetAcceptsUnitModalityMetersAndSelectors(t *testing.T) {
 	if _, err := runUsage(t, server, "json", "prices", "set", "-f", badMeter); err == nil || sent != "" {
 		t.Fatal("unknown meter reached the server", err)
 	}
-	out, err := runUsage(t, server, "table", "prices", "list")
+	out, err := runUsage(t, server, "wide", "prices", "list")
 	if err != nil || !strings.Contains(out, "SELECTORS") || !strings.Contains(out, "batch=false image_size=1024x1024 image_quality=high") || !strings.Contains(out, "generated_images=40000/1") {
 		t.Fatal(out, err)
 	}

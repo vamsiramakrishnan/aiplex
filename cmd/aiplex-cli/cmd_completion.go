@@ -8,9 +8,12 @@ import (
 
 func completionCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "completion [bash|zsh|fish|powershell]",
-		Short: "Generate shell completion scripts",
-		Long: `Generate shell completion scripts for aiplex.
+		Use:   "completion <bash|zsh|fish|powershell>",
+		Short: "Print a shell completion script (commands, flags and resource ids)",
+		Long: `Print a shell completion script for aiplex. It completes commands and flags,
+and the ids of access points, model surfaces, tool connections, prices and
+identity providers by asking the current API (one request, 1.5s timeout,
+silent when the API is not reachable).
 
 Add to your shell profile:
 
@@ -22,26 +25,21 @@ Add to your shell profile:
   echo 'source <(aiplex completion zsh)' >> ~/.zshrc
   source ~/.zshrc
 
-  # Fish (~/.config/fish/config.fish)
-  aiplex completion fish | source
+  # Fish
+  aiplex completion fish > ~/.config/fish/completions/aiplex.fish
 
   # PowerShell ($PROFILE)
   aiplex completion powershell | Out-String | Invoke-Expression`,
 		Args:                  cobra.ExactArgs(1),
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
-		Example: `  # Generate bash completions and source them
-  source <(aiplex completion bash)
-
-  # Generate zsh completions persistently
-  aiplex completion zsh > ~/.zsh/completions/_aiplex
-
-  # Generate fish completions persistently
+		Example: `  source <(aiplex completion bash)
+  aiplex completion zsh > "${fpath[1]}/_aiplex"
   aiplex completion fish > ~/.config/fish/completions/aiplex.fish`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			switch args[0] {
 			case "bash":
-				return cmd.Root().GenBashCompletion(os.Stdout)
+				return cmd.Root().GenBashCompletionV2(os.Stdout, true)
 			case "zsh":
 				return cmd.Root().GenZshCompletion(os.Stdout)
 			case "fish":

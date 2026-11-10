@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -102,26 +103,41 @@ func llmUsageCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "usage", Short: "List recorded model usage", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		opts := &aiplex.ListUsageRecordsOpts{ModelID: modelID, AgentID: agentID, Limit: limit}
 		if since != "" {
-			parsed, err := time.Parse(time.RFC3339Nano, since)
+			parsed, err := parseUsageTime(since, time.Now())
 			if err != nil {
-				return fmt.Errorf("--since must be RFC3339")
+				return usageError("--since: " + err.Error())
 			}
 			opts.Since = parsed
 		}
 		rows, err := newClient().ListUsageRecords(cmd.Context(), opts)
 		if err != nil {
-			return err
+			return fmt.Errorf("list model usage: %w", err)
 		}
-		if output == "yaml" {
-			printYAML(rows)
-		} else {
-			printJSON(rows)
+		if rows == nil {
+			rows = []aiplex.UsageRecord{}
 		}
+		if machineOutput() {
+			if output == "yaml" {
+				printYAML(rows)
+			} else {
+				printJSON(rows)
+			}
+			return nil
+		}
+		if len(rows) == 0 {
+			fmt.Println("No legacy model usage records. The usage ledger (every plane, with cost) is: aiplex usage records")
+			return nil
+		}
+		t := newTable(col("TIME"), col("MODEL"), col("AGENT"), col("IN"), col("OUT"), col("LATENCY"), wideCol("ID"), wideCol("USER"))
+		for _, r := range rows {
+			t.add(relTime(r.Timestamp), r.ModelID, spDash(r.AgentID), fmt.Sprint(r.InputTokens), fmt.Sprint(r.OutputTokens), humanDuration(int64(r.LatencyMs)), r.ID, spDash(r.UserID))
+		}
+		t.render(os.Stdout)
 		return nil
 	}}
 	cmd.Flags().StringVar(&modelID, "model", "", "Filter by model ID")
 	cmd.Flags().StringVar(&agentID, "agent", "", "Filter by agent ID")
-	cmd.Flags().StringVar(&since, "since", "", "RFC3339 start timestamp")
+	cmd.Flags().StringVar(&since, "since", "", "Start of window: duration like 24h, 7d, or an RFC3339 time")
 	cmd.Flags().IntVar(&limit, "limit", 100, "Maximum records (1–1000)")
 	return cmd
 }

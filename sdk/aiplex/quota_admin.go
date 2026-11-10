@@ -33,7 +33,7 @@ func (c *Client) GetQuotaInventory(ctx context.Context, kind, after string, limi
 	switch kind {
 	case "budgets", "loans", "attempts", "reconciliations", "audit", "terminal-work":
 	default:
-		return nil, fmt.Errorf("invalid quota inventory kind")
+		return nil, fmt.Errorf("quota inventory kind %q is not one of budgets, loans, attempts, reconciliations, audit, terminal-work", kind)
 	}
 	if limit < 1 || limit > 64 {
 		return nil, fmt.Errorf("quota inventory limit must be in [1,64]")

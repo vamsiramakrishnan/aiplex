@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,12 +51,7 @@ func spStructured(cmd *cobra.Command, value any) bool {
 }
 
 func spTable(out io.Writer, headers []string, rows [][]string) {
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, strings.Join(headers, "\t"))
-	for _, row := range rows {
-		fmt.Fprintln(w, strings.Join(row, "\t"))
-	}
-	_ = w.Flush()
+	tableFrom(headers, rows).render(out)
 }
 
 func spDash(v string) string {
@@ -143,12 +139,22 @@ func accessPointsCmd() *cobra.Command {
 skills. It decides which kinds of callers (agents, users, clients) may use it,
 and carries a QoS class that is rendered into quota controls.
 
-  aiplex access-points list
+  aiplex access-points create ide --model gpt-4o-mini=openai --tool search --allow-groups eng
   aiplex access-points apply -f ide.yaml
   aiplex access-points quota-plan ide
   aiplex connect ide --client claude-code`,
+		Example:     "  aiplex access-points list\n  aiplex access-points create team --model mock-gpt=local-models --tool local-tools",
+		Annotations: map[string]string{"kind": "access point"},
 	}
-	cmd.AddCommand(spAPListCmd(), spAPGetCmd(), spAPApplyCmd(), spAPDeleteCmd(), spAPQuotaPlanCmd())
+	cmd.AddCommand(spAPListCmd(), spAPGetCmd(), spAPCreateCmd(), spAPApplyCmd(), spAPDeleteCmd(), spAPQuotaPlanCmd())
+	registerLister("access-points", func(ctx context.Context, c *aiplex.Client) ([]string, error) {
+		list, err := c.ListAccessPoints(ctx)
+		ids := make([]string, 0, len(list))
+		for _, r := range list {
+			ids = append(ids, r.ID)
+		}
+		return ids, err
+	})
 	return cmd
 }
 
@@ -161,9 +167,11 @@ func spAPQoS(ap aiplex.AccessPoint) string {
 
 func spAPListCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
-		Short: "List access points",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List access points (administrators see all; others see the ones that admit them)",
+		Example: "  aiplex access-points list\n  aiplex access-points list -o json",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			list, err := newClient().ListAccessPoints(cmd.Context())
 			if err != nil {
@@ -173,7 +181,23 @@ func spAPListCmd() *cobra.Command {
 				return nil
 			}
 			if len(list) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No access points. Create one with 'aiplex access-points apply -f <file>'.")
+				fmt.Fprintln(cmd.OutOrStdout(), "No access points. Create one with: aiplex access-points create <id> --model <name=surface> --tool <connection>")
+				return nil
+			}
+			filtered := true
+			for _, r := range list {
+				filtered = filtered && r.Revision == 0
+			}
+			if filtered {
+				// A caller without an operator role sees only the access points
+				// that admit it, without their configuration.
+				base := resolveAPIURL()
+				t := newTable(keyCol("ID"), col("URL"))
+				for _, r := range list {
+					t.add(r.ID, base+"/ap/"+r.ID)
+				}
+				t.render(cmd.OutOrStdout())
+				fmt.Fprintln(cmd.OutOrStdout(), "\nThese are the access points that admit you. Client configuration: aiplex connect <id>")
 				return nil
 			}
 			rows := make([][]string, 0, len(list))
@@ -189,9 +213,11 @@ func spAPListCmd() *cobra.Command {
 
 func spAPGetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "get <id>",
-		Short: "Show one access point",
-		Args:  cobra.ExactArgs(1),
+		Use:     "get <id>",
+		Aliases: []string{"show", "describe"},
+		Short:   "Show one access point",
+		Example: "  aiplex access-points get local\n  aiplex access-points get local -o yaml > ap.yaml",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, err := newClient().GetAccessPoint(cmd.Context(), args[0])
 			if err != nil {
@@ -243,7 +269,8 @@ func spAPApplyCmd() *cobra.Command {
 exists (the current revision is read first, so a concurrent change is not
 overwritten). The file may be the bare specification or the record printed by
 'access-points get -o yaml'. Use '-f -' to read stdin.`,
-		Args: cobra.NoArgs,
+		Example: "  aiplex access-points apply -f ide.yaml\n  aiplex access-points get local -o yaml | aiplex access-points apply -f -",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			raw, err := spReadSpec(file, cmd.InOrStdin())
 			if err != nil {
@@ -330,15 +357,21 @@ func spExplain(action string, err error) error {
 }
 
 func spAPDeleteCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "delete <id>",
-		Short: "Delete an access point",
-		Args:  cobra.ExactArgs(1),
+	var yes bool
+	cmd := &cobra.Command{
+		Use:     "delete <id>",
+		Aliases: []string{"remove", "rm"},
+		Short:   "Delete an access point",
+		Example: "  aiplex access-points delete team --yes",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
 			current, err := c.GetAccessPoint(cmd.Context(), args[0])
 			if err != nil {
 				return fmt.Errorf("read access point: %w", err)
+			}
+			if err := confirm(cmd, yes, "Delete access point "+args[0]+"? Clients using /ap/"+args[0]+" stop working."); err != nil {
+				return err
 			}
 			if err = c.DeleteAccessPoint(cmd.Context(), args[0], current.Revision); err != nil {
 				return spExplain("delete access point", err)
@@ -347,14 +380,17 @@ func spAPDeleteCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
+	return cmd
 }
 
 func spAPQuotaPlanCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "quota-plan <id>",
-		Short: "Render the access point's QoS block as quota controls for review",
-		Long:  "Shows the quota controls and scheduler flow that the access point's qos block would add. Nothing is applied.",
-		Args:  cobra.ExactArgs(1),
+		Use:     "quota-plan <id>",
+		Short:   "Render the access point's QoS block as quota controls for review",
+		Long:    "Shows the quota controls and scheduler flow that the access point's qos block would add. Nothing is applied.",
+		Example: "  aiplex access-points quota-plan ide",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			plan, err := newClient().PlanAccessPointQuota(cmd.Context(), args[0])
 			if err != nil {

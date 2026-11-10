@@ -59,9 +59,16 @@ type Config struct {
 	OTelEndpoint string `env:"OTEL_ENDPOINT,default="`
 
 	// Console SPA origins allowed by CORS. Comma-separated list of full origins
-	// (scheme + host[:port]). When empty, CORS is permissive ("*") for local dev;
-	// production should always set this.
+	// (scheme + host[:port]). When empty, CORS is permissive ("*") only in
+	// development mode (AIPLEX_DEV_MODE); otherwise no cross-origin request is
+	// allowed. Production should always set this.
 	AllowedOrigins []string `env:"CONSOLE_ORIGINS,default="`
+
+	// TrustedProxyHops is how many reverse proxies in front of the API append
+	// to X-Forwarded-For. 0 (default) ignores the header and uses the peer
+	// address; N takes the client address N entries from the right, never
+	// from the left (which the client writes).
+	TrustedProxyHops int `env:"TRUSTED_PROXY_HOPS,default=0"`
 }
 
 // Load reads Config from the environment.

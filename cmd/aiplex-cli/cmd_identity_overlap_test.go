@@ -12,7 +12,7 @@ import (
 func TestIdentityBindAcknowledgeOverlapSendsFlagAndPrintsWarnings(t *testing.T) {
 	var calls []spCall
 	spServer(t, &calls, map[string]string{
-		"GET /api/v1/agents/identity-presets":      `{"presets":[{"id":"aws-sts-web-identity","display_name":"AWS","cloud":"aws","inputs":[{"name":"issuer","label":"Issuer","required":true},{"name":"role_arn","label":"Role","required":true},{"name":"region","label":"Region"},{"name":"audience","label":"Audience","required":true,"default":"https://aiplex.example.com"}]}],"live_authentication":true}`,
+		"GET /api/v1/agents/identity-presets":     `{"presets":[{"id":"aws-sts-web-identity","display_name":"AWS","cloud":"aws","inputs":[{"name":"issuer","label":"Issuer","required":true},{"name":"role_arn","label":"Role","required":true},{"name":"region","label":"Region"},{"name":"audience","label":"Audience","required":true,"default":"https://aiplex.example.com"}]}],"live_authentication":true}`,
 		"PUT /api/v1/agents/agent/identities/aws": `201:{"id":"aws","client_id":"agent","preset":"aws-sts-web-identity","issuer":"https://i","subject":"arn:aws:iam::123456789012:role/r","audience":"https://aiplex.example.com","revision":1,"warnings":["acknowledged overlap: trusts the same issuer as user provider okta"]}`,
 	})
 	args := []string{"bind", "agent", "aws", "--preset", "aws-sts-web-identity", "--input", "issuer=https://abc.tokens.sts.global.api.aws", "--input", "role_arn=arn:aws:iam::123456789012:role/r", "--input", "region=us-east-1"}

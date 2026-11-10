@@ -72,7 +72,7 @@ func quotaAdminCommands() []*cobra.Command {
 	}}
 	var after string
 	var limit int
-	inventory := &cobra.Command{Use: "inventory <kind>", Args: cobra.ExactArgs(1), Short: "Read a bounded quota administration page", RunE: func(cmd *cobra.Command, args []string) error {
+	inventory := &cobra.Command{Use: "inventory <kind>", Args: cobra.ExactArgs(1), Short: "Read a bounded quota administration page (kinds: budgets, loans, attempts, reconciliations, audit, terminal-work)", RunE: func(cmd *cobra.Command, args []string) error {
 		v, err := newClient().GetQuotaInventory(cmd.Context(), args[0], after, limit)
 		if err == nil {
 			quotaPrint(v)

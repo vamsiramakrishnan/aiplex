@@ -196,7 +196,12 @@ and models callers may use. Credentials are references (a secret reference or an
 identity reference), never values. Surfaces are revisioned: replace and delete
 check the revision so concurrent edits are never silently overwritten.`,
 	}
-	cmd.AddCommand(llmxSurfacesListCmd(), llmxSurfacesGetCmd(), llmxSurfacesApplyCmd(), llmxSurfacesDeleteCmd())
+	cmd.Annotations = map[string]string{"kind": "model surface"}
+	cmd.Example = "  aiplex llm surfaces list\n  aiplex llm surfaces add openai --provider openai --models gpt-4o-mini --secret-ref openai-key"
+	cmd.AddCommand(llmxSurfacesListCmd(), llmxSurfacesGetCmd(), llmxSurfacesCreateCmd(), llmxSurfacesApplyCmd(), llmxSurfacesDeleteCmd())
+	registerLister("llm surfaces", func(ctx context.Context, c *aiplex.Client) ([]string, error) {
+		return resourceIDs(ctx, c, aiplex.ModelSurfaces)
+	})
 	return cmd
 }
 
@@ -216,7 +221,7 @@ func llmxSurfacesListCmd() *cobra.Command {
 				return nil
 			}
 			if len(records) == 0 {
-				fmt.Println("No model surfaces. Create one with: aiplex llm surfaces apply -f surface.yaml")
+				fmt.Println("No model surfaces. Connect a provider with: aiplex llm surfaces add <id> --provider openai --models gpt-4o-mini --secret-ref <name>")
 				return nil
 			}
 			headers, rows := llmxSurfaceRows(records)
@@ -341,8 +346,9 @@ func llmxApply(ctx context.Context, c *aiplex.Client, spec aiplex.ModelSurfaceSp
 
 func llmxSurfacesDeleteCmd() *cobra.Command {
 	var revision uint64
+	var yes bool
 	cmd := &cobra.Command{
-		Use: "delete <id>", Short: "Delete a surface (at its current revision unless --revision is given)", Example: "  aiplex llm surfaces delete openai-prod --revision 4", Args: cobra.ExactArgs(1),
+		Use: "delete <id>", Aliases: []string{"remove", "rm"}, Short: "Delete a surface (at its current revision unless --revision is given)", Example: "  aiplex llm surfaces delete openai-prod --yes", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
 			if revision == 0 {
@@ -351,6 +357,9 @@ func llmxSurfacesDeleteCmd() *cobra.Command {
 					return fmt.Errorf("delete surface: %w", err)
 				}
 				revision = current.Revision
+			}
+			if err := confirm(cmd, yes, "Delete model surface "+args[0]+"? Access points that use it stop serving its models."); err != nil {
+				return err
 			}
 			if err := c.DeleteModelSurface(cmd.Context(), args[0], revision); err != nil {
 				if aiplex.IsRevisionConflict(err) {
@@ -363,6 +372,7 @@ func llmxSurfacesDeleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Uint64Var(&revision, "revision", 0, "Expected revision")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
 	return cmd
 }
 

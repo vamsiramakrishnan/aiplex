@@ -224,7 +224,7 @@ func configCurrentCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 			if cfg.CurrentContext == "" {
-				fmt.Println("No active context. Run: aiplex config set-context <name>")
+				fmt.Println(noContextMessage())
 				return nil
 			}
 			fmt.Println(cfg.CurrentContext)
@@ -259,7 +259,7 @@ Examples:
 
 			if len(args) == 0 {
 				if cfg.CurrentContext == "" {
-					fmt.Println("No active context. Run: aiplex init")
+					fmt.Println(noContextMessage())
 				} else {
 					fmt.Println(cfg.CurrentContext)
 				}
@@ -269,7 +269,11 @@ Examples:
 			name := args[0]
 			if _, ok := cfg.Contexts[name]; !ok {
 				available := contextNames(cfg)
-				return fmt.Errorf("context %q not found. Available: %s", name, strings.Join(available, ", "))
+				hints := []string{"Available: " + spDash(strings.Join(available, ", "))}
+				if near := nearest(name, available); len(near) > 0 {
+					hints = append([]string{"Did you mean: " + strings.Join(near, ", ")}, hints...)
+				}
+				return newCLIError(exitUsage, fmt.Sprintf("context %q does not exist", name), hints...)
 			}
 
 			cfg.CurrentContext = name
@@ -280,4 +284,10 @@ Examples:
 			return nil
 		},
 	}
+}
+
+// noContextMessage explains what the CLI uses when no context is selected.
+func noContextMessage() string {
+	t := resolveTarget()
+	return fmt.Sprintf("No context selected; the CLI uses %s (from %s).\nCreate one with: aiplex config set-context <name> --url <api-url>   (aiplex dev creates \"local\")", t.URL, t.URLSource)
 }
