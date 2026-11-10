@@ -80,7 +80,7 @@ Flags:
       --budget string           Tenant budget ID: exchanges that drew from that budget
       --caller-kind string      Caller kind: agent, user or client (caller_kind)
       --client string           Client ID (client_id)
-      --cost-basis string       Cost basis: settled, estimated, reported or unknown (cost_basis)
+      --cost-basis string       Cost basis: settled, estimated, reported, cached or unknown (cost_basis)
       --cursor string           Continue from a next_cursor value
       --error-class string      Error class (error_class)
       --harness string          Reported records from one harness: claude-code, codex or gemini-cli
@@ -188,7 +188,7 @@ Flags:
       --by strings              Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,budget,status,source,error-class,bound,batch,harness,tag:<key>
       --caller-kind string      Caller kind: agent, user or client (caller_kind)
       --client string           Client ID (client_id)
-      --cost-basis string       Cost basis: settled, estimated, reported or unknown (cost_basis)
+      --cost-basis string       Cost basis: settled, estimated, reported, cached or unknown (cost_basis)
       --error-class string      Error class (error_class)
       --harness string          Reported records from one harness: claude-code, codex or gemini-cli
   -h, --help                    help for summary

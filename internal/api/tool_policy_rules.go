@@ -42,6 +42,15 @@ func (h *ConnectedHandler) rulesFor(r *http.Request, connection ToolConnection) 
 	return conn, ap, apID, nil
 }
 
+// accessPointLabels are the trusted labels of the access point the call
+// entered through (access_point.labels in rules); empty otherwise.
+func accessPointLabels(r *http.Request) map[string]string {
+	if call := accessPointCallFrom(r.Context()); call != nil {
+		return call.labels
+	}
+	return nil
+}
+
 // toolPolicyCaller derives the caller facts from the verified identity only.
 func (h *ConnectedHandler) toolPolicyCaller(ctx context.Context, tenant string) (toolpolicy.Caller, error) {
 	identity := GetWIFIdentity(ctx)
@@ -117,7 +126,7 @@ func (h *ConnectedHandler) installToolRules(r *http.Request, tenant string, reco
 		if err != nil {
 			return unavailable()
 		}
-		facts := toolpolicy.Facts{ToolName: request.Name, ToolConnection: connection.ID, HasArgs: true, Caller: caller, AccessPointID: apID, Time: time.Now().UTC()}
+		facts := toolpolicy.Facts{ToolName: request.Name, ToolConnection: connection.ID, HasArgs: true, Caller: caller, AccessPointID: apID, Time: time.Now().UTC(), AccessPointTags: accessPointLabels(r)}
 		args, err := toolpolicy.ParseArgs(request.Arguments)
 		if err != nil {
 			return unavailable()
@@ -156,7 +165,7 @@ func (h *ConnectedHandler) installToolRules(r *http.Request, tenant string, reco
 		if callerErr != nil {
 			return false
 		}
-		facts := toolpolicy.Facts{ToolName: tool.Name, ToolConnection: connection.ID, Annotations: policyAnnotations(tool), Caller: caller, AccessPointID: apID, Time: time.Now().UTC()}
+		facts := toolpolicy.Facts{ToolName: tool.Name, ToolConnection: connection.ID, Annotations: policyAnnotations(tool), Caller: caller, AccessPointID: apID, Time: time.Now().UTC(), AccessPointTags: accessPointLabels(r)}
 		return !connRules.Hidden(ctx, facts) && !apRules.Hidden(ctx, facts)
 	}
 	opts.List = &list

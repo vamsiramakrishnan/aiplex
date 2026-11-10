@@ -768,7 +768,14 @@ func catalogEntriesForAccessPoint(ctx context.Context, client *aiplex.Client, se
 	}
 	surfaces := map[string]*aiplex.ModelSurfaceRecord{}
 	seen := map[string]bool{}
-	for _, m := range ap.Spec.Models {
+	var flat []aiplex.AccessPointModel
+	for _, model := range ap.Spec.Models {
+		// Every backend of a routed model is priced on its own.
+		for _, b := range model.AllBackends() {
+			flat = append(flat, aiplex.AccessPointModel{Name: model.Name, SurfaceRef: b.SurfaceRef, NativeModel: b.NativeModel})
+		}
+	}
+	for _, m := range flat {
 		surface, ok := surfaces[m.SurfaceRef]
 		if !ok {
 			surface, err = client.GetModelSurface(ctx, m.SurfaceRef)

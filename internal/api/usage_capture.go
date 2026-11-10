@@ -27,6 +27,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
 	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
@@ -63,6 +64,12 @@ type usageCapture struct {
 	genAIProvider string
 	// hooks summarizes request-hook decisions (hooks.go); nil when none ran.
 	hooks *usageledger.HookSummary
+	// route is set for an attempt of a routed access-point model: the
+	// finished record goes to the router, which submits one record per
+	// exchange (access_point_routing.go).
+	route *routeAttempt
+	// cacheHit is the cached answer this exchange was served from.
+	cacheHit *routing.CacheEntry
 }
 
 // beginUsage starts capturing an exchange for a verified tenant. The returned
@@ -98,6 +105,7 @@ func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, te
 	// the caller's span id from its traceparent and its per-request id.
 	_, c.record.CallerSpanID = telemetry.RemoteParent(r.Header)
 	c.record.ClientRequestID = clientRequestID(r.Header.Get("X-Client-Request-Id"))
+	c.route = routeAttemptFrom(r.Context())
 	return c.writer, r, c
 }
 
@@ -520,19 +528,64 @@ func (c *usageCapture) finish() {
 		record.UsageBound = usageledger.UsagePartial
 	}
 	record.Cost = usageledger.UnknownCost()
+	c.mu.Lock()
+	hit := c.cacheHit
+	c.mu.Unlock()
+	if hit != nil {
+		// Served from the response cache: the provider produced nothing for
+		// this exchange (zero usage, a "cached" cost of 0); the original
+		// usage is kept apart so summaries never count it as provider usage.
+		zero := func() *int64 { n := int64(0); return &n }
+		record.Usage = &usageledger.Usage{InputTokens: zero(), OutputTokens: zero(), CacheReadTokens: zero(), CacheWriteTokens: zero(), ReasoningTokens: zero(), TotalTokens: zero()}
+		counters := map[string]int64{}
+		for k, v := range hit.Counters {
+			counters[k] = v
+		}
+		record.CachedResponseUsage = usageledger.FromCounters(counters)
+		record.UsageBound = ""
+		record.Cost = usageledger.CachedCost()
+		if hit.ModelVersion != "" {
+			record.ModelVersion = hit.ModelVersion
+		}
+	}
 	h := c.h
 	span, genAIProvider := c.span, c.genAIProvider
 	firstWrite := c.writer.firstWriteAt()
-	h.Ledger.Submit(c.r.Context(), func(ctx context.Context) (out usageledger.Record, err error) {
-		// The span ends once the cost is resolved (settlement or price), at
-		// the exchange's own finish time.
+	submit := func(record usageledger.Record) {
+		h.submitExchange(c.r.Context(), span, record, genAIProvider, firstWrite, attemptID, noCost)
+	}
+	if c.route != nil {
+		if span != nil {
+			span.SetAttributes(c.route.spanAttributes()...)
+		}
+		c.route.deliver(&deliveredRecord{record: record, span: span, genAIProvider: genAIProvider, firstWrite: firstWrite, submit: submit})
+		return
+	}
+	submit(record)
+}
+
+// submitExchange resolves the record's cost (quota settlement, else an
+// operator price) and submits it; the span ends once the cost is resolved,
+// at the exchange's own finish time.
+func (h *ConnectedHandler) submitExchange(parent context.Context, span trace.Span, record usageledger.Record, genAIProvider string, firstWrite time.Time, attemptID string, noCost bool) {
+	// Handler fields are read here, on the request's goroutine, not in the
+	// background write.
+	quota := h.Quota
+	h.Ledger.Submit(parent, func(ctx context.Context) (out usageledger.Record, err error) {
 		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
 		if noCost {
 			return record, nil
 		}
-		if attemptID != "" && h.Quota != nil {
-			record.BudgetIDs = h.Quota.budgetsDrawn(ctx, record.TenantID, attemptID)
-			if cost, ok := h.Quota.settledCost(ctx, record.TenantID, attemptID); ok {
+		if record.Cost.Basis == usageledger.BasisCached {
+			// A cache hit drew request-count budgets only; record them.
+			if attemptID != "" && quota != nil {
+				record.BudgetIDs = quota.budgetsDrawn(ctx, record.TenantID, attemptID)
+			}
+			return record, nil
+		}
+		if attemptID != "" && quota != nil {
+			record.BudgetIDs = quota.budgetsDrawn(ctx, record.TenantID, attemptID)
+			if cost, ok := quota.settledCost(ctx, record.TenantID, attemptID); ok {
 				record.Cost = cost
 				return record, nil
 			}
@@ -668,8 +721,9 @@ func modelPricesFrom(ctx context.Context, store resources.Store, tenant string) 
 // is a read of durable state: it never settles, retries or changes the quota
 // outcome. More than one distinct monetary meter is ambiguous and ignored.
 // budgetsDrawn lists the tenant budgets a dispatched attempt drew from. An
-// attempt that was denied or released before dispatch (hook denial, cache
-// hit, grant denial) drew nothing and reports none.
+// attempt that was denied or released before dispatch (hook denial, grant
+// denial) drew nothing and reports none. A cache hit claims and settles its
+// lease (one request, money at zero), so it lists the budgets it counted in.
 func (h *QuotaHost) budgetsDrawn(ctx context.Context, tenant, attempt string) []string {
 	value, ok := h.tenants[tenant]
 	if !ok || value.engine == nil {

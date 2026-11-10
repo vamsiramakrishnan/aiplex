@@ -31,6 +31,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
 	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
@@ -78,6 +79,11 @@ type ConnectedHandler struct {
 	Capacity *providerlimits.Store
 	// CapacityGate acts on Capacity for surfaces with a capacity_policy.
 	CapacityGate *providerlimits.Gate
+	// Breakers are the circuit breakers of routed access-point models, and
+	// ResponseCache their exact-match response cache. Both are per process
+	// (created on first use); nothing is shared between replicas.
+	Breakers      *routing.Breakers
+	ResponseCache routing.CacheStore
 
 	budgetMu  sync.Mutex
 	budgetSrc *BudgetCache
@@ -663,6 +669,10 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	usage.instrumentModel(&opts, connection)
 	h.installModelHooks(r, tenant, id, &opts, usage)
 	defer h.installCapacityGate(r, tenant, id, connection, &opts, usage)()
+	if attempt := routeAttemptFrom(r.Context()); attempt != nil {
+		// One attempt of a routed access-point model (access_point_routing.go).
+		attempt.instrument(r, &opts, usage)
+	}
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)
 	if e != nil {
 		Error(w, r, 503, "SURFACE_UNAVAILABLE", e.Error())

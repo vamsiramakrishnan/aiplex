@@ -53,7 +53,7 @@ All filters are exact matches. Each parameter may appear at most once. Unknown p
 | `caller_kind` | string | No | `agent`, `user` or `client` |
 | `status` | string | No | `ok`, `error`, `denied` or `unknown` |
 | `source` | string | No | `managed` (exchanges through AIPlex) or `reported` (mirrored from a legacy usage report, or read from a harness's own telemetry sent to [`/otlp`](./otlp.md)) |
-| `cost_basis` | string | No | `settled`, `estimated`, `reported` or `unknown` |
+| `cost_basis` | string | No | `settled`, `estimated`, `reported`, `cached` or `unknown` |
 | `harness` | string | No | Reported records from one harness, for example `claude-code` |
 | `tag.<key>` | string | No | Records carrying that tag, for example `tag.experiment=arm-a`. Several `tag.*` parameters must all match. |
 | `since` | RFC 3339 timestamp | No | Inclusive lower bound on `started_at` |
@@ -114,7 +114,7 @@ The response is a page object.
 | `image_quality` | string | Omitted when empty. Reported image quality, for example `high`. |
 | `service_tier` | string | Omitted when empty. The processing tier the provider reported (`default`, `standard`, `flex`, `priority`), or `mixed`. |
 | `server_tools` | object of integer | Omitted when empty. Provider-side tool requests the provider reported, by kind (`web_search`, `file_search`, `google_search`, ...). At most 16 kinds. |
-| `cost` | object | Cost basis (`settled`, `estimated`, `reported` or `unknown`) and amount: `basis`, and for a known cost `currency`, `amount`, `scale`, `amount_decimal`. An estimate adds `price_id`, `exact` (the unrounded amount in minor units as a fraction, present when `amount` was rounded up) and, for a cost computed after the record was written, `backfilled_at`. See Behaviour notes. |
+| `cost` | object | Cost basis (`settled`, `estimated`, `reported`, `cached` or `unknown`) and amount: `basis`, and for a known cost `currency`, `amount`, `scale`, `amount_decimal`. An estimate adds `price_id`, `exact` (the unrounded amount in minor units as a fraction, present when `amount` was rounded up) and, for a cost computed after the record was written, `backfilled_at`. See Behaviour notes. |
 | `provider_limits` | object | Omitted unless the provider reported rate-limit metadata on the exchange |
 
 ### Usage counters

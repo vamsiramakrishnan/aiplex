@@ -133,9 +133,9 @@ func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, er
 		return f, errors.New("source must be managed or reported")
 	}
 	switch f.CostBasis {
-	case "", usageledger.BasisSettled, usageledger.BasisEstimated, usageledger.BasisReported, usageledger.BasisUnknown:
+	case "", usageledger.BasisSettled, usageledger.BasisEstimated, usageledger.BasisReported, usageledger.BasisCached, usageledger.BasisUnknown:
 	default:
-		return f, errors.New("cost_basis must be settled, estimated, reported or unknown")
+		return f, errors.New("cost_basis must be settled, estimated, reported, cached or unknown")
 	}
 	if f.HookDecision != "" && !usageledger.ValidHookDecision(f.HookDecision) {
 		return f, errors.New("hook_decision must be allow, deny, transform, error, skipped or none")
@@ -200,6 +200,13 @@ func (h *UsageHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 		h.storeError(w, r, err)
 		return
 	}
+	if visibility != nil {
+		// A caller reading its own records sees attempts, not which
+		// backends a routed model is built from.
+		for i := range page.Records {
+			page.Records[i].RedactRouting()
+		}
+	}
 	JSON(w, http.StatusOK, page)
 }
 
@@ -227,6 +234,9 @@ func (h *UsageHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 	if record.TenantID != tenant || !(usageledger.Filter{Visibility: visibility}).Matches(record) {
 		Error(w, r, http.StatusNotFound, "NOT_FOUND", "usage record not found")
 		return
+	}
+	if visibility != nil {
+		record.RedactRouting()
 	}
 	detail := usageRecordDetail{Record: record}
 	if h.Feedback != nil {

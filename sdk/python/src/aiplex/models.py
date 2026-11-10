@@ -216,7 +216,7 @@ class UsageFilter:
     harness: str | None = None
     #: allow, deny, transform, error, skipped, or none.
     hook_decision: str | None = None
-    #: settled, estimated, reported or unknown.
+    #: settled, estimated, reported, cached or unknown.
     cost_basis: str | None = None
     #: Records carrying every tag pair, sent as tag.<key>=<value>.
     tags: dict[str, str] | None = None
@@ -318,21 +318,85 @@ class Whoami:
 
 
 @dataclass(frozen=True)
+class RoutingBackend:
+    """One backend of a routed access-point model: a saved surface and the
+    native model it is asked for (docs/reliability-and-routing.md)."""
+
+    surface_ref: str | None = None
+    native_model: str | None = None
+    #: Share of first attempts under the weighted strategy (default 1).
+    weight: int | None = None
+    #: Order under the priority strategy (lower first, default 0).
+    priority: int | None = None
+
+    @classmethod
+    def from_wire(cls, data: Any) -> RoutingBackend:
+        d = _expect_dict(data, "backend")
+        return cls(
+            surface_ref=_opt_str(d, "surface_ref"),
+            native_model=_opt_str(d, "native_model"),
+            weight=_opt_int(d, "weight"),
+            priority=_opt_int(d, "priority"),
+        )
+
+    def to_wire(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key in ("surface_ref", "native_model", "weight", "priority"):
+            value = getattr(self, key)
+            if value is not None:
+                out[key] = value
+        return out
+
+
+@dataclass(frozen=True)
+class ResponseCacheConfig:
+    """Exact-match response cache of an access-point model (off unless set).
+    scope "access_point" shares answers between callers."""
+
+    ttl: str | None = None
+    scope: str | None = None
+    max_entry_bytes: int | None = None
+
+    @classmethod
+    def from_wire(cls, data: Any) -> ResponseCacheConfig:
+        d = _expect_dict(data, "cache")
+        return cls(ttl=_opt_str(d, "ttl"), scope=_opt_str(d, "scope"), max_entry_bytes=_opt_int(d, "max_entry_bytes"))
+
+    def to_wire(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key in ("ttl", "scope", "max_entry_bytes"):
+            value = getattr(self, key)
+            if value is not None:
+                out[key] = value
+        return out
+
+
+@dataclass(frozen=True)
 class AccessPointModel:
-    """Model route entry inside an access point specification."""
+    """Model route entry inside an access point specification: one
+    surface_ref/native_model pair, or backends with a routing block."""
 
     name: str | None = None
     surface_ref: str | None = None
     native_model: str | None = None
+    backends: list[RoutingBackend] = field(default_factory=list)
+    #: The routing block as sent on the wire (strategy, retry, fallback,
+    #: breaker, lowest_cost, deadline_ms).
+    routing: dict[str, Any] | None = None
+    cache: ResponseCacheConfig | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_wire(cls, data: Any) -> AccessPointModel:
         d = _expect_dict(data, "access_point.model")
+        backends = [RoutingBackend.from_wire(b) for b in _expect_list(d["backends"], "backends")] if d.get("backends") is not None else []
         return cls(
             name=_opt_str(d, "name"),
             surface_ref=_opt_str(d, "surface_ref"),
             native_model=_opt_str(d, "native_model"),
+            backends=backends,
+            routing=_opt_dict(d, "routing"),
+            cache=ResponseCacheConfig.from_wire(d["cache"]) if d.get("cache") is not None else None,
             raw=dict(d),
         )
 
@@ -344,6 +408,12 @@ class AccessPointModel:
             out["surface_ref"] = self.surface_ref
         if self.native_model is not None:
             out["native_model"] = self.native_model
+        if self.backends:
+            out["backends"] = [b.to_wire() for b in self.backends]
+        if self.routing is not None:
+            out["routing"] = dict(self.routing)
+        if self.cache is not None:
+            out["cache"] = self.cache.to_wire()
         return out
 
 
@@ -754,6 +824,16 @@ class UsageRecord:
     hooks: dict[str, Any] | None = None
     #: Latest feedback, present on a record fetched with get_usage_record.
     feedback: Feedback | None = None
+    #: Routed access-point exchanges: every attempt in order, the backend
+    #: that served and the strategy.
+    attempts: list[RouteAttempt] = field(default_factory=list)
+    backend: RoutingBackend | None = None
+    routing_strategy: str | None = None
+    #: Response-cache outcome, when the model has a cache.
+    cache: CacheInfo | None = None
+    #: On a cache hit, the original exchange's usage; not provider usage of
+    #: this record (whose usage is zero and cost basis "cached").
+    cached_response_usage: UsageCounters | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -801,8 +881,55 @@ class UsageRecord:
             budget_ids=_str_list(d, "budget_ids"),
             hooks=_opt_dict(d, "hooks"),
             feedback=Feedback.from_wire(d["feedback"]) if d.get("feedback") is not None else None,
+            attempts=[RouteAttempt.from_wire(a) for a in _expect_list(d["attempts"], "attempts")] if d.get("attempts") is not None else [],
+            backend=RoutingBackend.from_wire(d["backend"]) if d.get("backend") is not None else None,
+            routing_strategy=_opt_str(d, "routing_strategy"),
+            cache=CacheInfo.from_wire(d["cache"]) if d.get("cache") is not None else None,
+            cached_response_usage=UsageCounters.from_wire(d["cached_response_usage"]) if d.get("cached_response_usage") is not None else None,
             raw=dict(d),
         )
+
+
+@dataclass(frozen=True)
+class RouteAttempt:
+    """One attempt of a routed exchange (no content)."""
+
+    surface_ref: str | None = None
+    native_model: str | None = None
+    outcome: str | None = None
+    upstream_status: int | None = None
+    retry_after_ms: int | None = None
+    duration_ms: int | None = None
+    breaker_state: str | None = None
+    reason: str | None = None
+
+    @classmethod
+    def from_wire(cls, data: Any) -> RouteAttempt:
+        d = _expect_dict(data, "attempt")
+        return cls(
+            surface_ref=_opt_str(d, "surface_ref"),
+            native_model=_opt_str(d, "native_model"),
+            outcome=_opt_str(d, "outcome"),
+            upstream_status=_opt_int(d, "upstream_status"),
+            retry_after_ms=_opt_int(d, "retry_after_ms"),
+            duration_ms=_opt_int(d, "duration_ms"),
+            breaker_state=_opt_str(d, "breaker_state"),
+            reason=_opt_str(d, "reason"),
+        )
+
+
+@dataclass(frozen=True)
+class CacheInfo:
+    """Response-cache outcome of an exchange: hit, miss or bypass."""
+
+    status: str | None = None
+    reason: str | None = None
+    scope: str | None = None
+
+    @classmethod
+    def from_wire(cls, data: Any) -> CacheInfo:
+        d = _expect_dict(data, "cache")
+        return cls(status=_opt_str(d, "status"), reason=_opt_str(d, "reason"), scope=_opt_str(d, "scope"))
 
 
 @dataclass(frozen=True)
@@ -848,6 +975,9 @@ class UsageSummaryGroup:
     cost: list[CostTotal] = field(default_factory=list)
     #: Present when the summary asked for feedback.
     feedback: FeedbackTotals | None = None
+    #: Answers served from the response cache (cost basis "cached"); not
+    #: provider usage and not unknown cost.
+    cached_response_records: int | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -881,6 +1011,7 @@ class UsageSummaryGroup:
             tokens_unknown=_int_map(d, "tokens_unknown"),
             cost=_cost_total_list(d, "cost"),
             feedback=FeedbackTotals.from_wire(d["feedback"]) if d.get("feedback") is not None else None,
+            cached_response_records=_opt_int(d, "cached_response_records"),
             raw=dict(d),
         )
 

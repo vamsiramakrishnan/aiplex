@@ -55,7 +55,7 @@ type UsageFilter struct {
 	// HookDecision selects records by their request-hook decision (allow,
 	// deny, transform, error, skipped) or "none" (no hook ran).
 	HookDecision string
-	// CostBasis selects settled, estimated, reported or unknown costs.
+	// CostBasis selects settled, estimated, reported, cached or unknown costs.
 	CostBasis string
 	// Batch, when non-nil, selects batch (true) or non-batch (false) records.
 	Batch *bool
@@ -508,6 +508,9 @@ func FormatMoney(amount string, scale uint8) (string, error) {
 // FormatCost renders a record cost with currency and basis, e.g.
 // "USD 0.001135 (estimated)". Unknown costs render as "unknown", never zero.
 func FormatCost(c usageledger.Cost) string {
+	if c.Basis == usageledger.BasisCached {
+		return "0 (cached)"
+	}
 	if c.Basis != usageledger.BasisSettled && c.Basis != usageledger.BasisEstimated && c.Basis != usageledger.BasisReported {
 		return "unknown"
 	}

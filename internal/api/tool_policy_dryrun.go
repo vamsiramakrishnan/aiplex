@@ -123,12 +123,14 @@ func (h *ConnectedHandler) TestToolRules(w http.ResponseWriter, r *http.Request)
 		Error(w, r, http.StatusBadRequest, "INVALID_RULES", err.Error())
 		return
 	}
+	var apLabels map[string]string
 	if in.AccessPoint != "" {
 		_, ap, loadErr := h.loadAccessPointRecord(r.Context(), tenant, in.AccessPoint)
 		if loadErr != nil {
 			resourceError(w, r, resources.ErrNotFound)
 			return
 		}
+		apLabels = ap.Labels
 		if tool := ap.tool(id); tool != nil {
 			if apRules, err = toolpolicy.CompileCached(tool.Rules); err != nil {
 				Error(w, r, http.StatusConflict, "INVALID_STORED_RULES", "the access point's rules no longer compile")
@@ -140,7 +142,7 @@ func (h *ConnectedHandler) TestToolRules(w http.ResponseWriter, r *http.Request)
 	if in.Subject.GroupsKnown != nil {
 		known = *in.Subject.GroupsKnown
 	}
-	facts := toolpolicy.Facts{ToolName: in.Tool, ToolConnection: id, HasArgs: true, AccessPointID: in.AccessPoint, Time: now,
+	facts := toolpolicy.Facts{ToolName: in.Tool, ToolConnection: id, HasArgs: true, AccessPointID: in.AccessPoint, AccessPointTags: apLabels, Time: now,
 		Caller: toolpolicy.Caller{Kind: in.Subject.Kind, Principal: in.Subject.Principal, Groups: in.Subject.Groups, GroupsKnown: known, Agent: in.Subject.Agent, Client: in.Subject.Client}}
 	if in.Annotations != nil {
 		facts.Annotations = toolpolicy.Annotations{ReadOnly: in.Annotations.ReadOnly, Destructive: in.Annotations.Destructive, Idempotent: in.Annotations.Idempotent, OpenWorld: in.Annotations.OpenWorld}

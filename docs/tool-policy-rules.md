@@ -85,7 +85,7 @@ controls.
 | `caller.agent` | string | The delegated actor id (RFC 8693 `act`), or the principal id of a workload identity; `""` for a person. |
 | `caller.client` | string | The ClientPlex registration id the token's authorized party matches; `""` when none. |
 | `access_point.id` | string | The access point the call came through; `""` for a call to `/api/v1/mcp/connections/{id}/invoke` directly. |
-| `access_point.labels` | map of string | Always empty: access points do not carry labels yet. |
+| `access_point.labels` | map of string | The access point's operator-set `labels` (the same trusted labels stamped on usage records as tags); empty for a direct call. Reading a missing key is an evaluation error, so guard it: `'env' in access_point.labels && access_point.labels.env == 'prod'`. Callers cannot set these (`X-AIPlex-Tags` is not a label). |
 | `request.time` | timestamp | The gateway's clock at evaluation (UTC). The only time source: there is no `now()`. |
 
 Unknown fields are rejected when you save: `tool.nme`, `caller.email` or
@@ -206,7 +206,6 @@ logs and the error body. The rule id is operator-chosen text: do not put sensiti
   than `readOnlyHint` are recorded from listings made after this feature; list again to record them.
 - **Group ids are not source-qualified.** Two identity providers using the same group id are the same
   string to a rule.
-- **`access_point.labels` is always empty** because access points have no labels.
 - **`path_under` is lexical.** It does not resolve symbolic links, case folding or encodings the tool
   applies itself. A tool that interprets paths differently from the gateway is outside what a rule can know.
 - **Cost is limited at run time**, not estimated when you save, so an expensive expression is found by the

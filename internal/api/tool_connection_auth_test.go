@@ -72,6 +72,10 @@ type toolUpstream struct {
 	forms        []url.Values
 	unauthorized int
 	list         string
+	// dropCalls closes the connection of this many tools/call requests
+	// without answering (a transport failure); bodies records every body.
+	dropCalls int
+	bodies    []string
 }
 
 func newToolUpstream(t *testing.T) *toolUpstream {
@@ -101,6 +105,14 @@ func newToolUpstream(t *testing.T) *toolUpstream {
 		}
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &request)
+		u.bodies = append(u.bodies, string(raw))
+		if request.Method == "tools/call" && u.dropCalls > 0 {
+			u.dropCalls--
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if request.Method == "tools/list" {
 			_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"tools":%s}}`, request.ID, u.list)

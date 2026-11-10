@@ -313,6 +313,20 @@ type Record struct {
 	// the call (error_class tool_policy_denied or tool_policy_error). Empty
 	// for a default deny and when no rule decided. Never arguments.
 	ToolPolicyRule string `json:"tool_policy_rule,omitempty"`
+	// Attempts, Backend and RoutingStrategy describe a routed access-point
+	// exchange (routing.go): every attempt in order, the backend that
+	// served, and the strategy. Provider, model and cost are those of the
+	// backend that served.
+	Attempts        []Attempt   `json:"attempts,omitempty"`
+	Backend         *BackendRef `json:"backend,omitempty"`
+	RoutingStrategy string      `json:"routing_strategy,omitempty"`
+	// Cache is the response-cache outcome when the model has a cache.
+	Cache *CacheInfo `json:"cache,omitempty"`
+	// CachedResponseUsage is, on a cache hit, the usage of the original
+	// exchange whose answer was replayed. It is not provider usage of this
+	// exchange (Usage is zero and the cost basis is "cached") and summaries
+	// do not add it to token totals.
+	CachedResponseUsage *Usage `json:"cached_response_usage,omitempty"`
 }
 
 // NewID returns a random record identifier.
@@ -426,6 +440,9 @@ func (r Record) Validate() error {
 	if err := validateServerTools(r.ServerTools); err != nil {
 		return err
 	}
+	if err := r.validateRouting(); err != nil {
+		return err
+	}
 	return r.Cost.Validate()
 }
 
@@ -437,6 +454,8 @@ func (c Cost) Validate() error {
 			return invalid("unknown cost cannot carry an amount")
 		}
 		return nil
+	case BasisCached:
+		return validateCachedCost(c)
 	case BasisSettled, BasisEstimated, BasisReported:
 		if !ValidCurrency(c.Currency) || c.Scale > MaxScale {
 			return invalid("cost needs a three-letter currency and scale up to %d", MaxScale)
@@ -456,7 +475,7 @@ func (c Cost) Validate() error {
 		}
 		return nil
 	}
-	return invalid("cost basis must be settled, estimated, reported or unknown")
+	return invalid("cost basis must be settled, estimated, reported, cached or unknown")
 }
 
 // Clone returns a deep copy so stores never share counter pointers.
@@ -492,6 +511,7 @@ func (r Record) Clone() Record {
 		at := *r.Cost.BackfilledAt
 		r.Cost.BackfilledAt = &at
 	}
+	cloneRouting(&r)
 	r.BudgetIDs = append([]string(nil), r.BudgetIDs...)
 	if len(r.BudgetIDs) == 0 {
 		r.BudgetIDs = nil

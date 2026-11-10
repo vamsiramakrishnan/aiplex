@@ -218,7 +218,8 @@ func (in *Instruments) RecordExchange(ctx context.Context, e Exchange) {
 	}
 	if amount, ok := costFloat(e.Cost); ok {
 		in.cost.Add(ctx, amount, e.metricAttributes(attribute.String(AttrCostCurrency, e.Cost.Currency), attribute.String(AttrCostBasis, e.Cost.Basis)))
-	} else {
+	} else if e.Cost.Basis != usageledger.BasisCached {
+		// A cache hit cost nothing at the provider: neither a cost nor unknown.
 		in.unknownCost.Add(ctx, 1, attrs)
 	}
 	if e.QuotaDenied {

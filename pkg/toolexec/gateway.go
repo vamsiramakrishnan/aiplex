@@ -72,7 +72,10 @@ type Options struct {
 	InspectRequest func(context.Context, Request) ([]byte, error)
 	// InspectResponse runs once on a complete, valid successful response
 	// before it is written. A *Denial refuses the call.
-	InspectResponse   func(ctx context.Context, request Request, mediaType string, body []byte) ([]byte, error)
+	InspectResponse func(ctx context.Context, request Request, mediaType string, body []byte) ([]byte, error)
+	// Retry retries transport failures of tools/list and of tools/call on
+	// tools the host marks repeatable (retry.go). Nil never retries.
+	Retry             *TransportRetry
 	AllowHTTPForTests bool
 	MaxBodyBytes      int64
 	MaxResponseBytes  int64
@@ -236,14 +239,17 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 	// The upstream sees the exchange's span context in params._meta as well as
 	// in the HTTP headers; the rest of the caller's request is relayed
-	// byte for byte.
+	// byte for byte. A transport retry (retry.go) re-sends exactly this
+	// patched body: policy rules and hooks have already run and do not run
+	// again.
 	upstreamBody, err := withTraceMeta(r.Context(), request.Body)
 	if err != nil {
 		http.Error(w, "invalid or oversized tool request", http.StatusBadRequest)
 		return
 	}
-	credential, upstream, err := g.upstreamRequest(r.Context(), upstreamBody)
-	if err != nil {
+	// The credential is checked before the dispatch claim; send acquires it
+	// again for each try.
+	if _, _, err = g.upstreamRequest(r.Context(), upstreamBody); err != nil {
 		http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -260,8 +266,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	claimed = true
-	response, err := g.client.Do(upstream)
+	repeatable := g.options.Retry != nil && g.options.Retry.Call != nil && g.options.Retry.Call(r.Context(), copyRequest(request))
+	credential, response, err := g.send(r.Context(), upstreamBody, repeatable)
 	if err != nil {
+		if _, ok := err.(errCredential); ok {
+			http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, "tool upstream unavailable", http.StatusBadGateway)
 		return
 	}

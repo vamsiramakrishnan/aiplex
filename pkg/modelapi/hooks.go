@@ -130,7 +130,7 @@ func (b *bufferWriter) Write(p []byte) (int, error) {
 // apply: the successful response is read completely (a stream through the
 // same observers as an unbuffered one, so metering is unchanged), handed
 // to the response hooks, and only then written.
-func (g *Gateway) serveInspected(w http.ResponseWriter, r *http.Request, response *http.Response, owner Owner, op Operation, metadata Metadata, run *executionRun, copyHeaders func(http.Header)) {
+func (g *Gateway) serveInspected(w http.ResponseWriter, r *http.Request, response *http.Response, owner Owner, op Operation, metadata Metadata, run *executionRun, store CacheStore, copyHeaders func(http.Header)) {
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	jsonResponse := mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 	var data []byte
@@ -185,6 +185,11 @@ func (g *Gateway) serveInspected(w http.ResponseWriter, r *http.Request, respons
 	if err != nil {
 		writeHookRefusal(w, err)
 		return
+	}
+	if store != nil && jsonResponse {
+		// The provider's answer is kept as it came (the response hooks run
+		// again on every hit); a denied answer is never kept.
+		store(response.StatusCode, response.Header, data)
 	}
 	copyHeaders(w.Header())
 	w.Header().Del("Content-Length")

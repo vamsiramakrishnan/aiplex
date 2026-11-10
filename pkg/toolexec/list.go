@@ -165,13 +165,13 @@ func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted cont
 		rpcDenied(w, id, err)
 		return
 	}
-	credential, upstream, err := g.upstreamRequest(r.Context(), body)
+	// Listing only reads: a transport failure may be retried (retry.go).
+	credential, response, err := g.send(r.Context(), body, true)
 	if err != nil {
-		http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	response, err := g.client.Do(upstream)
-	if err != nil {
+		if _, ok := err.(errCredential); ok {
+			http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, "tool upstream unavailable", http.StatusBadGateway)
 		return
 	}
