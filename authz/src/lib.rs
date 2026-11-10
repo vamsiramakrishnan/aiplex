@@ -1,3 +1,4 @@
+pub mod denial;
 pub mod jwt;
 
 use std::collections::HashSet;

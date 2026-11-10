@@ -5,6 +5,10 @@ use std::sync::Arc;
 
 use aiplex_authz::{
     check_authorization,
+    denial::{
+        clean, header, trace_id_from_traceparent, DenialReporter, PolicyDenial, MAX_ACTION, MAX_ID,
+        MAX_REQUEST_ID, MAX_SCOPE,
+    },
     jwt::{Claims, Config as JwtConfig, Verifier},
     missing_scope_from, plane_for_scope,
 };
@@ -49,65 +53,6 @@ struct CheckResponse {
 struct AppState {
     reporter: Option<Arc<DenialReporter>>,
     verifier: Option<Arc<Verifier>>,
-}
-
-/// PolicyDenial wire format matching internal/models/metrics.go (Go side).
-/// Only the fields the dashboard needs to render are populated; the Go side
-/// fills in ID/Timestamp when missing.
-#[derive(Debug, Serialize)]
-struct PolicyDenial {
-    timestamp: String,
-    plane: String,
-    agent_id: String,
-    user_id: String,
-    action: String,
-    scope: String,
-    reason: String,
-    request_id: String,
-}
-
-/// DenialReporter fires denial events to the AIPlex dashboard. The POST is
-/// best-effort: failures are logged and never block the authz response.
-struct DenialReporter {
-    url: String,
-    client: reqwest::Client,
-    in_flight: Arc<tokio::sync::Semaphore>,
-}
-
-impl DenialReporter {
-    fn from_env() -> Option<Arc<Self>> {
-        let url = env::var("DENIAL_WEBHOOK_URL").ok()?;
-        if url.is_empty() {
-            return None;
-        }
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(2))
-            .build()
-            .ok()?;
-        info!(url = %url, "denial webhook enabled");
-        Some(Arc::new(Self {
-            url,
-            client,
-            in_flight: Arc::new(tokio::sync::Semaphore::new(32)),
-        }))
-    }
-
-    fn report(self: Arc<Self>, denial: PolicyDenial) {
-        let Ok(permit) = self.in_flight.clone().try_acquire_owned() else {
-            warn!("denial webhook saturated; event omitted");
-            return;
-        };
-        let target = self.clone();
-        tokio::spawn(async move {
-            let _permit = permit;
-            let res = target.client.post(&target.url).json(&denial).send().await;
-            match res {
-                Ok(resp) if resp.status().is_success() => {}
-                Ok(resp) => warn!(status = %resp.status(), "denial webhook non-2xx"),
-                Err(e) => warn!(error = %e, "denial webhook failed"),
-            }
-        });
-    }
 }
 
 async fn check_handler(
@@ -271,21 +216,21 @@ async fn evaluate(state: &AppState, req: CheckRequest) -> (StatusCode, Json<Chec
         if let (Some(reporter), Some(reason_text)) = (state.reporter.as_ref(), reason.as_deref()) {
             let scope = missing_scope_from(reason_text).unwrap_or("").to_string();
             let plane = plane_for_scope(&scope).to_string();
-            let request_id = req
-                .headers
-                .get("x-request-id")
-                .or_else(|| req.headers.get("X-Request-Id"))
-                .cloned()
+            let request_id = header(&req.headers, "x-request-id").unwrap_or("");
+            // The trace id of the caller's W3C traceparent, so a denial can be
+            // found from the trace that was refused. An invalid header gives none.
+            let trace_id = header(&req.headers, "traceparent")
+                .and_then(trace_id_from_traceparent)
                 .unwrap_or_default();
             reporter.clone().report(PolicyDenial {
-                timestamp: chrono::Utc::now().to_rfc3339(),
                 plane,
-                agent_id: claims.azp.clone(),
-                user_id: claims.sub.clone(),
-                action: req.path.clone(),
-                scope,
+                agent_id: clean(&claims.azp, MAX_ID),
+                user_id: clean(&claims.sub, MAX_ID),
+                action: clean(&req.path, MAX_ACTION),
+                scope: clean(&scope, MAX_SCOPE),
                 reason: "scope_missing".to_string(),
-                request_id,
+                request_id: clean(request_id, MAX_REQUEST_ID),
+                trace_id,
             });
         }
 
@@ -448,6 +393,106 @@ mod tests {
             );
         }
     }
+    /// A denial reaches the API with the verified principal, the request id and
+    /// the trace id of the inbound traceparent; an allowed request reports nothing.
+    #[tokio::test]
+    async fn denial_is_reported_with_principal_and_trace_id() {
+        use std::sync::Mutex;
+        type Post = (Option<String>, serde_json::Value);
+        let seen: Arc<Mutex<Vec<Post>>> = Arc::default();
+        let sink = seen.clone();
+        let app = Router::new().route(
+            "/internal/policy-denials",
+            post(
+                move |headers: axum::http::HeaderMap, body: axum::body::Bytes| {
+                    let sink = sink.clone();
+                    async move {
+                        sink.lock().unwrap().push((
+                            headers
+                                .get("authorization")
+                                .and_then(|v| v.to_str().ok())
+                                .map(str::to_string),
+                            serde_json::from_slice(&body).unwrap(),
+                        ));
+                        StatusCode::CREATED
+                    }
+                },
+            ),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let token =
+            std::env::temp_dir().join(format!("aiplex-authz-main-test-{}", std::process::id()));
+        std::fs::write(&token, "shared-secret\n").unwrap();
+        let state = AppState {
+            reporter: Some(
+                DenialReporter::new(
+                    format!("http://{addr}/internal/policy-denials"),
+                    token.clone(),
+                )
+                .unwrap(),
+            ),
+            verifier: None,
+        };
+        let _ = std::fs::remove_file(&token);
+
+        // Allowed: nothing is reported.
+        let allowed = Request::builder()
+            .method("POST")
+            .uri("/authorize/mcp/server")
+            .header("authorization", bearer())
+            .body(Body::from(r#"{"method":"tools/list"}"#))
+            .unwrap();
+        assert_eq!(
+            authorize_handler(State(state.clone()), allowed)
+                .await
+                .into_response()
+                .status(),
+            StatusCode::OK
+        );
+
+        let denied = Request::builder()
+            .method("POST")
+            .uri("/authorize/mcp/server")
+            .header("authorization", bearer())
+            .header("x-request-id", "req-42")
+            .header(
+                "traceparent",
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+            )
+            .body(Body::from(
+                r#"{"method":"tools/call","params":{"name":"search"}}"#,
+            ))
+            .unwrap();
+        assert_eq!(
+            authorize_handler(State(state), denied)
+                .await
+                .into_response()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+
+        for _ in 0..50 {
+            if !seen.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1, "exactly the denial is reported");
+        assert_eq!(seen[0].0.as_deref(), Some("Bearer shared-secret"));
+        let body = &seen[0].1;
+        assert_eq!(body["trace_id"], "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(body["request_id"], "req-42");
+        assert_eq!(body["user_id"], "test-only");
+        assert_eq!(body["scope"], "mcp:tools:search");
+        assert_eq!(body["plane"], "mcplex");
+        assert_eq!(body["reason"], "scope_missing");
+        assert_eq!(body["action"], "/mcp/server");
+    }
+
     #[tokio::test]
     async fn native_http_adapter_rejects_gateway_partial_body_marker() {
         let request = Request::builder()
