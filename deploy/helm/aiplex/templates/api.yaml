@@ -111,6 +111,15 @@ spec:
               key: {{ .key | default "token" | quote }}
         {{- end }}
         {{- end }}
+        {{- with .Values.denialIngest.tokenSecret }}
+        {{- if .name }}
+        - name: AIPLEX_DENIAL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .name | quote }}
+              key: {{ .key | default "token" | quote }}
+        {{- end }}
+        {{- end }}
         {{- range $key, $value := .Values.api.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}

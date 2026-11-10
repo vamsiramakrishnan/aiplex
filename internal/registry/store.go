@@ -71,6 +71,8 @@ type Store interface {
 	// Counts (efficient dashboard queries)
 	CountDelegations(ctx context.Context) (int64, error)
 	CountPolicyDenials(ctx context.Context) (int64, error)
+	// CountPolicyDenialsSince counts denials recorded at or after since.
+	CountPolicyDenialsSince(ctx context.Context, since time.Time) (int64, error)
 
 	// IAM role bindings (group → role + scopes)
 	GetRoleBinding(ctx context.Context, id string) (*models.RoleBinding, error)
@@ -565,8 +567,16 @@ func (m *MemoryStore) AppendPolicyDenial(_ context.Context, d *models.PolicyDeni
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.policyDenials = append(m.policyDenials, *d)
+	// Bounded: the oldest are dropped beyond the cap (Firestore expires them
+	// by TTL instead).
+	if over := len(m.policyDenials) - maxMemoryPolicyDenials; over > 0 {
+		m.policyDenials = append([]models.PolicyDenial(nil), m.policyDenials[over:]...)
+	}
 	return nil
 }
+
+// maxMemoryPolicyDenials bounds the in-memory denial list.
+const maxMemoryPolicyDenials = 5000
 
 func (m *MemoryStore) ListPolicyDenials(_ context.Context, limit int) ([]models.PolicyDenial, error) {
 	m.mu.RLock()
@@ -591,6 +601,18 @@ func (m *MemoryStore) CountPolicyDenials(_ context.Context) (int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return int64(len(m.policyDenials)), nil
+}
+
+func (m *MemoryStore) CountPolicyDenialsSince(_ context.Context, since time.Time) (int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var n int64
+	for _, d := range m.policyDenials {
+		if !d.Timestamp.Before(since) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // ── IAM Role Bindings ──

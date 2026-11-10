@@ -43,6 +43,7 @@ var intendedRoutePolicy = map[string]string{
 	// Internal callbacks (bearer shared secrets).
 	"POST /auth/token-hook":                       "internal/t",
 	"POST /internal/tape/events":                  "internal/t",
+	"POST /internal/policy-denials":               "internal/t",
 	"POST /internal/projections/rebuild/{run_id}": "internal/t",
 	"GET /metrics":                                "internal/t",
 

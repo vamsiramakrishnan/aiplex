@@ -1,10 +1,12 @@
 package api
 
 import (
-	"encoding/json"
 	"math/big"
 	"net/http"
+	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
@@ -21,6 +23,9 @@ type DashboardHandler struct {
 	Tenant func(*http.Request) (string, error)
 	// Now is the clock; nil uses time.Now.
 	Now func() time.Time
+
+	denialMu    sync.Mutex
+	denialLimit *rate.Limiter
 }
 
 // NewDashboardHandler creates a dashboard API handler.
@@ -89,8 +94,12 @@ func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Policy denial count (efficient — no full fetch)
-	denialCount, err := h.store.CountPolicyDenials(ctx)
+	// Policy denials in the last 24 hours (the field is policy_denials_24h).
+	now := time.Now()
+	if h.Now != nil {
+		now = h.Now()
+	}
+	denialCount, err := h.store.CountPolicyDenialsSince(ctx, now.Add(-24*time.Hour))
 	if err != nil {
 		Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "policy reporting unavailable")
 		return
@@ -185,19 +194,4 @@ func (h *DashboardHandler) ListPolicyDenials(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	JSON(w, http.StatusOK, denials)
-}
-
-// RecordPolicyDenial records a policy denial event (called by ext_authz/OPA).
-// POST /api/v1/dashboard/denials
-func (h *DashboardHandler) RecordPolicyDenial(w http.ResponseWriter, r *http.Request) {
-	var d models.PolicyDenial
-	if err := json.NewDecoder(r.Body).Decode(&d); err != nil {
-		Error(w, r, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
-		return
-	}
-	if err := h.store.AppendPolicyDenial(r.Context(), &d); err != nil {
-		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
-		return
-	}
-	JSON(w, http.StatusCreated, d)
 }

@@ -743,6 +743,8 @@ type PolicyDenial struct {
 	Scope     string    `json:"scope"`
 	Reason    string    `json:"reason"`
 	RequestID string    `json:"request_id"`
+	// TraceID is the W3C trace id of the refused request, when known.
+	TraceID string `json:"trace_id,omitempty"`
 }
 
 // GetDashboardStats returns the unified dashboard overview.
@@ -759,7 +761,8 @@ func (c *Client) ListPolicyDenials(ctx context.Context) ([]PolicyDenial, error) 
 	return list, err
 }
 
-// RecordPolicyDenial records a new policy denial.
+// RecordPolicyDenial records a new policy denial (admin). The server assigns
+// the id and timestamp and refuses unknown fields and oversized values.
 func (c *Client) RecordPolicyDenial(ctx context.Context, d *PolicyDenial) (*PolicyDenial, error) {
 	var out PolicyDenial
 	err := c.do(ctx, "POST", "/api/v1/dashboard/denials", d, &out)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
@@ -49,6 +50,12 @@ func (s *unavailableDashboard) CountPolicyDenials(ctx context.Context) (int64, e
 		return 0, fmt.Errorf("backend down")
 	}
 	return s.Store.CountPolicyDenials(ctx)
+}
+func (s *unavailableDashboard) CountPolicyDenialsSince(ctx context.Context, since time.Time) (int64, error) {
+	if s.source == "denials" {
+		return 0, fmt.Errorf("backend down")
+	}
+	return s.Store.CountPolicyDenialsSince(ctx, since)
 }
 
 func TestDashboardDoesNotPresentUnavailableDataAsZero(t *testing.T) {

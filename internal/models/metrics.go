@@ -54,4 +54,10 @@ type PolicyDenial struct {
 	Scope     string    `json:"scope"`  // the scope that was missing
 	Reason    string    `json:"reason"` // "scope_missing", "budget_exceeded", "rate_limited"
 	RequestID string    `json:"request_id"`
+	// TraceID is the W3C trace id of the refused request (32 lower-case hex),
+	// when the reporter had a valid traceparent.
+	TraceID string `json:"trace_id,omitempty"`
+	// ExpiresAt is when a store drops the record (Firestore TTL field
+	// expires_at). Not part of the API response.
+	ExpiresAt time.Time `json:"-" firestore:"expires_at,omitempty"`
 }

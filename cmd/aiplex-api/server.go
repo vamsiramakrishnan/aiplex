@@ -462,6 +462,16 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		r.Post("/internal/projections/rebuild/{run_id}", runsH.RebuildProjection)
 	})
 
+	// Authorization denials reported by the authz sidecar. Same guard style as
+	// the Tape routes: a shared bearer secret (AIPLEX_DENIAL_TOKEN, a Secret
+	// reference in the chart; 503 while unset) and a per-source rate limit. The
+	// handler adds a body limit, a closed schema and a global limit.
+	r.Group(func(r chi.Router) {
+		r.Use(api.BearerToken(api.DenialTokenEnv))
+		r.Use(api.IPRateLimit(parseFloatEnv("AIPLEX_DENIAL_RPS", 20), parseIntEnv("AIPLEX_DENIAL_BURST", 100)))
+		r.Post("/internal/policy-denials", dashH.RecordPolicyDenial)
+	})
+
 	// MCP sub-registry (v0.1 spec)
 	if moduleEnabled(enabledModules, "mcplex") {
 		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/v0.1/servers", catalogH.List)

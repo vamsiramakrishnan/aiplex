@@ -802,6 +802,25 @@ func (f *FirestoreStore) CountPolicyDenials(ctx context.Context) (int64, error) 
 	return count, nil
 }
 
+// CountPolicyDenialsSince counts denials at or after since. Only document
+// identifiers are read.
+func (f *FirestoreStore) CountPolicyDenialsSince(ctx context.Context, since time.Time) (int64, error) {
+	iter := f.client.Collection("policy_denials").Where("Timestamp", ">=", since).Select().Documents(ctx)
+	defer iter.Stop()
+	var count int64
+	for {
+		_, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return 0, fmt.Errorf("firestore count policy denials since: %w", err)
+		}
+		count++
+	}
+	return count, nil
+}
+
 // ── IAM Role Bindings ──
 
 func (f *FirestoreStore) GetRoleBinding(ctx context.Context, id string) (*models.RoleBinding, error) {
