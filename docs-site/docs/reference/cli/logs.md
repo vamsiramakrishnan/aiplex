@@ -17,15 +17,30 @@ Examples:
 Usage:
   aiplex logs <instance-id> [flags]
 
+Examples:
+  aiplex logs github-abc --follow
+  aiplex logs github-abc --tail 100
+
 Flags:
   -f, --follow     Follow log output
   -h, --help       help for logs
       --tail int   Number of recent log lines to show (default 100)
 
 Global Flags:
-      --debug           Enable debug output
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
 ```
 

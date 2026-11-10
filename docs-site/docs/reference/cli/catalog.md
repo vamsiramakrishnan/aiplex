@@ -1,49 +1,46 @@
 ---
 title: aiplex catalog
 sidebar_label: catalog
-description: "Browse the template catalog"
+description: "Browse templates you can deploy"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.
 
 ```text
-Browse the template catalog
+Browse templates you can deploy
 
 Usage:
+  aiplex catalog [flags]
   aiplex catalog [command]
 
+Examples:
+  aiplex catalog list --plane mcplex
+
 Available Commands:
-  get         Get template details
   list        List catalog templates
+  get         Get template details
 
 Flags:
   -h, --help   help for catalog
 
 Global Flags:
-      --debug           Enable debug output
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
 
 Use "aiplex catalog [command] --help" for more information about a command.
-```
 
-### `aiplex catalog get`
-
-```text
-Get template details
-
-Usage:
-  aiplex catalog get <template-id> [flags]
-
-Flags:
-  -h, --help   help for get
-
-Global Flags:
-      --debug           Enable debug output
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
 ```
 
 ### `aiplex catalog list`
@@ -54,14 +51,61 @@ List catalog templates
 Usage:
   aiplex catalog list [flags]
 
+Examples:
+  aiplex catalog list
+  aiplex catalog list --plane llmplex
+
 Flags:
   -h, --help           help for list
   -p, --plane string   Filter by plane: mcplex, a2aplex, llmplex
 
 Global Flags:
-      --debug           Enable debug output
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex catalog get`
+
+```text
+Get template details
+
+Usage:
+  aiplex catalog get <template-id> [flags]
+
+Examples:
+  aiplex catalog get github-mcp
+
+Flags:
+  -h, --help   help for get
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
 ```
 

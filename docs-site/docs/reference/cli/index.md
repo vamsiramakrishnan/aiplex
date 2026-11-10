@@ -9,127 +9,155 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 ## Global flags
 
 ```text
-      --debug           Enable debug output
-  -h, --help            help for aiplex
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+  -h, --help             help for aiplex
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
 ```
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| [`aiplex a2a`](./a2a.md) | A2APlex — manage agent delegation and discovery |
-| [`aiplex access-points`](./access-points.md) | Access points: one URL that enforces identity, access, QoS and quota |
-| [`aiplex agents`](./agents.md) | Manage registered agents |
-| [`aiplex apply`](./apply.md) | Apply a declarative configuration file |
-| [`aiplex catalog`](./catalog.md) | Browse the template catalog |
-| [`aiplex clients`](./clients.md) | Register developer clients and review connection plans |
-| [`aiplex config`](./config.md) | Manage CLI configuration and contexts |
-| [`aiplex connect`](./connect.md) | Print ready-to-paste configuration for pointing a client at an access point |
-| [`aiplex console`](./console.md) | Launch the AIPlex console locally |
-| [`aiplex ctx`](./ctx.md) | Switch context (shorthand for config use-context) |
-| [`aiplex deploy`](./deploy.md) | Deploy an instance from a catalog template |
-| [`aiplex doctor`](./doctor.md) | Diagnose common issues and suggest fixes |
-| [`aiplex get`](./get.md) | Get details of a resource |
-| [`aiplex health`](./health.md) | Check connectivity to all AIPlex components |
-| [`aiplex identity`](./identity.md) | Workforce identity: let people sign in with their corporate identity provider |
+| [`aiplex dev`](./dev.md) | Run AIPlex on this machine with a mock model, mock tools and the Console |
+| [`aiplex login`](./login.md) | Sign in to an AIPlex API and store the token for the current context |
+| [`aiplex logout`](./logout.md) | Forget the stored token for the current context |
+| [`aiplex whoami`](./whoami.md) | Show which API and identity the CLI is using, and your roles |
+| [`aiplex config`](./config.md) | Manage named contexts (API URL and credentials per environment) |
+| [`aiplex ctx`](./ctx.md) | Switch to another context, or show the current one |
+| [`aiplex doctor`](./doctor.md) | Diagnose your setup and say what to fix |
+| [`aiplex health`](./health.md) | Check that the API and its components answer |
+| [`aiplex version`](./version.md) | Show the CLI version, commit and whether the Console is built in |
+| [`aiplex init`](./init.md) | Set up AIPlex on a Google Cloud project (guided) |
+| [`aiplex quickstart`](./quickstart.md) | Create a cloud deployment end to end in one command |
+| [`aiplex access-points`](./access-points.md) | Create and manage access points: one URL with identity, access and quota |
+| [`aiplex connect`](./connect.md) | Print ready-to-paste client configuration for an access point |
+| [`aiplex who`](./who.md) | See every caller: how it signs in, what it can reach and its usage |
+| [`aiplex clients`](./clients.md) | Register developer clients (IDEs, CLIs) and review their connection plans |
+| [`aiplex llm`](./llm.md) | Connect model providers (surfaces), and inspect routes, batches and capacity |
+| [`aiplex mcp`](./mcp.md) | Connect MCP tool servers and test them through the gateway |
+| [`aiplex tools`](./tools.md) | Set a tool connection's credential type and which tools it allows |
+| [`aiplex tool-auth`](./tool-auth.md) | Authorize a downstream tool for yourself (OAuth sign-in to the tool) |
+| [`aiplex skills`](./skills.md) | Inspect skill servers and skill invocations |
+| [`aiplex agents`](./agents.md) | Register agents, bind their cloud identities and set their permissions |
+| [`aiplex identity`](./identity.md) | Let people sign in with your corporate identity provider |
+| [`aiplex a2a`](./a2a.md) | Discover agents and delegate tasks between them (A2A) |
+| [`aiplex usage`](./usage.md) | See what each request cost: records, totals and model prices |
+| [`aiplex quota`](./quota.md) | Inspect quota policy, balances, loans and admission decisions |
+| [`aiplex status`](./status.md) | Show a dashboard summary of the platform |
+| [`aiplex resources`](./resources.md) | Low-level access to any resource kind (prefer the guided commands) |
+| [`aiplex apply`](./apply.md) | Apply a declarative AIPlex configuration file |
+| [`aiplex validate`](./validate.md) | Check an AIPlex configuration file without applying it |
+| [`aiplex modules`](./modules.md) | List the modules this API has enabled |
+| [`aiplex platform`](./platform.md) | Deploy, inspect or destroy the AIPlex platform on Google Cloud |
+| [`aiplex upgrade`](./upgrade.md) | Upgrade a deployed AIPlex platform |
 | [`aiplex infra`](./infra.md) | Review, execute and inspect saved infrastructure plans |
-| [`aiplex init`](./init.md) | Set up AIPlex on a GCP project |
-| [`aiplex list`](./list.md) | List resources |
-| [`aiplex llm`](./llm.md) | LLMPlex — manage model routes, providers, and costs |
-| [`aiplex login`](./login.md) | Authenticate with your AIPlex instance |
-| [`aiplex logout`](./logout.md) | Remove stored credentials for the current context |
+| [`aiplex native`](./native.md) | Read and apply native cloud governance plans |
+| [`aiplex catalog`](./catalog.md) | Browse templates you can deploy |
+| [`aiplex deploy`](./deploy.md) | Deploy an instance from a catalog template |
+| [`aiplex undeploy`](./undeploy.md) | Remove a deployed instance |
+| [`aiplex list`](./list.md) | List instances, agents, delegations or policy denials |
+| [`aiplex get`](./get.md) | Show one instance, agent or delegation |
 | [`aiplex logs`](./logs.md) | Stream logs from a deployed instance |
-| [`aiplex modules`](./modules.md) | Discover enabled Aiplex modules |
-| [`aiplex native`](./native.md) | Inspect and review configured native cloud governance |
-| [`aiplex platform`](./platform.md) | Manage AIPlex platform infrastructure |
-| [`aiplex quickstart`](./quickstart.md) | Zero to running platform in one command |
-| [`aiplex quota`](./quota.md) | Inspect managed quota execution |
-| [`aiplex resources`](./resources.md) | Manage connected module resources (model-surface, agent-connection, tool-connection, network-profile, client-destination, deployment-intent, agent-binding) |
-| [`aiplex runs`](./runs.md) | Inspect + operate on Tape-backed runs |
-| [`aiplex skills`](./skills.md) | SkillsPlex — manage skill servers and invocations |
-| [`aiplex status`](./status.md) | Show dashboard summary |
-| [`aiplex tool-auth`](./tool-auth.md) | Authorize downstream tools for the verified principal and actor |
-| [`aiplex tools`](./tools.md) | Configure MCP tool connection auth and tool policy |
-| [`aiplex tui`](./tui.md) | Interactive terminal dashboard |
-| [`aiplex undeploy`](./undeploy.md) | Terminate and remove a deployed instance |
-| [`aiplex upgrade`](./upgrade.md) | Upgrade the AIPlex platform (alias for platform apply) |
-| [`aiplex usage`](./usage.md) | Usage ledger — what each request cost in requests, tokens and dollars |
-| [`aiplex validate`](./validate.md) | Validate an AIPlex manifest file |
-| [`aiplex version`](./version.md) | Show CLI version and check for updates |
-| [`aiplex who`](./who.md) | See every caller: how it authenticates, what it can reach and why, and its usage |
-| [`aiplex whoami`](./whoami.md) | Show current context, account, and auth status |
+| [`aiplex runs`](./runs.md) | Inspect and operate durable agent runs |
+| [`aiplex console`](./console.md) | Serve the Console locally against the current context |
+| [`aiplex tui`](./tui.md) | Open an interactive terminal dashboard |
 
 ## Root help
 
 ```text
-AIPlex CLI manages three planes through a single gateway:
-  MCPlex  — Agent ↔ Tool   (MCP servers)
-  A2APlex — Agent ↔ Agent  (A2A delegation)
-  LLMPlex — Agent ↔ Model  (LLM providers)
+AIPlex puts models, MCP tools and agents behind one gateway with one identity,
+one access policy and one usage ledger.
 
-Get started:
-  aiplex init             Set up AIPlex on a GCP project
-  aiplex login            Authenticate with your AIPlex instance
-  aiplex config show      View current configuration
-  aiplex health           Check connectivity to all components
+Start here (no Docker, no cloud account):
+  aiplex dev                 run AIPlex locally with a mock model and mock tools
+  eval "$(aiplex dev env)"   in another terminal: point SDKs and the CLI at it
+  aiplex connect local       print client configuration for the local access point
 
 Usage:
   aiplex [command]
 
-Available Commands:
-  a2a           A2APlex — manage agent delegation and discovery
-  access-points Access points: one URL that enforces identity, access, QoS and quota
-  agents        Manage registered agents
-  apply         Apply a declarative configuration file
-  catalog       Browse the template catalog
-  clients       Register developer clients and review connection plans
-  completion    Generate shell completion scripts
-  config        Manage CLI configuration and contexts
-  connect       Print ready-to-paste configuration for pointing a client at an access point
-  console       Launch the AIPlex console locally
-  ctx           Switch context (shorthand for config use-context)
-  deploy        Deploy an instance from a catalog template
-  doctor        Diagnose common issues and suggest fixes
-  get           Get details of a resource
-  health        Check connectivity to all AIPlex components
-  help          Help about any command
-  identity      Workforce identity: let people sign in with their corporate identity provider
+Get started:
+  dev           Run AIPlex on this machine with a mock model, mock tools and the Console
+  login         Sign in to an AIPlex API and store the token for the current context
+  logout        Forget the stored token for the current context
+  whoami        Show which API and identity the CLI is using, and your roles
+  config        Manage named contexts (API URL and credentials per environment)
+  ctx           Switch to another context, or show the current one
+  doctor        Diagnose your setup and say what to fix
+  health        Check that the API and its components answer
+  version       Show the CLI version, commit and whether the Console is built in
+  init          Set up AIPlex on a Google Cloud project (guided)
+  quickstart    Create a cloud deployment end to end in one command
+
+Connect clients:
+  access-points Create and manage access points: one URL with identity, access and quota
+  connect       Print ready-to-paste client configuration for an access point
+  who           See every caller: how it signs in, what it can reach and its usage
+  clients       Register developer clients (IDEs, CLIs) and review their connection plans
+
+Models:
+  llm           Connect model providers (surfaces), and inspect routes, batches and capacity
+
+Tools:
+  mcp           Connect MCP tool servers and test them through the gateway
+  tools         Set a tool connection's credential type and which tools it allows
+  tool-auth     Authorize a downstream tool for yourself (OAuth sign-in to the tool)
+  skills        Inspect skill servers and skill invocations
+
+Agents and identity:
+  agents        Register agents, bind their cloud identities and set their permissions
+  identity      Let people sign in with your corporate identity provider
+  a2a           Discover agents and delegate tasks between them (A2A)
+
+Usage and quota:
+  usage         See what each request cost: records, totals and model prices
+  quota         Inspect quota policy, balances, loans and admission decisions
+
+Operate:
+  status        Show a dashboard summary of the platform
+  resources     Low-level access to any resource kind (prefer the guided commands)
+  apply         Apply a declarative AIPlex configuration file
+  validate      Check an AIPlex configuration file without applying it
+  modules       List the modules this API has enabled
+  platform      Deploy, inspect or destroy the AIPlex platform on Google Cloud
+  upgrade       Upgrade a deployed AIPlex platform
   infra         Review, execute and inspect saved infrastructure plans
-  init          Set up AIPlex on a GCP project
-  list          List resources
-  llm           LLMPlex — manage model routes, providers, and costs
-  login         Authenticate with your AIPlex instance
-  logout        Remove stored credentials for the current context
+  native        Read and apply native cloud governance plans
+  catalog       Browse templates you can deploy
+  deploy        Deploy an instance from a catalog template
+  undeploy      Remove a deployed instance
+  list          List instances, agents, delegations or policy denials
+  get           Show one instance, agent or delegation
   logs          Stream logs from a deployed instance
-  modules       Discover enabled Aiplex modules
-  native        Inspect and review configured native cloud governance
-  platform      Manage AIPlex platform infrastructure
-  quickstart    Zero to running platform in one command
-  quota         Inspect managed quota execution
-  resources     Manage connected module resources (model-surface, agent-connection, tool-connection, network-profile, client-destination, deployment-intent, agent-binding)
-  runs          Inspect + operate on Tape-backed runs
-  skills        SkillsPlex — manage skill servers and invocations
-  status        Show dashboard summary
-  tool-auth     Authorize downstream tools for the verified principal and actor
-  tools         Configure MCP tool connection auth and tool policy
-  tui           Interactive terminal dashboard
-  undeploy      Terminate and remove a deployed instance
-  upgrade       Upgrade the AIPlex platform (alias for platform apply)
-  usage         Usage ledger — what each request cost in requests, tokens and dollars
-  validate      Validate an AIPlex manifest file
-  version       Show CLI version and check for updates
-  who           See every caller: how it authenticates, what it can reach and why, and its usage
-  whoami        Show current context, account, and auth status
+  runs          Inspect and operate durable agent runs
+  console       Serve the Console locally against the current context
+  tui           Open an interactive terminal dashboard
+
+Additional Commands:
+  completion    Print a shell completion script (commands, flags and resource ids)
+  help          Help about any command
 
 Flags:
-      --debug           Enable debug output
-  -h, --help            help for aiplex
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+  -h, --help             help for aiplex
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
 
 Use "aiplex [command] --help" for more information about a command.
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
 ```

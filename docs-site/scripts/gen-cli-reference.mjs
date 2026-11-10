@@ -27,15 +27,29 @@ function help(args) {
   return execFileSync(bin, [...args, '--help'], {env, encoding: 'utf8'}).replace(/\s+$/, '') + '\n';
 }
 
+// Command lists are the indented "  name   description" lines under cobra's
+// "Available Commands:" / "Additional Commands:" headings and the help groups
+// the root command defines (cmd/aiplex-cli/main.go commandGroups). Any other
+// heading in a command's long text is prose, not a command list.
+const COMMAND_HEADINGS = new Set([
+  'Available Commands', 'Additional Commands', 'Get started', 'Connect clients', 'Models', 'Tools',
+  'Agents and identity', 'Usage and quota', 'Operate',
+]);
 function subcommands(text) {
-  const m = text.match(/^Available Commands:\n((?:  .*\n?)+)/m);
-  if (!m) return [];
-  return m[1]
-    .split('\n')
-    .map((l) => l.match(/^  (\S+)\s+(.*)$/))
-    .filter(Boolean)
-    .map((x) => ({name: x[1], short: x[2].trim()}))
-    .filter((c) => c.name !== 'help' && c.name !== 'completion');
+  const out = [];
+  let inCommands = false;
+  for (const line of text.split('\n')) {
+    const heading = line.match(/^([A-Z][^:\n]*):\s*$/);
+    if (heading) {
+      inCommands = COMMAND_HEADINGS.has(heading[1]);
+      continue;
+    }
+    if (/^\S/.test(line)) inCommands = false;
+    if (!inCommands) continue;
+    const m = line.match(/^  (\S+)\s+(.*)$/);
+    if (m && !m[1].startsWith('-')) out.push({name: m[1], short: m[2].trim()});
+  }
+  return out.filter((c) => c.name !== 'help' && c.name !== 'completion');
 }
 
 async function walk(args) {
