@@ -42,7 +42,7 @@ func providerAuthAllowed(provider string, auth toolcredential.Auth) error {
 		if auth.Type == toolcredential.Bearer || auth.Type == toolcredential.None {
 			return nil
 		}
-	case modelapi.ProviderAnthropic, modelapi.ProviderAzureOpenAI:
+	case modelapi.ProviderAnthropic, modelapi.ProviderAzureOpenAI, modelapi.ProviderGeminiDeveloper:
 		d, _ := modelapi.ProviderByID(provider)
 		if auth.Type == toolcredential.APIKey && auth.In == toolcredential.InHeader && strings.EqualFold(auth.Name, d.APIKeyHeader) && auth.Prefix == "" {
 			return nil

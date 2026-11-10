@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
@@ -324,7 +323,16 @@ func (g *Gateway) validateModerationBody(md *Metadata, body []byte) ([]byte, err
 	return body, nil
 }
 
-func queryInt(v string) (int, bool) {
-	n, err := strconv.Atoi(v)
-	return n, err == nil
+// OperationFor matches a method and native path against the surface's
+// installed operations, returning the operation and its {id}/{model} parameters.
+func (s Surface) OperationFor(method, path string) (Operation, map[string]string, bool) {
+	g := &Gateway{surface: s}
+	for _, o := range s.Operations {
+		c, err := compileOperation(s, o)
+		if err != nil {
+			return Operation{}, nil, false
+		}
+		g.operations = append(g.operations, c)
+	}
+	return g.match(method, path)
 }
