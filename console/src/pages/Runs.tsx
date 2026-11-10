@@ -22,7 +22,7 @@ import {
 // glance. Stable across SDK versions because the kinds are typed in
 // the wire contract.
 const KIND_STYLE: Record<ExecutionEventKind, { colour: string; glyph: string; label: string }> = {
-  'run.started':         { colour: 'bg-gray-100   text-gray-700',   glyph: '▶', label: 'run started' },
+  'run.started':         { colour: 'bg-gray-100   text-gray-700 dark:bg-gray-800 dark:text-gray-300',   glyph: '▶', label: 'run started' },
   'run.completed':       { colour: 'bg-status-ok-bg  text-status-ok-fg',  glyph: '✓', label: 'completed' },
   'run.failed':          { colour: 'bg-status-denied-bg  text-status-denied-fg',    glyph: '✗', label: 'failed' },
   'decision.recorded':   { colour: 'bg-brand-100  text-brand-700',   glyph: '◆', label: 'decision' },
@@ -33,21 +33,21 @@ const KIND_STYLE: Record<ExecutionEventKind, { colour: string; glyph: string; la
   'effect.duplicate':    { colour: 'bg-status-warning-bg text-status-warning-fg', glyph: '⚠', label: 'duplicate' },
   'obligation.created':  { colour: 'bg-brand-100 text-brand-800', glyph: '↺', label: 'obligation' },
   'gate.waiting':        { colour: 'bg-brand-100 text-brand-700', glyph: '⏸', label: 'waiting on gate' },
-  'timer.scheduled':     { colour: 'bg-gray-100   text-gray-600',   glyph: '⏲', label: 'timer' },
+  'timer.scheduled':     { colour: 'bg-gray-100   text-gray-600 dark:bg-gray-800 dark:text-gray-400',   glyph: '⏲', label: 'timer' },
   'budget.charged':      { colour: 'bg-brand-50  text-brand-600',   glyph: '$', label: 'budget' },
   'policy.violation':    { colour: 'bg-status-denied-bg  text-status-denied-fg',    glyph: '✦', label: 'POLICY' },
-  'run.compacted':       { colour: 'bg-gray-100   text-gray-700',   glyph: '▣', label: 'archived' },
+  'run.compacted':       { colour: 'bg-gray-100   text-gray-700 dark:bg-gray-800 dark:text-gray-300',   glyph: '▣', label: 'archived' },
 }
 
 const STATUS_STYLE: Record<ExecutionRunStatus, string> = {
-  runnable:     'bg-gray-100    text-gray-600',
+  runnable:     'bg-gray-100    text-gray-600 dark:bg-gray-800 dark:text-gray-400',
   running:      'bg-brand-100  text-brand-700',
   waiting:      'bg-brand-100  text-brand-700',
   terminal:     'bg-status-ok-bg  text-status-ok-fg',
   failed:       'bg-status-denied-bg  text-status-denied-fg',
   compensating: 'bg-brand-100  text-brand-700',
   stuck:        'bg-status-denied-bg  text-status-denied-fg',
-  cancelled:    'bg-gray-200    text-gray-700',
+  cancelled:    'bg-gray-200    text-gray-700 dark:bg-gray-700 dark:text-gray-300',
 }
 
 interface Filters {
@@ -126,7 +126,7 @@ export default function Runs() {
 
 function FiltersBar({ filters, onChange }: { filters: Filters; onChange: (f: Filters) => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-gray-50 rounded">
+    <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-gray-50 rounded dark:bg-gray-900">
       <input
         type="text"
         aria-label="Tenant ID" placeholder="tenant_id"
@@ -175,11 +175,11 @@ function RunList({
           }`}
         >
           <div className="flex items-center justify-between gap-2 mb-1">
-            <code className="text-xs font-mono text-gray-600 truncate">{r.run_id}</code>
+            <code className="text-xs font-mono text-gray-600 truncate dark:text-gray-400">{r.run_id}</code>
             <div className="flex items-center gap-1">
               {r.compacted && (
                 <span
-                  className="px-2 py-0.5 text-xs rounded bg-gray-200 text-gray-700"
+                  className="px-2 py-0.5 text-xs rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
                   title={r.compacted_at ? `Compacted ${r.compacted_at}` : 'Compacted'}
                 >
                   archived
@@ -190,7 +190,7 @@ function RunList({
               </span>
             </div>
           </div>
-          <div className="text-sm text-gray-700">
+          <div className="text-sm text-gray-700 dark:text-gray-300">
             <span className="font-medium">{r.agent_id || '(no agent)'}</span>
             {' · '}
             <span className="text-gray-600 dark:text-gray-400">{r.tenant_id || 'no tenant'}</span>
@@ -248,7 +248,7 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
       </div>
 
       {compacted ? (
-        <div className="text-xs p-3 mb-3 bg-gray-100 text-gray-700 rounded">
+        <div className="text-xs p-3 mb-3 bg-gray-100 text-gray-700 rounded dark:bg-gray-800 dark:text-gray-300">
           <div className="font-medium mb-1">Run archived</div>
           <div>
             Details were compacted on{' '}
@@ -267,7 +267,7 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
       )}
       <ol className="space-y-1 max-h-[28rem] overflow-y-auto mt-3">
         {events.map(ev => {
-          const s = KIND_STYLE[ev.kind] ?? { colour: 'bg-gray-100 text-gray-700', glyph: '·', label: ev.kind }
+          const s = KIND_STYLE[ev.kind] ?? { colour: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', glyph: '·', label: ev.kind }
           return (
             <li key={ev.seq} className={`flex items-start gap-2 text-xs p-2 rounded ${s.colour}`}>
               <span className="font-mono flex-shrink-0 w-5 text-center">{s.glyph}</span>
@@ -275,7 +275,7 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{s.label}{ev.tool ? ` · ${ev.tool}` : ''}{ev.scope ? ` · ${ev.scope}` : ''}</div>
                 {ev.payload_json && (
-                  <div className="font-mono text-[10px] text-gray-600 truncate">
+                  <div className="font-mono text-[10px] text-gray-600 truncate dark:text-gray-400">
                     {ev.payload_json}
                   </div>
                 )}
@@ -287,7 +287,7 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
 
       {auditQ.data && auditQ.data.audit.length > 0 && (
         <div className="mt-4 pt-3 border-t">
-          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2 dark:text-gray-300">
             Operator audit
           </h4>
           <ol className="space-y-1">
@@ -300,7 +300,7 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
 }
 
 function OperatorAuditRow({ a }: { a: OperatorAudit }) {
-  const colour = a.status === 'accepted' ? 'text-gray-600' : 'text-status-denied-fg'
+  const colour = a.status === 'accepted' ? 'text-gray-600 dark:text-gray-400' : 'text-status-denied-fg'
   return (
     <li className={`text-xs ${colour} flex items-baseline gap-2`}>
       <span className="font-mono">{new Date(a.at).toLocaleTimeString()}</span>
@@ -369,7 +369,7 @@ function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTake
             className={`px-2 py-1 text-xs rounded border ${
               b.destructive
                 ? 'border-status-denied-fg text-status-denied-fg hover:bg-status-denied-bg'
-                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-800'
             } disabled:opacity-50`}
           >
             {pending === b.label ? '…' : b.label}
@@ -430,13 +430,13 @@ function EmptyRunsChecklist() {
   const hasRuns = healthQ.data?.has_runs ?? false
 
   const Row = ({ ok, title, body, href }: { ok: boolean; title: string; body: React.ReactNode; href: string }) => (
-    <li className={`flex items-start gap-3 p-3 border rounded ${ok ? 'bg-status-ok-bg border-status-ok-fg' : 'bg-white'}`}>
+    <li className={`flex items-start gap-3 p-3 border rounded ${ok ? 'bg-status-ok-bg border-status-ok-fg' : 'bg-white dark:bg-gray-900'}`}>
       <span className={`font-mono text-lg flex-shrink-0 ${ok ? 'text-status-ok-fg' : 'text-gray-600 dark:text-gray-400'}`}>
         {ok ? '✓' : '○'}
       </span>
       <div className="flex-1">
         <div className="font-medium">{title}</div>
-        <div className="text-sm text-gray-600">{body}</div>
+        <div className="text-sm text-gray-600 dark:text-gray-400">{body}</div>
         {!ok && (
           <a href={href} className="text-sm text-brand-600 underline">How to fix</a>
         )}
@@ -446,7 +446,7 @@ function EmptyRunsChecklist() {
 
   return (
     <div className="max-w-2xl mx-auto py-8">
-      <h3 className="font-medium text-gray-700 mb-2">No runs yet</h3>
+      <h3 className="font-medium text-gray-700 mb-2 dark:text-gray-300">No runs yet</h3>
       <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
         Three things must be true for runs to appear. The first row tells you
         what's missing.
@@ -481,8 +481,8 @@ function EmptyRunsChecklist() {
 
 function EmptyState({ title, body }: { title: string; body: React.ReactNode }) {
   return (
-    <div className="text-center py-12 px-6 border-2 border-dashed border-gray-200 rounded">
-      <h3 className="font-medium text-gray-700">{title}</h3>
+    <div className="text-center py-12 px-6 border-2 border-dashed border-gray-200 rounded dark:border-gray-800">
+      <h3 className="font-medium text-gray-700 dark:text-gray-300">{title}</h3>
       <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 max-w-md mx-auto">{body}</p>
     </div>
   )

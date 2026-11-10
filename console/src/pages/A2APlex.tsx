@@ -63,7 +63,7 @@ export default function A2APlex() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100'}`}
+            className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
           >
             {t === 'agents' ? `Agents (${agentCards.data?.length ?? 0})` :
              t === 'catalog' ? `Catalog (${catalog.data?.total ?? 0})` :
@@ -90,7 +90,7 @@ export default function A2APlex() {
           {filteredAgentCards.length > 0 ? (
             <div className="grid grid-cols-2 gap-4">
               {filteredAgentCards.map((card) => (
-                <div key={card.instance_id} className="bg-white rounded-lg shadow p-4">
+                <div key={card.instance_id} className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-semibold">{card.name || card.instance_id}</h4>
                     <StatusBadge status={card.status} />
@@ -118,7 +118,7 @@ export default function A2APlex() {
           ) : (
             <div className="text-gray-600 dark:text-gray-400 text-sm">
               {agentCards.data?.length === 0 ? (
-                <div className="bg-white rounded-lg shadow p-6 text-center">
+                <div className="bg-white rounded-lg shadow p-6 text-center dark:bg-gray-900">
                   <p className="mb-3">No A2A agents deployed yet.</p>
                   <button
                     onClick={() => setTab('catalog')}
@@ -138,7 +138,7 @@ export default function A2APlex() {
       {tab === 'catalog' && !activeQuery.isLoading && !activeQuery.error && (
         <div className="grid grid-cols-2 gap-4">
           {catalog.data?.templates?.map((t) => (
-            <div key={t.id} className="bg-white rounded-lg shadow p-4">
+            <div key={t.id} className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold">{t.name}</h3>
                 {t.verified && <span className="text-xs text-status-ok-fg">Verified</span>}
@@ -159,9 +159,9 @@ export default function A2APlex() {
         <div>
           <h3 className="font-semibold text-lg mb-3">Recent Delegations</h3>
           {delegations.data && delegations.data.length > 0 ? (
-            <div className="bg-white rounded-lg shadow">
+            <div className="bg-white rounded-lg shadow dark:bg-gray-900">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
                     <th className="text-left px-4 py-3">Caller</th>
                     <th className="text-left px-4 py-3">Callee</th>

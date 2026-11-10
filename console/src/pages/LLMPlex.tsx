@@ -184,7 +184,7 @@ export default function LLMPlex() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100'}`}
+            className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
           >
             {t}
           </button>
@@ -202,7 +202,7 @@ export default function LLMPlex() {
           <h3 className="font-semibold text-lg mb-3">Available Models</h3>
           <div className="grid grid-cols-3 gap-4 mb-8">
             {catalog.data?.templates?.map((t) => (
-              <div key={t.id} className="bg-white rounded-lg shadow p-4">
+              <div key={t.id} className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="font-semibold">{t.name}</h4>
                   <span className="text-xs text-gray-600 dark:text-gray-400 capitalize">{t.provider}</span>
@@ -228,9 +228,9 @@ export default function LLMPlex() {
 
           <h3 className="font-semibold text-lg mb-3">Active Model Routes</h3>
           {instances.data && instances.data.length > 0 ? (
-            <div className="bg-white rounded-lg shadow">
+            <div className="bg-white rounded-lg shadow dark:bg-gray-900">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
                     <th className="text-left px-4 py-3">Model</th>
                     <th className="text-left px-4 py-3">Provider</th>
@@ -275,13 +275,13 @@ export default function LLMPlex() {
           {routes.data && routes.data.length > 0 ? (
             <div className="space-y-4">
               {routes.data.map((rc) => (
-                <div key={rc.model_id} className="bg-white rounded-lg shadow p-4">
+                <div key={rc.model_id} className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
                   <div className="flex justify-between items-start mb-3">
                     <h4 className="font-semibold">{rc.model_id}</h4>
                     <div className="flex gap-2">
                       <button
                         onClick={() => openEditRouteForm(rc)}
-                        className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded"
+                        className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded dark:bg-gray-800"
                       >
                         Edit
                       </button>
@@ -300,7 +300,7 @@ export default function LLMPlex() {
                         <span className="font-medium capitalize">{b.provider}</span>
                         <span className="text-gray-600 dark:text-gray-400">{b.model_id}</span>
                         <div className="flex-1">
-                          <div className="bg-gray-100 rounded-full h-2">
+                          <div className="bg-gray-100 rounded-full h-2 dark:bg-gray-800">
                             <div className="bg-brand-600 rounded-full h-2" style={{ width: `${b.weight}%` }} />
                           </div>
                         </div>
@@ -329,15 +329,15 @@ export default function LLMPlex() {
           {/* Delete confirmation modal */}
           {deleteConfirm && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 dark:bg-gray-900">
                 <h3 className="font-semibold text-lg mb-2">Delete Route</h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-gray-600 mb-4 dark:text-gray-400">
                   Are you sure you want to delete the route for <strong>{deleteConfirm}</strong>? This action cannot be undone.
                 </p>
                 <div className="flex justify-end gap-2">
                   <button
                     onClick={() => setDeleteConfirm(null)}
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded"
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded dark:bg-gray-800"
                   >
                     Cancel
                   </button>
@@ -356,7 +356,7 @@ export default function LLMPlex() {
           {/* Route form modal */}
           {showRouteForm && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-              <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 my-8">
+              <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 my-8 dark:bg-gray-900">
                 <h3 className="font-semibold text-lg mb-4">
                   {editingRoute ? `Edit Route: ${editingRoute.model_id}` : 'New Route'}
                 </h3>
@@ -388,7 +388,7 @@ export default function LLMPlex() {
                     </div>
                     <div className="space-y-2">
                       {formData.backends.map((backend, idx) => (
-                        <div key={idx} className="bg-gray-50 p-3 rounded space-y-2">
+                        <div key={idx} className="bg-gray-50 p-3 rounded space-y-2 dark:bg-gray-900">
                           <div className="flex gap-2">
                             <select
                               value={backend.provider}
@@ -444,7 +444,7 @@ export default function LLMPlex() {
                       <label className="block text-sm font-medium">Fallback Models (optional)</label>
                       <button
                         onClick={addFallback}
-                        className="px-3 py-1 bg-gray-200 text-sm rounded hover:bg-gray-300"
+                        className="px-3 py-1 bg-gray-200 text-sm rounded hover:bg-gray-300 dark:bg-gray-700"
                       >
                         + Add Fallback
                       </button>
@@ -452,7 +452,7 @@ export default function LLMPlex() {
                     <div className="space-y-1">
                       {formData.fallbacks.map((fb, idx) => (
                         <div key={idx} className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">{fb}</span>
+                          <span className="text-sm text-gray-600 dark:text-gray-400">{fb}</span>
                           <button
                             onClick={() => removeFallback(idx)}
                             className="text-xs text-status-denied-fg hover:text-status-denied-fg"
@@ -469,7 +469,7 @@ export default function LLMPlex() {
                     <label className="block text-sm font-medium mb-2">Budget (optional)</label>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs text-gray-600 mb-1">Max Daily Cost (USD)</label>
+                        <label className="block text-xs text-gray-600 mb-1 dark:text-gray-400">Max Daily Cost (USD)</label>
                         <input
                           type="number"
                           value={formData.budget.max_daily_cost_usd}
@@ -483,7 +483,7 @@ export default function LLMPlex() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-600 mb-1">Alert Threshold (%)</label>
+                        <label className="block text-xs text-gray-600 mb-1 dark:text-gray-400">Alert Threshold (%)</label>
                         <input
                           type="number"
                           value={formData.budget.alert_threshold_pct}
@@ -505,7 +505,7 @@ export default function LLMPlex() {
                       setShowRouteForm(false)
                       setEditingRoute(null)
                     }}
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded"
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded dark:bg-gray-800"
                   >
                     Cancel
                   </button>
@@ -528,19 +528,19 @@ export default function LLMPlex() {
           <h3 className="font-semibold text-lg mb-3">Cost Tracking (Last 24h)</h3>
           {usage.data ? (
             <div className="grid grid-cols-4 gap-4 mb-6">
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
                 <p className="text-sm text-gray-600 dark:text-gray-400">Total Cost</p>
                 <p className="text-2xl font-bold">${usage.data.total_cost_usd.toFixed(2)}</p>
               </div>
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
                 <p className="text-sm text-gray-600 dark:text-gray-400">Total Tokens</p>
                 <p className="text-2xl font-bold">{(usage.data.total_tokens / 1000).toFixed(1)}K</p>
               </div>
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
                 <p className="text-sm text-gray-600 dark:text-gray-400">Requests</p>
                 <p className="text-2xl font-bold">{usage.data.request_count}</p>
               </div>
-              <div className="bg-white rounded-lg shadow p-4">
+              <div className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
                 <p className="text-sm text-gray-600 dark:text-gray-400">Avg Latency</p>
                 <p className="text-2xl font-bold">{usage.data.avg_latency_ms.toFixed(0)}ms</p>
               </div>

@@ -28,19 +28,19 @@ export default function MCPlex() {
       <div className="flex gap-2 mb-6">
         <button
           onClick={() => setTab('instances')}
-          className={`px-4 py-2 rounded text-sm ${tab === 'instances' ? 'bg-brand-600 text-white' : 'bg-gray-100'}`}
+          className={`px-4 py-2 rounded text-sm ${tab === 'instances' ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
         >
           Instances ({instances.data?.length ?? 0})
         </button>
         <button
           onClick={() => setTab('catalog')}
-          className={`px-4 py-2 rounded text-sm ${tab === 'catalog' ? 'bg-brand-600 text-white' : 'bg-gray-100'}`}
+          className={`px-4 py-2 rounded text-sm ${tab === 'catalog' ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
         >
           Catalog ({catalog.data?.total ?? 0})
         </button>
         <button
           onClick={() => setTab('connections')}
-          className={`px-4 py-2 rounded text-sm ${tab === 'connections' ? 'bg-brand-600 text-white' : 'bg-gray-100'}`}
+          className={`px-4 py-2 rounded text-sm ${tab === 'connections' ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
         >
           Tool connections
         </button>
@@ -61,9 +61,9 @@ export default function MCPlex() {
               className="w-full border rounded px-3 py-2 text-sm"
             />
           </div>
-          <div className="bg-white rounded-lg shadow">
+          <div className="bg-white rounded-lg shadow dark:bg-gray-900">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
                   <th className="text-left px-4 py-3">Name</th>
                   <th className="text-left px-4 py-3">Template</th>
@@ -89,7 +89,7 @@ export default function MCPlex() {
       {tab === 'catalog' && !activeQuery.isLoading && !activeQuery.error && (
         <div className="grid grid-cols-2 gap-4">
           {catalog.data?.templates?.map((t) => (
-            <div key={t.id} className="bg-white rounded-lg shadow p-4">
+            <div key={t.id} className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold">{t.name}</h3>
                 {t.verified && <span className="text-xs text-status-ok-fg">Verified</span>}

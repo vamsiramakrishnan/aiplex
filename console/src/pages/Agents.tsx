@@ -68,12 +68,12 @@ export default function Agents() {
         />
       </div>
 
-      <div className="bg-white rounded-lg shadow">
+      <div className="bg-white rounded-lg shadow dark:bg-gray-900">
         {agents.isLoading && <p role="status" className="p-4">Loading registered OAuth clients…</p>}
         {agents.error && <p role="alert" className="p-4 text-status-denied-fg">Could not load agents: {agents.error.message}</p>}
         {remove.error && <p role="alert" className="p-4 text-status-denied-fg">Could not delete agent: {remove.error.message}</p>}
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
               <th className="text-left px-4 py-3">Name</th>
               <th className="text-left px-4 py-3">Client ID</th>
@@ -88,7 +88,7 @@ export default function Agents() {
               <Fragment key={agent.client_id}>
                 <tr
                   key={agent.client_id}
-                  className="border-t cursor-pointer hover:bg-gray-50"
+                  className="border-t cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                   onClick={() => setExpanded(expanded === agent.client_id ? null : agent.client_id)}
                 >
                   <td className="px-4 py-3 font-medium">{agent.display_name}</td>
@@ -111,10 +111,10 @@ export default function Agents() {
                   </td>
                 </tr>
                 {expanded === agent.client_id && (
-                  <tr key={agent.client_id + '-detail'} className="bg-gray-50">
+                  <tr key={agent.client_id + '-detail'} className="bg-gray-50 dark:bg-gray-900">
                     <td colSpan={6} className="px-4 py-3">
                       {agent.description && (
-                        <p className="text-sm text-gray-600 mb-2">{agent.description}</p>
+                        <p className="text-sm text-gray-600 mb-2 dark:text-gray-400">{agent.description}</p>
                       )}
                       <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Allowed Scopes (Dimension A):</div>
                       <div className="flex flex-wrap gap-1">
@@ -126,7 +126,7 @@ export default function Agents() {
                             mcp: 'bg-brand-100 text-brand-700',
                             a2a: 'bg-brand-100 text-brand-700',
                             llm: 'bg-status-ok-bg text-status-ok-fg',
-                            other: 'bg-gray-100 text-gray-700',
+                            other: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
                           }
                           return (
                             <span key={scope} className={`px-2 py-0.5 rounded text-xs ${colors[plane]}`}>
@@ -184,7 +184,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
   const redirectURIs = redirects.split('\n').map((uri) => uri.trim()).filter(Boolean)
 
   return (
-    <div className="bg-white rounded-lg shadow p-6 mb-6">
+    <div className="bg-white rounded-lg shadow p-6 mb-6 dark:bg-gray-900">
       <h3 className="text-lg font-bold mb-4">Register New Agent</h3>
 
       {/* Step indicators */}
@@ -194,7 +194,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs
               ${step > i + 1 ? 'bg-status-ok-bg text-status-ok-fg' :
                 step === i + 1 ? 'bg-brand-600 text-white' :
-                'bg-gray-100 text-gray-600 dark:text-gray-400'}`}>
+                'bg-gray-100 text-gray-600 dark:text-gray-400 dark:bg-gray-800'}`}>
               {step > i + 1 ? '\u2713' : i + 1}
             </div>
             <span className={`text-sm ${step === i + 1 ? 'font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
@@ -249,14 +249,14 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
       {/* Step 2: Auth Method */}
       {step === 2 && (
         <div className="space-y-3">
-          <p className="text-sm text-gray-600">How will this agent authenticate?</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">How will this agent authenticate?</p>
           <div className="grid gap-2">
             {AUTH_METHODS.map(m => (
               <button
                 key={m.value}
                 onClick={() => setAuthMethod(m.value)}
                 className={`text-left p-3 border-2 rounded-lg ${
-                  authMethod === m.value ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}
+                  authMethod === m.value ? 'border-brand-500 bg-brand-50' : 'border-gray-200 dark:border-gray-800'}`}
               >
                 <div className="text-sm font-medium">{m.label}</div>
                 <div className="text-xs text-gray-600 dark:text-gray-400">{m.desc}</div>
@@ -276,7 +276,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
       {/* Step 3: Permissions */}
       {step === 3 && (
         <div className="space-y-3">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             Set the maximum scopes this agent can ever request (Dimension A ceiling).
             Users can further restrict these at consent time.
           </p>
@@ -295,7 +295,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
       {/* Step 4: Review */}
       {step === 4 && (
         <div className="space-y-3">
-          <div className="bg-gray-50 rounded p-4 text-sm space-y-2">
+          <div className="bg-gray-50 rounded p-4 text-sm space-y-2 dark:bg-gray-900">
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Client ID</span>
               <span className="font-mono">{clientId}</span>
@@ -312,7 +312,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
               <span className="text-gray-600 dark:text-gray-400">Scopes ({scopes.length}):</span>
               <div className="flex flex-wrap gap-1 mt-1">
                 {scopes.map(s => (
-                  <span key={s} className="px-2 py-0.5 bg-gray-200 rounded text-xs">{s}</span>
+                  <span key={s} className="px-2 py-0.5 bg-gray-200 rounded text-xs dark:bg-gray-700">{s}</span>
                 ))}
                 {scopes.length === 0 && <span className="text-gray-600 dark:text-gray-400 text-xs">No scopes selected</span>}
               </div>

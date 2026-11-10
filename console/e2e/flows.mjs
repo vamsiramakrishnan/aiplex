@@ -188,5 +188,62 @@ await section('usage', async () => {
   await s.context.close()
 })
 
+await section('llmplex', async () => {
+  const s = await session('admin')
+  const { page } = s
+  await page.goto(base + '/llmplex')
+  await settle(page)
+  await page.getByRole('button', { name: 'surfaces' }).click()
+  await settle(page)
+  const byLabel = (text) => page.locator('form label', { hasText: text }).locator('input,textarea,select').first().or(page.locator(`form [aria-label*="${text}"]`)).first()
+  for (const x of (await api('admin', 'GET', '/api/v1/llm/surfaces/')).json.filter((x) => x.id.startsWith('e2e-'))) await api('admin', 'DELETE', `/api/v1/llm/surfaces/${x.id}`, undefined, { 'If-Match': `"${x.revision}"` })
+  const providers = [['openai', 'openai-chat', 'https://api.openai.com'], ['anthropic', 'anthropic-messages', 'https://api.anthropic.com'], ['azure-openai', 'openai-chat', 'https://e2e-resource.openai.azure.com'], ['bedrock', 'bedrock-converse', 'https://bedrock-runtime.us-east-1.amazonaws.com'], ['openai-compatible', 'openai-chat', h.models_url], ['gemini-developer', 'google-genai', 'https://generativelanguage.googleapis.com']]
+  for (const [provider, protocol, origin] of providers) {
+    const id = `e2e-${provider}`
+    await page.getByRole('button', { name: 'Add surface' }).click()
+    await page.locator('form select').nth(0).selectOption(provider)
+    await page.getByText(/Loading the .* catalog/).waitFor({ state: 'detached', timeout: 10000 }).catch(() => {})
+    await page.locator('form select').nth(1).selectOption(protocol)
+    try { await byLabel('Surface ID').fill(id, { timeout: 5000 })
+    await byLabel('Origin').fill(origin, { timeout: 5000 })
+    await byLabel('Allowed models').fill('model-a', { timeout: 5000 })
+    if (provider === 'azure-openai') { await page.locator('form label', { hasText: 'azure.deployments.chat-completions' }).locator('input').check(); await byLabel('API version').fill('2024-10-21', { timeout: 5000 }) }
+    if (provider === 'bedrock') await byLabel('Signing region').fill('us-east-1')
+    await byLabel('Secret reference name').fill('e2e-secret')
+    } catch (e) { report.ok(`fill the ${provider} form`, false, e.message.split('\n')[0] + ' ' + e.message.split('\n').find((l) => l.includes('locator')) ); await page.screenshot({ path: `e2e/shots/llm-${provider}.png`, fullPage: true }); await page.getByRole('button', { name: 'Cancel' }).click().catch(() => {}); continue }
+    // choose the first operation offered for the protocol when none is preselected
+    const ops = page.locator('form label', { hasText: /(GET|POST|PUT|DELETE) / })
+    if (!(await ops.locator('input:checked').count())) await ops.first().locator('input').check()
+    await page.getByRole('button', { name: 'Save surface' }).click()
+    await settle(page)
+    const saved = await api('admin', 'GET', `/api/v1/llm/surfaces/${id}`)
+    report.ok(`surface editor saves a ${provider} surface`, saved.status === 200, saved.status === 200 ? '' : (await page.locator('form [role=alert]').allTextContents()).join(' | ') || JSON.stringify(saved.json).slice(0, 160))
+    if (saved.status !== 200) await page.getByRole('button', { name: 'Cancel' }).click().catch(() => {})
+    await settle(page, 200)
+  }
+  // capacity panel for a seeded surface and edit round trip
+  await page.getByRole('button', { name: 'Capacity of surface local-models' }).click()
+  await settle(page)
+  report.ok('capacity panel renders for a surface', /capacity|observed|policy/i.test(await page.textContent('main')))
+  await page.getByRole('button', { name: 'Edit surface e2e-openai', exact: true }).click()
+  await byLabel('Allowed models').fill('model-a\nmodel-b')
+  await page.getByRole('button', { name: 'Save surface' }).click()
+  await settle(page)
+  const edited = await api('admin', 'GET', '/api/v1/llm/surfaces/e2e-openai')
+  report.ok('editing a surface stores the change', JSON.stringify(edited.json?.spec?.surface?.models) === JSON.stringify(['model-a', 'model-b']), JSON.stringify(edited.json?.spec?.surface?.models))
+  for (const [provider] of providers) {
+    await page.getByRole('button', { name: `Delete surface e2e-${provider}`, exact: true }).click().catch(() => {})
+    await page.getByRole('button', { name: /Confirm delete/ }).click().catch(() => {})
+    await settle(page, 200)
+  }
+  const left = (await api('admin', 'GET', '/api/v1/llm/surfaces/')).json.filter((x) => x.id.startsWith('e2e-'))
+  report.ok('deleting the test surfaces removed them', left.length === 0, left.map((x) => x.id).join(','))
+  await page.getByRole('button', { name: 'batches' }).click()
+  await settle(page)
+  report.ok('batches tab renders the batch controls', (await page.textContent('main')).includes('Newest first'))
+  report.ok('llmplex had no unexpected requests', unexpected(s, [/Failed to load resource/, /api\/v1\/llm\/surfaces\/e2e-.* -> (400|404|409)/]).length === 0, JSON.stringify(unexpected(s, [/Failed to load resource/, /api\/v1\/llm\/surfaces\/e2e-.* -> (400|404|409)/])))
+  await s.context.close()
+})
+
 await browser.close()
 report.finish()

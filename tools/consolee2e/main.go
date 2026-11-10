@@ -29,7 +29,7 @@ func main() {
 	flag.Parse()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: *apiBin, Port: *port, ConsoleOrigins: []string{*origin}, Log: os.Stderr, Env: []string{"AIPLEX_AGENT_FEDERATION=enabled", "AIPLEX_USER_FEDERATION=enabled"}})
+	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: *apiBin, Port: *port, ConsoleOrigins: []string{*origin}, Log: os.Stderr, ExtraOrigins: []string{"https://api.openai.com", "https://api.anthropic.com", "https://e2e-resource.openai.azure.com", "https://bedrock-runtime.us-east-1.amazonaws.com", "https://generativelanguage.googleapis.com"}, Env: []string{"AIPLEX_AGENT_FEDERATION=enabled", "AIPLEX_USER_FEDERATION=enabled"}})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

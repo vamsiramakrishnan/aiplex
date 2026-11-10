@@ -14,6 +14,11 @@ body {
 }
 .dark body { background: var(--aiplex-color-bg); }
 
+/* Borders without an explicit colour use the token border colour in dark mode. */
+@layer base {
+  .dark *, .dark ::before, .dark ::after { border-color: var(--aiplex-color-border); }
+}
+
 /* Every interactive control shows where keyboard focus is. */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--aiplex-color-focus-ring);

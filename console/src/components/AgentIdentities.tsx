@@ -197,7 +197,7 @@ function AddIdentityForm({ agentId, presets, onDone }: { agentId: string; preset
   }
 
   return (
-    <form onSubmit={submit} aria-label="Add identity" className="bg-white border rounded p-3 mb-3 space-y-3">
+    <form onSubmit={submit} aria-label="Add identity" className="bg-white border rounded p-3 mb-3 space-y-3 dark:bg-gray-900">
       <div>
         <label htmlFor={`${uid}-preset`} className="block text-xs font-medium mb-1">Identity preset</label>
         <select id={`${uid}-preset`} value={presetId} onChange={e => choose(e.target.value)} className="w-full border rounded px-2 py-1 text-sm">
@@ -207,7 +207,7 @@ function AddIdentityForm({ agentId, presets, onDone }: { agentId: string; preset
       </div>
       {preset && (
         <>
-          <p className="text-xs text-gray-600">{preset.description}</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">{preset.description}</p>
           <p className="text-xs text-gray-600 dark:text-gray-400">Subject: <code>{preset.subject_shape}</code> · Issuer: <code>{preset.issuer_shape}</code></p>
           {preset.notes?.map(n => <p key={n} className="text-xs text-status-warning-fg bg-status-warning-bg rounded p-1">{n}</p>)}
           <div>
@@ -284,7 +284,7 @@ function StepList({ steps, numbered }: { steps: IdentityStep[]; numbered?: boole
       {steps.map((s, i) => (
         <li key={`${i}-${s.title}`}>
           <div className="text-sm font-medium">{s.title}</div>
-          {s.description && <p className="text-xs text-gray-600">{s.description}</p>}
+          {s.description && <p className="text-xs text-gray-600 dark:text-gray-400">{s.description}</p>}
           <CodeBlock step={s} />
         </li>
       ))}
@@ -294,7 +294,7 @@ function StepList({ steps, numbered }: { steps: IdentityStep[]; numbered?: boole
 
 function PlanView({ plan, onClose }: { plan: IdentityPlan; onClose: () => void }) {
   return (
-    <section aria-label={`Setup plan for ${plan.binding.id}`} className="bg-white border rounded p-3 mb-3 space-y-3">
+    <section aria-label={`Setup plan for ${plan.binding.id}`} className="bg-white border rounded p-3 mb-3 space-y-3 dark:bg-gray-900">
       <div className="flex justify-between">
         <h5 className="text-sm font-semibold">Setup plan: {plan.binding.id} ({plan.cloud})</h5>
         <button type="button" className="text-xs text-gray-600 dark:text-gray-400" onClick={onClose}>Close plan</button>
@@ -307,7 +307,7 @@ function PlanView({ plan, onClose }: { plan: IdentityPlan; onClose: () => void }
       <div><h6 className="text-xs font-semibold uppercase text-gray-600 dark:text-gray-400 mb-1">In the other cloud</h6><StepList steps={plan.steps} numbered /></div>
       {plan.token_snippet?.title && <div><h6 className="text-xs font-semibold uppercase text-gray-600 dark:text-gray-400 mb-1">Getting a token</h6><StepList steps={[plan.token_snippet]} /></div>}
       {!!plan.aiplex_steps?.length && <div><h6 className="text-xs font-semibold uppercase text-gray-600 dark:text-gray-400 mb-1">In AIPlex</h6><StepList steps={plan.aiplex_steps} numbered /></div>}
-      {!!plan.notes?.length && <ul className="list-disc ml-5 text-xs text-gray-600">{plan.notes.map(n => <li key={n}>{n}</li>)}</ul>}
+      {!!plan.notes?.length && <ul className="list-disc ml-5 text-xs text-gray-600 dark:text-gray-400">{plan.notes.map(n => <li key={n}>{n}</li>)}</ul>}
     </section>
   )
 }
@@ -348,7 +348,7 @@ function TokenTest({ agentId, bindings, initialBinding }: { agentId: string; bin
   }
 
   return (
-    <section aria-label="Test a token" className="bg-white border rounded p-3 mb-3 space-y-2">
+    <section aria-label="Test a token" className="bg-white border rounded p-3 mb-3 space-y-2 dark:bg-gray-900">
       <h5 className="text-sm font-semibold">Test a token</h5>
       <p className="text-xs text-gray-600 dark:text-gray-400">Paste a token acquired in the other cloud to see which checks pass. It is sent once for this test, never stored, and the box is cleared on submit.</p>
       <form onSubmit={submit} className="space-y-2">
@@ -388,11 +388,11 @@ function TokenTest({ agentId, bindings, initialBinding }: { agentId: string; bin
               <li key={`${i}-${c.name}`} className="flex gap-2">
                 <span className={`w-14 font-semibold ${CHECK_STYLE[c.status] ?? ''}`}>{CHECK_LABEL[c.status] ?? c.status}</span>
                 <span className="font-mono">{c.name}</span>
-                <span className="text-gray-600">{c.reason}</span>
+                <span className="text-gray-600 dark:text-gray-400">{c.reason}</span>
               </li>
             ))}
           </ul>
-          {result.valid && result.principal_id && <p className="text-xs text-gray-600">Authenticates as <code>{result.principal_id}</code>{result.actor_id && <> acting for <code>{result.actor_id}</code></>}.</p>}
+          {result.valid && result.principal_id && <p className="text-xs text-gray-600 dark:text-gray-400">Authenticates as <code>{result.principal_id}</code>{result.actor_id && <> acting for <code>{result.actor_id}</code></>}.</p>}
           {!result.live_authentication && <p className="text-xs text-status-warning-fg">Live authentication is off: this is a dry run and the token would not yet authenticate real requests.</p>}
         </div>
       )}

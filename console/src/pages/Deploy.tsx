@@ -13,16 +13,16 @@ export default function Deploy() {
     <div className="max-w-2xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Deploy</h1>
-        <div className="flex gap-1 bg-gray-100 rounded p-1">
+        <div className="flex gap-1 bg-gray-100 rounded p-1 dark:bg-gray-800">
           <button
             onClick={() => setMode('wizard')}
-            className={`px-3 py-1 text-sm rounded ${mode === 'wizard' ? 'bg-white shadow' : ''}`}
+            className={`px-3 py-1 text-sm rounded ${mode === 'wizard' ? 'bg-white shadow dark:bg-gray-900' : ''}`}
           >
             Wizard
           </button>
           <button
             onClick={() => setMode('yaml')}
-            className={`px-3 py-1 text-sm rounded ${mode === 'yaml' ? 'bg-white shadow' : ''}`}
+            className={`px-3 py-1 text-sm rounded ${mode === 'yaml' ? 'bg-white shadow dark:bg-gray-900' : ''}`}
           >
             JSON manifest
           </button>
@@ -126,13 +126,13 @@ function DeployWizard() {
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium
               ${step === s.key ? 'bg-brand-600 text-white' :
                 steps.findIndex(x => x.key === step) > i ? 'bg-status-ok-bg text-status-ok-fg' :
-                'bg-gray-100 text-gray-600 dark:text-gray-400'}`}>
+                'bg-gray-100 text-gray-600 dark:text-gray-400 dark:bg-gray-800'}`}>
               {steps.findIndex(x => x.key === step) > i ? '\u2713' : i + 1}
             </div>
             <span className={`text-sm ${step === s.key ? 'font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
               {s.label}
             </span>
-            {i < steps.length - 1 && <div className="w-8 h-px bg-gray-200" />}
+            {i < steps.length - 1 && <div className="w-8 h-px bg-gray-200 dark:bg-gray-700" />}
           </div>
         ))}
       </div>
@@ -140,14 +140,14 @@ function DeployWizard() {
       {/* Step 1: Plane */}
       {step === 'plane' && (
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">What do you want to deploy?</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">What do you want to deploy?</p>
           <div className="grid gap-3">
             {deployable.map(({ name: p, label }) => (
               <button
                 key={p}
                 onClick={() => { setPlane(p); setStep('template') }}
                 className={`text-left p-4 border-2 rounded-lg transition-colors
-                  ${plane === p ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}
+                  ${plane === p ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300 dark:border-gray-800'}`}
               >
                 <div className="font-medium">
                   {label}
@@ -163,7 +163,7 @@ function DeployWizard() {
       {step === 'template' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               Choose a template from the {plane} catalog
             </p>
             <button onClick={() => setStep('plane')} className="text-sm text-brand-600 hover:underline">
@@ -180,7 +180,7 @@ function DeployWizard() {
                   key={t.id}
                   onClick={() => { setSelectedTemplate(t); setStep('config') }}
                   className={`text-left p-3 border rounded-lg hover:border-brand-300 transition-colors
-                    ${selectedTemplate?.id === t.id ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}
+                    ${selectedTemplate?.id === t.id ? 'border-brand-500 bg-brand-50' : 'border-gray-200 dark:border-gray-800'}`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">{t.name}</span>
@@ -206,7 +206,7 @@ function DeployWizard() {
       {step === 'config' && selectedTemplate && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">Configure {selectedTemplate.name}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Configure {selectedTemplate.name}</p>
             <button onClick={() => setStep('template')} className="text-sm text-brand-600 hover:underline">
               Back
             </button>
@@ -245,13 +245,13 @@ function DeployWizard() {
       {step === 'review' && selectedTemplate && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">Review your deployment</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Review your deployment</p>
             <button onClick={() => setStep('config')} className="text-sm text-brand-600 hover:underline">
               Back
             </button>
           </div>
 
-          <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2">
+          <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2 dark:bg-gray-900">
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Plane</span>
               <span className="font-medium">{plane}</span>
@@ -276,7 +276,7 @@ function DeployWizard() {
 
           {/* Show equivalent YAML */}
           <details className="text-sm">
-            <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-700">
+            <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
               View as JSON
             </summary>
             <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto">
@@ -336,7 +336,7 @@ function ManifestApply() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-gray-600 dark:text-gray-400">
         Paste a JSON manifest to request deployments, register public OAuth clients, and configure routes. Resources are applied sequentially; each failure is reported.
       </p>
 
@@ -348,7 +348,7 @@ function ManifestApply() {
         value={yamlInput}
         onChange={e => setYamlInput(e.target.value)}
         rows={16}
-        className="w-full font-mono text-xs border rounded p-3 bg-gray-50"
+        className="w-full font-mono text-xs border rounded p-3 bg-gray-50 dark:bg-gray-900"
         aria-label="Deployment manifest" placeholder="Paste a JSON manifest using template IDs and modules available on this server."
       />
 

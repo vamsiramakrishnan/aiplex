@@ -22,6 +22,8 @@ export default {
           'denied-fg': tone('denied').fg, 'denied-bg': tone('denied').bg,
           'unknown-fg': tone('unknown').fg, 'unknown-bg': tone('unknown').bg,
         },
+        // One accent per plane, for the dots and tags that tell the planes apart.
+        module: Object.fromEntries(['mcplex', 'a2aplex', 'llmplex', 'quotaplex', 'clientplex', 'skillsplex'].map((m) => [m, `var(--aiplex-module-${m})`])),
       },
       ringColor: { DEFAULT: 'var(--aiplex-color-focus-ring)' },
     },

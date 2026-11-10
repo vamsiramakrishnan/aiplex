@@ -120,7 +120,7 @@ export default function ToolAuthEditor({ record, catalog, onSaved, onReload, onC
   }
 
   return (
-    <form onSubmit={save} aria-label={`Edit auth for ${record.id}`} className="bg-white rounded-lg shadow p-4 mt-4">
+    <form onSubmit={save} aria-label={`Edit auth for ${record.id}`} className="bg-white rounded-lg shadow p-4 mt-4 dark:bg-gray-900">
       <h3 className="font-semibold mb-1">Auth and tool policy: {record.id}</h3>
       <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">Revision {record.revision}</p>
 
@@ -182,7 +182,7 @@ export default function ToolAuthEditor({ record, catalog, onSaved, onReload, onC
         <button type="submit" disabled={saving || conflict} className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50">
           {saving ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-100 text-sm rounded">Cancel</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-100 text-sm rounded dark:bg-gray-800">Cancel</button>
       </div>
     </form>
   )
