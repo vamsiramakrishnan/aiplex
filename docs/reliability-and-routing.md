@@ -326,8 +326,10 @@ response hooks run again for that caller.
 **A hit** answers without calling a provider, with the stored status, body and
 `Content-Type`. It:
 
-- takes the quota lease and settles it as **one request and zero tokens**
-  (request-count limits apply; token quotas are not charged);
+- takes the quota lease and settles it as **one request and zero tokens**,
+  with every money meter at zero (request-count limits and request-count
+  [budgets](budgets.md) apply; token and cost quotas and budgets are not
+  charged, even where a price book prices requests);
 - is recorded as its own ledger record with `cache.status: hit`, `usage` all
   zero (the provider produced nothing for this exchange), the original usage in
   `cached_response_usage`, and cost `{"basis": "cached", "amount": "0"}`.
@@ -407,7 +409,10 @@ retry.
 ## Trying it locally
 
 `aiplex dev` starts a second mock provider (its URL is printed as `Mock B`;
-its replies start with `[b]`). Both mocks fail on demand when the model name
+its replies start with `[b]`) and, with the mock provider, a surface
+`local-models-b` on it serving `mock-gpt` (on no access point; with `--quota`
+it is bound like `local-models`), so `mock-gpt` can be routed across
+`local-models` and `local-models-b`. Both mocks fail on demand when the model name
 contains `fault` and dash-separated options:
 
 | Option | Effect |
@@ -431,9 +436,11 @@ surface on Mock B listing `gpt`, as two backends of one model, show a fallback;
 - The behaviour has been tested against the local mock providers and in unit
   tests, not against real providers' failure modes. Whether a given provider
   billed a request it answered with 429, 503 or 529 is the provider's to say.
-- A QuotaPlex denial falling through to another backend
-  (`on_quota_denied: next_backend`) is covered by unit tests of the
-  classification only; the e2e suite runs without QuotaPlex.
+- Quota denials are exercised end to end with `aiplex dev --quota` and a
+  request-count budget (`tests/e2e/routing_quota_test.go`): final by default,
+  and tried on the next backend with `on_quota_denied: next_backend`. A budget
+  belongs to the caller, so the next backend is refused too; falling through
+  only helps when a quota rule is specific to one backend.
 - A held-back error body larger than 1 MiB is replaced by a short AIPlex error
   if it turns out to be the answer.
 - The model name is rewritten in the body of OpenAI Chat, Responses,

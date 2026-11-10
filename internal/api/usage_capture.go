@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -538,9 +539,14 @@ func (h *ConnectedHandler) submitExchange(parent context.Context, span trace.Spa
 	h.Ledger.Submit(parent, func(ctx context.Context) (out usageledger.Record, err error) {
 		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
 		if record.Cost.Basis == usageledger.BasisCached {
+			// A cache hit drew request-count budgets only; record them.
+			if attemptID != "" && quota != nil {
+				record.BudgetIDs = quota.budgetsDrawn(ctx, record.TenantID, attemptID)
+			}
 			return record, nil
 		}
 		if attemptID != "" && quota != nil {
+			record.BudgetIDs = quota.budgetsDrawn(ctx, record.TenantID, attemptID)
 			if cost, ok := quota.settledCost(ctx, record.TenantID, attemptID); ok {
 				record.Cost = cost
 				return record, nil
@@ -676,6 +682,34 @@ func modelPricesFrom(ctx context.Context, store resources.Store, tenant string) 
 // settledCost reads the money a quota settlement charged for the attempt. It
 // is a read of durable state: it never settles, retries or changes the quota
 // outcome. More than one distinct monetary meter is ambiguous and ignored.
+// budgetsDrawn lists the tenant budgets a dispatched attempt drew from. An
+// attempt that was denied or released before dispatch (hook denial, grant
+// denial) drew nothing and reports none. A cache hit claims and settles its
+// lease (one request, money at zero), so it lists the budgets it counted in.
+func (h *QuotaHost) budgetsDrawn(ctx context.Context, tenant, attempt string) []string {
+	value, ok := h.tenants[tenant]
+	if !ok || value.engine == nil {
+		return nil
+	}
+	info, err := value.engine.GetAttempt(ctx, tenant, attempt)
+	if err != nil {
+		return nil
+	}
+	switch info.Decision.State {
+	case "settled", "dispatching", "unknown":
+	default:
+		return nil
+	}
+	var ids []string
+	for _, b := range info.Plan.Budgets {
+		if b.BudgetID != "" {
+			ids = append(ids, b.BudgetID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 func (h *QuotaHost) settledCost(ctx context.Context, tenant, attempt string) (usageledger.Cost, bool) {
 	value, ok := h.tenants[tenant]
 	if !ok || value.engine == nil {

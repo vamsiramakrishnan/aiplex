@@ -202,6 +202,7 @@ func spRenderSubject(out io.Writer, d *aiplex.OverviewSubjectDetail) {
 	if !d.Quota.Balance.Available {
 		fmt.Fprintf(out, "  Remaining balance: unavailable - %s\n", d.Quota.Balance.Reason)
 	}
+	spRenderBudgets(out, d.Budgets)
 	fmt.Fprintf(out, "\nUsage since %s\n", d.Since.UTC().Format(time.RFC3339))
 	if d.Usage == nil {
 		fmt.Fprintln(out, "  unknown (usage ledger not configured)")

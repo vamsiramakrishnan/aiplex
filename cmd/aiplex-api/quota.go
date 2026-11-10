@@ -362,6 +362,7 @@ func configureQuota(ctx context.Context, cfg *config.Config, store registry.Stor
 		runtime.workers = append(runtime.workers, quotaWorker{tenant: tenant, recovery: worker})
 	}
 	h.Quota = host
+	h.AttachBudgets()
 	return runtime, nil
 }
 

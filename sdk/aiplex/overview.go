@@ -198,6 +198,7 @@ type OverviewSubjectDetail struct {
 	AccessPoints []OverviewAdmission  `json:"access_points"`
 	Access       OverviewAccess       `json:"access"`
 	Quota        OverviewSubjectQuota `json:"quota"`
+	Budgets      OverviewBudgets      `json:"budgets"`
 	Since        time.Time            `json:"since"`
 	LastSeen     *time.Time           `json:"last_seen"`
 	Usage        *OverviewUsage       `json:"usage"`
@@ -282,6 +283,7 @@ type OverviewAccessPoint struct {
 	QoS         *AccessPointQoS          `json:"qos"`
 	Quota       OverviewAccessPointQuota `json:"quota"`
 	Balance     OverviewBalance          `json:"balance"`
+	Budgets     OverviewBudgets          `json:"budgets"`
 	Usage       OverviewAccessPointUsage `json:"usage"`
 	Notes       []string                 `json:"notes"`
 }

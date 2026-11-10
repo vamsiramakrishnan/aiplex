@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vamsiramakrishnan/aiplex/pkg/budgets"
 	"net/http"
 	"net/url"
 	"sort"
@@ -785,6 +786,7 @@ type OverviewSubjectDetail struct {
 	AccessPoints []OverviewAdmission  `json:"access_points"`
 	Access       OverviewAccess       `json:"access"`
 	Quota        OverviewSubjectQuota `json:"quota"`
+	Budgets      OverviewBudgets      `json:"budgets"`
 	Since        time.Time            `json:"since"`
 	LastSeen     *time.Time           `json:"last_seen"`
 	Usage        *OverviewUsage       `json:"usage"`
@@ -959,6 +961,7 @@ func (h *OverviewHandler) Subject(w http.ResponseWriter, r *http.Request) {
 	scopes := h.scopesFor(r.Context(), kind, id, agent)
 	detail.Access = h.accessFor(r.Context(), tenant, dir.aps, kind, aliases, scopes)
 	detail.Quota = h.subjectQuota(tenant, dir.aps, detail.AccessPoints)
+	detail.Budgets = h.subjectBudgets(r.Context(), tenant, kind, id, aliases, dir.aps, detail.AccessPoints)
 	if h.Ledger == nil {
 		detail.Notes = append(detail.Notes, h.ledgerUnavailableNote())
 	} else {
@@ -1101,4 +1104,38 @@ func (h *OverviewHandler) subjectQuota(tenant string, aps []AccessPoint, admitte
 
 func overviewExposePolicy(expose []string) toolexec.ToolPolicy {
 	return toolexec.ToolPolicy{Allow: expose}
+}
+
+// subjectBudgets lists the budgets that select the subject itself or an
+// access point that admits it. Group-selected budgets depend on the token of
+// each request and are not listed (see the note).
+func (h *OverviewHandler) subjectBudgets(ctx context.Context, tenant, kind, id string, aliases map[string]bool, aps []AccessPoint, admitted []OverviewAdmission) OverviewBudgets {
+	base := budgets.Facts{}
+	ids := []string{id}
+	for alias := range aliases {
+		ids = append(ids, alias)
+	}
+	switch kind {
+	case CallerUser:
+		base.PrincipalID = id
+	case CallerAgent:
+		base.AgentIDs = ids
+	case CallerClient:
+		base.ClientID = id
+	}
+	variants := []budgetVariant{{facts: base}}
+	byID := map[string]AccessPoint{}
+	for _, ap := range aps {
+		byID[ap.ID] = ap
+	}
+	for _, a := range admitted {
+		ap, ok := byID[a.ID]
+		if !ok {
+			continue
+		}
+		f := base
+		f.AccessPointID, f.Project = ap.ID, ap.Project
+		variants = append(variants, budgetVariant{facts: f, viaAP: ap.ID})
+	}
+	return h.budgetsFor(ctx, tenant, variants, overviewBudgetSubjectNote)
 }

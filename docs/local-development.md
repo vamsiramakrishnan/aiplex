@@ -31,6 +31,7 @@ the mock MCP server and the issuer run inside the `aiplex dev` process. The API 
 | `local-models` | Model surface | With the mock provider: the OpenAI Chat Completions wire, model `mock-gpt`. With a real provider: the one surface for that provider, with its model. |
 | `local-responses` | Model surface | Mock provider only. OpenAI Responses wire, model `mock-responses`. |
 | `local-messages` | Model surface | Mock provider only. Anthropic Messages wire, model `mock-claude`. |
+| `local-models-b` | Model surface | Mock provider only. Like `local-models`, on the second mock provider (`Mock B`), on no access point: a second backend for trying [routing](reliability-and-routing.md). |
 | `local-gemini` | Model surface | Mock provider only. Gemini generateContent wire, model `mock-gemini`. |
 | `mock-gpt`, `mock-responses`, `mock-claude`, `mock-gemini` | Prices | Mock provider only, one per model. Placeholder rates, so estimated cost shows in usage. The rates are illustrative, not a provider's prices. A real provider gets no price; set one with `aiplex usage prices set`. |
 

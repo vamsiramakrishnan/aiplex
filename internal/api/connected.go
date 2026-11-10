@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -83,6 +84,9 @@ type ConnectedHandler struct {
 	// (created on first use); nothing is shared between replicas.
 	Breakers      *routing.Breakers
 	ResponseCache routing.CacheStore
+
+	budgetMu  sync.Mutex
+	budgetSrc *BudgetCache
 	// Tags resolves record tags (access point labels and the allowlisted
 	// X-AIPlex-Tags header). Nil allows no caller-supplied tags.
 	Tags *TagPolicy

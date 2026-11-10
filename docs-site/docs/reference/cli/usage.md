@@ -77,6 +77,7 @@ Flags:
       --all                     Follow every page
       --batch string[="true"]   Provider batch records only (true) or excluding them (false)
       --bound string            Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
+      --budget string           Tenant budget ID: exchanges that drew from that budget
       --caller-kind string      Caller kind: agent, user or client (caller_kind)
       --client string           Client ID (client_id)
       --cursor string           Continue from a next_cursor value
@@ -150,7 +151,7 @@ Exit codes:
 
 ```text
 Aggregate usage. --by takes plane, provider, model, tool, agent, user, client,
-access-point, caller-kind, status, source, error-class, bound (usage_bound)
+access-point, caller-kind, budget, status, source, error-class, bound (usage_bound)
 harness, batch or tag:<key> (a record tag, for example tag:experiment) (aliases: model=model_id, agent=actor_id,
 user=principal_id, client=client_id, tool=tool_name, access-point=access_point_id,
 caller-kind=caller_kind). Records whose usage is bounded (lower_bound, ambiguous
@@ -182,7 +183,8 @@ Flags:
       --batch string[="true"]   Provider batch records only (true) or excluding them (false)
       --bound string            Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
       --bucket string           Time bucket: hour or day
-      --by strings              Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,status,source,error-class,bound,batch,harness,tag:<key>
+      --budget string           Tenant budget ID: exchanges that drew from that budget
+      --by strings              Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,budget,status,source,error-class,bound,batch,harness,tag:<key>
       --caller-kind string      Caller kind: agent, user or client (caller_kind)
       --client string           Client ID (client_id)
       --error-class string      Error class (error_class)

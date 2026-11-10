@@ -65,6 +65,15 @@ type Options struct {
 	// ExtraOrigins are additional loopback or HTTPS origins the outbound
 	// policy approves (for test upstreams).
 	ExtraOrigins []string
+	// Quota turns QuotaPlex on with a generated request-count policy for the
+	// seeded mock surfaces and tools, so tenant budgets that count requests
+	// work locally. Mock provider only. QuotaNoTools leaves out the tool
+	// bindings when the tool connection is not seeded.
+	Quota        bool
+	QuotaNoTools bool
+	// QuotaTariff adds a placeholder per-request price (0.001 USD) on the
+	// primary surface and none elsewhere, for tests of cost budgets.
+	QuotaTariff bool
 }
 
 // Stack is a running local stack.
@@ -147,6 +156,9 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	}
 	if opts.APIBinary == "" {
 		return nil, fmt.Errorf("API binary not set")
+	}
+	if opts.Quota && opts.Provider != "mock" {
+		return nil, fmt.Errorf("--quota covers the built-in mock surfaces; with --provider %s, enable QuotaPlex with an operator quota file (AIPLEX_QUOTA_FILE), see docs/budgets.md", opts.Provider)
 	}
 	s := &Stack{opts: opts, Models: &MockModels{}, ModelsB: &MockModels{Name: "b"}, MCP: &MockMCP{}, exited: make(chan struct{})}
 	ok := false
@@ -238,6 +250,13 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	}
 	if len(opts.ConsoleOrigins) > 0 {
 		env = append(env, "CONSOLE_ORIGINS="+strings.Join(opts.ConsoleOrigins, ","))
+	}
+	if opts.Quota {
+		quotaPath, qerr := writeQuotaFile(s.Dir, DevTenant, opts.QuotaNoTools, opts.QuotaTariff)
+		if qerr != nil {
+			return nil, qerr
+		}
+		env = append(env, "AIPLEX_MODULES="+QuotaModules, "AIPLEX_QUOTA_FILE="+quotaPath)
 	}
 	env = append(env, opts.Env...)
 	s.env = env

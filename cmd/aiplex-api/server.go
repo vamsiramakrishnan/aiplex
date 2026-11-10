@@ -369,6 +369,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		mountUsageLedger(r, usageH, connectedH)
 		mountHookPolicies(r, connectedH) // /api/v1/hooks/policies
 		connectedH.MountAccessPoints(r)  // /api/v1/access-points
+		connectedH.MountBudgets(r)       // /api/v1/budgets
 		// Single-pane overview: /api/v1/overview
 		api.NewOverviewHandler(connectedH, usageH.Ledger, store, federationH.Bindings).Mount(r)
 

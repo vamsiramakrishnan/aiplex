@@ -207,6 +207,10 @@ type Demand struct {
 	Target              Target                   `json:"target"`
 	FundingAccountID    string                   `json:"funding_account_id,omitempty"`
 	Bounds              Vector                   `json:"bounds"` // trusted maximum raw exposure, excluding computed money
+	// Budgets are tenant budgets the host resolved from verified facts (see
+	// BudgetDraw). The demand draws from every one of them in the same
+	// admission transaction as the policy's own controls.
+	Budgets []BudgetDraw `json:"budgets,omitempty"`
 }
 
 type BudgetLimit struct {
@@ -218,6 +222,13 @@ type BudgetLimit struct {
 	Window     Window `json:"window"`
 	Limit      int64  `json:"limit"`
 	Demand     int64  `json:"demand"`
+	// BudgetID, MeterIDs, UnknownCost and Thresholds are set for a tenant
+	// budget draw (BudgetDraw). MeterIDs are summed; a flagged limit holds and
+	// consumes nothing and only counts the request as unknown cost.
+	BudgetID    string   `json:"budget_id,omitempty"`
+	MeterIDs    []string `json:"meter_ids,omitempty"`
+	UnknownCost bool     `json:"unknown_cost,omitempty"`
+	Thresholds  []int    `json:"thresholds,omitempty"`
 }
 
 type RateLimit struct {
@@ -264,6 +275,8 @@ type Decision struct {
 	PayerID    string        `json:"payer_id,omitempty"`
 	RetryAfter time.Duration `json:"retry_after,omitempty"`
 	Overrun    bool          `json:"overrun,omitempty"`
+	// BudgetID names the tenant budget (BudgetDraw) that caused a denial.
+	BudgetID string `json:"budget_id,omitempty"`
 }
 
 type DispatchClaim struct {
@@ -282,4 +295,9 @@ type Settlement struct {
 	Claim              DispatchClaim `json:"claim"`
 	Usage              Vector        `json:"usage"`
 	ProviderResourceID string        `json:"provider_resource_id,omitempty"`
+	// Unpriced settles every money meter at zero instead of pricing the
+	// usage: no provider ran (an answer served from the AIPlex response
+	// cache), so no provider price applies, while request-count meters and
+	// budgets still count the request.
+	Unpriced bool `json:"unpriced,omitempty"`
 }

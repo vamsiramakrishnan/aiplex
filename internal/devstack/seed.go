@@ -17,8 +17,12 @@ import (
 const (
 	SeedAccessPoint = "local"
 	SeedSurface     = "local-models"
-	SeedConnection  = "local-tools"
-	MockModel       = "mock-gpt"
+	// SeedSurfaceB is the chat surface on the second mock provider (Mock B),
+	// created with the mock provider but on no access point, for trying
+	// routing: list it as a second backend of mock-gpt.
+	SeedSurfaceB   = "local-models-b"
+	SeedConnection = "local-tools"
+	MockModel      = "mock-gpt"
 	// MockSecretRef is the secret reference the extra mock surfaces use. Their
 	// providers require a credential scheme, so the stack gives the API process
 	// a throwaway value under this reference (the mock ignores it).
@@ -283,6 +287,13 @@ func (s *Stack) Seed(ctx context.Context, o SeedOptions) (*Seeded, error) {
 		}
 		out.Price = o.Model
 		out.Models[0].Price = o.Model
+		specB, _, e := SurfaceSpec(SeedSurfaceB, o.Provider, s.ModelsBURL, o.Model)
+		if e != nil {
+			return nil, e
+		}
+		if err = api.Create(ctx, "/api/v1/llm/surfaces/"+SeedSurfaceB, specB); err != nil {
+			return nil, fmt.Errorf("create model surface %s: %w", SeedSurfaceB, err)
+		}
 		for _, m := range MockSurfaces {
 			spec, e := MockSurfaceSpec(m, origin)
 			if e != nil {

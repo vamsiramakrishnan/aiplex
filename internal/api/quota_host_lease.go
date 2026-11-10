@@ -26,7 +26,10 @@ type quotaHostLease struct {
 	modelVersion   string
 	// notSent marks an attempt whose request provably never left (no
 	// connection was established): it settles as zero requests.
-	notSent           bool
+	notSent bool
+	// unpriced settles an answer served from the response cache with every
+	// money meter at zero.
+	unpriced          bool
 	counters          execution.CumulativeUsage
 	evidence          *quotaplex.TerminalEvidence
 	acknowledged      bool
@@ -297,7 +300,7 @@ func (l *quotaHostLease) terminalLocked(ctx context.Context, native map[string]i
 		producer = "native-agent"
 	}
 	eventID, _ := quotaDigest([]string{l.demand.Context.TenantID, l.demand.AttemptID, producer, "terminal"})
-	evidence := quotaplex.TerminalEvidence{Version: quotaplex.Version, ProducerID: producer, ConfigurationDigest: l.demand.Target.ConfigurationDigest, Settlement: quotaplex.Settlement{TenantID: l.demand.Context.TenantID, AttemptID: l.demand.AttemptID, EventID: eventID, Claim: *l.claim, Usage: usage, ProviderResourceID: l.resource}, ObservedModelVersion: l.modelVersion, RequireModelVersion: quotaStrictProfile(l.binding.Profile)}
+	evidence := quotaplex.TerminalEvidence{Version: quotaplex.Version, ProducerID: producer, ConfigurationDigest: l.demand.Target.ConfigurationDigest, Settlement: quotaplex.Settlement{TenantID: l.demand.Context.TenantID, AttemptID: l.demand.AttemptID, EventID: eventID, Claim: *l.claim, Usage: usage, ProviderResourceID: l.resource, Unpriced: l.unpriced}, ObservedModelVersion: l.modelVersion, RequireModelVersion: quotaStrictProfile(l.binding.Profile)}
 	if l.evidence != nil {
 		oldDigest, _ := quotaDigest(l.evidence)
 		newDigest, _ := quotaDigest(evidence)
@@ -387,6 +390,9 @@ func (l *quotaHostLease) Finish(ctx context.Context, result execution.Result) er
 		l.notSent = true
 		return l.terminalLocked(bounded, zero)
 	}
+	// A cache hit counts the request but no provider price applies: its
+	// settlement leaves every money meter (and cost budget) at zero.
+	l.unpriced = result.Cached && result.ResponseComplete && l.binding.Plane == "llmplex"
 	if l.binding.Profile == quotaProfileRequests && result.ResponseComplete {
 		return l.terminalLocked(bounded, map[string]int64{"requests": 1, "tool_calls": 1})
 	}

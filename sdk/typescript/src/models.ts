@@ -914,6 +914,8 @@ export interface UsageRecord {
   reportedAttributes: Record<string, string>;
   /** Experiment labels from access point labels and allowlisted headers. */
   tags: Record<string, string>;
+  /** Tenant budgets the exchange drew from (its own and ancestors). */
+  budgetIds: string[];
   /** Request-hook summary (decision, results); null when no hook ran. */
   hooks: Record<string, unknown> | null;
   /** Latest feedback, present on a record fetched with getUsageRecord. */
@@ -1007,6 +1009,9 @@ export function parseUsageRecord(value: unknown): UsageRecord {
     callerSpanId: optString(obj, "caller_span_id", "UsageRecord"),
     reportedAttributes: stringMap(obj, "reported_attributes", "UsageRecord"),
     tags: stringMap(obj, "tags", "UsageRecord"),
+    budgetIds: Array.isArray(obj["budget_ids"])
+      ? (obj["budget_ids"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : [],
     hooks: optObject(obj, "hooks", "UsageRecord"),
     feedback:
       optObject(obj, "feedback", "UsageRecord") !== null
@@ -1674,4 +1679,59 @@ export function parseList<T>(
     throw decodeError(`${context}: expected JSON array`);
   }
   return value.map((item) => itemParser(item));
+}
+
+/**
+ * A budget's counters in its current window. Amounts are exact decimal
+ * strings. Operator-only fields are null or empty for a member: unknown, not zero.
+ */
+export interface BudgetStatus {
+  id: string;
+  displayName: string | null;
+  parent: string | null;
+  unit: string;
+  currency: string | null;
+  limit: string;
+  spent: string;
+  reserved: string;
+  remaining: string;
+  overLimit: boolean;
+  windowStart: string | null;
+  windowEnd: string | null;
+  unknownCostRequests: number | null;
+  thresholdEvents: Array<Record<string, unknown>>;
+  children: Array<Record<string, unknown>>;
+  topSpenders: Array<Record<string, unknown>>;
+  raw: Record<string, unknown>;
+}
+
+function budgetObjectList(obj: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
+  const val = obj[key];
+  return Array.isArray(val)
+    ? val.filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x))
+    : [];
+}
+
+export function parseBudgetStatus(data: unknown): BudgetStatus {
+  const obj = asObject(data, "BudgetStatus");
+  const window = optObject(obj, "window", "BudgetStatus") ?? {};
+  return {
+    id: reqString(obj, "id", "BudgetStatus"),
+    displayName: optString(obj, "display_name", "BudgetStatus"),
+    parent: optString(obj, "parent", "BudgetStatus"),
+    unit: reqString(obj, "unit", "BudgetStatus"),
+    currency: optString(obj, "currency", "BudgetStatus"),
+    limit: reqString(obj, "limit", "BudgetStatus"),
+    spent: reqString(obj, "spent", "BudgetStatus"),
+    reserved: reqString(obj, "reserved", "BudgetStatus"),
+    remaining: reqString(obj, "remaining", "BudgetStatus"),
+    overLimit: optBoolean(obj, "over_limit", "BudgetStatus") === true,
+    windowStart: optString(window, "start", "BudgetStatus.window"),
+    windowEnd: optString(window, "end", "BudgetStatus.window"),
+    unknownCostRequests: optInt(obj, "unknown_cost_requests", "BudgetStatus"),
+    thresholdEvents: budgetObjectList(obj, "threshold_events"),
+    children: budgetObjectList(obj, "children"),
+    topSpenders: budgetObjectList(obj, "top_spenders"),
+    raw: obj,
+  };
 }
