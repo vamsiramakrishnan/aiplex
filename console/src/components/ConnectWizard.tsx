@@ -23,17 +23,19 @@ export function ConnectDetails({ accessPointId, client }: { accessPointId: strin
   if (q.isError) return <p role="alert" className="text-sm text-red-600">{connectErrorMessage(q.error)}</p>
   const c = q.data!
   const urls = Object.entries(c.base_urls ?? {})
+  const endpoints = c.endpoints ?? []
   return (
     <div aria-label="Connection details" className="space-y-4">
       <section aria-label="URLs" className="space-y-1">
         <h4 className="text-sm font-semibold">URLs</h4>
         <ul className="space-y-1">
           {urls.map(([family, url]) => <UrlRow key={family} label={`${family} base URL`} url={url} />)}
+          {endpoints.map(e => <UrlRow key={`${e.protocol}-${e.transport}-${e.url}`} label={`${e.label ?? e.protocol} (${e.transport})${e.query?.length ? `, requires ?${e.query.join('&')}=` : ''}`} url={e.url} />)}
           {c.mcp_url && <UrlRow label="MCP URL" url={c.mcp_url} />}
           {c.mcp_catalog_url && <UrlRow label="MCP catalog URL" url={c.mcp_catalog_url} />}
           {c.skills_url && <UrlRow label="Skills URL" url={c.skills_url} />}
         </ul>
-        {urls.length === 0 && !c.mcp_url && !c.skills_url && <p className="text-sm text-gray-500">This access point has nothing a client can connect to yet.</p>}
+        {urls.length === 0 && endpoints.length === 0 && !c.mcp_url && !c.skills_url && <p className="text-sm text-gray-500">This access point has nothing a client can connect to yet.</p>}
       </section>
       {!!c.models?.length && (
         <section aria-label="Models" className="text-sm">

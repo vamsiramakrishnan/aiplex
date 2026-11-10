@@ -61,6 +61,10 @@ type AgentIdentityRequest struct {
 	RequiredClaims map[string]string `json:"required_claims,omitempty"`
 	DisplayName    string            `json:"display_name,omitempty"`
 	Disabled       bool              `json:"disabled,omitempty"`
+	// AcknowledgeOverlap saves the binding even though a user identity
+	// provider of the tenant trusts the same issuer and audience. It is not
+	// persisted: every write that keeps the overlap must acknowledge it again.
+	AcknowledgeOverlap bool `json:"acknowledge_overlap,omitempty"`
 }
 
 // AgentIdentityBinding is a stored binding with the canonical identities a
@@ -69,6 +73,9 @@ type AgentIdentityBinding struct {
 	agentfederation.Binding
 	PrincipalID string `json:"principal_id"`
 	ActorID     string `json:"actor_id,omitempty"`
+	// Warnings are returned on writes that succeeded with an acknowledged
+	// risk (for example an acknowledged issuer overlap).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // AgentIdentityVerifyRequest is the dry-run body. ClientID and BindingID must

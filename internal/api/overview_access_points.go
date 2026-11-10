@@ -238,6 +238,7 @@ func (h *OverviewHandler) AccessPointOverview(w http.ResponseWriter, r *http.Req
 		}
 		return
 	}
+	ap = overviewNormalizeAccessPoint(ap)
 	dir, err := h.loadDirectory(r.Context(), tenant)
 	if err != nil {
 		Error(w, r, http.StatusServiceUnavailable, "OVERVIEW_UNAVAILABLE", "tenant configuration is unavailable")

@@ -176,12 +176,15 @@ type Record struct {
 	TraceID        string `json:"trace_id,omitempty"`
 	QuotaAttemptID string `json:"quota_attempt_id,omitempty"`
 	Streaming      bool   `json:"streaming"`
-	Status         string `json:"status"`
-	HTTPStatus     int    `json:"http_status,omitempty"`
-	ErrorClass     string `json:"error_class,omitempty"`
-	Source         string `json:"source"`
-	Requests       int64  `json:"requests"`
-	Usage          *Usage `json:"usage"`
+	// Session is true for a WebSocket session exchange: one record covers the
+	// whole session and its usage is final only with a terminal observation.
+	Session    bool   `json:"session,omitempty"`
+	Status     string `json:"status"`
+	HTTPStatus int    `json:"http_status,omitempty"`
+	ErrorClass string `json:"error_class,omitempty"`
+	Source     string `json:"source"`
+	Requests   int64  `json:"requests"`
+	Usage      *Usage `json:"usage"`
 	// UsageBound qualifies Usage when the exchange ended without final usage
 	// evidence: "lower_bound" (the counters are what was observed before the
 	// exchange ended), "ambiguous" (a resumed session whose counter

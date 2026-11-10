@@ -54,8 +54,15 @@ type SummaryGroup struct {
 	Tokens              map[string]int64  `json:"tokens"`
 	TokensUnknown       map[string]int64  `json:"tokens_unknown"`
 	UnknownUsageRecords int64             `json:"unknown_usage_records"`
-	Cost                []CostTotal       `json:"cost"`
-	UnknownCostRecords  int64             `json:"unknown_cost_records"`
+	// BoundedUsageRecords counts records whose usage_bound is set; their
+	// counters are included in Tokens but are not final. The per-bound counts
+	// sum to it.
+	BoundedUsageRecords   int64       `json:"bounded_usage_records,omitempty"`
+	LowerBoundRecords     int64       `json:"lower_bound_records,omitempty"`
+	AmbiguousUsageRecords int64       `json:"ambiguous_usage_records,omitempty"`
+	PartialUsageRecords   int64       `json:"partial_usage_records,omitempty"`
+	Cost                  []CostTotal `json:"cost"`
+	UnknownCostRecords    int64       `json:"unknown_cost_records"`
 }
 
 // CostTotal is an exact sum of fixed-point amounts in one currency and basis.
@@ -158,6 +165,17 @@ func (g *groupAccumulator) add(r Record) error {
 	}
 	if !r.Usage.Known() {
 		s.UnknownUsageRecords++
+	}
+	switch r.UsageBound {
+	case UsageLowerBound:
+		s.LowerBoundRecords++
+		s.BoundedUsageRecords++
+	case UsageAmbiguous:
+		s.AmbiguousUsageRecords++
+		s.BoundedUsageRecords++
+	case UsagePartial:
+		s.PartialUsageRecords++
+		s.BoundedUsageRecords++
 	}
 	for _, name := range TokenCounters {
 		v := r.Usage.Counter(name)

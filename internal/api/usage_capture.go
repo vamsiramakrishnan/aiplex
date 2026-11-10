@@ -163,6 +163,7 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 			}
 			if op.Transport == modelapi.WebSocket {
 				c.streaming = true
+				r.Session = true
 			}
 		})
 		return authorize(ctx, request, s, op, m)

@@ -39,13 +39,16 @@ const UsageMaxPageSize = usageledger.MaxLimit
 type UsageFilter struct {
 	Plane, Provider, ModelID, ToolName string
 	ActorID, PrincipalID, ClientID     string
-	Status, Source                     string
-	Since, Until                       time.Time
+	// AccessPointID and CallerKind (agent, user or client) select exchanges
+	// that entered through an access point.
+	AccessPointID, CallerKind string
+	Status, Source            string
+	Since, Until              time.Time
 }
 
 func (f UsageFilter) values() url.Values {
 	q := url.Values{}
-	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "status": f.Status, "source": f.Source} {
+	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "status": f.Status, "source": f.Source} {
 		if value != "" {
 			q.Set(name, value)
 		}
@@ -68,7 +71,7 @@ type UsageRecordsQuery struct {
 
 // UsageSummaryQuery groups the records selected by the filter. GroupBy takes
 // wire names (plane, provider, model_id, tool_name, actor_id, principal_id,
-// client_id, status); NormalizeUsageGroupBy accepts friendly aliases and is
+// client_id, access_point_id, caller_kind, status); NormalizeUsageGroupBy accepts friendly aliases and is
 // applied by SummarizeUsage.
 type UsageSummaryQuery struct {
 	UsageFilter
@@ -79,10 +82,12 @@ type UsageSummaryQuery struct {
 var usageGroupAliases = map[string]string{
 	"model": "model_id", "agent": "actor_id", "actor": "actor_id", "user": "principal_id",
 	"principal": "principal_id", "client": "client_id", "tool": "tool_name",
+	"access-point": "access_point_id", "access_point": "access_point_id", "accesspoint": "access_point_id",
+	"caller-kind": "caller_kind", "caller_kind": "caller_kind", "callerkind": "caller_kind",
 }
 
 // NormalizeUsageGroupBy maps friendly aliases (model, agent, user, client,
-// tool) to wire names and rejects unknown or repeated fields.
+// tool, access-point, caller-kind) to wire names and rejects unknown or repeated fields.
 func NormalizeUsageGroupBy(fields []string) ([]string, error) {
 	out := make([]string, 0, len(fields))
 	seen := map[string]bool{}

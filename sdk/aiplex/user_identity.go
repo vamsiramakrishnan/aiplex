@@ -130,6 +130,16 @@ type UserIdentityProvider struct {
 	Extra         map[string]json.RawMessage
 }
 
+// Warnings returns the warnings the server attached to a write that succeeded
+// with an acknowledged risk (for example an acknowledged issuer overlap).
+func (p UserIdentityProvider) Warnings() []string {
+	var out []string
+	if raw, ok := p.Extra["warnings"]; ok {
+		_ = json.Unmarshal(raw, &out)
+	}
+	return out
+}
+
 type userProviderWire struct {
 	userfederation.Provider
 	PrincipalPool string `json:"principal_pool"`

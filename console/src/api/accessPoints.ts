@@ -223,15 +223,29 @@ export function endpointGroupsFromConnect(spec: AccessPointSpec, c: ConnectInfo)
   const groups: EndpointGroup[] = []
   const reach = new Set((c.models ?? []).flatMap(m => m.protocols ?? []))
   // The connect response gives base URLs for the OpenAI, Anthropic and GenAI
-  // families only. Bedrock and WebSocket endpoints are built here from the
-  // server's public URL (taken from the access point root it returned).
-  const root = [c.base_urls?.genai, c.base_urls?.anthropic, c.base_urls?.openai?.replace(/\/v1$/, ''), c.mcp_url?.replace(/\/mcp$/, '')].find(Boolean)
+  // families, and lists Bedrock and WebSocket endpoints in `endpoints`. Only
+  // when a server predates `endpoints` are they built here from the server's
+  // public URL (taken from the access point root it returned).
+  const serverEndpoints = c.endpoints ?? undefined
+  const root =[c.base_urls?.genai, c.base_urls?.anthropic, c.base_urls?.openai?.replace(/\/v1$/, ''), c.mcp_url?.replace(/\/mcp$/, '')].find(Boolean)
   for (const w of WIRES.filter(w => reach.has(w.id))) {
     const family = w.id.startsWith('openai-') && !w.websocket ? 'openai' : w.id === 'anthropic-messages' ? 'anthropic' : w.id === 'google-genai' ? 'genai' : ''
     if (family) {
       const baseUrl = c.base_urls?.[family]
       if (!baseUrl) continue
       groups.push({ id: w.id, title: w.label, urls: [{ label: 'Endpoint', url: baseUrl + (family === 'openai' ? w.path.replace(/^\/v1/, '') : w.path) }] })
+    } else if (serverEndpoints) {
+      const mine = serverEndpoints.filter(e => e.protocol === w.id)
+      if (mine.length) {
+        groups.push({
+          id: w.id, title: w.label,
+          urls: mine.map(e => ({
+            label: e.label ?? (e.transport === 'websocket' ? 'Endpoint' : e.transport),
+            // A WebSocket connection needs its query parameters (the model selector).
+            url: e.url + (e.query?.length ? '?' + e.query.map(q => `${q}={${q}}`).join('&') : ''),
+          })),
+        })
+      }
     } else if (root) {
       groups.push({ id: w.id, title: w.label, note: 'Built by this console from the server\'s public URL; the connect response does not list this endpoint.', urls: wireUrls(w, root) })
     }

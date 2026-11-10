@@ -417,3 +417,28 @@ func TestRecorderReportsFailuresWithoutPropagating(t *testing.T) {
 		t.Fatal("a cancelled request context must not drop its record", err)
 	}
 }
+
+func TestSummaryCountsBoundedRecordsWithoutExcludingThem(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore(WithClock(func() time.Time { return base.Add(24 * time.Hour) }))
+	for i, bound := range []string{"", UsageLowerBound, UsageLowerBound, UsageAmbiguous, UsagePartial} {
+		r := record("t", "r"+string(rune('a'+i)), base.Add(time.Duration(i)*time.Minute))
+		r.Usage = &Usage{InputTokens: Int64(10)}
+		r.UsageBound = bound
+		if err := s.Append(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sum, err := Summarize(ctx, s, "t", SummaryQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := sum.Groups[0]
+	if g.Tokens["input_tokens"] != 50 || g.BoundedUsageRecords != 4 || g.LowerBoundRecords != 2 || g.AmbiguousUsageRecords != 1 || g.PartialUsageRecords != 1 {
+		t.Fatalf("%+v", g)
+	}
+	raw, _ := json.Marshal(SummaryGroup{Key: map[string]string{}})
+	if strings.Contains(string(raw), "bounded") || strings.Contains(string(raw), "lower_bound") {
+		t.Fatalf("zero counts must be omitted: %s", raw)
+	}
+}

@@ -67,6 +67,7 @@ func (h *OverviewHandler) Mount(r chi.Router) {
 		r.Get("/subjects", h.Subjects)
 		r.Get("/subjects/{kind}/{id}", h.Subject)
 		r.Get("/subjects/{kind}", h.Subject) // ?id=… for ids that contain "/"
+		r.Get("/access-points", h.AccessPointList)
 		r.Get("/access-points/{id}", h.AccessPointOverview)
 		r.Get("/access-points/{id}/connect", h.Connect)
 	})
@@ -208,10 +209,17 @@ type OverviewUsage struct {
 	TokensUnknown      map[string]int64 `json:"tokens_unknown"`
 	Cost               []OverviewCost   `json:"cost"`
 	UnknownCostRecords int64            `json:"unknown_cost_records"`
+	// Bounded counts records whose counters are not final (usage_bound set).
+	// They are included in Tokens; a non-zero count marks the totals non-final.
+	BoundedUsageRecords   int64 `json:"bounded_usage_records,omitempty"`
+	LowerBoundRecords     int64 `json:"lower_bound_records,omitempty"`
+	AmbiguousUsageRecords int64 `json:"ambiguous_usage_records,omitempty"`
+	PartialUsageRecords   int64 `json:"partial_usage_records,omitempty"`
 }
 
 func overviewUsageOf(g usageledger.SummaryGroup) *OverviewUsage {
-	u := &OverviewUsage{Requests: g.Requests, Records: g.Records, Errors: g.Errors, Denied: g.Denied, Tokens: map[string]int64{}, TokensUnknown: map[string]int64{}, Cost: []OverviewCost{}, UnknownCostRecords: g.UnknownCostRecords}
+	u := &OverviewUsage{Requests: g.Requests, Records: g.Records, Errors: g.Errors, Denied: g.Denied, Tokens: map[string]int64{}, TokensUnknown: map[string]int64{}, Cost: []OverviewCost{}, UnknownCostRecords: g.UnknownCostRecords,
+		BoundedUsageRecords: g.BoundedUsageRecords, LowerBoundRecords: g.LowerBoundRecords, AmbiguousUsageRecords: g.AmbiguousUsageRecords, PartialUsageRecords: g.PartialUsageRecords}
 	for k, v := range g.Tokens {
 		u.Tokens[k] = v
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -40,11 +41,26 @@ type OverviewConnectModel struct {
 	Protocols []string `json:"protocols"`
 }
 
+// OverviewEndpoint is a model endpoint that does not fit a single base URL:
+// Bedrock Runtime (the model is a path segment) and WebSocket sessions.
+// Transport is http, http-stream or websocket. A "{model}" in URL is replaced
+// by a model name; Query lists the query parameters a connection requires.
+// WebSocket URLs use wss (or ws when the public URL is http).
+type OverviewEndpoint struct {
+	Protocol  string   `json:"protocol"`
+	Transport string   `json:"transport"`
+	URL       string   `json:"url"`
+	Label     string   `json:"label,omitempty"`
+	Query     []string `json:"query,omitempty"`
+	Models    []string `json:"models"`
+}
+
 // OverviewConnect is the response of GET /overview/access-points/{id}/connect.
 type OverviewConnect struct {
 	AccessPointID string                 `json:"access_point_id"`
 	Client        string                 `json:"client"`
 	BaseURLs      map[string]string      `json:"base_urls"`
+	Endpoints     []OverviewEndpoint     `json:"endpoints"`
 	Models        []OverviewConnectModel `json:"models"`
 	MCPURL        string                 `json:"mcp_url,omitempty"`
 	MCPCatalogURL string                 `json:"mcp_catalog_url,omitempty"`
@@ -112,7 +128,8 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	out := OverviewConnect{AccessPointID: id, Client: client, BaseURLs: map[string]string{}, Models: []OverviewConnectModel{}, Snippets: []OverviewSnippet{}, Notes: []string{}}
+	ap = overviewNormalizeAccessPoint(ap)
+	out := OverviewConnect{AccessPointID: id, Client: client, BaseURLs: map[string]string{}, Endpoints: []OverviewEndpoint{}, Models: []OverviewConnectModel{}, Snippets: []OverviewSnippet{}, Notes: []string{}}
 	apBase := base + "/ap/" + id
 
 	// Which wire protocols reach at least one model, and an example model each.
@@ -145,6 +162,7 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 			out.BaseURLs["genai"] = apBase
 		}
 	}
+	out.Endpoints = overviewEndpoints(base, apBase, wires, out.Models)
 	if len(ap.Tools) > 0 && h.Connected.moduleEnabled("mcplex") {
 		out.MCPURL = base + accessPointResourcePath(id, "")
 		out.MCPCatalogURL = apBase + "/v0.1/servers"
@@ -201,6 +219,52 @@ func (h *OverviewHandler) connectAuth(base, id string, ap AccessPoint) OverviewC
 	return auth
 }
 
+// overviewEndpoints lists the Bedrock and WebSocket endpoints of the wires an
+// access point serves, in the fixed wire order.
+func overviewEndpoints(base, apBase string, wires map[string]string, models []OverviewConnectModel) []OverviewEndpoint {
+	out := []OverviewEndpoint{}
+	wsBase := apBase
+	switch {
+	case strings.HasPrefix(base, "https://"):
+		wsBase = "wss://" + strings.TrimPrefix(apBase, "https://")
+	case strings.HasPrefix(base, "http://"):
+		wsBase = "ws://" + strings.TrimPrefix(apBase, "http://")
+	}
+	reached := func(wire string) []string {
+		names := []string{}
+		for _, m := range models {
+			for _, p := range m.Protocols {
+				if p == wire {
+					names = append(names, m.Name)
+					break
+				}
+			}
+		}
+		return names
+	}
+	add := func(wire, transport, url, label string, query []string) {
+		out = append(out, OverviewEndpoint{Protocol: wire, Transport: transport, URL: url, Label: label, Query: query, Models: reached(wire)})
+	}
+	for _, wire := range accessPointWires {
+		if _, ok := wires[wire.ID]; !ok {
+			continue
+		}
+		switch wire.ID {
+		case WireBedrockConverse:
+			add(wire.ID, "http", apBase+"/model/{model}/converse", "Converse", nil)
+			add(wire.ID, "http-stream", apBase+"/model/{model}/converse-stream", "ConverseStream", nil)
+		case WireBedrockInvoke:
+			add(wire.ID, "http", apBase+"/model/{model}/invoke", "InvokeModel", nil)
+			add(wire.ID, "http-stream", apBase+"/model/{model}/invoke-with-response-stream", "InvokeModelWithResponseStream", nil)
+		case WireOpenAIRealtime:
+			add(wire.ID, "websocket", wsBase+"/v1/realtime", "OpenAI Realtime", []string{"model"})
+		case WireGeminiLive:
+			add(wire.ID, "websocket", wsBase+geminiLivePath, "Gemini Live", []string{"model"})
+		}
+	}
+	return out
+}
+
 func overviewGenericSnippets(c OverviewConnect, wires map[string]string) []OverviewSnippet {
 	out := []OverviewSnippet{}
 	var env []string
@@ -228,6 +292,13 @@ func overviewGenericSnippets(c OverviewConnect, wires map[string]string) []Overv
 	}
 	if m, ok := wires[WireGenAI]; ok {
 		out = append(out, OverviewSnippet{Title: "curl: Google GenAI generateContent", Language: "bash", Content: fmt.Sprintf("curl -sS \"%s/v1beta/models/%s:generateContent\" \\\n  -H \"Authorization: Bearer $%s\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Say hello.\"}]}]}'\n", apiBase("genai"), m, overviewTokenEnv)})
+	}
+	if m, ok := wires[WireBedrockConverse]; ok {
+		for _, e := range c.Endpoints {
+			if e.Protocol == WireBedrockConverse && e.Transport == "http" {
+				out = append(out, OverviewSnippet{Title: "curl: Amazon Bedrock Converse", Language: "bash", Content: fmt.Sprintf("curl -sS \"%s\" \\\n  -H \"Authorization: Bearer $%s\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Say hello.\"}]}]}'\n", strings.Replace(e.URL, "{model}", url.PathEscape(m), 1), overviewTokenEnv)})
+			}
+		}
 	}
 	return append(out, overviewSharedSnippets(c)...)
 }

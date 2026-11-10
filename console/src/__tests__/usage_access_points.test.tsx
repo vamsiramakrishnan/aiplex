@@ -14,6 +14,7 @@ const tok = (input: number, output: number) => ({ input_tokens: input, output_to
 const lower = { ...base, id: 'ul_lower', started_at: '2026-11-09T08:00:00Z', operation: 'openai.v1.realtime', model_id: 'gpt-realtime', usage: tok(120, 30), usage_bound: 'lower_bound', cost: { basis: 'estimated', currency: 'USD', amount: '500', scale: 6 } }
 const ambiguous = { ...base, id: 'ul_amb', started_at: '2026-11-09T07:00:00Z', operation: 'live.connect', usage: tok(7, 8), usage_bound: 'ambiguous' }
 const partial = { ...base, id: 'ul_part', started_at: '2026-11-09T06:00:00Z', usage: tok(1, 2), usage_bound: 'partial' }
+const flagged = { ...base, id: 'ul_flag', started_at: '2026-11-09T04:00:00Z', operation: 'some.future.socket', session: true, usage: tok(3, 3) }
 const exact = { ...base, id: 'ul_exact', started_at: '2026-11-09T05:00:00Z', usage: tok(9, 4) }
 
 let calls: URL[]
@@ -23,7 +24,7 @@ beforeEach(() => {
     const url = new URL(input, 'http://localhost')
     calls.push(url)
     if (url.pathname === '/api/v1/usage/summary') return new Response(JSON.stringify({ group_by: [], groups: [], records_scanned: 0, truncated: false }))
-    if (url.pathname === '/api/v1/usage/records') return new Response(JSON.stringify({ records: [withLimits, without, lower, ambiguous, partial, exact] }))
+    if (url.pathname === '/api/v1/usage/records') return new Response(JSON.stringify({ records: [withLimits, without, lower, ambiguous, partial, exact, flagged] }))
     if (url.pathname === '/api/v1/usage/prices/') return new Response('[]')
     return new Response('{}', { status: 500 })
   }))
@@ -102,12 +103,25 @@ describe('Usage page: access point and caller kind', () => {
     expect(within(row('ul_lower')).getByText('session')).toBeInTheDocument()
     expect(within(row('ul_amb')).getByText('session')).toBeInTheDocument()
     expect(within(row('ul_exact')).queryByText('session')).toBeNull()
+    // The server's flag wins; operation ids are only a fallback for records without it.
+    expect(within(row('ul_flag')).getByText('session')).toBeInTheDocument()
     fireEvent.click(within(row('ul_lower')).getByRole('button'))
     expect(screen.getByText(/One request was admitted and settled for the whole session/)).toBeInTheDocument()
   })
 
-  it('states that the summary does not flag bounded records', async () => {
+  it('shows bounded-record counts next to the summary totals and drops the static caveat', async () => {
+    const group = { key: { model_id: 'gpt-realtime' }, records: 5, requests: 5, errors: 0, denied: 0, unknown_status: 0, tokens: { input_tokens: 500 }, tokens_unknown: {}, unknown_usage_records: 0, bounded_usage_records: 3, lower_bound_records: 2, partial_usage_records: 1, cost: [], unknown_cost_records: 5 }
+    const fetchMock = vi.mocked(fetch)
+    const inner = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (input, init) => new URL(String(input), 'http://localhost').pathname === '/api/v1/usage/summary'
+      ? new Response(JSON.stringify({ group_by: ['model_id'], groups: [group], records_scanned: 5, truncated: false }))
+      : inner(input, init))
     show()
-    expect(await screen.findByText(/the summary does not flag them/)).toBeInTheDocument()
+    const totals = await screen.findByLabelText('Usage totals')
+    expect(totals).toHaveTextContent('Not final: includes 3 bounded records (2 lower bound, 1 partial)')
+    const breakdown = await screen.findByRole('table', { name: 'Usage breakdown' })
+    expect(breakdown).toHaveTextContent('500 (incl. 3 bounded)')
+    expect(breakdown).toHaveTextContent('bounded: 3 (2 lower bound, 1 partial)')
+    expect(screen.queryByText(/the summary does not flag them/)).toBeNull()
   })
 })

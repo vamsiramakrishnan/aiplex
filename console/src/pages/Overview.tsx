@@ -42,7 +42,7 @@ export default function Overview() {
         </div>
       </section>
 
-      <AccessPointStrip since={since} />
+      <AccessPointStrip />
     </div>
   )
 }
