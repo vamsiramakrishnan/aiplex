@@ -19,7 +19,7 @@ import { YourAccessPoints } from '../components/YourAccess'
 import SubjectTable, { type SubjectRow } from '../components/SubjectTable'
 
 const btn = 'px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'
-const primary = 'px-3 py-1.5 text-sm bg-brand-600 text-white rounded disabled:opacity-50'
+const primary = 'px-3 py-1.5 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50'
 
 function LoadError({ error, what, onRetry }: { error: unknown; what: string; onRetry?: () => void }) {
   const status = errorStatus(error)

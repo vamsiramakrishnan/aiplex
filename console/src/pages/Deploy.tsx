@@ -124,7 +124,7 @@ function DeployWizard() {
         {steps.map((s, i) => (
           <div key={s.key} className="flex items-center gap-2">
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium
-              ${step === s.key ? 'bg-brand-600 text-white' :
+              ${step === s.key ? 'bg-brand-600 text-brand-contrast' :
                 steps.findIndex(x => x.key === step) > i ? 'bg-status-ok-bg text-status-ok-fg' :
                 'bg-gray-100 text-gray-600 dark:text-gray-400 dark:bg-gray-800'}`}>
               {steps.findIndex(x => x.key === step) > i ? '\u2713' : i + 1}
@@ -234,7 +234,7 @@ function DeployWizard() {
 
           <button
             onClick={() => setStep('review')}
-            className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+            className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
           >
             Review
           </button>
@@ -296,7 +296,7 @@ function DeployWizard() {
               config: Object.keys(config).length > 0 ? config : undefined,
             })}
             disabled={deploy.isPending}
-            className="w-full px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50"
+            className="w-full px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700 disabled:opacity-50"
           >
             {deploy.isPending ? 'Deploying...' : 'Deploy'}
           </button>
@@ -373,7 +373,7 @@ function ManifestApply() {
       <button
         onClick={() => apply.mutate()}
         disabled={!yamlInput.trim() || apply.isPending}
-        className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50"
+        className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700 disabled:opacity-50"
       >
         {apply.isPending ? 'Applying...' : 'Apply Manifest'}
       </button>

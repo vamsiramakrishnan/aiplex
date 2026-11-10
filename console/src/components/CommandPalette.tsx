@@ -127,7 +127,7 @@ export default function CommandPalette() {
                         onMouseEnter={() => setSelected(idx)}
                         className={`w-full text-left px-4 py-2 text-sm transition-colors ${
                           idx === selected
-                            ? 'bg-brand-600 text-white'
+                            ? 'bg-brand-600 text-brand-contrast'
                             : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                         }`}
                       >

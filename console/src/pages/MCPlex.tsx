@@ -28,19 +28,19 @@ export default function MCPlex() {
       <div className="flex gap-2 mb-6">
         <button
           onClick={() => setTab('instances')}
-          className={`px-4 py-2 rounded text-sm ${tab === 'instances' ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+          className={`px-4 py-2 rounded text-sm ${tab === 'instances' ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}
         >
           Instances ({instances.data?.length ?? 0})
         </button>
         <button
           onClick={() => setTab('catalog')}
-          className={`px-4 py-2 rounded text-sm ${tab === 'catalog' ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+          className={`px-4 py-2 rounded text-sm ${tab === 'catalog' ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}
         >
           Catalog ({catalog.data?.total ?? 0})
         </button>
         <button
           onClick={() => setTab('connections')}
-          className={`px-4 py-2 rounded text-sm ${tab === 'connections' ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+          className={`px-4 py-2 rounded text-sm ${tab === 'connections' ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}
         >
           Tool connections
         </button>
@@ -97,7 +97,7 @@ export default function MCPlex() {
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{t.description}</p>
               <button
                 onClick={() => navigate(`/deploy?plane=mcplex&template=${t.id}`)}
-                className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
               >
                 Deploy
               </button>

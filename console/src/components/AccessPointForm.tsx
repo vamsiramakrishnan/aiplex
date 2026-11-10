@@ -374,7 +374,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
 
       {formLevel && <p role="alert" className="text-sm text-status-denied-fg">{formLevel}</p>}
       <div className="flex gap-2">
-        <button type="submit" disabled={!canSave} className="px-4 py-2 text-sm bg-brand-600 text-white rounded disabled:opacity-50">{saving ? 'Saving…' : editing ? 'Save changes' : 'Create access point'}</button>
+        <button type="submit" disabled={!canSave} className="px-4 py-2 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50">{saving ? 'Saving…' : editing ? 'Save changes' : 'Create access point'}</button>
         <button type="button" onClick={onCancel} className={btn}>Cancel</button>
       </div>
     </form>

@@ -393,7 +393,7 @@ function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTake
           />
           <div className="flex gap-2">
             <button
-              className="px-2 py-1 rounded bg-brand-600 text-white"
+              className="px-2 py-1 rounded bg-brand-600 text-brand-contrast"
               disabled={!signalForm.gate}
               onClick={() => {
                 void fire('Signal', () => runSignal(runID, signalForm.gate, signalForm.resolution))
@@ -463,7 +463,7 @@ function EmptyRunsChecklist() {
           title="Tape ingestion seen recently"
           body={
             healthQ.data?.last_ingest_at
-              ? `Last event at ${new Date(healthQ.data.last_ingest_at).toLocaleString()}.`
+              ? (new Date(healthQ.data.last_ingest_at).getFullYear() <= 1 ? 'No event has ever been ingested.' : `Last event at ${new Date(healthQ.data.last_ingest_at).toLocaleString()}.`)
               : 'No events ingested yet — has the AIPlex outbox sink been wired into Tape?'
           }
           href="https://github.com/vamsiramakrishnan/durable-agents/blob/main/tape/docs/integrations/aiplex.md"

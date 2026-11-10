@@ -274,7 +274,7 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
             </div>
           )}
           <div className="flex gap-2">
-            <button type="submit" disabled={!idValid || missing.length > 0 || !claimOk || !dirOk || save.isPending} className="px-3 py-1 text-sm bg-brand-600 text-white rounded disabled:opacity-50">{save.isPending ? 'Saving…' : editing ? 'Save changes' : 'Save provider'}</button>
+            <button type="submit" disabled={!idValid || missing.length > 0 || !claimOk || !dirOk || save.isPending} className="px-3 py-1 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50">{save.isPending ? 'Saving…' : editing ? 'Save changes' : 'Save provider'}</button>
             <button type="button" onClick={onCancel} className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-700">Cancel</button>
           </div>
           {missing.length > 0 && <p className="text-xs text-gray-600 dark:text-gray-400">Still required: {missing.map(f => f.label).join(', ')}</p>}

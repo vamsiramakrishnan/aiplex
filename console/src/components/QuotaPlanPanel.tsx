@@ -26,7 +26,7 @@ export default function QuotaPlanPanel({ spec }: { spec: AccessPointSpec }) {
             view: copy the fragment into the QuotaPlex policy flow (<Link className="underline" to="/quotaplex">QuotaPlex</Link>) to activate it.
           </p>
           <button type="button" onClick={() => render.mutate()} disabled={render.isPending}
-            className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded disabled:opacity-50">
+            className="px-3 py-1.5 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50">
             {render.isPending ? 'Rendering…' : plan ? 'Render again' : 'Render quota plan'}
           </button>
           {render.isError && (

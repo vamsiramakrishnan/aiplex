@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import LedgerCosts from '../components/LedgerCosts'
 import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, authenticatedRequest, type LLMBackend } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import ModelSurfacesPanel from '../components/ModelSurfacesPanel'
@@ -14,20 +15,8 @@ interface RouteConfig {
   budget?: { max_daily_cost_usd: number; alert_threshold_pct: number }
 }
 
-interface UsageSummary {
-  model_id: string
-  period: string
-  input_tokens: number
-  output_tokens: number
-  total_tokens: number
-  total_cost_usd: number
-  request_count: number
-  cache_hits: number
-  avg_latency_ms: number
-}
 
 const getRoutes = () => authenticatedRequest<RouteConfig[]>('/api/v1/llm/routes')
-const getUsageSummary = (period: string) => authenticatedRequest<UsageSummary>(`/api/v1/llm/usage/summary?period=${encodeURIComponent(period)}`)
 
 interface RouteFormData {
   model_id: string
@@ -56,10 +45,9 @@ export default function LLMPlex() {
   const catalog = useQuery({ queryKey: ['catalog', 'llmplex'], queryFn: () => getCatalog('llmplex') })
   const instances = useQuery({ queryKey: ['instances', 'llmplex'], queryFn: () => listInstances('llmplex') })
   const routes = useQuery({ queryKey: ['llm-routes'], queryFn: getRoutes })
-  const usage = useQuery({ queryKey: ['llm-usage', 'day'], queryFn: () => getUsageSummary('day') })
   const ownTab = tab === 'surfaces' || tab === 'batches' // these tabs load and report their own data
-  const activeLoading = ownTab ? false : tab === 'providers' ? catalog.isLoading || instances.isLoading : tab === 'routes' ? routes.isLoading : usage.isLoading
-  const activeError = ownTab ? null : tab === 'providers' ? catalog.error ?? instances.error : tab === 'routes' ? routes.error : usage.error
+  const activeLoading = ownTab ? false : tab === 'providers' ? catalog.isLoading || instances.isLoading : tab === 'routes' ? routes.isLoading : false
+  const activeError = ownTab ? null : tab === 'providers' ? catalog.error ?? instances.error : tab === 'routes' ? routes.error : null
 
   const putRouteMutation = useMutation({
     mutationFn: ({ modelId, config }: { modelId: string; config: Partial<RouteConfig> }) =>
@@ -184,7 +172,7 @@ export default function LLMPlex() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+            className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}
           >
             {t}
           </button>
@@ -260,7 +248,7 @@ export default function LLMPlex() {
             <h3 className="font-semibold text-lg">Routing Rules</h3>
             <button
               onClick={openNewRouteForm}
-              className="px-4 py-2 bg-brand-600 text-white rounded text-sm hover:bg-brand-700"
+              className="px-4 py-2 bg-brand-600 text-brand-contrast rounded text-sm hover:bg-brand-700"
             >
               + New Route
             </button>
@@ -381,7 +369,7 @@ export default function LLMPlex() {
                       <label className="block text-sm font-medium">Backends</label>
                       <button
                         onClick={addBackend}
-                        className="px-3 py-1 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                        className="px-3 py-1 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
                       >
                         + Add Backend
                       </button>
@@ -511,7 +499,7 @@ export default function LLMPlex() {
                   </button>
                   <button
                     onClick={saveRoute}
-                    className="px-4 py-2 bg-brand-600 text-white hover:bg-brand-700 rounded"
+                    className="px-4 py-2 bg-brand-600 text-brand-contrast hover:bg-brand-700 rounded"
                     disabled={putRouteMutation.isPending}
                   >
                     {putRouteMutation.isPending ? 'Saving...' : 'Save Route'}
@@ -523,33 +511,7 @@ export default function LLMPlex() {
         </div>
       )}
 
-      {tab === 'costs' && !activeLoading && !activeError && (
-        <div>
-          <h3 className="font-semibold text-lg mb-3">Cost Tracking (Last 24h)</h3>
-          {usage.data ? (
-            <div className="grid grid-cols-4 gap-4 mb-6">
-              <div className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Total Cost</p>
-                <p className="text-2xl font-bold">${usage.data.total_cost_usd.toFixed(2)}</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Total Tokens</p>
-                <p className="text-2xl font-bold">{(usage.data.total_tokens / 1000).toFixed(1)}K</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Requests</p>
-                <p className="text-2xl font-bold">{usage.data.request_count}</p>
-              </div>
-              <div className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
-                <p className="text-sm text-gray-600 dark:text-gray-400">Avg Latency</p>
-                <p className="text-2xl font-bold">{usage.data.avg_latency_ms.toFixed(0)}ms</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-gray-600 dark:text-gray-400 text-sm">No usage data yet.</p>
-          )}
-        </div>
-      )}
+      {tab === 'costs' && <LedgerCosts />}
     </div>
   )
 }

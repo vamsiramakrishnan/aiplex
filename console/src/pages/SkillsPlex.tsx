@@ -54,7 +54,7 @@ export default function SkillsPlex() {
         <h1 className="text-2xl font-bold">SkillsPlex</h1>
         <button
           onClick={() => navigate('/deploy?plane=skillsplex')}
-          className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+          className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
         >
           Deploy Skill Server
         </button>
@@ -67,7 +67,7 @@ export default function SkillsPlex() {
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-2 rounded text-sm capitalize ${
-              tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'
+              tab === t ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'
             }`}
           >
             {t === 'servers'
@@ -137,7 +137,7 @@ export default function SkillsPlex() {
                   <p className="mb-3">No skill servers deployed yet.</p>
                   <button
                     onClick={() => setTab('catalog')}
-                    className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                    className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
                   >
                     Browse catalog
                   </button>
@@ -161,7 +161,7 @@ export default function SkillsPlex() {
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{t.description}</p>
               <button
                 onClick={() => navigate(`/deploy?plane=skillsplex&template=${t.id}`)}
-                className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
               >
                 Deploy
               </button>

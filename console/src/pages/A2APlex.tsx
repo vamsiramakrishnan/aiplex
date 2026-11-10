@@ -51,7 +51,7 @@ export default function A2APlex() {
         <h1 className="text-2xl font-bold">A2APlex</h1>
         <button
           onClick={() => navigate('/deploy?plane=a2aplex')}
-          className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+          className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
         >
           Deploy A2A Agent
         </button>
@@ -63,7 +63,7 @@ export default function A2APlex() {
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}
+            className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}
           >
             {t === 'agents' ? `Agents (${agentCards.data?.length ?? 0})` :
              t === 'catalog' ? `Catalog (${catalog.data?.total ?? 0})` :
@@ -122,7 +122,7 @@ export default function A2APlex() {
                   <p className="mb-3">No A2A agents deployed yet.</p>
                   <button
                     onClick={() => setTab('catalog')}
-                    className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                    className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
                   >
                     Browse catalog
                   </button>
@@ -146,7 +146,7 @@ export default function A2APlex() {
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{t.description}</p>
               <button
                 onClick={() => navigate(`/deploy?plane=a2aplex&template=${t.id}`)}
-                className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
               >
                 Deploy
               </button>

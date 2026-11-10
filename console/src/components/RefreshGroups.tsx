@@ -18,7 +18,7 @@ export default function RefreshGroups({ provider, onClose }: { provider: UserPro
           <label htmlFor={`${uid}-subject`} className="block text-xs mb-1">User&apos;s subject ({provider.subject_claim})</label>
           <input id={`${uid}-subject`} value={subject} onChange={e => setSubject(e.target.value)} className="border rounded px-2 py-1 text-sm font-mono bg-transparent" />
         </div>
-        <button type="submit" disabled={!subject.trim() || refresh.isPending} className="px-3 py-1 text-sm bg-brand-600 text-white rounded disabled:opacity-50">{refresh.isPending ? 'Refreshing…' : 'Refresh groups'}</button>
+        <button type="submit" disabled={!subject.trim() || refresh.isPending} className="px-3 py-1 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50">{refresh.isPending ? 'Refreshing…' : 'Refresh groups'}</button>
       </form>
       {refresh.isError && <p role="alert" className="text-xs text-status-denied-fg">{status === 403 ? 'Refreshing groups requires the admin role.' : `Could not refresh groups: ${(refresh.error as Error).message}`}</p>}
       {refresh.data && <p role="status" className="text-xs text-status-ok-fg">Refreshed groups for <code>{refresh.data.principal_id}</code> (not before {refresh.data.not_before}). Scope: {refresh.data.scope}.</p>}

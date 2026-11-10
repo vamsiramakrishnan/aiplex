@@ -128,7 +128,7 @@ export default function ToolAuthEditor({ record, catalog, onSaved, onReload, onC
         <div role="alert" className="mb-4 border border-status-warning-fg bg-status-warning-bg text-status-warning-fg rounded p-3 text-sm">
           <p className="font-medium">This connection was changed by someone else.</p>
           <p className="mb-2">Your edits were not saved. Reload the latest version, then review it and make your changes again.</p>
-          <button type="button" onClick={reload} disabled={reloading} className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded disabled:opacity-50">
+          <button type="button" onClick={reload} disabled={reloading} className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded disabled:opacity-50">
             {reloading ? 'Reloading…' : 'Reload latest'}
           </button>
         </div>
@@ -179,7 +179,7 @@ export default function ToolAuthEditor({ record, catalog, onSaved, onReload, onC
       </fieldset>
 
       <div className="flex gap-2 mt-4">
-        <button type="submit" disabled={saving || conflict} className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50">
+        <button type="submit" disabled={saving || conflict} className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700 disabled:opacity-50">
           {saving ? 'Saving…' : 'Save'}
         </button>
         <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-100 text-sm rounded dark:bg-gray-800">Cancel</button>

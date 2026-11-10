@@ -40,7 +40,7 @@ export default function Agents() {
         <button
           onClick={() => setShowRegister(!showRegister)}
           disabled={issued !== null && !showRegister}
-          className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50"
+          className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700 disabled:opacity-50"
         >
           {showRegister ? 'Cancel' : 'Register Agent'}
         </button>
@@ -91,13 +91,16 @@ export default function Agents() {
                   className="border-t cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                   onClick={() => setExpanded(expanded === agent.client_id ? null : agent.client_id)}
                 >
-                  <td className="px-4 py-3 font-medium">{agent.display_name}</td>
+                  <td className="px-4 py-3 font-medium">
+                    <button type="button" aria-expanded={expanded === agent.client_id} aria-controls={`agent-detail-${agent.client_id}`} onClick={(e) => { e.stopPropagation(); setExpanded(expanded === agent.client_id ? null : agent.client_id) }} className="text-left hover:underline">{agent.display_name}</button>
+                  </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">{agent.client_id}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{agent.auth_method}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{agent.allowed_scopes?.length ?? 0} scopes</td>
                   <td className="px-4 py-3"><StatusBadge status={agent.status} /></td>
                   <td className="px-4 py-3">
                     <button
+                      aria-label={`Delete agent ${agent.client_id}`}
                       onClick={(e) => {
                         e.stopPropagation()
                         if (confirm(`Delete agent ${agent.client_id}?`)) {
@@ -111,7 +114,7 @@ export default function Agents() {
                   </td>
                 </tr>
                 {expanded === agent.client_id && (
-                  <tr key={agent.client_id + '-detail'} className="bg-gray-50 dark:bg-gray-900">
+                  <tr key={agent.client_id + '-detail'} id={`agent-detail-${agent.client_id}`} className="bg-gray-50 dark:bg-gray-900">
                     <td colSpan={6} className="px-4 py-3">
                       {agent.description && (
                         <p className="text-sm text-gray-600 mb-2 dark:text-gray-400">{agent.description}</p>
@@ -193,7 +196,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
           <div key={label} className="flex items-center gap-2">
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs
               ${step > i + 1 ? 'bg-status-ok-bg text-status-ok-fg' :
-                step === i + 1 ? 'bg-brand-600 text-white' :
+                step === i + 1 ? 'bg-brand-600 text-brand-contrast' :
                 'bg-gray-100 text-gray-600 dark:text-gray-400 dark:bg-gray-800'}`}>
               {step > i + 1 ? '\u2713' : i + 1}
             </div>
@@ -239,7 +242,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
           <button
             disabled={!clientId || !displayName}
             onClick={() => setStep(2)}
-            className="px-4 py-2 bg-brand-600 text-white text-sm rounded disabled:opacity-50"
+            className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded disabled:opacity-50"
           >
             Next
           </button>
@@ -266,7 +269,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
           {authMethod === 'authorization_code' && <div><label htmlFor="agent-redirects" className="block text-sm font-medium">OAuth callback URIs</label><textarea id="agent-redirects" value={redirects} onChange={(event) => setRedirects(event.target.value)} rows={3} className="w-full border rounded p-2 text-sm font-mono" placeholder="One HTTPS or approved local callback URI per line" /><p className="text-xs text-gray-600 dark:text-gray-400">The server validates callbacks before registering the authorization-code client.</p></div>}
           <div className="flex gap-2">
             <button onClick={() => setStep(1)} className="px-4 py-2 border text-sm rounded">Back</button>
-            <button disabled={authMethod === 'authorization_code' && redirectURIs.length === 0} onClick={() => setStep(3)} className="px-4 py-2 bg-brand-600 text-white text-sm rounded disabled:opacity-50">
+            <button disabled={authMethod === 'authorization_code' && redirectURIs.length === 0} onClick={() => setStep(3)} className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded disabled:opacity-50">
               Next
             </button>
           </div>
@@ -285,7 +288,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
           <ScopeSelector available={availableScopes} selected={scopes} onChange={setScopes} />
           <div className="flex gap-2">
             <button onClick={() => setStep(2)} className="px-4 py-2 border text-sm rounded">Back</button>
-            <button onClick={() => setStep(4)} className="px-4 py-2 bg-brand-600 text-white text-sm rounded">
+            <button onClick={() => setStep(4)} className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded">
               Review
             </button>
           </div>
@@ -342,7 +345,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
                 redirect_uris: authMethod === 'authorization_code' ? redirectURIs : undefined,
               })}
               disabled={register.isPending}
-              className="px-4 py-2 bg-brand-600 text-white text-sm rounded disabled:opacity-50"
+              className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded disabled:opacity-50"
             >
               {register.isPending ? 'Registering...' : 'Register Agent'}
             </button>

@@ -93,7 +93,7 @@ export default function ConnectWizard({ accessPointId, onClose }: { accessPointI
             {(profiles.data ?? []).map(p => <option key={p.id} value={p.id}>{p.name} ({p.protocols.join(', ')})</option>)}
           </select>
         </div>
-        <button type="button" onClick={() => setShown(choice)} className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded">Show connection details</button>
+        <button type="button" onClick={() => setShown(choice)} className="px-3 py-1.5 text-sm bg-brand-600 text-brand-contrast rounded">Show connection details</button>
       </div>
       {profiles.isError && <p role="alert" className="text-xs text-status-warning-fg">Could not load client profiles ({(profiles.error as Error).message}); only the generic option is available.</p>}
       {shown && <ConnectDetails key={shown} accessPointId={accessPointId} client={shown} />}

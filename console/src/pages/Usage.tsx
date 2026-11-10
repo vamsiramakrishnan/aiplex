@@ -5,6 +5,7 @@ import UsagePrices from './UsagePrices'
 import { useAccess } from '../hooks/useAccess'
 import { ErrorPanel } from '../components/UsageError'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import ShortId from '../components/ShortId'
 
 const field = 'w-full rounded border border-gray-300 bg-transparent px-3 py-2 text-sm dark:border-gray-700'
 const button = 'rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40 dark:bg-gray-200 dark:text-gray-900'
@@ -299,7 +300,7 @@ function RecordsSection({ filter }: { filter: api.UsageFilter }) {
         <thead><tr className="border-b border-gray-200 dark:border-gray-800">{['Time', 'Plane', 'Model / tool', 'Agent', 'Principal', 'Client', 'Status', 'Tokens in', 'Tokens out', 'Cache write', 'Modality tokens', 'Units', 'Cost', 'Latency'].map((h) => <th key={h} scope="col" className="py-2 pr-4">{h}</th>)}</tr></thead>
         <tbody>{page?.records.map((r) => <tr key={r.id} className="border-t border-gray-200 dark:border-gray-800">
           <td className="py-2 pr-4 whitespace-nowrap"><button type="button" className="underline" aria-label={`Open details for record ${r.id}`} onClick={() => setSelected(r)}>{when(r.started_at)}</button></td>
-          <td className="pr-4">{r.plane}</td><td className="pr-4">{target(r)}{api.isSessionRecord(r) && <span className={`${muted} ml-1 rounded border px-1`} title="WebSocket session: metered as one request; usage is advisory">session</span>}{r.batch && <span className={`${muted} ml-1 rounded border px-1`} title="Part of a provider batch job">batch</span>}</td><td className="pr-4">{r.actor_id || none}</td><td className="pr-4">{r.principal_id || none}</td><td className="pr-4">{r.client_id || none}</td>
+          <td className="pr-4">{r.plane}</td><td className="pr-4">{target(r)}{api.isSessionRecord(r) && <span className={`${muted} ml-1 rounded border px-1`} title="WebSocket session: metered as one request; usage is advisory">session</span>}{r.batch && <span className={`${muted} ml-1 rounded border px-1`} title="Part of a provider batch job">batch</span>}</td><td className="pr-4"><ShortId value={r.actor_id} /></td><td className="pr-4"><ShortId value={r.principal_id} /></td><td className="pr-4"><ShortId value={r.client_id} /></td>
           <td className={`pr-4 ${statusClass[r.status] ?? ''}`}><StatusCell r={r} /></td>
           <td className="pr-4">{counter(r, 'input_tokens')}</td><td className="pr-4">{counter(r, 'output_tokens')}</td><td className="pr-4">{counter(r, 'cache_write_tokens')}</td>
           <td className="pr-4 text-xs">{modalityText(r)}</td><td className="pr-4 text-xs">{unitsText(r)}</td>

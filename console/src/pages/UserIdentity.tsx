@@ -64,7 +64,7 @@ export default function UserIdentity() {
           <h1 className="text-2xl font-bold">User identity</h1>
           <p className="text-gray-600 dark:text-gray-400">Trust your organisation&apos;s identity provider so people sign in to AIPlex-governed models and tools with their own accounts.</p>
         </div>
-        <button type="button" className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded disabled:opacity-50" disabled={!catalog}
+        <button type="button" className="px-3 py-1.5 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50" disabled={!catalog}
           onClick={() => setForm(form ? null : { mode: 'add' })}>{form ? 'Cancel' : 'Add provider'}</button>
       </header>
 

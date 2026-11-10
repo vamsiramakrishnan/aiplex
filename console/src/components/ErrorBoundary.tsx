@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                 this.setState({ hasError: false, error: null })
                 window.location.href = '/'
               }}
-              className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+              className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
             >
               Go to Dashboard
             </button>

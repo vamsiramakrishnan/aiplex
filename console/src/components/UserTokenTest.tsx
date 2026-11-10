@@ -66,7 +66,7 @@ export default function UserTokenTest({ providers, initialProvider = '' }: { pro
             autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} name="user-token-test"
             className="w-full border rounded px-2 py-1 text-xs font-mono bg-transparent" />
         </div>
-        <button type="submit" disabled={!token.trim() || busy} className="px-3 py-1 text-sm bg-brand-600 text-white rounded disabled:opacity-50">{busy ? 'Testing…' : 'Test token'}</button>
+        <button type="submit" disabled={!token.trim() || busy} className="px-3 py-1 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50">{busy ? 'Testing…' : 'Test token'}</button>
       </form>
       {error && <p role="alert" className="text-xs text-status-denied-fg">{error}</p>}
       {result && <VerifyResult result={result} />}

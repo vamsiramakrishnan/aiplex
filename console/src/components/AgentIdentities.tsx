@@ -60,7 +60,7 @@ export default function AgentIdentities({ agentId }: { agentId: string }) {
           <button type="button" className="text-xs text-brand-600 hover:underline" onClick={() => setTesting(testing === null ? '' : null)}>
             {testing === null ? 'Test a token' : 'Close token test'}
           </button>
-          <button type="button" className="px-3 py-1 text-xs bg-brand-600 text-white rounded disabled:opacity-50" disabled={!catalog} onClick={() => setAdding(!adding)}>
+          <button type="button" className="px-3 py-1 text-xs bg-brand-600 text-brand-contrast rounded disabled:opacity-50" disabled={!catalog} onClick={() => setAdding(!adding)}>
             {adding ? 'Cancel' : 'Add identity'}
           </button>
         </div>
@@ -252,7 +252,7 @@ function AddIdentityForm({ agentId, presets, onDone }: { agentId: string; preset
               <button type="button" disabled={save.isPending || !pending} onClick={() => pending && save.mutate({ ...pending, acknowledge_overlap: true })} className="px-2 py-1 border border-status-warning-fg rounded">Save anyway (acknowledge overlap)</button>
             </div>
           )}
-          <button type="submit" disabled={!idValid || missing.length > 0 || save.isPending} className="px-3 py-1 text-sm bg-brand-600 text-white rounded disabled:opacity-50">
+          <button type="submit" disabled={!idValid || missing.length > 0 || save.isPending} className="px-3 py-1 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50">
             {save.isPending ? 'Saving…' : 'Save identity'}
           </button>
           {missing.length > 0 && <p className="text-xs text-gray-600 dark:text-gray-400">Still required: {missing.map(f => f.label).join(', ')}</p>}
@@ -373,7 +373,7 @@ function TokenTest({ agentId, bindings, initialBinding }: { agentId: string; bin
             className="w-full border rounded px-2 py-1 text-xs font-mono"
           />
         </div>
-        <button type="submit" disabled={!token.trim() || busy} className="px-3 py-1 text-sm bg-brand-600 text-white rounded disabled:opacity-50">
+        <button type="submit" disabled={!token.trim() || busy} className="px-3 py-1 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50">
           {busy ? 'Testing…' : 'Test token'}
         </button>
       </form>

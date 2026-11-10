@@ -66,7 +66,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={verifying}
-            className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
+            className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-brand-contrast text-sm font-medium rounded-lg transition-colors"
           >
             {verifying ? 'Verifying identity…' : 'Sign In'}
           </button>

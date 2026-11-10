@@ -245,5 +245,213 @@ await section('llmplex', async () => {
   await s.context.close()
 })
 
+await section('connect', async () => {
+  const s = await session('admin')
+  const { page } = s
+  const profiles = (await api('admin', 'GET', '/api/v1/clients/profiles')).json
+  report.ok('client profiles are listed', profiles.length > 3, `${profiles.length}`)
+  await page.goto(base + '/access-points/team-research')
+  await settle(page)
+  // copy buttons copy: first endpoint on the detail page
+  const endpoints = page.getByRole('region', { name: 'Endpoints' })
+  await endpoints.getByRole('button', { name: /^Copy/ }).first().click()
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  report.ok('endpoint Copy button puts the URL on the clipboard', copied.startsWith(`${h.api_url}/ap/team-research/`), copied)
+  report.ok('endpoints list no URL on the console origin', !(await endpoints.textContent()).includes(base))
+  await page.getByRole('button', { name: 'Connect a client' }).click()
+  const dialog = page.getByRole('dialog', { name: /Connect a client to team-research/ })
+  report.ok('wizard opens as a modal with focus inside', await dialog.isVisible() && await page.evaluate(() => !!document.activeElement?.closest('[role=dialog]')))
+  const options = ['generic', ...profiles.map((p) => p.id)]
+  for (const id of options) {
+    await dialog.locator('select').selectOption(id)
+    await dialog.getByRole('button', { name: 'Show connection details' }).click()
+    const details = dialog.getByLabel('Connection details')
+    const err = dialog.locator('p[role=alert]')
+    await details.or(err).first().waitFor({ timeout: 10000 }).catch(() => {})
+    const ok = await details.isVisible().catch(() => false)
+    const msg = ok ? '' : (await err.first().textContent().catch(() => '')) ?? ''
+    report.ok(`connect wizard for ${id} shows details or a clear refusal`, ok || /cannot be connected|not applicable|does not|No client/i.test(msg), msg.slice(0, 160))
+    if (ok) {
+      const snippets = await details.locator('pre').count()
+      report.ok(`connect details for ${id} carry no token value`, !(await details.textContent()).includes(h.admin_token))
+      if (id === 'generic') report.ok('generic connect details have snippets', snippets > 0, `${snippets}`)
+    }
+  }
+  await dialog.locator('select').selectOption('generic')
+  await dialog.getByRole('button', { name: 'Show connection details' }).click()
+  await dialog.getByLabel('Connection details').waitFor()
+  await dialog.getByRole('button', { name: /^Copy code for/ }).first().click()
+  const snip = await page.evaluate(() => navigator.clipboard.readText())
+  report.ok('snippet Copy button copies the snippet', snip.length > 20 && snip.includes(h.api_url), snip.slice(0, 80))
+  await page.keyboard.press('Escape')
+  report.ok('Escape closes the wizard and returns focus to Connect a client', !(await dialog.isVisible().catch(() => false)) && (await page.evaluate(() => document.activeElement?.textContent)) === 'Connect a client')
+  report.ok('connect flows had no unexpected requests', unexpected(s, [/Failed to load resource/, /overview\/access-points\/.*\/connect.* -> (404|409|422)/]).length === 0, JSON.stringify(unexpected(s, [/Failed to load resource/, /overview\/access-points\/.*\/connect.* -> (404|409|422)/])))
+  await s.context.close()
+})
+
+await section('identity', async () => {
+  const s = await session('admin')
+  const { page } = s
+  // Agent identities
+  await page.goto(base + '/agents')
+  await settle(page)
+  await page.getByRole('button', { name: 'Tutor agent' }).click()
+  await page.getByRole('button', { name: 'Show setup plan for ci' }).click()
+  await settle(page)
+  report.ok('agent identity plan shows the issuer', (await page.textContent('main')).includes('agents.console.example'))
+  await page.getByRole('button', { name: 'Test a token against ci' }).click()
+  await page.getByLabel('Workload token').fill(h.workload_token)
+  await page.getByRole('button', { name: 'Test token' }).click()
+  await settle(page)
+  report.ok('a valid workload token verifies', /valid for this/i.test(await page.textContent('main')) || /Token is valid/i.test(await page.textContent('main')), (await page.textContent('main')).slice(-200))
+  report.ok('the token value is not echoed on the page', !(await page.textContent('main')).includes(h.workload_token))
+  await page.getByLabel('Workload token').fill('not.a.token')
+  await page.getByRole('button', { name: 'Test token' }).click()
+  await settle(page)
+  report.ok('a malformed token reports not valid, not a crash', /not valid/i.test(await page.textContent('main')))
+  await page.getByRole('button', { name: 'Add identity' }).click()
+  await settle(page)
+  report.ok('add identity form opens with a preset choice', (await page.locator('main select').count()) > 0)
+  report.ok('agents page had no unexpected requests', unexpected(s, [/Failed to load resource/, /identities\/verify.* -> 4/]).length === 0, JSON.stringify(unexpected(s, [/Failed to load resource/, /identities\/verify.* -> 4/])))
+
+  // User identity
+  await page.goto(base + '/identity/users')
+  await settle(page)
+  await page.getByRole('button', { name: 'Show setup plan for corp' }).click()
+  await settle(page)
+  report.ok('user provider plan shows the issuer', (await page.textContent('main')).includes('login.console.example'))
+  await page.getByRole('button', { name: 'Test a token against corp' }).click()
+  await page.getByLabel('User token').fill(h.user_token)
+  await page.getByRole('button', { name: 'Test token' }).click()
+  await settle(page)
+  report.ok('a valid user token verifies', /valid for this provider/i.test(await page.textContent('main')), (await page.textContent('main')).slice(-200))
+  await page.getByRole('button', { name: 'Add provider' }).click()
+  await settle(page)
+  report.ok('add provider opens a form with a preset picker', (await page.getByRole('form').count()) > 0 || (await page.locator('main select').count()) > 0)
+  report.ok('identity pages had no unexpected requests', unexpected(s, [/Failed to load resource/, /user-providers\/verify.* -> 4/]).length === 0, JSON.stringify(unexpected(s, [/Failed to load resource/, /user-providers\/verify.* -> 4/])))
+  await s.context.close()
+})
+
+await section('mcplex', async () => {
+  const s = await session('admin')
+  const { page } = s
+  await page.goto(base + '/mcplex')
+  await settle(page)
+  await page.getByRole('button', { name: 'Tool connections' }).click()
+  await settle(page)
+  report.ok('connections list shows the seeded connection', (await page.textContent('main')).includes('local-tools'))
+  await page.getByRole('button', { name: 'Edit auth for local-tools' }).click()
+  await page.getByLabel('Allowed tools').fill('echo\nadd')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await settle(page)
+  const conn = await api('admin', 'GET', '/api/v1/mcp/connections/local-tools')
+  report.ok('saving the auth editor stores the tool policy', JSON.stringify(conn.json?.spec?.tools?.allow ?? conn.json?.spec?.tools) .includes('echo'), JSON.stringify(conn.json?.spec?.tools))
+  const call = await fetch(`${h.api_url}/ap/local/mcp`, { method: 'POST', headers: { Authorization: `Bearer ${h.admin_token}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2025-06-18' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) })
+  report.ok('the narrowed policy is enforced by the gateway', !(await call.text()).includes('reset_counter'))
+  report.ok('mcplex had no unexpected requests', unexpected(s, [/Failed to load resource/]).length === 0, JSON.stringify(unexpected(s, [/Failed to load resource/])))
+  await s.context.close()
+})
+
+const ROUTES = ['/overview', '/dashboard', '/mcplex', '/a2aplex', '/llmplex', '/skillsplex', '/clientplex', '/quotaplex', '/usage', '/agents', '/access-points', '/access-points/new', '/access-points/local', '/access-points/private', '/identity/users', '/runs', '/deploy', '/permissions', '/no-such-page']
+
+await section('no-role', async () => {
+  const s = await session('norole')
+  const { page } = s
+  const main = async () => (await page.textContent('main')) ?? ''
+  for (const route of ROUTES) {
+    s.problems.length = 0
+    await page.goto(base + route)
+    await settle(page, 300)
+    const text = await main()
+    const stuck = (await page.getByRole('status').allTextContents()).some((t) => /^Loading|Verifying/.test(t.trim()))
+    report.ok(`no-role ${route}: no infinite spinner`, !stuck)
+    report.ok(`no-role ${route}: no raw 403 or JSON on the page`, !/ROLE_REQUIRED|insufficient role|\{"code"|HTTP 403|Request failed/.test(text), text.slice(0, 120))
+    const requests403 = s.problems.filter((p) => p.kind === 'http' && /-> 403/.test(p.text))
+    report.ok(`no-role ${route}: makes no request the server refuses`, requests403.length === 0, requests403.map((p) => p.text).join(' | '))
+    if (!['/overview', '/usage', '/access-points', '/access-points/local', '/no-such-page'].includes(route)) report.ok(`no-role ${route}: says which role is needed`, /You need the admin( or deployer)? role|not found|Access denied|Page not found/.test(text + (await page.locator('[role=alert]').allTextContents()).join(' ')), text.slice(0, 120))
+  }
+  await page.goto(base + '/overview')
+  await settle(page)
+  const home = await main()
+  report.ok('home shows who you are', home.includes('bob@localhost') && home.includes(h.norole_principal))
+  report.ok('home lists the access points that admit bob', home.includes('Local development') && home.includes('Research team'))
+  report.ok('home hides the access point that does not admit bob', !home.includes('Private (someone else only)') && !home.includes('Shared batch pool'))
+  report.ok('navigation offers no operator screens', !(await page.locator('nav[aria-label=Main] a').allTextContents()).some((t) => /MCPlex|A2APlex|LLMPlex|Agents|Runs|User identity/.test(t)))
+  report.ok('admin-only navigation is disabled with a reason', (await page.locator('nav[aria-label=Main] [aria-disabled=true]').count()) >= 1)
+  const cliUsage = cliJSON('norole', 'usage', 'summary', '-o', 'json')
+  const total = cliUsage.groups.reduce((n, g) => n + Number(g.requests), 0)
+  const shown = await page.locator('section[aria-label="Your usage totals"], [aria-label="Your usage totals"]').locator('[aria-label=Requests] p').nth(1).textContent()
+  report.ok('own usage on the home page equals the CLI summary', Number(shown.replace(/,/g, '')) === total, `${shown} vs ${total}`)
+  await page.getByRole('button', { name: 'Connect a client to local' }).click()
+  const panel = page.getByRole('region', { name: 'Connect to local' })
+  report.ok('Connect shows server-built endpoint URLs and copy buttons', (await panel.textContent()).includes(`${h.api_url}/ap/local/`))
+  await panel.getByRole('button', { name: /^Copy/ }).first().click()
+  report.ok('copy works for a no-role caller', (await page.evaluate(() => navigator.clipboard.readText())).startsWith(`${h.api_url}/ap/local/`))
+  await page.goto(base + '/usage')
+  await settle(page)
+  report.ok('usage shows only bob\'s records', (await page.$$eval('section[aria-label="Requests"] tbody tr', (r) => r.length)) === cliJSON('norole', 'usage', 'records', '-o', 'json').records.length)
+  report.ok('usage hides the price admin for a no-role caller', !(await main()).includes('Model prices'))
+  await page.goto(base + '/access-points/local')
+  await settle(page)
+  report.ok('access point detail offers endpoints and no Edit or Delete', (await main()).includes('/ap/local/') && (await page.getByRole('link', { name: 'Edit' }).count()) === 0 && (await page.getByRole('button', { name: 'Delete' }).count()) === 0)
+  await page.goto(base + '/access-points/private')
+  await settle(page)
+  report.ok('an access point that does not admit bob reads as not found', /not found/i.test(await main()))
+  await s.context.close()
+})
+
+await section('deployer', async () => {
+  const s = await session('deployer')
+  const { page } = s
+  const main = async () => (await page.textContent('main')) ?? ''
+  for (const route of ['/overview', '/mcplex', '/llmplex', '/agents', '/identity/users', '/access-points', '/access-points/local', '/usage', '/dashboard', '/permissions']) {
+    s.problems.length = 0
+    await page.goto(base + route)
+    await settle(page, 400)
+    const text = await main()
+    const stuck = (await page.getByRole('status').allTextContents()).some((t) => /^Loading|Verifying/.test(t.trim()))
+    report.ok(`deployer ${route}: no infinite spinner`, !stuck)
+    report.ok(`deployer ${route}: no raw 403 or JSON on the page`, !/ROLE_REQUIRED|insufficient role|\{"code"|HTTP 403/.test(text), text.slice(0, 120))
+    const refused = s.problems.filter((p) => p.kind === 'http' && /-> 403/.test(p.text))
+    report.ok(`deployer ${route}: makes no request the server refuses`, refused.length === 0, refused.map((p) => p.text).join(' | '))
+  }
+  await page.goto(base + '/access-points')
+  await settle(page)
+  report.ok('deployer sees Create access point disabled with the reason', await page.getByRole('button', { name: 'Create access point' }).isDisabled() && (await main()).includes('You need the admin role'))
+  await page.goto(base + '/access-points/local')
+  await settle(page)
+  report.ok('deployer sees Edit and Delete disabled', await page.getByRole('button', { name: 'Edit' }).isDisabled() && await page.getByRole('button', { name: 'Delete' }).isDisabled())
+  await page.goto(base + '/llmplex')
+  await settle(page)
+  await page.getByRole('button', { name: 'batches' }).click()
+  await settle(page)
+  report.ok('batches for a deployer says the admin role is needed', /You need the admin role for this/.test(await main()))
+  await page.goto(base + '/usage')
+  await settle(page)
+  report.ok('deployer usage prices are listed but not editable', await page.getByRole('button', { name: 'Add price' }).isDisabled())
+  await s.context.close()
+})
+
+await section('dashboard', async () => {
+  const s = await session('admin')
+  const { page } = s
+  await page.goto(base + '/dashboard')
+  await page.waitForTimeout(7000) // let the live stream deliver its first event
+  const text = await page.textContent('main')
+  const sum = cliJSON('admin', 'usage', 'summary', '-o', 'json')
+  const total = sum.groups.reduce((n, g) => n + Number(g.requests), 0)
+  const requests = await page.locator('p', { hasText: /^Requests$/ }).locator('xpath=following-sibling::p').first().textContent()
+  report.ok('dashboard requests equal the usage ledger (after the live stream starts)', Number(requests.replace(/,/g, '')) === total, `${requests} vs ${total}`)
+  report.ok('dashboard shows cost per currency and basis from the ledger', /USD [0-9.]+/.test(text) && /estimated|settled/.test(text), text.slice(0, 200))
+  await page.goto(base + '/llmplex')
+  await settle(page)
+  await page.getByRole('button', { name: 'costs' }).click()
+  await settle(page)
+  const costs = await page.textContent('main')
+  const llm = cliJSON('admin', 'usage', 'summary', '-o', 'json', '--plane', 'llmplex')
+  report.ok('LLMPlex costs tab lists the ledger models', llm.groups.length === 0 || costs.includes('mock-gpt'), costs.slice(0, 160))
+  await s.context.close()
+})
+
 await browser.close()
 report.finish()
