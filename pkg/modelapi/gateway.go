@@ -103,6 +103,13 @@ type Options struct {
 	// Hooks inspects request and response content (hooks.go). Nil leaves
 	// every body untouched.
 	Hooks ContentHooks
+	// ObserveDispatch receives each upstream round trip's outcome (status
+	// and headers, or the transport error and whether the request provably
+	// never left). A routing layer uses it to classify an attempt.
+	ObserveDispatch func(context.Context, DispatchOutcome)
+	// Cache is the exact-match response cache seam (dispatch.go). Nil
+	// disables caching.
+	Cache ResponseCache
 }
 type compiledOperation struct {
 	operation Operation
@@ -306,6 +313,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	hit, store := g.cacheLookup(r, op, metadata, body)
+	if hit != nil {
+		g.serveCached(w, r, op, metadata, run, inspect, hit)
+		return
+	}
 	token, e := g.options.TokenSource.Token(r.Context())
 	if e != nil || strings.TrimSpace(token) == "" {
 		http.Error(w, "upstream identity unavailable", http.StatusServiceUnavailable)
@@ -333,9 +345,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeExecutionError(w, e)
 		return
 	}
-	response, e := g.client.Do(request)
+	response, notSent, e := g.do(request)
 	if e != nil {
-		if err := run.finish(execution.Result{Err: e}); err != nil {
+		if err := run.finish(transportResult(e, notSent)); err != nil {
 			writeExecutionError(w, err)
 			return
 		}
@@ -353,7 +365,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	success := response.StatusCode >= 200 && response.StatusCode < 300
 	if inspect && success {
-		g.serveInspected(w, r, response, owner, op, metadata, run, func(out http.Header) { copyResponseHeaders(out, response.Header) })
+		g.serveInspected(w, r, response, owner, op, metadata, run, store, func(out http.Header) { copyResponseHeaders(out, response.Header) })
 		return
 	}
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
@@ -391,6 +403,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeExecutionError(w, err)
 			return
 		}
+		if store != nil && success && jsonResponse {
+			store(response.StatusCode, response.Header, data)
+		}
 		copyResponseHeaders(w.Header(), response.Header)
 		w.WriteHeader(response.StatusCode)
 		_, _ = w.Write(data)
@@ -407,6 +422,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if e = g.observeJSON(r.Context(), owner, op, data, true); e != nil {
 			http.Error(w, "resource ownership could not be persisted", 502)
 			return
+		}
+		if store != nil && jsonResponse {
+			store(response.StatusCode, response.Header, data)
 		}
 		copyResponseHeaders(w.Header(), response.Header)
 		w.WriteHeader(response.StatusCode)

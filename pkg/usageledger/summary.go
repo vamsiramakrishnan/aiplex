@@ -78,6 +78,9 @@ type SummaryGroup struct {
 	UnitRecords map[string]int64 `json:"unit_records,omitempty"`
 	// BatchRecords counts records of provider batch exchanges.
 	BatchRecords int64 `json:"batch_records,omitempty"`
+	// CachedResponseRecords counts answers served from the AIPlex response
+	// cache (cost basis "cached"): no provider usage, no provider cost.
+	CachedResponseRecords int64 `json:"cached_response_records,omitempty"`
 }
 
 // CostTotal is an exact sum of fixed-point amounts in one currency and basis.
@@ -226,6 +229,10 @@ func (g *groupAccumulator) add(r Record) error {
 	}
 	if err := g.addUnits(r); err != nil {
 		return err
+	}
+	if r.Cost.Basis == BasisCached {
+		s.CachedResponseRecords++
+		return nil
 	}
 	if r.Cost.Basis != BasisSettled && r.Cost.Basis != BasisEstimated {
 		s.UnknownCostRecords++

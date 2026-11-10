@@ -406,6 +406,9 @@ func FormatMoney(amount string, scale uint8) (string, error) {
 // FormatCost renders a record cost with currency and basis, e.g.
 // "USD 0.001135 (estimated)". Unknown costs render as "unknown", never zero.
 func FormatCost(c usageledger.Cost) string {
+	if c.Basis == usageledger.BasisCached {
+		return "0 (cached)"
+	}
 	if c.Basis != usageledger.BasisSettled && c.Basis != usageledger.BasisEstimated {
 		return "unknown"
 	}

@@ -52,7 +52,15 @@ type Result struct {
 	// generation). The response body is complete. A receipt may settle it
 	// as one request with zero consumption instead of retaining exposure.
 	Rejected bool
-	Err      error
+	// NotSent means the request provably never left AIPlex: the connection
+	// to the provider could not be established, so no request byte was
+	// written. Nothing can have been processed or billed.
+	NotSent bool
+	// Cached means the response was served from the AIPlex response cache
+	// (an exact earlier answer): no provider ran. It counts as one request
+	// with zero provider consumption.
+	Cached bool
+	Err    error
 }
 
 // Lease is prepared after authorization and payload validation. BeforeDispatch

@@ -151,6 +151,36 @@ const (
 	MetricHookDuration  = "aiplex.hooks.duration"
 )
 
+// Routing and the response cache (AIPlex). Labels are bounded: outcome
+// classes, breaker states and cache results. Backend names appear only as
+// span attributes (traces are operator data), never as metric labels.
+const (
+	// AttrRoutingStrategy is the routed model's strategy.
+	AttrRoutingStrategy = "aiplex.routing.strategy"
+	// AttrRoutingAttempts is the number of attempts on the exchange.
+	AttrRoutingAttempts = "aiplex.routing.attempts"
+	// AttrRoutingAttempt is an attempt's 1-based position.
+	AttrRoutingAttempt = "aiplex.routing.attempt"
+	// AttrRoutingOutcome is an attempt's outcome class.
+	AttrRoutingOutcome = "aiplex.routing.outcome"
+	// AttrRoutingBackend is the backend surface of an attempt, or the one
+	// that served the exchange.
+	AttrRoutingBackend = "aiplex.routing.backend"
+	// AttrRoutingBreakerState is the backend's breaker state.
+	AttrRoutingBreakerState = "aiplex.routing.breaker_state"
+	// AttrRoutingRetryAfterMS is the provider's backoff hint.
+	AttrRoutingRetryAfterMS = "aiplex.routing.retry_after_ms"
+	// AttrCacheStatus is hit, miss or bypass.
+	AttrCacheStatus = "aiplex.cache.status"
+
+	MetricRoutingAttempts   = "aiplex.routing.attempts"
+	MetricRoutingRetries    = "aiplex.routing.retries"
+	MetricRoutingFallbacks  = "aiplex.routing.fallbacks"
+	MetricBreakerTransition = "aiplex.routing.breaker.transitions"
+	MetricBreakers          = "aiplex.routing.breakers"
+	MetricCacheLookups      = "aiplex.cache.lookups"
+)
+
 // Configuration environment variables AIPlex reads in addition to the
 // standard OTEL_* variables the SDK and exporters read themselves.
 const (

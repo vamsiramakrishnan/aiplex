@@ -271,6 +271,20 @@ type Record struct {
 	// Hooks summarizes request-hook decisions on the exchange (hooks.go).
 	// It never holds content or matched text.
 	Hooks *HookSummary `json:"hooks,omitempty"`
+	// Attempts, Backend and RoutingStrategy describe a routed access-point
+	// exchange (routing.go): every attempt in order, the backend that
+	// served, and the strategy. Provider, model and cost are those of the
+	// backend that served.
+	Attempts        []Attempt   `json:"attempts,omitempty"`
+	Backend         *BackendRef `json:"backend,omitempty"`
+	RoutingStrategy string      `json:"routing_strategy,omitempty"`
+	// Cache is the response-cache outcome when the model has a cache.
+	Cache *CacheInfo `json:"cache,omitempty"`
+	// CachedResponseUsage is, on a cache hit, the usage of the original
+	// exchange whose answer was replayed. It is not provider usage of this
+	// exchange (Usage is zero and the cost basis is "cached") and summaries
+	// do not add it to token totals.
+	CachedResponseUsage *Usage `json:"cached_response_usage,omitempty"`
 }
 
 // NewID returns a random record identifier.
@@ -370,6 +384,9 @@ func (r Record) Validate() error {
 	if err := r.Hooks.validate(); err != nil {
 		return err
 	}
+	if err := r.validateRouting(); err != nil {
+		return err
+	}
 	return r.Cost.Validate()
 }
 
@@ -381,6 +398,8 @@ func (c Cost) Validate() error {
 			return invalid("unknown cost cannot carry an amount")
 		}
 		return nil
+	case BasisCached:
+		return validateCachedCost(c)
 	case BasisSettled, BasisEstimated:
 		if !ValidCurrency(c.Currency) || c.Scale > MaxScale {
 			return invalid("cost needs a three-letter currency and scale up to %d", MaxScale)
@@ -390,7 +409,7 @@ func (c Cost) Validate() error {
 		}
 		return nil
 	}
-	return invalid("cost basis must be settled, estimated or unknown")
+	return invalid("cost basis must be settled, estimated, cached or unknown")
 }
 
 // Clone returns a deep copy so stores never share counter pointers.
@@ -414,6 +433,7 @@ func (r Record) Clone() Record {
 		r.Usage = &u
 	}
 	r.Hooks = cloneHooks(r.Hooks)
+	cloneRouting(&r)
 	return r
 }
 
