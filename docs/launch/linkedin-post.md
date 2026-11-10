@@ -9,7 +9,7 @@ Facts every draft relies on, and where they come from:
 | `aiplex dev` runs locally with a mock model and mock MCP server, needs Go 1.25+ and no cloud account or API key | `make demo` and `make examples-test` run it in CI; README quickstart |
 | One URL per audience, checked before anything is reached | access points, [docs/access-points.md](../access-points.md) |
 | A usage record per call: caller, model or tool, tokens, estimated cost; unknown stays unknown | [docs/usage-ledger.md](../usage-ledger.md); the README quickstart output |
-| Tested against local mocks, recorded provider fixtures and the Firestore emulator | CI, [production qualification](../production-qualification.md) |
+| Tested against local mocks, fixtures built from provider documentation and the Firestore emulator | CI, [production qualification](../production-qualification.md) |
 | Not run against live providers, not compared with an invoice, no recorded cloud deployment | README "Project status" |
 | Pre-1.0 | README, CHANGELOG |
 
@@ -28,7 +28,7 @@ Try it locally, no cloud account or API key (Go 1.25+):
 
 git clone https://github.com/vamsiramakrishnan/aiplex && cd aiplex && make build && bin/aiplex dev
 
-Pre-1.0. Tested against local mocks and recorded provider fixtures, not yet against live providers or an invoice. Feedback welcome, especially on the first five minutes.
+Pre-1.0. Tested against local mocks and fixtures built from provider documentation, not yet against live providers or an invoice. Feedback welcome, especially on the first five minutes.
 ```
 
 ## Draft 2: medium (about 1,400 characters)
@@ -50,7 +50,7 @@ cd aiplex && make build && bin/aiplex dev
 
 That starts a local API with a mock model and a mock MCP server. Point an OpenAI SDK at it, then run `aiplex usage summary`.
 
-Where it stands: pre-1.0. Tested against local mocks, recorded provider fixtures and the Firestore emulator. Not run against live providers, not compared with a provider invoice, not deployed to a live cloud project from this repository. The README says so too.
+Where it stands: pre-1.0. Tested against local mocks, fixtures built from provider documentation and the Firestore emulator. Not run against live providers, not compared with a provider invoice, not deployed to a live cloud project from this repository. The README says so too.
 
 I'd like to hear what breaks or confuses you in the first five minutes.
 https://github.com/vamsiramakrishnan/aiplex
@@ -63,7 +63,7 @@ Upload the PNGs from `node brand/scripts/render.js export` (`brand/.renders/expo
 ```text
 I've open-sourced AIPlex, a control plane for how agents, people and developer tools reach AI models, MCP tools and skills. Five frames below. The command in the last one runs locally, with no cloud account or API key.
 
-Pre-1.0: tested against local mocks, recorded provider fixtures and the Firestore emulator; not yet against live providers or an invoice. Feedback welcome.
+Pre-1.0: tested against local mocks, fixtures built from provider documentation and the Firestore emulator; not yet against live providers or an invoice. Feedback welcome.
 
 Code and docs: https://github.com/vamsiramakrishnan/aiplex
 ```
