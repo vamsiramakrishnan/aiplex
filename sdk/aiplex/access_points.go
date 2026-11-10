@@ -53,6 +53,9 @@ type AccessPointModel struct {
 type AccessPointTool struct {
 	ConnectionRef string   `json:"connection_ref"`
 	Expose        []string `json:"expose,omitempty"`
+	// Rules are policy rules evaluated in addition to the connection's own;
+	// an access point can only add restrictions.
+	Rules []ToolRule `json:"rules,omitempty"`
 }
 
 // AccessPointSkill exposes one deployed skill server.
