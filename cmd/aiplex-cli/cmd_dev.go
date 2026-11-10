@@ -35,6 +35,7 @@ type devState struct {
 	Provider    string   `json:"provider,omitempty"`
 	Models      []string `json:"models,omitempty"`
 	PID         int      `json:"pid"`
+	IssuerURL   string   `json:"issuer_url,omitempty"`
 	Console     string   `json:"console,omitempty"`
 	ConsoleNote string   `json:"console_note,omitempty"`
 	StartedAt   string   `json:"started_at,omitempty"`
@@ -81,6 +82,11 @@ What is created through the normal APIs:
     "local-gemini", access point "local", tool connection "local-tools" and,
     for the mock models, placeholder prices
 
+To see role-based behaviour, "aiplex dev token --user bob [--role deployer]" mints
+a token for a second caller (bob@localhost) from the same local issuer; use it
+as AIPLEX_TOKEN. Only your own developer token can ask for one, and only from
+this machine.
+
 The CLI context "local" is created and made current while this runs. The
 previous context is restored when you stop it.
 
@@ -123,7 +129,7 @@ is never printed, accepted as a flag value, or written to disk.`,
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Do not start the built-in MCP server's tool connection")
 	cmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in the background; stop with: aiplex dev stop")
 	cmd.Flags().StringSliceVar(&allowOrigins, "allow-origin", nil, "Extra upstream origin the local API may call, e.g. https://mcp.example.com (repeatable)")
-	cmd.AddCommand(devEnvCmd(), devStatusCmd(), devStopCmd())
+	cmd.AddCommand(devEnvCmd(), devStatusCmd(), devStopCmd(), devTokenCmd())
 	return cmd
 }
 
@@ -195,7 +201,7 @@ func runDev(parent context.Context, o devOptions) error {
 		consoleURL, consoleNote = startDevConsole(ctx, stack.APIURL, stack.Token, o.consolePort)
 	}
 	statePath, _ := devStatePath()
-	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath}
+	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, IssuerURL: stack.IssuerURL, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath}
 	if raw, e := json.MarshalIndent(state, "", "  "); e == nil && statePath != "" {
 		_ = os.WriteFile(statePath, raw, 0o600)
 		defer os.Remove(statePath)
@@ -460,6 +466,10 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		fmt.Println("    aiplex connect " + seeded.AccessPoint)
 		fmt.Println("    aiplex dev status")
 	}
+	fmt.Println()
+	fmt.Println("    # 4. Optional: see what a caller with no role gets")
+	fmt.Println("    aiplex access-points create team --model " + seeded.Model + "=" + seeded.Surface + " --allow-users bob@localhost")
+	fmt.Println("    AIPLEX_TOKEN=$(aiplex dev token --user bob 2>/dev/null) aiplex connect team")
 	fmt.Println()
 	if detached {
 		fmt.Println("  Running in the background. Stop it with: aiplex dev stop")

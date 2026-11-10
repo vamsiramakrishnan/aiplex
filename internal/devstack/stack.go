@@ -169,7 +169,7 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	for _, srv := range []struct {
 		h   http.Handler
 		dst *string
-	}{{s.Issuer.Handler(), &s.IssuerURL}, {s.Models, &s.ModelsURL}, {s.MCP, &s.MCPURL}} {
+	}{{s.issuerHandler(), &s.IssuerURL}, {s.Models, &s.ModelsURL}, {s.MCP, &s.MCPURL}} {
 		server, url, e := Listen(srv.h)
 		if e != nil {
 			return nil, e
@@ -198,6 +198,9 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	bindings := map[string]any{"role_bindings": []map[string]any{{
 		"id": adminBinding, "group": DevGroup, "role": "admin", "provider": s.IssuerURL, "pool_id": DevPoolID,
 		"scopes": DevScopes, "description": "Local developer (aiplex dev)",
+	}, {
+		"id": "local-deployer", "group": DevDeployerGroup, "role": "deployer", "provider": s.IssuerURL, "pool_id": DevPoolID,
+		"scopes": DevScopes, "description": "Local deployer (aiplex dev token --role deployer)",
 	}}}
 	if err = writeJSONFile(bindingsFile, bindings); err != nil {
 		return nil, err
