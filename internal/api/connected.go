@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -73,6 +74,9 @@ type ConnectedHandler struct {
 	Capacity *providerlimits.Store
 	// CapacityGate acts on Capacity for surfaces with a capacity_policy.
 	CapacityGate *providerlimits.Gate
+
+	budgetMu  sync.Mutex
+	budgetSrc *BudgetCache
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {

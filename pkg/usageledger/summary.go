@@ -13,7 +13,7 @@ import (
 )
 
 // GroupByFields are the record fields a summary may group by.
-var GroupByFields = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "error_class", "usage_bound", "batch", "hook_decision"}
+var GroupByFields = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "budget", "status", "source", "error_class", "usage_bound", "batch", "hook_decision"}
 
 const (
 	BucketHour = "hour"
@@ -137,6 +137,13 @@ func ValidateBucket(bucket string) error {
 
 func groupValue(r Record, field string) string {
 	switch field {
+	case "budget":
+		// A record that drew from several budgets is counted once in each;
+		// Aggregator.Add fans out. A record with none groups under "".
+		if len(r.BudgetIDs) == 1 {
+			return r.BudgetIDs[0]
+		}
+		return ""
 	case "plane":
 		return r.Plane
 	case "provider":
@@ -277,9 +284,27 @@ func NewAggregator(q SummaryQuery) *Aggregator {
 	return &Aggregator{query: q, groups: map[string]*groupAccumulator{}}
 }
 
-// Add folds one record into its group.
+// Add folds one record into its group. Grouping by budget counts a record in
+// the group of every budget it drew from, so budget groups overlap by design
+// (a child's spend is also its ancestors' spend) and do not sum to the total.
 func (a *Aggregator) Add(r Record) error {
 	a.scanned++
+	for _, f := range a.query.GroupBy {
+		if f == "budget" && len(r.BudgetIDs) > 1 {
+			for _, id := range r.BudgetIDs {
+				one := r
+				one.BudgetIDs = []string{id}
+				if err := a.fold(one); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+	return a.fold(r)
+}
+
+func (a *Aggregator) fold(r Record) error {
 	key := make([]string, 0, len(a.query.GroupBy)+1)
 	values := map[string]string{}
 	for _, field := range a.query.GroupBy {

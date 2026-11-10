@@ -71,6 +71,13 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(get, "/api/v1/access-points/{id}", api.RouteAuthenticated),
 		tenantRule([]string{http.MethodPut, http.MethodDelete}, "/api/v1/access-points/{id}", api.RouteAdmin),
 		tenantRule(post, "/api/v1/access-points/{id}/quota-plan", api.RouteAdmin),
+		// Budgets: operators read definitions, admins write and preview. Any
+		// verified caller may ask for the status of a budget; the handler
+		// answers only a direct member (404 otherwise) with spent and
+		// remaining, and gives operators the full view.
+		tenantRule(get, "/api/v1/budgets/{id}/status", api.RouteAuthenticated),
+		tenantRule(post, "/api/v1/budgets/preview", api.RouteAdmin),
+		tenantRule([]string{http.MethodPut, http.MethodDelete}, "/api/v1/budgets/{id}", api.RouteAdmin),
 		// Client configuration for an access point: operators read it in full;
 		// any other verified caller only for an access point that admits it,
 		// without operator-only detail (handler: OverviewHandler.ConnectForCaller).
@@ -101,6 +108,7 @@ var routeRules = func() []api.RouteRule {
 		// Tenant-partitioned configuration: admin or deployer (the default
 		// access), plus each handler's own action grants.
 		tenantPrefix(nil, "/api/v1/access-points", api.RouteOperator),
+		tenantPrefix(nil, "/api/v1/budgets", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/overview/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/usage/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/llm/surfaces", api.RouteOperator),

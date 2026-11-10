@@ -229,7 +229,10 @@ type Record struct {
 	// through an access point; CallerKind is agent, user or client.
 	AccessPointID string `json:"access_point_id,omitempty"`
 	CallerKind    string `json:"caller_kind,omitempty"`
-	RequestID     string `json:"request_id,omitempty"`
+	// BudgetIDs are the tenant budgets the exchange drew from (its own and
+	// every ancestor), recorded only for an attempt that was dispatched.
+	BudgetIDs []string `json:"budget_ids,omitempty"`
+	RequestID string   `json:"request_id,omitempty"`
 	// TraceID and SpanID are the W3C identifiers of the exchange's span (the
 	// CLIENT span of a managed exchange, the SERVER span of the request that
 	// reported a reported record). The trace continues the caller's
@@ -331,6 +334,14 @@ func (r Record) Validate() error {
 	default:
 		return invalid("caller_kind must be agent, user or client")
 	}
+	if len(r.BudgetIDs) > 16 {
+		return invalid("budget_ids is bounded to 16 entries")
+	}
+	for _, id := range r.BudgetIDs {
+		if !validText(id, true) {
+			return invalid("budget_ids entries are bounded printable text")
+		}
+	}
 	switch r.UsageBound {
 	case "", UsageLowerBound, UsageAmbiguous, UsagePartial:
 	default:
@@ -414,6 +425,10 @@ func (r Record) Clone() Record {
 		r.Usage = &u
 	}
 	r.Hooks = cloneHooks(r.Hooks)
+	r.BudgetIDs = append([]string(nil), r.BudgetIDs...)
+	if len(r.BudgetIDs) == 0 {
+		r.BudgetIDs = nil
+	}
 	return r
 }
 

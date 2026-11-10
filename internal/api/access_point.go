@@ -46,6 +46,10 @@ type AccessPoint struct {
 	Tools       []AccessPointTool   `json:"tools,omitempty"`
 	Skills      []AccessPointSkill  `json:"skills,omitempty"`
 	QoS         *AccessPointQoS     `json:"qos,omitempty"`
+	// Project is a free-form label an administrator sets here. Tenant budgets
+	// may select it as a member (members.projects); it is trusted because only
+	// an administrator can set it, and it is never read from a request.
+	Project string `json:"project,omitempty"`
 }
 
 // AccessPointSubjects narrows who may call. Principals, groups and agents are
@@ -232,6 +236,9 @@ func (h *ConnectedHandler) validateAccessPoint(ctx context.Context, tenant, id s
 	}
 	if err = h.validateAccessPointQoS(tenant, ap.QoS); err != nil {
 		return ap, err
+	}
+	if ap.Project != "" && !budgetLabelPattern.MatchString(ap.Project) {
+		return ap, withField("project", fmt.Errorf("project must match [A-Za-z0-9][A-Za-z0-9._-]{0,127}"))
 	}
 	return ap, nil
 }

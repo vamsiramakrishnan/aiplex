@@ -29,8 +29,10 @@ type Filter struct {
 	// AccessPointID and CallerKind select access-point exchanges.
 	AccessPointID string
 	CallerKind    string
-	Status        string
-	Source        string
+	// BudgetID selects records that drew from that tenant budget.
+	BudgetID string
+	Status   string
+	Source   string
 	// ErrorClass selects records with exactly that error_class.
 	ErrorClass string
 	// UsageBound selects records by usage_bound: lower_bound, ambiguous or
@@ -53,6 +55,17 @@ type Filter struct {
 func (f Filter) Matches(r Record) bool {
 	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}, {f.ErrorClass, r.ErrorClass}} {
 		if c[0] != "" && c[0] != c[1] {
+			return false
+		}
+	}
+	if f.BudgetID != "" {
+		drew := false
+		for _, id := range r.BudgetIDs {
+			if id == f.BudgetID {
+				drew = true
+			}
+		}
+		if !drew {
 			return false
 		}
 	}
