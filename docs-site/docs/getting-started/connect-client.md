@@ -5,6 +5,8 @@ description: Create an access point and print ready-to-paste configuration for C
 
 # Connect a client
 
+To see the output of `aiplex connect` without setting anything up, start [`aiplex dev`](./local-development.md) and run `aiplex connect local`. The named client profiles (`--client claude-code`, `codex`) apply only to an access point that offers a wire the client speaks; the `local` one offers OpenAI chat only.
+
 An [access point](../guides/access-points.md) gives a group of callers one stable URL, `https://<aiplex>/ap/{id}/…`, in front of models, MCP tools and skills. `aiplex connect` prints the URLs and configuration a client needs for it.
 
 ## 1. Create an access point

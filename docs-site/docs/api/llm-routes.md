@@ -2,7 +2,7 @@
 title: LLM Routes API
 ---
 
-Access rules are being tightened in the same release; check the route's response for the authoritative answer.
+Route access is enforced by a default-deny route policy: a route with no explicit rule is open to operators only. Check the route's response for the authoritative answer.
 
 The LLM routes API manages how models are routed to provider backends, which provider credentials are registered, and the usage that agents report for model calls. A route names a model, its weighted backends and its fallbacks. Saving a route records the desired state and then submits it to the gateway deployment. Usage reports are recorded for accounting and warnings only. They never block a call, because the work they describe has already happened.
 

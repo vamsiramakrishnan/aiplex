@@ -2,7 +2,7 @@
 title: IAM API
 ---
 
-Access rules are being tightened in the same release; check the route's response for the authoritative answer.
+Route access is enforced by a default-deny route policy: a route with no explicit rule is open to operators only. Check the route's response for the authoritative answer.
 
 The IAM API maps identity-provider groups to AIPlex roles and scopes, reports the caller's resolved access, and serves the native governance routes. A role binding connects a workforce group, optionally restricted to one issuer and pool, to a role and a set of scopes. Native governance is the controlled path for changing an external runtime. It reads a saved binding, plans a change, and applies that plan only with a matching approval.
 

@@ -5,7 +5,18 @@ description: "The AIPlex identity: mark, lockups, colours, module icons and wher
 
 # Brand
 
-![AIPlex brand sheet](/img/brand/brand-sheet.svg)
+import ThemedImage from '@theme/ThemedImage';
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
+<ThemedImage
+  alt="AIPlex brand sheet"
+  sources={{
+    light: useBaseUrl('/img/brand/brand-sheet.svg'),
+    dark: useBaseUrl('/img/brand/brand-sheet-dark.svg'),
+  }}
+/>
+
+The sheet is shown in its light version on the light theme and its dark version (`brand-sheet-dark.svg`, the same content on the dark palette) on the dark theme.
 
 The identity is a single mark: three lanes (callers) converge into one square gate and leave as one lane. The assets live in the repository's [`brand/`](https://github.com/vamsiramakrishnan/aiplex/tree/main/brand) directory, which is the only place they are edited. This site copies them at build time.
 
@@ -34,6 +45,7 @@ Read the [brand guide](https://github.com/vamsiramakrishnan/aiplex/blob/main/bra
 | Navbar logo, light | `brand/logo/aiplex-lockup-horizontal.svg` |
 | Navbar logo, dark | `brand/logo/aiplex-lockup-horizontal-reversed.svg` |
 | Favicon | `brand/logo/aiplex-favicon.svg` |
-| Colours | `brand/tokens/tokens.css` |
+| Colours | `brand/tokens/tokens.css`, through the semantic aliases (`--aiplex-color-bg`, `--aiplex-color-text`, `--aiplex-color-primary` and the rest), which switch with the theme |
+| Brand sheet on this page | `brand/brand-sheet.svg` (light theme) and `brand/brand-sheet-dark.svg` (dark theme) |
 | Landing-page icons | `brand/icons/*.svg` |
 | Social card | `brand/social/aiplex-social-card.svg`, rendered once to `static/img/aiplex-social-card.png` |

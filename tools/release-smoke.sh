@@ -6,7 +6,7 @@
 #      with release ldflags, CGO disabled, like .goreleaser.yaml;
 #   2. packs them as goreleaser does: aiplex_<version>_<os>_<arch>.tar.gz with
 #      the binaries at the archive root, plus checksums.txt;
-#   3. installs that archive with install.sh (AIPLEX_RELEASE_BASE=file://...)
+#   3. installs that archive with install.sh (AIPLEX_DOWNLOAD_BASE=file://...)
 #      into an empty directory, with an empty HOME and a PATH without Go;
 #   4. runs aiplex version, aiplex dev --detach, a chat request, aiplex usage
 #      records, aiplex dev status and aiplex dev stop.
@@ -49,16 +49,17 @@ if [[ -n "$CONSOLE_RESTORE" ]]; then
     rm -rf "$ROOT/console/dist/assets" "$ROOT/console/dist/favicon.svg"
     cp "$WORK/placeholder-index.html" "$ROOT/console/dist/index.html"
 fi
-cp "$ROOT/LICENSE" "$ROOT/README.md" "$STAGE/"
+cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$STAGE/"
 
 step "Pack aiplex_${VERSION}_${OS}_${ARCH}.tar.gz"
 ARCHIVE="aiplex_${VERSION}_${OS}_${ARCH}.tar.gz"
-tar -czf "$DIST/$ARCHIVE" -C "$STAGE" aiplex aiplex-api LICENSE README.md
+tar -czf "$DIST/$ARCHIVE" -C "$STAGE" aiplex aiplex-api LICENSE README.md CHANGELOG.md
 (cd "$DIST" && if command -v sha256sum >/dev/null; then sha256sum "$ARCHIVE"; else shasum -a 256 "$ARCHIVE"; fi) > "$DIST/checksums.txt"
 tar -tzf "$DIST/$ARCHIVE"
 
 step "install.sh from the local archive"
-AIPLEX_RELEASE_BASE="file://$DIST" AIPLEX_INSTALL_DIR="$WORK/install" HOME="$DEV_HOME" bash "$ROOT/install.sh" --version "v$VERSION" || fail "install.sh"
+mkdir -p "$WORK/download/v$VERSION" && cp "$DIST"/* "$WORK/download/v$VERSION/"
+AIPLEX_DOWNLOAD_BASE="file://$WORK/download" AIPLEX_INSTALL_DIR="$WORK/install" HOME="$DEV_HOME" bash "$ROOT/install.sh" --version "v$VERSION" || fail "install.sh"
 
 CLEAN_PATH="$WORK/install:/usr/bin:/bin"
 run() { env -i HOME="$DEV_HOME" PATH="$CLEAN_PATH" TERM=dumb "$@"; }

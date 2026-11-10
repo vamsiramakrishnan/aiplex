@@ -2,7 +2,7 @@
 title: A2A Connections API
 ---
 
-Access rules are being tightened in the same release; check the route's response for the authoritative answer.
+Route access is enforced by a default-deny route policy: a route with no explicit rule is open to operators only. Check the route's response for the authoritative answer.
 
 The A2A connections API manages the agent runtimes that a tenant can call: Google agent runtimes, AWS Bedrock agents and AgentCore runtimes, Azure Foundry agents and Copilot Studio agents. A connection is a saved resource. Its invoke route forwards one native agent call through AIPlex, after checking identity, a per-operation grant, governance, network and credential policy. The discovery and delegation routes read the A2APlex agent registry and reported delegation history.
 

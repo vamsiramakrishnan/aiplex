@@ -22,7 +22,7 @@ npm run typecheck
 
 ### Single source for `docs/`
 
-`docs/*.md` in the repository root is the only copy of the verified docs. `npm run build` and `npm start` first run `scripts/sync-docs.mjs` (the `prebuild` and `prestart` hooks), which copies `../docs` to `docs-site/docs/library/` (git-ignored) and adds one front-matter field, `custom_edit_url`, so "Edit this page" opens the real file. The body is copied unchanged. `docs/superpowers/` and `docs/integration/` are not published.
+`docs/*.md` in the repository root is the only copy of the verified docs. `npm run build` and `npm start` first run `scripts/sync-docs.mjs` (the `prebuild` and `prestart` hooks), which copies `../docs` to `docs-site/docs/library/` (git-ignored) and adds one front-matter field, `custom_edit_url`, so "Edit this page" opens the real file. The body is copied unchanged. `docs/superpowers/`, `docs/integration/` and `docs/launch/` are not published.
 
 Relative links between those docs work as written. Links that leave `docs/` (for example `../internal/api/x.go` or `../pkg/quotaplex`) are rewritten to the GitHub repository (`blob` for files, `tree` for directories) by `plugins/remark-repo-links.mjs`, a remark plugin registered in `docusaurus.config.ts`. The build fails if a link points at a path that does not exist in the repository.
 

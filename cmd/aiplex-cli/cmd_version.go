@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"runtime"
 	rdebug "runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -103,7 +104,9 @@ func checkForUpgrade() {
 		return
 	}
 
-	if release.TagName != "" && release.TagName != version {
+	// GoReleaser stamps the version without the leading "v" (0.1.0) while the
+	// release tag has it (v0.1.0), and `make build` stamps `git describe` output.
+	if release.TagName != "" && strings.TrimPrefix(release.TagName, "v") != strings.TrimPrefix(version, "v") {
 		fmt.Printf("  Update available: %s → %s\n", version, release.TagName)
 		fmt.Printf("  Download: %s\n", release.HTMLURL)
 	} else {

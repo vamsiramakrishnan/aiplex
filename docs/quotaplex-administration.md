@@ -31,6 +31,13 @@ attempts, and therefore exposes subject/group/account metadata to that operator.
 | `GET /api/v1/quota/balances/{key}` | Committed accounting balance with its limit-policy provenance |
 | `GET /api/v1/quota/loans/{id}` | Original loan terms, windows, returned/outstanding quantities |
 | `GET /api/v1/quota/evidence/{event}` | Original immutable terminal producer facts and acknowledgement/resolution state |
+| `GET /api/v1/quota/attempts/{id}` | One admission attempt. Readable by the caller that made it (as the principal, or as the delegated actor), or by a caller with `aiplex:quota:read`. Any other caller gets `404 NOT_FOUND`. |
+
+An attempt read needs a verified tenant and identity. Without a verified tenant the route
+answers `403 TENANT_REQUIRED`. Without a verified identity it answers `401 IDENTITY_REQUIRED`. When
+no quota engine is configured for the tenant it answers `404 NOT_FOUND`. A missing attempt answers
+`404 QUOTA_ATTEMPT_UNAVAILABLE`. A store failure answers `503 QUOTA_ATTEMPT_UNAVAILABLE`.
+The role alone does not grant the read.
 
 Inventory kinds are `budgets`, `loans`, `attempts`, `reconciliations`, `audit` and
 `terminal-work`. Limits range from 1 to 64. Continue strictly after

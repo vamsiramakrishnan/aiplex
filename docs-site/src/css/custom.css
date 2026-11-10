@@ -5,19 +5,20 @@
  * (run by `npm run build` and `npm start`); it is generated and git-ignored. It
  * defines the --aiplex-* brand variables for light and dark (data-theme). Nothing
  * below retypes a brand hex value: Infima and the page styles are mapped onto
- * those variables. The only literal colours left are the code-block token colours,
+ * the semantic aliases (--aiplex-color-*), which switch with the theme, so this
+ * file has no light/dark pairs of its own for brand colours. The only literal colours left are the code-block token colours,
  * which the brand does not define (see --aiplex-code-*).
  */
 @import url('./brand-tokens.css');
 
 :root {
   /* Diagram and card styling, derived from brand tokens. */
-  --aiplex-diagram-bg: var(--aiplex-bg);
-  --aiplex-diagram-line: var(--aiplex-text-muted);
-  --aiplex-diagram-box: var(--aiplex-surface);
-  --aiplex-diagram-text: var(--aiplex-text);
-  --aiplex-diagram-accent: var(--aiplex-gate);
-  --aiplex-surface-border: var(--aiplex-border);
+  --aiplex-diagram-bg: var(--aiplex-color-bg);
+  --aiplex-diagram-line: var(--aiplex-color-text-muted);
+  --aiplex-diagram-box: var(--aiplex-color-surface);
+  --aiplex-diagram-text: var(--aiplex-color-text);
+  --aiplex-diagram-accent: var(--aiplex-color-primary);
+  --aiplex-surface-border: var(--aiplex-color-border);
 
   /* Code-block token colours: not brand colours; chosen to pass AA on the Prism
      code backgrounds (github light, dracula dark). */
@@ -38,34 +39,34 @@
  * steps mix toward white, darker steps toward black.
  */
 html[data-theme] {
-  --ifm-color-primary: var(--aiplex-gate);
-  --ifm-color-primary-dark: color-mix(in srgb, var(--aiplex-gate), black 10%);
-  --ifm-color-primary-darker: color-mix(in srgb, var(--aiplex-gate), black 18%);
-  --ifm-color-primary-darkest: color-mix(in srgb, var(--aiplex-gate), black 35%);
-  --ifm-color-primary-light: color-mix(in srgb, var(--aiplex-gate), white 12%);
-  --ifm-color-primary-lighter: color-mix(in srgb, var(--aiplex-gate), white 22%);
-  --ifm-color-primary-lightest: color-mix(in srgb, var(--aiplex-gate), white 42%);
-  --ifm-background-color: var(--aiplex-bg);
-  --ifm-background-surface-color: var(--aiplex-surface);
-  --ifm-font-color-base: var(--aiplex-text);
-  --ifm-color-content-secondary: var(--aiplex-text-muted);
-  --ifm-toc-border-color: var(--aiplex-border);
-  --ifm-color-emphasis-200: var(--aiplex-border);
-  --ifm-navbar-background-color: var(--aiplex-bg);
-  --ifm-menu-color-background-active: var(--aiplex-mist);
-  --ifm-menu-color-background-hover: var(--aiplex-mist);
+  --ifm-color-primary: var(--aiplex-color-primary);
+  --ifm-color-primary-dark: color-mix(in srgb, var(--aiplex-color-primary), black 10%);
+  --ifm-color-primary-darker: color-mix(in srgb, var(--aiplex-color-primary), black 18%);
+  --ifm-color-primary-darkest: color-mix(in srgb, var(--aiplex-color-primary), black 35%);
+  --ifm-color-primary-light: color-mix(in srgb, var(--aiplex-color-primary), white 12%);
+  --ifm-color-primary-lighter: color-mix(in srgb, var(--aiplex-color-primary), white 22%);
+  --ifm-color-primary-lightest: color-mix(in srgb, var(--aiplex-color-primary), white 42%);
+  --ifm-background-color: var(--aiplex-color-bg);
+  --ifm-background-surface-color: var(--aiplex-color-surface);
+  --ifm-font-color-base: var(--aiplex-color-text);
+  --ifm-color-content-secondary: var(--aiplex-color-text-muted);
+  --ifm-toc-border-color: var(--aiplex-color-border);
+  --ifm-color-emphasis-200: var(--aiplex-color-border);
+  --ifm-navbar-background-color: var(--aiplex-color-bg);
+  --ifm-menu-color-background-active: var(--aiplex-color-primary-subtle);
+  --ifm-menu-color-background-hover: var(--aiplex-color-primary-subtle);
   --ifm-code-font-size: 95%;
   --ifm-font-family-base: var(--aiplex-font-sans);
   --ifm-font-family-monospace: var(--aiplex-font-mono);
 }
 
 html[data-theme='dark'] {
-  --ifm-color-primary-dark: color-mix(in srgb, var(--aiplex-gate), white 10%);
-  --ifm-color-primary-darker: color-mix(in srgb, var(--aiplex-gate), white 18%);
-  --ifm-color-primary-darkest: color-mix(in srgb, var(--aiplex-gate), white 35%);
-  --ifm-color-primary-light: color-mix(in srgb, var(--aiplex-gate), black 12%);
-  --ifm-color-primary-lighter: color-mix(in srgb, var(--aiplex-gate), black 22%);
-  --ifm-color-primary-lightest: color-mix(in srgb, var(--aiplex-gate), black 42%);
+  --ifm-color-primary-dark: color-mix(in srgb, var(--aiplex-color-primary), white 10%);
+  --ifm-color-primary-darker: color-mix(in srgb, var(--aiplex-color-primary), white 18%);
+  --ifm-color-primary-darkest: color-mix(in srgb, var(--aiplex-color-primary), white 35%);
+  --ifm-color-primary-light: color-mix(in srgb, var(--aiplex-color-primary), black 12%);
+  --ifm-color-primary-lighter: color-mix(in srgb, var(--aiplex-color-primary), black 22%);
+  --ifm-color-primary-lightest: color-mix(in srgb, var(--aiplex-color-primary), black 42%);
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
 
@@ -73,9 +74,13 @@ html[data-theme='light'] {
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 }
 
-/* Footer uses Infima's fixed dark style; keep it on the brand dark surface. */
-.footer--dark {
-  --ifm-footer-background-color: var(--aiplex-neutral-950);
+/* The footer follows the theme through the aliases (footer.style is 'light' in docusaurus.config.ts). */
+html .footer {
+  --ifm-footer-background-color: var(--aiplex-color-surface);
+  --ifm-footer-color: var(--aiplex-color-text);
+  --ifm-footer-title-color: var(--aiplex-color-text);
+  --ifm-footer-link-color: var(--aiplex-color-primary);
+  --ifm-footer-link-hover-color: var(--aiplex-color-primary-hover);
 }
 
 
@@ -112,7 +117,7 @@ html[data-theme='light'] {
 .aiplex-lede {
   font-size: 1.15rem;
   max-width: 46rem;
-  color: var(--aiplex-text-muted);
+  color: var(--aiplex-color-text-muted);
 }
 
 .aiplex-diagram {
@@ -142,25 +147,25 @@ html[data-theme='light'] {
   padding: 1rem 1.1rem;
   border: 1px solid var(--aiplex-surface-border);
   border-radius: 8px;
-  background: var(--aiplex-surface);
+  background: var(--aiplex-color-surface);
   color: inherit;
   text-decoration: none;
 }
 
 .aiplex-link-card:hover {
-  border-color: var(--aiplex-gate);
+  border-color: var(--aiplex-color-primary);
   color: inherit;
   text-decoration: none;
 }
 
 .aiplex-link-card strong {
   display: block;
-  color: var(--aiplex-gate);
+  color: var(--aiplex-color-primary);
   margin-bottom: 0.25rem;
 }
 
 .aiplex-link-card span {
-  color: var(--aiplex-text-muted);
+  color: var(--aiplex-color-text-muted);
   font-size: 0.92rem;
 }
 

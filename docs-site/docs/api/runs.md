@@ -2,7 +2,7 @@
 title: Runs API
 ---
 
-Access rules are being tightened in the same release; check the route's response for the authoritative answer.
+Route access is enforced by a default-deny route policy: a route with no explicit rule is open to operators only. Check the route's response for the authoritative answer.
 
 The runs API is the read side of the AIPlex and Tape integration. Tape records each agent run as a journal. AIPlex projects that journal into runs, events, effects, obligations and budget charges, and it serves them here. The same API also exposes operator actions that act on a run through Tape, such as redriving a stuck run or cancelling one. Each action is written to a separate operator audit trail, so the run's Tape journal stays unchanged.
 
