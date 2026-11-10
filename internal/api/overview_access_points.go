@@ -100,7 +100,7 @@ func (h *OverviewHandler) apResources(ctx context.Context, tenant string, ap Acc
 		item := OverviewResourceModel{Name: m.Name, NativeModel: m.NativeModel, SurfaceRef: m.SurfaceRef, WireProtocols: []string{}}
 		if conn, err := h.Connected.accessPointSurface(ctx, tenant, m.SurfaceRef); err == nil {
 			item.Resolved, item.Publisher, item.SurfaceType = true, conn.Surface.Publisher, conn.Surface.Protocol
-			item.WireProtocols = accessPointWireProtocols(conn.Surface.Protocol)
+			item.WireProtocols = accessPointServedWires(conn.Surface, m.NativeModel)
 			if id, err := conn.Surface.ModelID(m.NativeModel); err == nil {
 				item.ModelID = id
 			}

@@ -459,8 +459,9 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			}
 		}
 		if !reachable {
-			paths := make([]string, 0, len(serving))
-			for _, p := range serving {
+			served := accessPointServedWires(connection.Surface, entry.NativeModel)
+			paths := make([]string, 0, len(served))
+			for _, p := range served {
 				paths = append(paths, p+" ("+accessPointWirePath(p)+")")
 			}
 			fail(w, r, http.StatusBadRequest, "PROTOCOL_MISMATCH", fmt.Sprintf("model %q is not served through %s; it is served through: %s", name, protocol, strings.Join(paths, ", ")))
@@ -526,7 +527,7 @@ func (h *ConnectedHandler) listedModels(r *http.Request, tenant string, ap Acces
 		if err != nil || h.authorize(r, "llm:model:"+modelID) != nil {
 			continue
 		}
-		out = append(out, accessPointListedModel{Entry: entry, ModelID: modelID, Publisher: connection.Surface.Publisher, Protocols: accessPointWireProtocols(connection.Surface.Protocol)})
+		out = append(out, accessPointListedModel{Entry: entry, ModelID: modelID, Publisher: connection.Surface.Publisher, Protocols: accessPointServedWires(connection.Surface, entry.NativeModel)})
 	}
 	return out
 }
