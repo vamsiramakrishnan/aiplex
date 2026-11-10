@@ -21,10 +21,15 @@ resource "google_certificate_manager_dns_authorization" "aiplex_wildcard" {
   domain  = var.domain
 }
 
-# DNS records for certificate validation (auto-created in Cloud DNS)
+# DNS records for certificate validation (auto-created in Cloud DNS when
+# manage_dns is true; with external DNS, create them from the
+# dns_authorization outputs yourself). The zone has a count, so these need one
+# too: referencing google_dns_managed_zone.aiplex without an index is a
+# Terraform error.
 resource "google_dns_record_set" "cert_validation" {
+  count        = var.manage_dns ? 1 : 0
   name         = google_certificate_manager_dns_authorization.aiplex.dns_resource_record[0].name
-  managed_zone = google_dns_managed_zone.aiplex.name
+  managed_zone = google_dns_managed_zone.aiplex[0].name
   type         = google_certificate_manager_dns_authorization.aiplex.dns_resource_record[0].type
   ttl          = 300
   rrdatas      = [google_certificate_manager_dns_authorization.aiplex.dns_resource_record[0].data]
@@ -32,12 +37,23 @@ resource "google_dns_record_set" "cert_validation" {
 }
 
 resource "google_dns_record_set" "cert_validation_wildcard" {
+  count        = var.manage_dns ? 1 : 0
   name         = google_certificate_manager_dns_authorization.aiplex_wildcard.dns_resource_record[0].name
-  managed_zone = google_dns_managed_zone.aiplex.name
+  managed_zone = google_dns_managed_zone.aiplex[0].name
   type         = google_certificate_manager_dns_authorization.aiplex_wildcard.dns_resource_record[0].type
   ttl          = 300
   rrdatas      = [google_certificate_manager_dns_authorization.aiplex_wildcard.dns_resource_record[0].data]
   project      = var.project_id
+}
+
+moved {
+  from = google_dns_record_set.cert_validation
+  to   = google_dns_record_set.cert_validation[0]
+}
+
+moved {
+  from = google_dns_record_set.cert_validation_wildcard
+  to   = google_dns_record_set.cert_validation_wildcard[0]
 }
 
 # Certificate — auto-provisioned via DNS authorization, auto-renewed

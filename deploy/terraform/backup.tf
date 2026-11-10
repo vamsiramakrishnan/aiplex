@@ -32,15 +32,40 @@ resource "google_service_account" "firestore_export" {
   project      = var.project_id
 }
 
+# The export caller needs datastore.databases.export (and reads the database
+# metadata and the export operation). roles/datastore.importExportAdmin would
+# also grant datastore.databases.import, which can overwrite live data, so the
+# export service account gets a custom role with export only. Role contents:
+# https://docs.cloud.google.com/iam/docs/roles-permissions/firestore
+resource "google_project_iam_custom_role" "firestore_exporter" {
+  project     = var.project_id
+  role_id     = "aiplexFirestoreExporter"
+  title       = "AIPlex Firestore Exporter"
+  description = "Start Firestore exports and read their status; no import."
+  permissions = [
+    "datastore.databases.export",
+    "datastore.databases.getMetadata",
+    "datastore.operations.get",
+  ]
+}
+
 resource "google_project_iam_member" "firestore_export_datastore" {
   project = var.project_id
-  role    = "roles/datastore.importExportAdmin"
+  role    = google_project_iam_custom_role.firestore_exporter.id
   member  = "serviceAccount:${google_service_account.firestore_export.email}"
 }
 
+# Bucket access for the export. Google's export guide lists
+# storage.buckets.get, storage.objects.create, storage.objects.delete and
+# storage.objects.list for a custom role on the bucket
+# (https://docs.cloud.google.com/datastore/docs/export-import-entities);
+# roles/storage.legacyBucketWriter holds those on this one bucket, without the
+# storage.buckets.setIamPolicy, update and delete that roles/storage.admin had.
+# Not validated against a live export: if exports fail with a storage
+# permission error, see docs/gcp-permissions.md.
 resource "google_storage_bucket_iam_member" "firestore_export_writer" {
   bucket = google_storage_bucket.firestore_backups.name
-  role   = "roles/storage.admin"
+  role   = "roles/storage.legacyBucketWriter"
   member = "serviceAccount:${google_service_account.firestore_export.email}"
 }
 

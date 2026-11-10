@@ -4,7 +4,8 @@ resource "google_compute_security_policy" "aiplex" {
   name    = "aiplex-waf"
   project = var.project_id
 
-  # Default: allow all (DDoS protection is always-on for Global LB)
+  # Default: allow all (DDoS protection is always-on for Global LB). The
+  # default rule (priority 2147483647) matches every source, hence "*".
   rule {
     action   = "allow"
     priority = 2147483647
@@ -64,6 +65,9 @@ resource "google_compute_security_policy" "aiplex" {
     rate_limit_options {
       conform_action = "allow"
       exceed_action  = "deny(429)"
+      # Without a key Cloud Armor counts all clients together (enforceOnKey
+      # defaults to ALL), which made this a 500 req/min limit for everyone.
+      enforce_on_key = "IP"
       rate_limit_threshold {
         count        = 500
         interval_sec = 60

@@ -188,7 +188,7 @@ type SecretCredentials struct{ Manager SecretVersionStore }
 func credentialID(k toolauth.CredentialKey) string {
 	b, _ := json.Marshal([]string{k.TenantID, k.Issuer, k.ProfileID})
 	sum := sha256.Sum256(b)
-	return "aiplex-oauth-" + hex.EncodeToString(sum[:])
+	return SecretIDPrefix + "oauth-" + hex.EncodeToString(sum[:])
 }
 func (s SecretCredentials) Get(ctx context.Context, k toolauth.CredentialKey) (toolauth.Credential, string, error) {
 	if s.Manager == nil {
