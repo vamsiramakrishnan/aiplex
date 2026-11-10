@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -355,17 +356,71 @@ func bodyModel(data []byte) (string, error) {
 	return *probe.Model, nil
 }
 
+// rewriteBodyModel replaces the value of the request's top-level "model"
+// string with model and leaves every other byte of the body (key order,
+// whitespace, unknown fields, escapes, numbers, nested "model" keys) exactly
+// as sent. The body must be one unambiguous JSON object: duplicate keys at any
+// level, including a second top-level "model" (also when spelled with
+// escapes), are rejected. The response's "model" field is the provider's and
+// stays the native name; only the request is rewritten.
 func rewriteBodyModel(data []byte, model string) ([]byte, error) {
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, err
+	if err := modelapi.ValidateJSON(data); err != nil {
+		return nil, fmt.Errorf("request body must be one unambiguous JSON object")
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if open, err := dec.Token(); err != nil || open != json.Delim('{') {
+		return nil, fmt.Errorf("request body must be one JSON object")
+	}
+	start, end := -1, -1
+	for dec.More() {
+		keyToken, err := dec.Token()
+		key, isString := keyToken.(string)
+		if err != nil || !isString {
+			return nil, fmt.Errorf("request body must be one JSON object")
+		}
+		var value json.RawMessage
+		if err = dec.Decode(&value); err != nil {
+			return nil, fmt.Errorf("request body must be one JSON object")
+		}
+		if key != "model" {
+			continue
+		}
+		if start >= 0 {
+			return nil, fmt.Errorf("request body names the model twice")
+		}
+		end = int(dec.InputOffset())
+		start = end - len(value)
+		if start < 0 || !bytes.Equal(data[start:end], value) || len(value) < 2 || value[0] != '"' {
+			return nil, fmt.Errorf("request body model must be a string")
+		}
+	}
+	if start < 0 {
+		return nil, fmt.Errorf("request body must name a model")
 	}
 	encoded, err := json.Marshal(model)
 	if err != nil {
 		return nil, err
 	}
-	payload["model"] = encoded
-	return json.Marshal(payload)
+	out := make([]byte, 0, len(data)-(end-start)+len(encoded))
+	out = append(out, data[:start]...)
+	out = append(out, encoded...)
+	return append(out, data[end:]...), nil
+}
+
+// accessPointBodyModelWire reports whether a wire carries the model as a
+// top-level JSON string field of the request body that can be rewritten in
+// place. Multipart image and audio uploads carry it as a form field next to
+// file parts; rewriting that would re-encode the upload, so aliases stay
+// unsupported there.
+func accessPointBodyModelWire(protocol, contentType string) bool {
+	switch protocol {
+	case WireOpenAIChat, WireOpenAIResponses, WireAnthropic, WireOpenAIEmbeddings:
+		return true
+	case WireOpenAIImages, WireOpenAIAudio:
+		media, _, _ := mime.ParseMediaType(contentType)
+		return media != "multipart/form-data"
+	}
+	return false
 }
 
 // AccessPointModel serves one client wire protocol. The model name selects
@@ -485,13 +540,15 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 				path = "/model/" + entry.NativeModel + "/" + method
 			case protocol == WireOpenAIRealtime:
 				// rawQuery already carries the native model.
-			case protocol == WireAnthropic && accessPointAliasRewritable(connection.Surface):
+			case accessPointBodyModelWire(protocol, r.Header.Get("Content-Type")) && accessPointAliasRewritable(connection.Surface):
+				// Only the request's model value changes; the response keeps
+				// the provider's native model name.
 				if body, err = rewriteBodyModel(data, entry.NativeModel); err != nil {
-					fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", "request body must be one JSON object")
+					fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 					return
 				}
 			default:
-				fail(w, r, http.StatusServiceUnavailable, "MODEL_ALIAS_UNSUPPORTED", "this surface relays the body verbatim; the model name must be the native name")
+				fail(w, r, http.StatusServiceUnavailable, "MODEL_ALIAS_UNSUPPORTED", "this wire relays the body verbatim; the model name must be the native name")
 				return
 			}
 		}

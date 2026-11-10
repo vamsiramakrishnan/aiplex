@@ -4,12 +4,20 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 )
 
 // Access-point save errors name the offending field in details.field while
 // the message stays the human-readable sentence it always was.
 func TestAccessPointSaveErrorsCarryFieldPath(t *testing.T) {
 	f := newAPFixture(t)
+	mediaOps, err := modelapi.SelectProviderOperations(modelapi.ProviderOpenAI, "openai.v1.images-generations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := modelapi.Surface{ID: "media", Protocol: modelapi.ProtocolOpenAIImages, Origin: f.upstream.URL, Models: []string{"img-model"}, Operations: mediaOps, Provider: &modelapi.Provider{ID: modelapi.ProviderOpenAI}}
+	f.put("model-surface", media.ID, ModelConnection{Surface: media, IdentityRef: "host"})
 	cases := []struct {
 		name    string
 		mutate  func(*AccessPoint)
@@ -22,7 +30,9 @@ func TestAccessPointSaveErrorsCarryFieldPath(t *testing.T) {
 		{"missing surface ref", func(a *AccessPoint) { a.Models[3].SurfaceRef = "" }, "models/3/surface_ref", "models entries need name, surface_ref and native_model"},
 		{"duplicate model name", func(a *AccessPoint) { a.Models[1].Name = a.Models[0].Name }, "models/1/name", "is not unique"},
 		{"unlisted native model", func(a *AccessPoint) { a.Models[0].NativeModel = "not-listed" }, "models/0/native_model", "native model"},
-		{"alias on verbatim surface", func(a *AccessPoint) { a.Models[2].Name = "friendly" }, "models/2/name", "so name must equal native_model"},
+		{"alias on verbatim surface", func(a *AccessPoint) {
+			a.Models[3] = AccessPointModel{Name: "friendly", SurfaceRef: "media", NativeModel: "img-model"}
+		}, "models/3/name", "so name must equal native_model"},
 		{"duplicate tool", func(a *AccessPoint) { a.Tools[1].ConnectionRef = "github" }, "tools/1/connection_ref", "is listed twice"},
 		{"unknown tool", func(a *AccessPoint) { a.Tools[2].ConnectionRef = "nope" }, "tools/2/connection_ref", `tool connection "nope" does not resolve in this tenant`},
 		{"bad expose", func(a *AccessPoint) { a.Tools[1].Expose = []string{""} }, "tools/1/expose", "expose"},

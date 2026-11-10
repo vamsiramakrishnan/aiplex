@@ -155,16 +155,19 @@ func uniqueTexts(field string, values []string, max int) error {
 	return nil
 }
 
-// accessPointAliasRewritable reports whether the client facade carries the
-// model in a place it already rewrites: the GenAI path, or the Anthropic
-// Messages body that the facade translates to a Vertex path. Elsewhere the
-// body is relayed verbatim, so the client-facing name must be the native one.
+// accessPointAliasRewritable reports whether the access point can rewrite the
+// client-facing model name to the native one for this surface: the model is a
+// path segment (GenAI, Bedrock), a connect-time query (Realtime) or a
+// top-level JSON string field that is rewritten in place (OpenAI chat,
+// responses and embeddings; Anthropic Messages). Elsewhere (moderations,
+// images and audio surfaces, which may carry a multipart form) the body is
+// relayed verbatim, so the client-facing name must be the native one.
 func accessPointAliasRewritable(s modelapi.Surface) bool {
 	switch s.Protocol {
 	case clientplex.GenAI:
 		return true
-	case clientplex.Messages:
-		return !clientOperationReady(s, "anthropic.messages")
+	case clientplex.Messages, clientplex.OpenAIChat, clientplex.Responses, modelapi.ProtocolOpenAIEmbeddings:
+		return true
 	case modelapi.ProtocolBedrockConverse, modelapi.ProtocolBedrockInvoke, modelapi.ProtocolOpenAIRealtime:
 		// The model is the path segment (Bedrock) or connect-time query
 		// (Realtime): the access point rewrites it without touching a body.
