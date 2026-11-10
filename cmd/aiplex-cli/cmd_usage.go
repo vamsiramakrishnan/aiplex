@@ -188,6 +188,13 @@ func usageRecordsCmd() *cobra.Command {
 					if !wideOutput() {
 						fmt.Println("\nRecord IDs and every counter: -o wide. One record in full: aiplex usage get <id>.")
 					}
+					var unpriced []catalogHintTarget
+					for _, r := range records {
+						if r.Cost.Basis == usageledger.BasisUnknown && r.ModelID != "" {
+							unpriced = append(unpriced, catalogHintTarget{provider: r.Provider, model: r.ModelID})
+						}
+					}
+					usageCatalogHint(cmd.Context(), unpriced)
 				}
 				if next != "" {
 					fmt.Printf("\nMore records available: --cursor %s\n", next)
@@ -266,6 +273,13 @@ records and the command says so.`,
 				fmt.Println("No usage records match.")
 			} else {
 				usageSummaryTable(summary).render(os.Stdout)
+				var unpriced []catalogHintTarget
+				for _, g := range summary.Groups {
+					if g.UnknownCostRecords > 0 && g.Key["model_id"] != "" {
+						unpriced = append(unpriced, catalogHintTarget{provider: g.Key["provider"], model: g.Key["model_id"]})
+					}
+				}
+				defer usageCatalogHint(cmd.Context(), unpriced)
 			}
 			fmt.Printf("\n%d records scanned.\n", summary.RecordsScanned)
 			for _, g := range summary.Groups {
@@ -768,7 +782,7 @@ func usagePricesCmd() *cobra.Command {
 Prices are revisioned resources: replacing or deleting one needs its current
 revision, so concurrent edits are never silently overwritten.`,
 	}
-	cmd.AddCommand(usagePricesListCmd(), usagePricesGetCmd(), usagePricesSetCmd(), usagePricesDeleteCmd())
+	cmd.AddCommand(usagePricesListCmd(), usagePricesGetCmd(), usagePricesSetCmd(), usagePricesDeleteCmd(), usagePricesCatalogCmd())
 	return cmd
 }
 
