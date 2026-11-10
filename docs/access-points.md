@@ -211,10 +211,35 @@ natively. There is no cross-protocol translation. A request that uses a protocol
 surface does not serve returns `400 PROTOCOL_MISMATCH` in that protocol's own error
 shape, and the message lists the paths that do serve the model.
 
+### Admission is not a grant
+
+Admission lets a caller reach the access point. It does not let the caller use a model. A
+caller with no operator role (an admin or deployer gets the grants with the role) also needs
+its own grants, set by an operator:
+
+| Grant | For |
+| --- | --- |
+| `llm:model:{model}` | The model, for example `llm:model:mock-gpt`. |
+| `llm:surface:{surface}:*` | The model surface that serves it, for example `llm:surface:local-models:*`. A single operation can be granted instead of `*`. |
+
+```sh
+aiplex agents user-scopes get  <principal-id>
+aiplex agents user-scopes set  <principal-id> --scopes llm:model:mock-gpt,llm:surface:local-models:*
+```
+
+`user-scopes set` replaces the caller's whole list, so include what `get` shows. Having only
+`llm:model:{model}` is not enough: the call is still refused. A caller that is admitted but
+missing grants gets `403` in the wire's own error shape (`permission_error` on OpenAI-style
+wires), and the message names every missing grant and the command above with the caller's
+principal ID. A caller that is not admitted does not get that message: it gets the same answer
+as before, which does not say whether the access point exists. `GET /v1/models` lists only models
+the caller holds `llm:model:{model}` for; it does not check the surface grant.
+
 Other model errors:
 
 | Status and code | Meaning |
 | --- | --- |
+| `403 permission_denied` | The caller is admitted but lacks a model, surface or agent grant. The message lists them. |
 | `404 MODEL_NOT_FOUND` | The model is not in the access point, or the caller may not use it. |
 | `404 UNSUPPORTED_OPERATION` | A GenAI operation that the surface does not implement. |
 | `503 SURFACE_UNAVAILABLE` | The surface cannot be resolved right now. |

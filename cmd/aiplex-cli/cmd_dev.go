@@ -489,9 +489,13 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		fmt.Println("    aiplex dev status")
 	}
 	fmt.Println()
-	fmt.Println("    # 4. Optional: see what a caller with no role gets")
+	fmt.Println("    # 4. Optional: see what a caller with no role gets. Admission lets it reach the")
+	fmt.Println("    #    access point; calling a model also needs a grant from you (steps b and c)")
 	fmt.Println("    aiplex access-points create team --model " + seeded.Model + "=" + seeded.Surface + " --allow-users bob@localhost")
-	fmt.Println("    AIPLEX_TOKEN=$(aiplex dev token --user bob 2>/dev/null) aiplex connect team")
+	fmt.Println("    BOB=$(aiplex dev token --user bob)    # a: its stderr names bob's principal ID")
+	fmt.Println("    aiplex agents user-scopes set PRINCIPAL_ID --scopes llm:model:" + seeded.Model + ",llm:surface:" + seeded.Surface + ":*   # b")
+	fmt.Println("    curl -s \"$AIPLEX_URL/ap/team/v1/chat/completions\" -H \"Authorization: Bearer $BOB\" \\")
+	fmt.Println("      -H \"Content-Type: application/json\" -d '{\"model\":\"" + seeded.Model + "\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}'   # c")
 	fmt.Println()
 	if detached {
 		fmt.Println("  Running in the background. Stop it with: aiplex dev stop")

@@ -57,9 +57,13 @@ aiplex dev
     aiplex connect local
     aiplex dev status
 
-    # 4. Optional: see what a caller with no role gets
+    # 4. Optional: see what a caller with no role gets. Admission lets it reach the
+    #    access point; calling a model also needs a grant from you (steps b and c)
     aiplex access-points create team --model mock-gpt=local-models --allow-users bob@localhost
-    AIPLEX_TOKEN=$(aiplex dev token --user bob 2>/dev/null) aiplex connect team
+    BOB=$(aiplex dev token --user bob)    # a: its stderr names bob's principal ID
+    aiplex agents user-scopes set PRINCIPAL_ID --scopes llm:model:mock-gpt,llm:surface:local-models:*   # b
+    curl -s "$AIPLEX_URL/ap/team/v1/chat/completions" -H "Authorization: Bearer $BOB" \
+      -H "Content-Type: application/json" -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hi"}]}'   # c
 
   Press Ctrl+C to stop. State is in memory and is discarded on stop.
 ```

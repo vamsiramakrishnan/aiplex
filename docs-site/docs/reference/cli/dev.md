@@ -212,9 +212,10 @@ issued it, and is minted by the local token issuer (loopback only), which
 accepts the request only with your own developer token.
 
   --role none      (default) no role: the caller sees only the access points
-                   that admit it. It still needs model and tool grants (the
-                   "agents user-scopes set" command, with the principal ID
-                   this command prints)
+                   that admit it. Admission is not a grant: to call a model
+                   it needs llm:model:<model> and llm:surface:<surface>:*,
+                   set with "aiplex agents user-scopes set" and the
+                   principal ID this command prints
   --role deployer  configuration screens and commands, no admin-only actions
   --role admin     the same role as you
   --groups         extra identity-provider groups in the token (for access
