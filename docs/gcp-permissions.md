@@ -148,7 +148,7 @@ Trade-offs:
 | `aiplex-api` service account, Firestore | `roles/datastore.user` on the project | `roles/datastore.user` with the condition `resource.name == "projects/PROJECT_ID/databases/(default)"` (variable `restrict_firestore_to_database`, default true) |
 | `aiplex-api` Kubernetes service account | no RBAC | Role and RoleBinding `aiplex-api-deployer` in `aiplex-system`, `mcplex`, `a2aplex`, `llmplex` and `skillsplex` (Helm `api.rbac`): get, list, watch, create, patch and delete on exactly the kinds `internal/deploy` renders. No ClusterRole; every object is namespaced. |
 | `aiplex-alloydb-proxy` (new) | the proxy ran as `aiplex-api`, which had no AlloyDB access | own Kubernetes and Google service accounts with `roles/alloydb.client` and `roles/serviceusage.serviceUsageConsumer` on the project, the roles Google's Auth Proxy guide lists |
-| `aiplex-otel-collector` (new) | the chart's collector ran as `aiplex-api` | own Kubernetes and Google service accounts (`otel_collector = true`) with `roles/cloudtrace.agent` and `roles/monitoring.metricWriter` on the project, the only level these roles support |
+| `aiplex-otel-collector` (new) | the chart's collector ran as `aiplex-api` | own Kubernetes and Google service accounts (`otel_collector = true`) with `roles/cloudtrace.agent` and `roles/monitoring.metricWriter` on the project, the only level these roles support. The collector's exports and its settings are in [observability](observability.md#turn-it-on-in-gke-helm) |
 | `aiplex-firestore-export` service account | `roles/datastore.importExportAdmin` on the project; `roles/storage.admin` on the backup bucket | custom role `aiplexFirestoreExporter` (`datastore.databases.export`, `datastore.databases.getMetadata`, `datastore.operations.get`; no import); `roles/storage.legacyBucketWriter` on the backup bucket (bucket get, object create, delete, list) |
 | Cloud Build service account | `roles/containeranalysis.notes.attacher` on the project | the same role on the attestor's note only |
 | `aiplex-external-agent` service account | `roles/iam.serviceAccountTokenCreator` on itself, plus IAP access | no token creator: federated AWS and Azure principals get access and ID tokens through `roles/iam.workloadIdentityUser`, and nothing in AIPlex signs blobs or JWTs with it |
@@ -274,7 +274,8 @@ changes before approving. None of this has been run against a live project.
     service account. Apply Terraform (`otel_collector = true`) before or with
     the Helm upgrade, or exports fail until the Google service account exists.
     If you run your own collector (`otel.collector: false`), set
-    `otel_collector = false`.
+    `otel_collector = false`. The Helm settings are in
+    [observability](observability.md#turn-it-on-in-gke-helm).
 11. **Console image.** The chart runs the console as uid 101 on port 8080 with a
     read-only root filesystem. Rebuild the console image from the new
     `console/Dockerfile` (unprivileged nginx) before upgrading the chart; the

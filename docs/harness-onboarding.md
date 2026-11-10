@@ -69,6 +69,10 @@ Also sets the client's own OpenTelemetry export, where it has one. Prompt text i
 
 The protocol is chosen from the endpoint: port `4317` is treated as gRPC, anything else as OTLP over HTTP. Whether the endpoint accepts that is not checked.
 
+This is the client's own telemetry. AIPlex's telemetry (its spans and metrics, and the
+collector a Helm install runs) is described in [observability](observability.md). Nothing
+here sends the client's telemetry into the usage ledger.
+
 ## `aiplex mcp serve`
 
 A stdio MCP server. Configure a client with the command `aiplex mcp serve`; the plugin and extension below do this for you. It uses the CLI's current context and token, so the tools see what you see.
@@ -100,4 +104,4 @@ Config shapes were taken from the vendors' current documentation on 2026-11-10: 
 
 Tested here: file merging, diffs, backup, undo, idempotence and token absence (unit and end-to-end tests against `aiplex dev` with an isolated home); the MCP handshake, `tools/list` and tool calls over stdio.
 
-Not validated: any of the three clients actually loading the files written, or the plugin and extension being loaded by their harness (the clients are not installed in the test environment). Not exercised: that Claude Code's `apiKeyHelper` output is accepted by the AIPlex Anthropic endpoint (it is documented as a credential command; AIPlex expects a bearer token), and that Gemini CLI's `GEMINI_API_KEY` header is accepted by the AIPlex GenAI endpoint. `~/.claude.json` is also written by Claude Code itself; the command warns to run it while no session is open. `CLAUDE_CONFIG_DIR` is not supported: if it is set, the Claude Code write is refused rather than guessing.
+Not validated: any of the three clients actually loading the files written, or the plugin and extension being loaded by their harness (the clients are not installed in the test environment). The `--with-telemetry` settings have not been checked against a client that exports, or received by a collector. Not exercised: that Claude Code's `apiKeyHelper` output is accepted by the AIPlex Anthropic endpoint (it is documented as a credential command; AIPlex expects a bearer token), and that Gemini CLI's `GEMINI_API_KEY` header is accepted by the AIPlex GenAI endpoint. `~/.claude.json` is also written by Claude Code itself; the command warns to run it while no session is open. `CLAUDE_CONFIG_DIR` is not supported: if it is set, the Claude Code write is refused rather than guessing.
