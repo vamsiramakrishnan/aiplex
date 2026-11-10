@@ -21,7 +21,7 @@ export PATH="$PWD/bin:$PATH"
 aiplex dev
 ```
 
-`aiplex dev` starts the API in memory on `127.0.0.1:8080` with a built-in mock model and a built-in MCP server, creates an access point called `local`, and signs you in as a local admin. It prints this (trimmed; the full text also lists the CLI context and log file, and repeats the commands below):
+`aiplex dev` starts the API in memory on `127.0.0.1:8080` with a built-in mock model and a built-in MCP server, creates an access point called `local`, and signs you in as a local admin. It prints this (trimmed; the full text also names the log file and repeats the commands below):
 
 ```text
   AIPlex local development
@@ -33,6 +33,9 @@ aiplex dev
   Access point   local  ->  http://127.0.0.1:8080/ap/local
   Price          mock-gpt  (placeholder rates, so estimated cost shows in usage)
   Quota          off. QuotaPlex needs an operator quota policy file (AIPLEX_QUOTA_FILE); see docs/quotaplex-administration.md
+  CLI context    "local" (current)
+  Console        not built into this binary. Build it with `make console && make build` (needs Node 22), or run
+                 `cd console && npm ci && npm run dev` (it proxies /api to http://localhost:8080)
 
   WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy 127.0.0.1:8080.
 
