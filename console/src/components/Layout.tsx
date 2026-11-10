@@ -110,7 +110,7 @@ export default function Layout() {
         <div className="p-4 border-b border-gray-700">
           {/* The sidebar is always dark, so it uses the reversed lockup in both themes. */}
           <img src={logoReversed} alt="AIPlex" className="h-8 w-auto" />
-          <p className="text-xs text-gray-300 mt-1">Unified AI Control Plane</p>
+          <p className="text-xs text-gray-300 mt-1">A control plane for agent interactions across models, tools, agents and skills</p>
         </div>
         <nav aria-label="Main" className="flex-1 py-4 overflow-y-auto">
           {shown.map((item) => {

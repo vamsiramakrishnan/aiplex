@@ -42,6 +42,7 @@ describe('Usage page: access point and caller kind', () => {
     show()
     const form = await screen.findByRole('form', { name: 'Usage filters' })
     fireEvent.change(within(form).getByLabelText('Access point'), { target: { value: 'ide-team' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'More filters' }))
     fireEvent.change(within(form).getByLabelText('Caller kind'), { target: { value: 'user' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Apply filters' }))
     await waitFor(() => expect(last('/api/v1/usage/summary').searchParams.get('access_point_id')).toBe('ide-team'))

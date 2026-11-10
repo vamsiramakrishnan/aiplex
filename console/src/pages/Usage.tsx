@@ -50,24 +50,40 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="block text-sm"><span className="mb-1 block text-xs text-gray-600 dark:text-gray-400">{label}</span>{children}</label>
 }
 
+/** Filters kept behind "More filters"; the six most used stay visible. */
+export const MORE_FILTERS = ['actor_id', 'principal_id', 'client_id', 'caller_kind', 'source', 'error_class', 'usage_bound', 'batch'] as const
+/** How many of the less common filters hold a value. */
+export const activeMoreFilters = (draft: FilterDraft): number => MORE_FILTERS.filter((n) => draft[n].trim() !== '').length
+
 function FilterBar({ draft, onChange, onApply }: { draft: FilterDraft; onChange: (next: FilterDraft) => void; onApply: () => void }) {
   const set = (name: keyof FilterDraft) => (e: { target: { value: string } }) => onChange({ ...draft, [name]: e.target.value })
   const submit = (e: FormEvent) => { e.preventDefault(); onApply() }
+  const [expanded, setExpanded] = useState(false)
+  const active = activeMoreFilters(draft)
+  // A hidden filter that is set is still applied; open the group so it is visible.
+  const showMore = expanded || active > 0
   return <form aria-label="Usage filters" onSubmit={submit} className={`${card} grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
     <Field label="Time range"><select className={field} value={draft.preset} onChange={set('preset')}>{api.TIME_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select></Field>
     <Field label="Plane"><select className={field} value={draft.plane} onChange={set('plane')}><option value="">All planes</option><option value="llmplex">LLMPlex (models)</option><option value="mcplex">MCPlex (tools)</option><option value="a2aplex">A2APlex (agents)</option></select></Field>
     <Field label="Status"><select className={field} value={draft.status} onChange={set('status')}><option value="">Any status</option><option value="ok">ok</option><option value="error">error</option><option value="denied">denied</option><option value="unknown">unknown</option></select></Field>
     <Field label="Model"><input className={field} value={draft.model_id} onChange={set('model_id')} placeholder="e.g. gemini-2.5-flash" /></Field>
     <Field label="Tool"><input className={field} value={draft.tool_name} onChange={set('tool_name')} placeholder="e.g. search_curriculum" /></Field>
+    <Field label="Access point"><input className={field} value={draft.access_point_id} onChange={set('access_point_id')} placeholder="access point ID" /></Field>
+    <div className="sm:col-span-2 lg:col-span-4">
+      <button type="button" aria-expanded={showMore} aria-controls="usage-more-filters" className="text-sm underline" onClick={() => setExpanded(!showMore)}>
+        {showMore ? 'Fewer filters' : 'More filters'}{active > 0 ? ` (${active} active)` : ''}
+      </button>
+    </div>
+    {showMore && <div id="usage-more-filters" role="group" aria-label="More filters" className="grid gap-3 sm:col-span-2 lg:col-span-4 sm:grid-cols-2 lg:grid-cols-4">
     <Field label="Agent"><input className={field} value={draft.actor_id} onChange={set('actor_id')} placeholder="agent / actor ID" /></Field>
     <Field label="Principal"><input className={field} value={draft.principal_id} onChange={set('principal_id')} placeholder="user / principal ID" /></Field>
     <Field label="Client"><input className={field} value={draft.client_id} onChange={set('client_id')} placeholder="client ID" /></Field>
-    <Field label="Access point"><input className={field} value={draft.access_point_id} onChange={set('access_point_id')} placeholder="access point ID" /></Field>
     <Field label="Caller kind"><select className={field} value={draft.caller_kind} onChange={set('caller_kind')}><option value="">Any caller kind</option><option value="agent">agent</option><option value="user">user</option><option value="client">client</option></select></Field>
     <Field label="Source"><select className={field} value={draft.source} onChange={set('source')}><option value="">Any source</option><option value="managed">managed (through AIPlex)</option><option value="reported">reported (by the caller)</option></select></Field>
     <Field label="Error class"><input className={field} value={draft.error_class} onChange={set('error_class')} placeholder="e.g. rate_limited" /></Field>
     <Field label="Usage bound"><select className={field} value={draft.usage_bound} onChange={set('usage_bound')}><option value="">Any</option><option value="lower_bound">lower bound</option><option value="ambiguous">ambiguous</option><option value="partial">partial</option><option value="none">exact (no bound)</option></select></Field>
     <Field label="Batch"><select className={field} value={draft.batch} onChange={set('batch')}><option value="">Batch and not</option><option value="true">Provider batches only</option><option value="false">Not batches</option></select></Field>
+    </div>}
     <div className="flex items-end gap-3 sm:col-span-2 lg:col-span-4"><button type="submit" className={button}>Apply filters</button><button type="button" className="text-sm underline" onClick={() => { onChange(emptyDraft); }}>Reset fields</button></div>
   </form>
 }
@@ -100,7 +116,7 @@ function modalityCell(g: api.SummaryGroup): ReactNode {
 function unitsCell(g: api.SummaryGroup): ReactNode {
   const present = api.UNIT_COUNTERS.filter((n) => g.units?.[n] !== undefined)
   if (!present.length) return '—'
-  return present.map((n) => <div key={n}>{api.UNIT_LABEL[n]}: {api.formatUnit(n, g.units![n])} <span className={muted}>({api.formatCount(g.unit_records?.[n])} records)</span></div>)
+  return present.map((n) => <div key={n}>{api.UNIT_LABEL[n]}: {api.formatUnit(n, g.units![n])} <span className={muted}>({api.countNoun(g.unit_records?.[n], 'record')})</span></div>)
 }
 /** "2 lower bound, 1 partial" for the non-zero bound kinds of a group. */
 function boundedBreakdown(groups: readonly api.SummaryGroup[]): string {
@@ -142,16 +158,16 @@ function Headline({ summary }: { summary: api.UsageSummary }) {
   const units = api.unitHeadlines(summary.groups)
   const unitNames = api.UNIT_COUNTERS.filter((n) => units[n])
   const batchRecords = api.sumCounts(summary.groups.map((g) => g.batch_records))
-  const tokenLine = (label: string, t: api.TokenHeadline) => <p>{label} <strong>{t.reported ? api.formatCount(t.total.toString()) : api.UNKNOWN}</strong>{t.reported && t.unknownRecords > 0n && <span className={muted}> (+{api.formatCount(t.unknownRecords.toString())} records unreported)</span>}</p>
+  const tokenLine = (label: string, t: api.TokenHeadline) => <p>{label} <strong>{t.reported ? api.formatCount(t.total.toString()) : api.UNKNOWN}</strong>{t.reported && t.unknownRecords > 0n && <span className={muted}> (+{api.countNoun(t.unknownRecords.toString(), 'record')} unreported)</span>}</p>
   return <section aria-label="Usage totals" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-    <div className={card} role="group" aria-label="Requests"><p className={muted}>Requests</p><p className="mt-1 text-2xl font-semibold">{api.formatCount(requests.toString())}</p><p className={`${muted} mt-1`}>{api.formatCount(errors.toString())} errors · {api.formatCount(denied.toString())} denied · {api.formatCount(summary.records_scanned)} records scanned</p></div>
-    <div className={card} role="group" aria-label="Tokens"><p className={muted}>Tokens</p><div className="mt-1 text-lg">{tokenLine('Input', input)}{tokenLine('Output', output)}</div>{unknownUsage > 0n && <p className={`${muted} mt-1`}>{api.formatCount(unknownUsage.toString())} records reported no usage at all</p>}{bounded > 0n && <p role="note" className="mt-1 text-xs text-status-warning-fg">Not final: includes {api.formatCount(bounded.toString())} bounded {bounded === 1n ? 'record' : 'records'} ({boundedBreakdown(summary.groups)}). Their counters are summed as reported.</p>}</div>
+    <div className={card} role="group" aria-label="Requests"><p className={muted}>Requests</p><p className="mt-1 text-2xl font-semibold">{api.formatCount(requests.toString())}</p><p className={`${muted} mt-1`}>{api.countNoun(errors.toString(), 'error')} · {api.formatCount(denied.toString())} denied · {api.countNoun(summary.records_scanned, 'record')} scanned</p></div>
+    <div className={card} role="group" aria-label="Tokens"><p className={muted}>Tokens</p><div className="mt-1 text-lg">{tokenLine('Input', input)}{tokenLine('Output', output)}</div>{unknownUsage > 0n && <p className={`${muted} mt-1`}>{api.countNoun(unknownUsage.toString(), 'record')} reported no usage at all</p>}{bounded > 0n && <p role="note" className="mt-1 text-xs text-status-warning-fg">Not final: includes {api.countNoun(bounded.toString(), 'bounded record')} ({boundedBreakdown(summary.groups)}). Their counters are summed as reported.</p>}</div>
     {(unitNames.length > 0 || batchRecords > 0n) && <div className={card} role="group" aria-label="Units"><p className={muted}>Units (not tokens)</p>
-      {unitNames.length === 0 ? <p className="mt-1 text-sm">No unit usage reported</p> : <ul className="mt-1 space-y-1">{unitNames.map((n) => <li key={n}>{api.UNIT_LABEL[n]} <strong>{api.formatUnit(n, units[n]!.total.toString())}</strong> <span className={muted}>({api.formatCount(units[n]!.records.toString())} records)</span></li>)}</ul>}
-      <p className={`${muted} mt-1`}>Durations and image counts are separate from token totals and are never added to them.{batchRecords > 0n && ` ${api.formatCount(batchRecords.toString())} batch ${batchRecords === 1n ? 'record' : 'records'}.`}</p></div>}
+      {unitNames.length === 0 ? <p className="mt-1 text-sm">No unit usage reported</p> : <ul className="mt-1 space-y-1">{unitNames.map((n) => <li key={n}>{api.UNIT_LABEL[n]} <strong>{api.formatUnit(n, units[n]!.total.toString())}</strong> <span className={muted}>({api.countNoun(units[n]!.records.toString(), 'record')})</span></li>)}</ul>}
+      <p className={`${muted} mt-1`}>Durations and image counts are separate from token totals and are never added to them.{batchRecords > 0n && ` ${api.countNoun(batchRecords.toString(), 'batch record')}.`}</p></div>}
     <div className={card} role="group" aria-label="Cost"><p className={muted}>Cost (per currency and basis)</p>
-      {costs.length === 0 ? <p className="mt-1 text-lg">unknown</p> : <ul className="mt-1 space-y-1">{costs.map((c) => <li key={`${c.currency}-${c.basis}`} className="text-lg"><strong>{api.formatTotal(c)}</strong> <span className={`rounded px-1.5 py-0.5 text-xs ${c.basis === 'settled' ? 'bg-status-ok-bg text-status-ok-fg' : 'bg-status-warning-bg text-status-warning-fg'}`}>{c.basis}</span> <span className={muted}>{api.formatCount(c.records)} records</span></li>)}</ul>}
-      {unknownCost > 0n && <p className={`${muted} mt-1`}>{api.formatCount(unknownCost.toString())} records have unknown cost (no price configured and not settled by quota); they are not counted above.</p>}
+      {costs.length === 0 ? <p className="mt-1 text-lg">unknown</p> : <ul className="mt-1 space-y-1">{costs.map((c) => <li key={`${c.currency}-${c.basis}`} className="text-lg"><strong>{api.formatTotal(c)}</strong> <span className={`rounded px-1.5 py-0.5 text-xs ${c.basis === 'settled' ? 'bg-status-ok-bg text-status-ok-fg' : 'bg-status-warning-bg text-status-warning-fg'}`}>{c.basis}</span> <span className={muted}>{api.countNoun(c.records, 'record')}</span></li>)}</ul>}
+      {unknownCost > 0n && <p className={`${muted} mt-1`}>{api.countNoun(unknownCost.toString(), 'record')} {api.countVerb(unknownCost.toString())} unknown cost (no price configured and not settled by quota); they are not counted above.</p>}
     </div>
   </section>
 }
@@ -219,7 +235,7 @@ function SummarySection({ filter }: { filter: api.UsageFilter }) {
     {query.isPending ? <p role="status">Loading usage summary…</p>
       : query.isError ? <ErrorPanel error={query.error} what="usage summaries" onRetry={() => void query.refetch()} />
       : <>
-        {query.data.truncated && <p role="alert" className="rounded border border-status-warning-fg p-3 text-sm text-status-warning-fg">Truncated: totals cover only the newest {api.formatCount(query.data.records_scanned)} records scanned. Narrow the time range or add filters for complete totals.</p>}
+        {query.data.truncated && <p role="alert" className="rounded border border-status-warning-fg p-3 text-sm text-status-warning-fg">Truncated: totals cover only the newest {api.countNoun(query.data.records_scanned, 'record')} scanned. Narrow the time range or add filters for complete totals.</p>}
         {query.data.groups.length === 0 ? <p>No usage recorded for this selection.</p> : <><Headline summary={query.data} /><Breakdown summary={query.data} /></>}
       </>}
   </section>

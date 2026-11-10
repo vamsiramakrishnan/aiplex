@@ -257,6 +257,8 @@ await section('connect', async () => {
   await endpoints.getByRole('button', { name: /^Copy/ }).first().click()
   const copied = await page.evaluate(() => navigator.clipboard.readText())
   report.ok('endpoint Copy button puts the URL on the clipboard', copied.startsWith(`${h.api_url}/ap/team-research/`), copied)
+  const answered = await fetch(copied, { headers: { Authorization: `Bearer ${h.admin_token}` } }).catch((e) => ({ status: String(e) }))
+  report.ok('the copied endpoint URL answers a real request', answered.status === 200, `${copied} -> ${answered.status}`)
   report.ok('endpoints list no URL on the console origin', !(await endpoints.textContent()).includes(base))
   await page.getByRole('button', { name: 'Connect a client' }).click()
   const dialog = page.getByRole('dialog', { name: /Connect a client to team-research/ })

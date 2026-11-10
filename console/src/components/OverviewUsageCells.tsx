@@ -1,4 +1,4 @@
-import { UNKNOWN, formatCount, formatTotal } from '../api/usage'
+import { UNKNOWN, countNoun, formatCount, formatTotal } from '../api/usage'
 import type { OverviewUsage, OverviewUsageGroup } from '../api/overview'
 
 const hasRecords = (u: OverviewUsage) => Number(u.records) > 0 || (typeof u.records === 'string' && u.records !== '0')
@@ -30,7 +30,7 @@ export function CostText({ usage }: { usage: OverviewUsage | null | undefined })
   return (
     <>
       {costs.map(c => <div key={`${c.currency}-${c.basis}`}>{formatTotal(c)} <span className="text-xs text-gray-600 dark:text-gray-400">{c.basis}</span></div>)}
-      {Number(usage.unknown_cost_records) > 0 && <div className="text-xs text-gray-600 dark:text-gray-400">+{formatCount(usage.unknown_cost_records)} records with unknown cost</div>}
+      {Number(usage.unknown_cost_records) > 0 && <div className="text-xs text-gray-600 dark:text-gray-400">+{countNoun(usage.unknown_cost_records, 'record')} with unknown cost</div>}
     </>
   )
 }

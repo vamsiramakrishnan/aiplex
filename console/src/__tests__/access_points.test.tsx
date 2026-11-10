@@ -343,7 +343,7 @@ describe('usage panel', () => {
     expect(cost).toHaveTextContent('USD 0.001500')
     expect(cost).toHaveTextContent('EUR 0.20')
     expect(cost).not.toHaveTextContent(/USD 0\.2/)       // no cross-currency sum
-    expect(cost).toHaveTextContent(/1 records have unknown cost/)
+    expect(cost).toHaveTextContent(/1 record has unknown cost/)
     const table = screen.getByRole('table', { name: 'Usage by Caller kind' })
     const clientRow = within(table).getByText('client').closest('tr')!
     expect(clientRow).toHaveTextContent('unknown')       // no tokens reported at all

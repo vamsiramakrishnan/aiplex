@@ -298,6 +298,18 @@ export function formatCount(value: Count | null | undefined): string {
   return text.startsWith('-') ? `-${group3(text.slice(1))}` : group3(text)
 }
 
+/**
+ * A count with its noun, pluralised: "1 record", "5 records". An unknown count
+ * is "unknown records", never "0 records". The one place count strings are built.
+ */
+export function countNoun(value: Count | null | undefined, singular: string, plural = singular + 's'): string {
+  const text = value === null || value === undefined ? '' : String(value)
+  return `${formatCount(value)} ${text === '1' ? singular : plural}`
+}
+
+/** "has" for exactly one, "have" otherwise, to agree with countNoun. */
+export const countVerb = (value: Count | null | undefined): string => (String(value) === '1' ? 'has' : 'have')
+
 /** Milliseconds as a duration ("1m 30s"); an exact millisecond remainder is kept. null/undefined is unknown, never 0. */
 export function formatDuration(ms: Count | null | undefined): string {
   if (ms === null || ms === undefined) return UNKNOWN

@@ -186,3 +186,23 @@ export function connectErrorMessage(error: unknown): string {
     default: return msg
   }
 }
+
+/** Order in which the Overview looks for the first caller kind that has rows. */
+export const DEFAULT_TAB_ORDER: readonly SubjectKind[] = ['user', 'agent', 'client']
+
+/**
+ * The tab the Overview opens on: the first of Users, Agents, Clients with at
+ * least one row. `counts` holds the row count per kind, or undefined while that
+ * kind is still loading. Returns null while the answer could still change (a
+ * higher-priority kind is loading and nothing before it has rows), so the page
+ * can wait instead of flashing an empty tab. When every kind has loaded and
+ * none has rows, Users.
+ */
+export function firstTabWithRows(counts: Partial<Record<SubjectKind, number | undefined>>): SubjectKind | null {
+  for (const kind of DEFAULT_TAB_ORDER) {
+    const n = counts[kind]
+    if (n === undefined) return null
+    if (n > 0) return kind
+  }
+  return 'user'
+}
