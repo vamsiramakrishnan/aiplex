@@ -145,9 +145,41 @@ func normalizeVertexOpenAIChat(value *UsageObservation) error {
 	return nil
 }
 
+// embeddingOperation reports the input-only embedding operations metered by
+// the embedding-input profile.
+func embeddingOperation(op Operation) bool {
+	switch op.ID {
+	case "openai.v1.embeddings", "azure.v1.embeddings", "azure.deployments.embeddings", "gemini.models.embedContent", "gemini.models.batchEmbedContents", "models.predict", "endpoints.predict", "models.embedContent":
+		return true
+	}
+	return false
+}
+
+// normalizeEmbedding settles input-only usage: input tokens are reported
+// (OpenAI prompt_tokens, Gemini usageMetadata.promptTokenCount, Vertex
+// predictions[].embeddings.statistics.token_count summed); no output exists.
+// A reported total must equal the input; any output counter fails closed.
+func normalizeEmbedding(value *UsageObservation) error {
+	c := value.Counters
+	input, ok := c["input_tokens"]
+	if !ok || input < 0 {
+		return fmt.Errorf("embedding input usage required")
+	}
+	if total, reported := c["total_tokens"]; reported && total != input {
+		return fmt.Errorf("embedding total conflicts with input")
+	}
+	if c["output_tokens"] != 0 || c["thought_tokens"] != 0 || c["cached_tokens"] != 0 || c["tool_use_tokens"] != 0 {
+		return fmt.Errorf("embedding usage carries non-input quantities")
+	}
+	value.Cumulative = true
+	return nil
+}
+
 func normalizeControlledFinal(op Operation, value *UsageObservation) error {
 	switch {
-	case geminiGeneration(op) || op.ID == "interaction.create":
+	case embeddingOperation(op):
+		return normalizeEmbedding(value)
+	case geminiGeneration(op) || op.ID == "interaction.create" || op.ID == "gemini.interactions.create":
 		return normalizeGeminiFinal(value)
 	case op.ID == "openai.chat-completions":
 		return normalizeVertexOpenAIChat(value)

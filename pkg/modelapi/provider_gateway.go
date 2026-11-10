@@ -100,7 +100,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	var run *executionRun
 	if lease != nil {
 		run = &executionRun{lease: lease, ctx: r.Context()}
-		if bedrockConverse(op) {
+		if bedrockConverse(op) || embeddingOperation(op) {
 			run.dispatchedModel = metadata.Model
 		}
 		defer run.close()

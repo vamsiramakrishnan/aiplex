@@ -435,7 +435,7 @@ func usageRoutes() []fixtureRoute {
 		// exactly and settled before delivery; the quota host admits it.
 		exact("google", "vertex-generate.stream.json", "vertex-streamGenerateContent", "json-array", with(callVertexStream, func(c *fixtureCall) { c.media = "application/json" }), convGemini, natGemini, true, strictSettles, ""),
 		advisory("google", "vertex-count-tokens.json", "vertex-countTokens", "json", callVertexCount, convNoConsumption, natGemini, false, "countTokens is an input-size estimate, never consumption; only the request is counted"),
-		advisory("google", "vertex-embed-predict.json", "vertex-predict", "json", callVertexPredict, convGemini, natGemini, true, requestCount),
+		exact("google", "vertex-embed-predict.json", "vertex-predict", "json", callVertexPredict, convGemini, natGemini, true, strictSettles, ""),
 		unsupported("google", "vertex-batch-gcs.jsonl", "vertex-batch", "jsonl-file", "batch output rows are Cloud Storage artifacts, not gateway responses; batch.create counts the submission only"),
 		exact("google", "vertex-openai-chat.json", "vertex-openai-chat", "json", callVertexChat, convVertexOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("google", "vertex-openai-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {

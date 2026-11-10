@@ -19,6 +19,8 @@ const (
 	// quotaProfileLiveAllowance meters a Gemini Live session in renewable
 	// allowance windows held from the saved surface configuration.
 	quotaProfileLiveAllowance = "gemini-live-allowance"
+	// quotaProfileEmbedding meters input-only embedding exchanges.
+	quotaProfileEmbedding = "embedding-input"
 )
 
 var (
@@ -29,7 +31,7 @@ var (
 
 func quotaStrictProfile(profile string) bool {
 	switch profile {
-	case quotaProfileGemini, quotaProfileOpenAI, quotaProfileAnthropic, quotaProfileInteraction, quotaProfileBedrockConverse, quotaProfileVertexOpenAI, quotaProfileRealtime, quotaProfileLiveAllowance:
+	case quotaProfileGemini, quotaProfileOpenAI, quotaProfileAnthropic, quotaProfileInteraction, quotaProfileBedrockConverse, quotaProfileVertexOpenAI, quotaProfileRealtime, quotaProfileLiveAllowance, quotaProfileEmbedding:
 		return true
 	}
 	return false
@@ -44,6 +46,8 @@ func quotaProfileCounters(profile string) []string {
 		return []string{"uncached_input_tokens", "cached_tokens", "output_tokens"}
 	case quotaProfileVertexOpenAI:
 		return []string{"input_tokens", "output_tokens"}
+	case quotaProfileEmbedding:
+		return []string{"input_tokens"}
 	case quotaProfileRealtime:
 		return append(append([]string(nil), quotaRealtimeInputCounters...), quotaRealtimeOutputCounters...)
 	}
@@ -57,6 +61,8 @@ func quotaProfileOutputCounters(profile string) []string {
 		return []string{"output_tokens", "thought_tokens"}
 	case quotaProfileRealtime:
 		return quotaRealtimeOutputCounters
+	case quotaProfileEmbedding:
+		return nil
 	}
 	return []string{"output_tokens"}
 }
@@ -126,7 +132,7 @@ func quotaBindingCacheWrites(binding QuotaBinding) ([]string, bool) {
 
 // quotaProfileInputCounters are the disjoint subsets of one input ceiling.
 func quotaProfileInputCounters(binding QuotaBinding) []string {
-	if binding.Profile == quotaProfileVertexOpenAI {
+	if binding.Profile == quotaProfileVertexOpenAI || binding.Profile == quotaProfileEmbedding {
 		return []string{"input_tokens"}
 	}
 	if binding.Profile == quotaProfileRealtime {
@@ -140,6 +146,10 @@ func quotaProfileInputCounters(binding QuotaBinding) []string {
 func quotaProfileOperation(binding QuotaBinding) bool {
 	switch binding.Profile {
 	case quotaProfileGemini:
+		if binding.Provider == "gemini-developer" {
+			// Gemini Developer API: same GenerateContentResponse usage.
+			return binding.OperationID == "gemini.models.generateContent" || binding.OperationID == "gemini.models.streamGenerateContent"
+		}
 		return binding.Provider == "google" && (binding.OperationID == "models.generateContent" || binding.OperationID == "models.streamGenerateContent" || binding.OperationID == "endpoints.generateContent" || binding.OperationID == "endpoints.streamGenerateContent")
 	case quotaProfileOpenAI:
 		// Provider operations share the OpenAI wire format and usage composition.
@@ -173,7 +183,19 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 	case quotaProfileVertexOpenAI:
 		return binding.Provider == "google" && binding.OperationID == "openai.chat-completions"
 	case quotaProfileInteraction:
-		return binding.Provider == "google" && binding.OperationID == "interaction.create"
+		return (binding.Provider == "google" && binding.OperationID == "interaction.create") || (binding.Provider == "gemini-developer" && binding.OperationID == "gemini.interactions.create")
+	case quotaProfileEmbedding:
+		switch binding.OperationID {
+		case "openai.v1.embeddings":
+			return binding.Provider == "openai"
+		case "azure.v1.embeddings", "azure.deployments.embeddings":
+			return binding.Provider == "azure-openai"
+		case "gemini.models.embedContent", "gemini.models.batchEmbedContents":
+			return binding.Provider == "gemini-developer"
+		case "models.predict", "endpoints.predict", "models.embedContent":
+			return binding.Provider == "google"
+		}
+		return false
 	case quotaProfileRealtime:
 		return binding.OperationID == "openai.v1.realtime"
 	case quotaProfileLiveAllowance:

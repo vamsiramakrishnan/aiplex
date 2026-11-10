@@ -50,8 +50,8 @@ cannot hold).
 | --- | --- | --- | --- |
 | anthropic | 8 | 1 | 4 |
 | azure-openai | 5 | 0 | 0 |
-| google | 10 | 10 | 4 |
-| openai | 6 | 4 | 7 |
+| google | 17 | 3 | 4 |
+| openai | 7 | 3 | 7 |
 | openai-compatible | 2 | 0 | 0 |
 
 ## Matrix
@@ -79,14 +79,14 @@ cannot hold).
 | google | gemini-batch | json | unsupported | `gemini-batch-inlined.json` | no Developer API batch operation; job resources carry no token totals |
 | google | gemini-cachedContents | json | advisory | `gemini-cachedcontent-create.json` | cachedContents create/get/list/update/delete are request-count and never read for usage: usageMetadata.totalTokenCount is the cache size, repeated on every get/list, and how creation is billed is UNCONFIRMED |
 | google | gemini-countTokens | json | advisory | `gemini-count-tokens.json` | countTokens: an input-size estimate, never consumption; only the request is counted and the response is never read for usage |
-| google | gemini-embedContent | json | advisory | `gemini-embed.json` | input tokens only (usageMetadata.promptTokenCount); operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
-| google | gemini-generateContent | json | advisory | `gemini-generate-error-429.json`<br>`gemini-generate-tooluse.json`<br>`gemini-generate.json` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
-| google | gemini-interactions | json | advisory | `gemini-interactions.json` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
-| google | gemini-interactions | sse | advisory | `gemini-interactions-interrupted.sse`<br>`gemini-interactions.sse` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
+| google | gemini-embedContent | json | exact | `gemini-embed.json` |  |
+| google | gemini-generateContent | json | exact | `gemini-generate-error-429.json`<br>`gemini-generate-tooluse.json`<br>`gemini-generate.json` | observation exact; strict settlement fails closed for this fixture: toolUsePromptTokenCount is positive: Gemini tool-use prompt tokens are outside the gemini-text profile (fail closed) |
+| google | gemini-interactions | json | exact | `gemini-interactions.json` |  |
+| google | gemini-interactions | sse | exact | `gemini-interactions-interrupted.sse`<br>`gemini-interactions.sse` |  |
 | google | gemini-live | websocket | unsupported | `gemini-live-interrupted.ws.jsonl (format-checked)`<br>`gemini-live.ws.jsonl (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it (Live messages replayed through the Vertex Live relay) |
 | google | gemini-predictLongRunning | json | unsupported | `gemini-veo-operation.json` | no Developer API surface; video is billed per output second and the operation result carries no usage |
-| google | gemini-streamGenerateContent | json-array | advisory | `gemini-generate.stream.json` | JSON-array framing (no alt=sse) is observed exactly; operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
-| google | gemini-streamGenerateContent | sse | advisory | `gemini-generate-interrupted.sse`<br>`gemini-generate.sse` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
+| google | gemini-streamGenerateContent | json-array | exact | `gemini-generate.stream.json` |  |
+| google | gemini-streamGenerateContent | sse | exact | `gemini-generate-interrupted.sse`<br>`gemini-generate.sse` |  |
 | google | vertex-batch | jsonl-file | unsupported | `vertex-batch-gcs.jsonl` | batch output rows are Cloud Storage artifacts, not gateway responses; batch.create counts the submission only |
 | google | vertex-countTokens | json | advisory | `vertex-count-tokens.json` | countTokens is an input-size estimate, never consumption; only the request is counted |
 | google | vertex-generateContent | json | exact | `vertex-generate-error-429.json`<br>`vertex-generate-flex.json`<br>`vertex-generate-image.json`<br>`vertex-generate.json` |  |
@@ -95,7 +95,7 @@ cannot hold).
 | google | vertex-live | websocket | exact | `vertex-live-interrupted.ws.jsonl`<br>`vertex-live.ws.jsonl` |  |
 | google | vertex-openai-chat | json | exact | `vertex-maas-chat.json`<br>`vertex-openai-chat.json` |  |
 | google | vertex-openai-chat | sse | exact | `vertex-maas-chat.sse`<br>`vertex-openai-chat-interrupted.sse`<br>`vertex-openai-chat.sse` |  |
-| google | vertex-predict | json | advisory | `vertex-embed-predict.json` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry |
+| google | vertex-predict | json | exact | `vertex-embed-predict.json` |  |
 | google | vertex-rawPredict | json | exact | `vertex-claude-rawpredict.json` |  |
 | google | vertex-streamGenerateContent | json-array | exact | `vertex-generate.stream.json` |  |
 | google | vertex-streamGenerateContent | sse | exact | `vertex-generate-cumulative.sse`<br>`vertex-generate-interrupted.sse`<br>`vertex-generate.sse` |  |
@@ -106,7 +106,7 @@ cannot hold).
 | openai | batch | jsonl-file | unsupported | `batch.errors.jsonl`<br>`batch.output.jsonl` | batch output files are downloaded artifacts, not gateway responses; no /v1/batches operation<br>batch error files are downloaded artifacts, not gateway responses |
 | openai | chat-completions | json | exact | `chat.json` |  |
 | openai | chat-completions | sse | exact | `chat.interrupted.sse`<br>`chat.nousage.sse`<br>`chat.sse` |  |
-| openai | embeddings | json | advisory | `embeddings.json` | input tokens only (prompt_tokens, total_tokens); operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation): embeddings report no output counter, which the token profiles require |
+| openai | embeddings | json | exact | `embeddings.json` |  |
 | openai | images | json | unsupported | `images.json` | no /v1/images operation; non-GPT image models bill per image |
 | openai | images | sse | unsupported | `images.interrupted.sse`<br>`images.sse` | no /v1/images operation |
 | openai | live-voice-sessions | websocket | unsupported | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens |

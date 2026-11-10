@@ -275,6 +275,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var run *executionRun
 	if lease != nil {
 		run = &executionRun{lease: lease, ctx: r.Context()}
+		if embeddingOperation(op) {
+			// Embedding responses carry no model identifier.
+			run.dispatchedModel = g.normalizeModel(metadata.Model)
+		}
 		defer run.close()
 		if receipt, ok := lease.(execution.Receipt); ok {
 			id := receipt.AttemptID()

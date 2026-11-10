@@ -133,7 +133,7 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 			}
 			return h.authorizeAllCurrent(callCtx, r, required...)
 		}
-		if input.Operation.ID == "models.streamGenerateContent" || input.Operation.ID == "endpoints.streamGenerateContent" {
+		if input.Operation.ID == "models.streamGenerateContent" || input.Operation.ID == "endpoints.streamGenerateContent" || input.Operation.ID == "gemini.models.streamGenerateContent" {
 			query, err := url.ParseQuery(input.RawQuery)
 			// alt=sse streams frames; without alt the response is one JSON
 			// array, which a lease buffers (bounded by the body limit),

@@ -287,19 +287,27 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 		if key == "model" && binding.OperationID == "openai.v1.realtime" && len(values) == 1 && values[0] == binding.Model {
 			continue // the Realtime connect-time model selector
 		}
+		if key == "alt" && binding.OperationID == "gemini.interactions.create" && len(values) == 1 && values[0] == "sse" {
+			continue // Developer API Interactions streaming selector
+		}
+		if key == "api-version" && binding.OperationID == "azure.deployments.embeddings" {
+			continue // operator-pinned; caller values never cross upstream
+		}
 		if binding.Profile != quotaProfileGemini || key != "alt" || len(values) != 1 || (values[0] != "json" && values[0] != "sse") {
 			return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "partial responses and unknown query options are unsupported")
 		}
 	}
 	// streamGenerateContent is admitted with alt=sse (SSE frames) or without
 	// it (one JSON array, buffered and observed whole before delivery).
-	if (in.OperationID == "models.generateContent" || in.OperationID == "endpoints.generateContent") && query.Get("alt") == "sse" {
+	if (in.OperationID == "models.generateContent" || in.OperationID == "endpoints.generateContent" || in.OperationID == "gemini.models.generateContent") && query.Get("alt") == "sse" {
 		return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "request transport does not match protected native response semantics")
 	}
 	var output int64
 	var err error
 	if binding.Profile == quotaProfileGemini {
 		output, err = quotaGeminiTextOutput(in.Body)
+	} else if binding.Profile == quotaProfileEmbedding {
+		output, err = 0, quotaEmbeddingRequest(binding.OperationID, in.Body)
 	} else {
 		output, err = quotaProviderTextOutput(binding, in.Body)
 	}
