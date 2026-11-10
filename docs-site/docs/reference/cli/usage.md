@@ -411,6 +411,11 @@ Usage:
   aiplex usage prices catalog [flags]
   aiplex usage prices catalog [command]
 
+Examples:
+  aiplex usage prices catalog search claude --provider anthropic
+  aiplex usage prices catalog show openai/gpt-4o-mini
+  aiplex usage prices catalog import openai/gpt-4o-mini --dry-run
+
 Available Commands:
   search      Search catalogue models by id
   show        Show one catalogue model and what importing it would write

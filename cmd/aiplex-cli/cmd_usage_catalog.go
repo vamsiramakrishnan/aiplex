@@ -26,6 +26,9 @@ model_prices_and_context_window.json, MIT licence). Nothing is priced from it
 automatically: a model stays unknown until you import its price, which creates
 an ordinary price resource marked with its source and snapshot date. The cost
 basis stays "estimated": these are list prices, not invoices.`,
+		Example: `  aiplex usage prices catalog search claude --provider anthropic
+  aiplex usage prices catalog show openai/gpt-4o-mini
+  aiplex usage prices catalog import openai/gpt-4o-mini --dry-run`,
 	}
 	cmd.AddCommand(usageCatalogSearchCmd(), usageCatalogShowCmd(), usageCatalogImportCmd())
 	return cmd
