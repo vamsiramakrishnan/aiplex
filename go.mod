@@ -21,6 +21,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.21.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/muesli/termenv v0.16.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/rs/zerolog v1.33.0
 	github.com/sethvargo/go-envconfig v1.1.0
 	github.com/spf13/cobra v1.10.2
@@ -84,7 +85,6 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
