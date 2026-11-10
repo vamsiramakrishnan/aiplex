@@ -134,7 +134,12 @@ func runDev(parent context.Context, o devOptions) error {
 	fmt.Println("  AIPlex local development")
 	fmt.Println()
 	started := time.Now()
-	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile})
+	var origins []string
+	if !o.noConsole {
+		p := strconv.Itoa(o.consolePort)
+		origins = []string{"http://127.0.0.1:" + p, "http://localhost:" + p}
+	}
+	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins})
 	if err != nil {
 		return fmt.Errorf("%w\n  API log: %s", err, logPath)
 	}
@@ -374,6 +379,8 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		row("Console", consoleNote)
 	}
 	row("API log", logPath)
+	fmt.Println()
+	fmt.Println("  WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy " + strings.TrimPrefix(s.APIURL, "http://") + ".")
 	fmt.Printf("\n  Ready in %.1fs. In another terminal:\n\n", took.Seconds())
 	fmt.Println(`    eval "$(aiplex dev env)"`)
 	fmt.Println()

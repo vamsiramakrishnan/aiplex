@@ -297,7 +297,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		rateLimit = 1200
 	}
 	r.Use(api.RateLimit(rateLimit))
-	r.Use(api.Compress)                                       // Response compression hints
+	r.Use(api.Compress) // Response compression hints
 	// Route authorization by mounted pattern (route_policy.go). It needs the
 	// verified identity, so it runs after WIFAuthMode.
 	r.Use(api.RoutePolicy(r, routePolicy(cfg)))

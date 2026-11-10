@@ -59,6 +59,9 @@ type Options struct {
 	// UpstreamTimeout bounds outbound connects and response headers (default
 	// 15s, the endpoint policy default).
 	UpstreamTimeout time.Duration
+	// ConsoleOrigins are the browser origins allowed by CORS (CONSOLE_ORIGINS),
+	// set explicitly so the setup does not rely on the development wildcard.
+	ConsoleOrigins []string
 	// ExtraOrigins are additional loopback or HTTPS origins the outbound
 	// policy approves (for test upstreams).
 	ExtraOrigins []string
@@ -220,6 +223,9 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 		// Hand the key to the API process only, under the development secret
 		// name its secret reference resolves from. Never written to disk.
 		env = append(env, s.providerE+"="+os.Getenv(opts.APIKeyEnv))
+	}
+	if len(opts.ConsoleOrigins) > 0 {
+		env = append(env, "CONSOLE_ORIGINS="+strings.Join(opts.ConsoleOrigins, ","))
 	}
 	env = append(env, opts.Env...)
 	s.env = env
