@@ -23,8 +23,8 @@ Available Commands:
   surfaces    Manage model surfaces (provider endpoints, operations, auth references)
   capacity    Show a surface's last observed provider limits and cooldown state (admin)
   batches     Provider batch jobs created through the gateway
-  costs       Show LLM usage and cost summary
-  usage       List recorded model usage
+  costs       Show model usage and cost totals from the usage ledger
+  usage       List recorded model usage from the usage ledger
 
 Flags:
   -h, --help   help for llm
@@ -486,7 +486,10 @@ Exit codes:
 ### `aiplex llm costs`
 
 ```text
-Show LLM usage and cost summary
+Totals of model requests, tokens and cost over a period, read from the usage
+ledger (the same data as "aiplex usage summary --plane llm"). A cost or token
+count the ledger does not have is shown as "unknown", never as zero, and the
+output says how many records it excludes.
 
 Usage:
   aiplex llm costs [flags]
@@ -521,7 +524,9 @@ Exit codes:
 ### `aiplex llm usage`
 
 ```text
-List recorded model usage
+Model requests from the usage ledger, newest first (the same data as
+"aiplex usage records --plane llm"). Costs and token counts the ledger does not
+have are shown as "unknown".
 
 Usage:
   aiplex llm usage [flags]

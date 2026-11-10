@@ -242,6 +242,11 @@ aiplex usage records --access-point ide-team --caller-kind agent --since 24h
 # (--by model,status is the same as --by model_id,status)
 aiplex usage summary --by model,status --bucket day --since 7d
 
+# Model-plane totals over a period, same data as `aiplex usage summary --plane llm`.
+# A cost or token count the ledger lacks is "unknown", never $0.00, and the
+# output says how many records it leaves out. `aiplex llm usage` lists the records.
+aiplex llm costs --period week
+
 # Totals per access point and caller kind
 aiplex usage summary --by access-point,caller-kind --since 7d
 

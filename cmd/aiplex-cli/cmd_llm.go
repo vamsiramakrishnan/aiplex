@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 	"os"
 	"time"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 
 	"github.com/spf13/cobra"
 )
@@ -60,33 +62,96 @@ func llmRoutesCmd() *cobra.Command {
 	}
 }
 
+// llmPeriodWindow maps the --period names onto a ledger window.
+func llmPeriodWindow(period string, now time.Time) (time.Time, error) {
+	switch period {
+	case "", "day":
+		return now.Add(-24 * time.Hour), nil
+	case "week":
+		return now.Add(-7 * 24 * time.Hour), nil
+	case "month":
+		return now.Add(-30 * 24 * time.Hour), nil
+	}
+	return time.Time{}, usageError("--period must be day, week or month", "For another window use: aiplex usage summary --since 90d")
+}
+
+// llmCostsText renders the ledger totals of the model plane. Unknown is
+// never shown as zero: a counter or cost no record reported is "unknown", and
+// records that lacked a price or token usage are counted.
+func llmCostsText(summary *aiplex.UsageLedgerSummary, label string) {
+	var g usageledger.SummaryGroup
+	for _, group := range summary.Groups {
+		if g.Key == nil {
+			g = group
+		}
+	}
+	fmt.Printf("LLM Usage Summary (%s)\n", label)
+	fmt.Println("════════════════════════════════════════")
+	if len(summary.Groups) == 0 {
+		fmt.Println("  No model usage records in this window.")
+		fmt.Println("  Records: aiplex usage records --plane llm")
+		return
+	}
+	// The total is only shown when every record reported both counters.
+	total := usageUnknown
+	in, haveIn := g.Tokens[usageledger.CounterInput]
+	out, haveOut := g.Tokens[usageledger.CounterOutput]
+	if haveIn && haveOut && g.TokensUnknown[usageledger.CounterInput] == 0 && g.TokensUnknown[usageledger.CounterOutput] == 0 {
+		total = fmt.Sprint(in + out)
+	} else if haveIn || haveOut {
+		total = usageUnknown + " (not every record reported input and output tokens)"
+	}
+	fmt.Printf("  Total Cost:    %s\n", usageCostTotals(g))
+	fmt.Printf("  Total Tokens:  %s\n", total)
+	fmt.Printf("  Input Tokens:  %s\n", usageTokens(g, usageledger.CounterInput))
+	fmt.Printf("  Output Tokens: %s\n", usageTokens(g, usageledger.CounterOutput))
+	fmt.Printf("  Requests:      %d\n", g.Requests)
+	if g.UnknownCostRecords > 0 {
+		fmt.Printf("  NOTE: %d of %d records have an unknown cost (no price); the total excludes them.\n", g.UnknownCostRecords, g.Records)
+	}
+	if g.UnknownUsageRecords > 0 {
+		fmt.Printf("  NOTE: %d of %d records reported no token usage; the token totals exclude them.\n", g.UnknownUsageRecords, g.Records)
+	}
+	if g.BoundedUsageRecords > 0 {
+		fmt.Println("  NOTE: some totals include bounded usage (lower_bound, ambiguous or partial); those counters are not final.")
+	}
+	if summary.Truncated {
+		fmt.Println("  WARNING: truncated - totals cover only the newest records scanned.")
+	}
+	fmt.Println("  Grouped detail: aiplex usage summary --plane llm --by model,agent")
+}
+
 func llmCostsCmd() *cobra.Command {
 	var period, modelID, agentID string
 
 	cmd := &cobra.Command{
 		Use:   "costs",
-		Short: "Show LLM usage and cost summary",
+		Short: "Show model usage and cost totals from the usage ledger",
+		Long: `Totals of model requests, tokens and cost over a period, read from the usage
+ledger (the same data as "aiplex usage summary --plane llm"). A cost or token
+count the ledger does not have is shown as "unknown", never as zero, and the
+output says how many records it excludes.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := newClient()
-			summary, err := c.GetUsageSummaryWithOpts(cmd.Context(), &aiplex.UsageSummaryOpts{Period: period, ModelID: modelID, AgentID: agentID})
+			now := time.Now()
+			since, err := llmPeriodWindow(period, now)
+			if err != nil {
+				return err
+			}
+			filter := aiplex.UsageFilter{Plane: usageledger.PlaneLLM, ModelID: modelID, ActorID: agentID, Since: since}
+			summary, err := newClient().SummarizeUsage(cmd.Context(), aiplex.UsageSummaryQuery{UsageFilter: filter})
 			if err != nil {
 				return fmt.Errorf("get costs: %w", err)
 			}
-
-			if output == "json" {
-				printJSON(summary)
+			if usageMachineOutput() {
+				usagePrint(summary)
 				return nil
 			}
-
-			fmt.Printf("LLM Usage Summary (%s)\n", summary.Period)
-			fmt.Println("════════════════════════════════════════")
-			fmt.Printf("  Total Cost:    $%.2f\n", summary.TotalCostUSD)
-			fmt.Printf("  Total Tokens:  %d\n", summary.TotalTokens)
-			fmt.Printf("  Input Tokens:  %d\n", summary.InputTokens)
-			fmt.Printf("  Output Tokens: %d\n", summary.OutputTokens)
-			fmt.Printf("  Requests:      %d\n", summary.RequestCount)
-			fmt.Printf("  Cache Hits:    %d\n", summary.CacheHits)
-			fmt.Printf("  Avg Latency:   %.0fms\n", summary.AvgLatencyMs)
+			label := period
+			if label == "" {
+				label = "day"
+			}
+			llmCostsText(summary, "last "+label)
 			return nil
 		},
 	}
@@ -100,39 +165,37 @@ func llmCostsCmd() *cobra.Command {
 func llmUsageCmd() *cobra.Command {
 	var modelID, agentID, since string
 	var limit int
-	cmd := &cobra.Command{Use: "usage", Short: "List recorded model usage", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		opts := &aiplex.ListUsageRecordsOpts{ModelID: modelID, AgentID: agentID, Limit: limit}
+	cmd := &cobra.Command{Use: "usage", Short: "List recorded model usage from the usage ledger", Long: `Model requests from the usage ledger, newest first (the same data as
+"aiplex usage records --plane llm"). Costs and token counts the ledger does not
+have are shown as "unknown".`, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		filter := aiplex.UsageFilter{Plane: usageledger.PlaneLLM, ModelID: modelID, ActorID: agentID}
 		if since != "" {
 			parsed, err := parseUsageTime(since, time.Now())
 			if err != nil {
 				return usageError("--since: " + err.Error())
 			}
-			opts.Since = parsed
+			filter.Since = parsed
 		}
-		rows, err := newClient().ListUsageRecords(cmd.Context(), opts)
+		page, err := newClient().QueryUsageRecords(cmd.Context(), aiplex.UsageRecordsQuery{UsageFilter: filter, Limit: limit})
 		if err != nil {
 			return fmt.Errorf("list model usage: %w", err)
 		}
-		if rows == nil {
-			rows = []aiplex.UsageRecord{}
+		records := page.Records
+		if records == nil {
+			records = []usageledger.Record{}
 		}
-		if machineOutput() {
-			if output == "yaml" {
-				printYAML(rows)
-			} else {
-				printJSON(rows)
-			}
+		if usageMachineOutput() {
+			usagePrint(records)
 			return nil
 		}
-		if len(rows) == 0 {
-			fmt.Println("No legacy model usage records. The usage ledger (every plane, with cost) is: aiplex usage records")
+		if len(records) == 0 {
+			fmt.Println("No model usage records match.")
 			return nil
 		}
-		t := newTable(col("TIME"), col("MODEL"), col("AGENT"), col("IN"), col("OUT"), col("LATENCY"), wideCol("ID"), wideCol("USER"))
-		for _, r := range rows {
-			t.add(relTime(r.Timestamp), r.ModelID, spDash(r.AgentID), fmt.Sprint(r.InputTokens), fmt.Sprint(r.OutputTokens), humanDuration(int64(r.LatencyMs)), r.ID, spDash(r.UserID))
+		usageRecordTable(records).render(os.Stdout)
+		if page.NextCursor != "" {
+			fmt.Println("\nMore records available: aiplex usage records --plane llm --cursor " + page.NextCursor)
 		}
-		t.render(os.Stdout)
 		return nil
 	}}
 	cmd.Flags().StringVar(&modelID, "model", "", "Filter by model ID")

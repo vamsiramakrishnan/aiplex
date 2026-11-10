@@ -21,8 +21,8 @@ aiplex llm surfaces list
 aiplex llm surfaces get openai-prod   # a readable summary; -o json or -o yaml for the full specification
 aiplex llm surfaces create openai-prod --provider openai --models gpt-4o-mini --secret-ref openai-key
 aiplex llm surfaces apply --help      # create or replace a surface from a file
-aiplex llm usage                      # recorded model usage
-aiplex llm costs                      # usage and cost summary
+aiplex llm usage                      # model usage records, from the usage ledger
+aiplex llm costs                      # model usage and cost totals, from the usage ledger
 aiplex llm capacity --help            # last observed provider limits and cooldown (admin)
 aiplex llm batches list
 ```
