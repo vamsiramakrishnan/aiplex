@@ -343,7 +343,7 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 	t := newTable(
 		wideCol("ID").trunc(truncNever), col("TIME"), wideCol("PLANE"), col("MODEL/TOOL"), col("CALLER").trunc(truncMiddle),
 		wideCol("AGENT"), wideCol("USER").trunc(truncNever), wideCol("CLIENT"), col("ACCESS POINT"), wideCol("SESSION"), wideCol("BATCH"),
-		col("STATUS"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST"), col("LATENCY"),
+		col("STATUS"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST").trunc(truncNever), wideCol("LATENCY"),
 	)
 	for _, r := range records {
 		cost := usageCost(r.Cost)

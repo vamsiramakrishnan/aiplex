@@ -203,8 +203,16 @@ func fitWidths(widths, idx []int, cols []column, width int) {
 			return widths[j]
 		}
 		m := ansi.StringWidth(c.Header)
-		if m < minColumnWidth {
-			m = minColumnWidth
+		floor := minColumnWidth
+		if c.Trunc == truncMiddle {
+			// Keep enough of both ends of an identifier to recognise it.
+			floor = 12
+		}
+		if m < floor {
+			m = floor
+		}
+		if m > widths[j] {
+			m = widths[j]
 		}
 		return m
 	}
