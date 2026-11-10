@@ -148,6 +148,33 @@ echo "$out"
 [[ "$out" == *"(estimated)"* ]] || fail "report.sh output lacks the estimated cost"
 ok "report.sh"
 
+# ─── declarative manifests ──────────────────────────────────────────────────
+# Every manifest in examples/ passes `aiplex validate` (the checks `aiplex apply`
+# makes before it writes). The JSON files that are not manifests are the MCP
+# client configuration (checked above against `aiplex connect`) and the
+# QuotaPlex policy (loaded by a Go test).
+step "manifests: aiplex validate on every manifest file"
+for f in quickstart.yaml quickstart.json mcplex-only.yaml durable-tape-runtime.yaml aiplex-tape-treasury/treasury.yaml; do
+    out=$(aiplex validate "$EX/$f" 2>&1) || fail "aiplex validate $f: $out"
+    [[ "$out" == *"is valid"* ]] || fail "aiplex validate $f: $out"
+done
+# Every manifest-shaped file is covered by the list above.
+for f in "$EX"/*.yaml "$EX"/*/*.yaml; do
+    case "$f" in */modules/*) continue ;; esac
+    rel="${f#"$EX"/}"
+    case " quickstart.yaml mcplex-only.yaml durable-tape-runtime.yaml aiplex-tape-treasury/treasury.yaml " in
+        *" $rel "*) ;;
+        *) fail "$rel is a YAML file in examples/ that this script does not validate" ;;
+    esac
+done
+ok "validate"
+
+step "manifests: apply quickstart.yaml under aiplex dev (agents and routes apply, instances are skipped with a reason)"
+out=$(aiplex apply -f "$EX/quickstart.yaml" 2>&1) || fail "apply quickstart.yaml: $out"
+[[ "$out" == *"Skipping 2 instance(s)"* && "$out" == *"aiplex dev does not have"* ]] || fail "apply did not explain skipping instances: $out"
+[[ "$out" == *"Registering agent tutor-agent... OK"* && "$out" == *"Configuring route gemini-2.5-flash... OK"* ]] || fail "apply quickstart.yaml: $out"
+ok "apply quickstart.yaml"
+
 step "Stop aiplex dev"
 kill -INT "$DEV_PID"
 wait "$DEV_PID" || fail "aiplex dev exited with an error on Ctrl+C"
