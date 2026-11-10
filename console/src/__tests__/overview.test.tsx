@@ -273,7 +273,7 @@ describe('connect wizard', () => {
     [422, 'CLIENT_NOT_APPLICABLE', 'no model reaches this client', /cannot be connected to this access point: no model reaches this client/],
     [404, 'UNKNOWN_CLIENT', 'client must be one of: generic, codex', /Not found: client must be one of/],
     [409, 'PUBLIC_URL_REQUIRED', 'public URL is not set', /no public URL configured.*public URL is not set/],
-    [403, 'FORBIDDEN', 'nope', /administrator or deployer role/],
+    [403, 'FORBIDDEN', 'nope', /do not have access to connection details for this access point/],
   ])('explains a %i error with the server message', async (status, code, message, expected) => {
     vi.mocked(api.getConnect).mockRejectedValue(apiError(message, status, code))
     wizard()

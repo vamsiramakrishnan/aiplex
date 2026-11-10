@@ -70,6 +70,33 @@ func TestNoRoleCallerSeesOnlyWhatAdmitsIt(t *testing.T) {
 		}
 	})
 
+	t.Run("connect for the admitted caller", func(t *testing.T) {
+		r := as("GET", "/api/v1/overview/access-points/local/connect", "")
+		if r.Status != 200 {
+			t.Fatalf("connect: %d %s", r.Status, r.Body)
+		}
+		contains(t, r.Body, "/ap/local/v1", "connect base URL")
+		notContains(t, r.Body, "surface_ref", "operator detail in connect")
+		notContains(t, r.Body, bob, "token echoed by connect")
+		// The same route as an access point that does not admit bob, and as
+		// one that does not exist, answer identically.
+		hidden := as("GET", "/api/v1/overview/access-points/private/connect", "")
+		missing := as("GET", "/api/v1/overview/access-points/nonexistent/connect", "")
+		if hidden.Status != 404 || hidden.Status != missing.Status || hidden.Body != missing.Body {
+			t.Fatalf("hidden %d %q vs missing %d %q", hidden.Status, hidden.Body, missing.Status, missing.Body)
+		}
+		// The rest of the overview stays operator-only.
+		if r := as("GET", "/api/v1/overview/access-points/local", ""); r.Status != 403 {
+			t.Fatalf("overview detail: %d %s", r.Status, r.Body)
+		}
+		// And the CLI works for this caller.
+		out := e.cliEnv([]string{"AIPLEX_URL=" + e.stack.APIURL, "AIPLEX_TOKEN=" + bob}, "connect", "local", "--client", "claude-code")
+		if out.Code != 0 {
+			t.Fatalf("aiplex connect as bob: %s", out)
+		}
+		contains(t, out.Out, "mock-claude", "claude-code config for bob")
+	})
+
 	t.Run("own usage only", func(t *testing.T) {
 		r := as("GET", "/api/v1/usage/records", "")
 		if r.Status != 200 {

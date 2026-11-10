@@ -132,12 +132,14 @@ var intendedRoutePolicy = map[string]string{
 	"DELETE /api/v1/usage/prices/{id}": "admin/t",
 
 	// Overview (usage roll-ups inside it are admin-only; see overview tests).
-	"GET /api/v1/overview/subjects":                   "op/t",
-	"GET /api/v1/overview/subjects/{kind}":            "op/t",
-	"GET /api/v1/overview/subjects/{kind}/{id}":       "op/t",
-	"GET /api/v1/overview/access-points":              "op/t",
-	"GET /api/v1/overview/access-points/{id}":         "op/t",
-	"GET /api/v1/overview/access-points/{id}/connect": "op/t",
+	"GET /api/v1/overview/subjects":             "op/t",
+	"GET /api/v1/overview/subjects/{kind}":      "op/t",
+	"GET /api/v1/overview/subjects/{kind}/{id}": "op/t",
+	"GET /api/v1/overview/access-points":        "op/t",
+	"GET /api/v1/overview/access-points/{id}":   "op/t",
+	// Any verified caller; the handler answers only for an access point that
+	// admits the caller (404 otherwise) and trims operator-only detail.
+	"GET /api/v1/overview/access-points/{id}/connect": "auth/t",
 
 	// LLMPlex.
 	"GET /api/v1/llm/surfaces":               "op/t",

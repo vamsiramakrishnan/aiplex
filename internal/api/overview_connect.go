@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/pkg/clientplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 )
@@ -96,11 +98,39 @@ func overviewProfileUsesAccessPoint(p clientplex.Profile) bool {
 	return false
 }
 
-// Connect handles GET /overview/access-points/{id}/connect?client=…
+// ConnectForCaller serves GET /overview/access-points/{id}/connect to any
+// verified caller. Admins and deployers (and development mode) get the full
+// response. Every other caller gets it only for an access point that admits it
+// (the same check as the filtered access-point view), with the operator-only
+// detail removed (see connectRestricted); an access point that does not admit
+// the caller answers exactly like a missing one.
+func (h *OverviewHandler) ConnectForCaller(w http.ResponseWriter, r *http.Request) {
+	development := h.Connected != nil && h.Connected.Development
+	h.connect(w, r, !privilegedOrDevelopment(r, development, models.RoleAdmin, models.RoleDeployer))
+}
+
+// Connect handles GET /overview/access-points/{id}/connect?client=… for
+// operators.
 //
 // Every URL is built from the configured public URL, never from the request
 // Host header.
-func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
+func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) { h.connect(w, r, false) }
+
+// connect builds the connect response. restricted is set for callers without
+// an operator role. Those callers are admitted by the access point or told it
+// does not exist, and the response omits, field by field:
+//
+//   - auth.caller_kinds: reduced to the caller's own kind (the access point's
+//     full list is configuration);
+//   - auth.steps: only the step for the caller's own kind, so no operator CLI
+//     hints for kinds it is not;
+//   - notes naming a model's surface reference (internal resource ids) and the
+//     list of registered client ids the access point admits (other subjects).
+//
+// Kept: base URLs, endpoints, model names and protocols, MCP and skills URLs,
+// authorization servers and resource-metadata URL (all published to callers
+// anyway), and the snippets, which are built only from those.
+func (h *OverviewHandler) connect(w http.ResponseWriter, r *http.Request, restricted bool) {
 	tenant, ok := h.tenant(w, r)
 	if !ok {
 		return
@@ -139,6 +169,26 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	_, ap, err := h.Connected.loadAccessPointRecord(r.Context(), tenant, id)
+	callerKind := ""
+	if restricted {
+		identity := GetWIFIdentity(r.Context())
+		if identity == nil || identity.PrincipalID == "" {
+			Error(w, r, http.StatusUnauthorized, "UNAUTHENTICATED", "verified identity required")
+			return
+		}
+		caller, cerr := h.Connected.resolveAccessPointCaller(r.Context(), tenant, identity)
+		if cerr != nil {
+			Error(w, r, http.StatusServiceUnavailable, "CALLER_UNAVAILABLE", "caller resolution is unavailable")
+			return
+		}
+		callerKind = caller.Kind
+		if err == nil && !ap.admits(identity, caller) {
+			err = resources.ErrNotFound
+		}
+		if errors.Is(err, errAccessPointRecordInvalid) {
+			err = resources.ErrNotFound // do not reveal that a record exists
+		}
+	}
 	if err != nil {
 		accessPointLoadError(w, r, err, errorsIsNotFound)
 		return
@@ -153,7 +203,9 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	for _, m := range ap.Models {
 		conn, err := h.Connected.accessPointSurface(r.Context(), tenant, m.SurfaceRef)
 		if err != nil {
-			out.Notes = append(out.Notes, fmt.Sprintf("model %q is omitted: its surface %q does not resolve", m.Name, m.SurfaceRef))
+			if !restricted {
+				out.Notes = append(out.Notes, fmt.Sprintf("model %q is omitted: its surface %q does not resolve", m.Name, m.SurfaceRef))
+			}
 			continue
 		}
 		reach := accessPointServedWires(conn.Surface, m.NativeModel)
@@ -186,6 +238,9 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		out.SkillsURL = apBase + "/skills"
 	}
 	out.Auth = h.connectAuth(base, id, ap)
+	if restricted {
+		out.Auth = restrictConnectAuth(out.Auth, callerKind)
+	}
 
 	if client == "generic" {
 		out.Snippets = append(out.Snippets, overviewGenericSnippets(out, wires)...)
@@ -203,7 +258,7 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 			out.Snippets = append(out.Snippets, overviewSharedSnippets(out)...)
 		}
 	}
-	if len(ap.Subjects.ClientRegistrations) > 0 {
+	if len(ap.Subjects.ClientRegistrations) > 0 && !restricted {
 		out.Notes = append(out.Notes, "This access point admits only registered clients: the token's authorized party (azp) must equal one of "+strings.Join(ap.Subjects.ClientRegistrations, ", ")+".")
 	}
 	out.Notes = append(out.Notes, "Snippets read the token from $"+overviewTokenEnv+"; no token or secret is included in this output.")
@@ -211,6 +266,21 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		out.Notes = append(out.Notes, "No model is reachable through this access point, so no model base URL is offered.")
 	}
 	JSON(w, http.StatusOK, out)
+}
+
+// restrictConnectAuth reduces the auth block to the caller's own kind.
+func restrictConnectAuth(auth OverviewConnectAuth, kind string) OverviewConnectAuth {
+	prefix := map[string]string{CallerUser: "Users:", CallerAgent: "Agents:", CallerClient: "Clients:"}[kind]
+	steps := []string{}
+	for _, step := range auth.Steps {
+		generic := !strings.HasPrefix(step, "Users:") && !strings.HasPrefix(step, "Agents:") && !strings.HasPrefix(step, "Clients:")
+		if generic || (prefix != "" && strings.HasPrefix(step, prefix)) {
+			steps = append(steps, step)
+		}
+	}
+	auth.Steps = steps
+	auth.CallerKinds = []string{kind}
+	return auth
 }
 
 func errorsIsNotFound(err error) bool { return err == resources.ErrNotFound || isNotFound(err) }

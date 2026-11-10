@@ -182,7 +182,7 @@ export function connectErrorMessage(error: unknown): string {
     case 422: return `This client cannot be connected to this access point: ${msg}`
     case 404: return `Not found: ${msg}`
     case 409: return e.code === 'PUBLIC_URL_REQUIRED' ? `The server has no public URL configured, so connection details cannot be built: ${msg}` : msg
-    case 403: return 'You do not have access to connection details (administrator or deployer role required).'
+    case 403: return 'You do not have access to connection details for this access point.'
     default: return msg
   }
 }
