@@ -67,7 +67,6 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'AIPlex',
       logo: {
         alt: 'AIPlex',
         src: 'img/aiplex-logo.svg',

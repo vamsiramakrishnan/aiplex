@@ -18,6 +18,10 @@
   --aiplex-diagram-box: #eef2f6;
   --aiplex-diagram-text: #1b1f24;
   --aiplex-diagram-accent: #25598f;
+  --aiplex-code-comment: #5a6370;
+  --aiplex-code-literal: #0a6560;
+  --aiplex-code-string: #9d1450;
+  --aiplex-code-function: #8f2236;
 }
 
 [data-theme='dark'] {
@@ -31,6 +35,7 @@
   --aiplex-diagram-box: #222a33;
   --aiplex-diagram-text: #eef1f4;
   --aiplex-diagram-accent: #8ab8e6;
+  --aiplex-code-comment: #9aa7d6;
 }
 
 /* Map the tokens onto Infima. */
@@ -67,6 +72,9 @@
 
 /* Landing page */
 .aiplex-home {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
   max-width: 1040px;
   margin: 0 auto;
   padding: 2.5rem 16px 4rem;
@@ -133,5 +141,50 @@
 }
 
 .aiplex-modules {
-  width: 100%;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/*
+ * Code block token colours. The stock Prism themes fall below WCAG AA contrast
+ * for several token types (comments, numbers, parameters). Prism applies colours
+ * inline, so these overrides need !important.
+ */
+[data-theme='light'] .token.comment,
+[data-theme='light'] .token.prolog,
+[data-theme='light'] .token.doctype,
+[data-theme='light'] .token.cdata {
+  color: var(--aiplex-code-comment) !important;
+}
+
+[data-theme='light'] .token.property,
+[data-theme='light'] .token.boolean,
+[data-theme='light'] .token.number,
+[data-theme='light'] .token.constant,
+[data-theme='light'] .token.symbol,
+[data-theme='light'] .token.variable,
+[data-theme='light'] .token.parameter,
+[data-theme='light'] .token.tag {
+  color: var(--aiplex-code-literal) !important;
+}
+
+[data-theme='light'] .token.string,
+[data-theme='light'] .token.char,
+[data-theme='light'] .token.attr-value,
+[data-theme='light'] .token.builtin,
+[data-theme='light'] .token.inserted {
+  color: var(--aiplex-code-string) !important;
+}
+
+[data-theme='light'] .token.function,
+[data-theme='light'] .token.class-name {
+  color: var(--aiplex-code-function) !important;
+}
+
+[data-theme='dark'] .token.comment,
+[data-theme='dark'] .token.prolog,
+[data-theme='dark'] .token.doctype,
+[data-theme='dark'] .token.cdata {
+  color: var(--aiplex-code-comment) !important;
 }
