@@ -91,10 +91,18 @@ func FromCounters(counters map[string]int64) *Usage {
 		ReasoningTokens:  get("thought_tokens"),
 		TotalTokens:      get("total_tokens"),
 	}
+	u.UnitUsage.fromCounters(counters)
 	if u.InputTokens == nil {
 		uncached, cached := get("uncached_input_tokens"), u.CacheReadTokens
 		if uncached != nil && cached != nil && *uncached <= math.MaxInt64-*cached {
-			u.InputTokens = Int64(*uncached + *cached)
+			total := *uncached + *cached
+			// Cache writes are a third disjoint input subset.
+			if write := u.CacheWriteTokens; write == nil || total <= math.MaxInt64-*write {
+				if write != nil {
+					total += *write
+				}
+				u.InputTokens = Int64(total)
+			}
 		}
 	}
 	if !u.Known() {

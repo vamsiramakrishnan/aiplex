@@ -26,7 +26,16 @@ const (
 	MeterRequests   = "requests"
 )
 
-var priceMeters = map[string]bool{MeterInput: true, MeterOutput: true, MeterCacheRead: true, MeterCacheWrite: true, MeterReasoning: true, MeterRequests: true}
+var priceMeters = func() map[string]bool {
+	meters := map[string]bool{MeterInput: true, MeterOutput: true, MeterCacheRead: true, MeterCacheWrite: true, MeterReasoning: true, MeterRequests: true}
+	// Modality token splits are subsets of input/output tokens: a priced split
+	// is charged at its own rate and removed from its parent (see Estimate).
+	// Unit meters (milliseconds, image counts) are independent quantities.
+	for _, name := range append(append([]string{}, ModalityCounters...), UnitCounters...) {
+		meters[name] = true
+	}
+	return meters
+}()
 
 // Rational is Numerator fixed-point money units (at the price's scale) per
 // Denominator raw units, the same convention as QuotaPlex unit prices. A zero
@@ -46,11 +55,18 @@ type Price struct {
 	Meters         map[string]Rational `json:"meters"`
 	EffectiveFrom  *time.Time          `json:"effective_from,omitempty"`
 	EffectiveUntil *time.Time          `json:"effective_until,omitempty"`
+	// Optional selectors. Batch true matches only batch exchanges and false
+	// only non-batch ones; ImageSize and ImageQuality match the record's
+	// reported image dimensions. A price without a selector matches any value;
+	// among matching prices the one with the most selectors wins.
+	Batch        *bool  `json:"batch,omitempty"`
+	ImageSize    string `json:"image_size,omitempty"`
+	ImageQuality string `json:"image_quality,omitempty"`
 }
 
 // Validate checks a price spec.
 func (p Price) Validate() error {
-	if !validText(p.ID, true) || !validText(p.ModelID, true) || !validText(p.Provider, false) {
+	if !validText(p.ID, true) || !validText(p.ModelID, true) || !validText(p.Provider, false) || !validText(p.ImageSize, false) || !validText(p.ImageQuality, false) {
 		return invalid("price id and model_id required")
 	}
 	if !ValidCurrency(p.Currency) || p.Scale > MaxScale {
@@ -103,31 +119,46 @@ func (p Price) applies(r Record) bool {
 	if p.EffectiveUntil != nil && !r.StartedAt.Before(*p.EffectiveUntil) {
 		return false
 	}
+	if p.Batch != nil && *p.Batch != r.Batch {
+		return false
+	}
+	if (p.ImageSize != "" && p.ImageSize != r.ImageSize) || (p.ImageQuality != "" && p.ImageQuality != r.ImageQuality) {
+		return false
+	}
 	return true
 }
 
-// MatchPrice selects the one price for a record. A provider-specific price
-// wins over a provider-agnostic one; any remaining ambiguity yields no match
-// rather than a guess.
+// specificity counts the selectors a price narrows by.
+func (p Price) specificity() int {
+	n := 0
+	for _, set := range []bool{p.Provider != "", p.Batch != nil, p.ImageSize != "", p.ImageQuality != ""} {
+		if set {
+			n++
+		}
+	}
+	return n
+}
+
+// MatchPrice selects the one price for a record. The price with the most
+// matching selectors (provider, batch, image dimensions) wins over a less
+// specific one; any remaining ambiguity yields no match rather than a guess.
 func MatchPrice(prices []Price, r Record) (Price, bool) {
-	var specific, generic []Price
+	best, bestScore := []Price{}, -1
 	for _, p := range prices {
 		if p.Validate() != nil || !p.applies(r) {
 			continue
 		}
-		if p.Provider != "" {
-			specific = append(specific, p)
-		} else {
-			generic = append(generic, p)
+		switch score := p.specificity(); {
+		case score > bestScore:
+			best, bestScore = []Price{p}, score
+		case score == bestScore:
+			best = append(best, p)
 		}
 	}
-	if len(specific) > 0 {
-		generic = specific
-	}
-	if len(generic) != 1 {
+	if len(best) != 1 {
 		return Price{}, false
 	}
-	return generic[0], true
+	return best[0], true
 }
 
 // Estimate prices a record's known usage exactly: it sums rational terms and
@@ -146,26 +177,50 @@ func Estimate(prices []Price, r Record) Cost {
 		quantities[MeterCacheWrite] = r.Usage.CacheWriteTokens
 		quantities[MeterReasoning] = r.Usage.ReasoningTokens
 		quantities[MeterInput] = r.Usage.InputTokens
-		// input_tokens is total input: cache reads and cache writes are inside
-		// it. A separately priced cache subset is removed from the input
-		// quantity so it is charged once, at its own rate.
-		for _, subset := range []struct {
-			meter string
-			value *int64
-		}{{MeterCacheRead, r.Usage.CacheReadTokens}, {MeterCacheWrite, r.Usage.CacheWriteTokens}} {
-			if _, priced := p.Meters[subset.meter]; !priced || quantities[MeterInput] == nil {
-				continue
-			}
-			input := quantities[MeterInput]
-			quantities[MeterInput] = nil
-			if subset.value != nil && *subset.value <= *input {
-				quantities[MeterInput] = Int64(*input - *subset.value)
+		for _, name := range append(append([]string{}, ModalityCounters...), UnitCounters...) {
+			quantities[name] = r.Usage.UnitCounter(name)
+		}
+		// Cache subsets and input modality splits may overlap (cached audio is
+		// both). Pricing both kinds is only exact when the priced cache subsets
+		// are known to be zero.
+		inputModalityPriced := false
+		for _, name := range InputModalityCounters {
+			if _, priced := p.Meters[name]; priced {
+				inputModalityPriced = true
 			}
 		}
+		if inputModalityPriced {
+			for _, cache := range []string{MeterCacheRead, MeterCacheWrite} {
+				if _, priced := p.Meters[cache]; priced {
+					if q := quantities[cache]; q == nil || *q != 0 {
+						return UnknownCost()
+					}
+				}
+			}
+		}
+		// input_tokens is total input: cache reads and cache writes are inside
+		// it, as are input modality splits; output modality splits are inside
+		// output_tokens. A separately priced subset is removed from its parent
+		// so it is charged once, at its own rate.
+		subtract := func(parent string, subsets []string) {
+			for _, subset := range subsets {
+				if _, priced := p.Meters[subset]; !priced || quantities[parent] == nil {
+					continue
+				}
+				whole := quantities[parent]
+				quantities[parent] = nil
+				if value := quantities[subset]; value != nil && *value <= *whole {
+					quantities[parent] = Int64(*whole - *value)
+				}
+			}
+		}
+		subtract(MeterInput, append([]string{MeterCacheRead, MeterCacheWrite}, InputModalityCounters...))
+		subtract(MeterOutput, OutputModalityCounters)
 	}
-	// Every known, non-zero quantity must be declared. Cached input is part of
-	// input_tokens unless separately priced, so it is covered either way.
-	for _, meter := range []string{MeterInput, MeterOutput, MeterCacheWrite, MeterReasoning} {
+	// Every known, non-zero quantity must be declared. Cached input and
+	// modality splits are part of their parent unless separately priced, so
+	// they are covered either way; units have no parent.
+	for _, meter := range append([]string{MeterInput, MeterOutput, MeterCacheWrite, MeterReasoning}, UnitCounters...) {
 		if q := quantities[meter]; q != nil && *q > 0 {
 			if _, priced := p.Meters[meter]; !priced {
 				return UnknownCost()

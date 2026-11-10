@@ -256,6 +256,9 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 	if binding.Profile == quotaProfileRequests {
 		return counts, nil, nil
 	}
+	if quotaExtendedProfile(binding.Profile) {
+		return h.extendedBounds(ctx, binding, target, in, now)
+	}
 	if !quotaStrictProfile(binding.Profile) || in.Plane != "llmplex" || in.Model != binding.Model || !quotaProfileOperation(binding) {
 		return nil, nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "operation has no supported exposure contract")
 	}

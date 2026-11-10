@@ -73,6 +73,15 @@ func (s Surface) Validate() error {
 	if e := s.WebSocket.validate(); e != nil {
 		return e
 	}
+	if s.WebSocket.tokenMetering() {
+		for _, o := range s.Operations {
+			if o.ID == openAILiveOperation {
+				// Live voice is billed by session seconds; no token path can
+				// observe them. It keeps session (request-count) metering.
+				return fmt.Errorf("websocket.metering %q is not supported for %s (billed by session seconds); use %q", SessionMeteringToken, openAILiveOperation, SessionMeteringSession)
+			}
+		}
+	}
 	if s.Provider != nil {
 		return s.validateProvider()
 	}

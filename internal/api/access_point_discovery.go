@@ -21,6 +21,7 @@ func (h *ConnectedHandler) MountAccessPointEndpoints(r chi.Router) {
 		r.Post("/model/{target}/invoke-with-response-stream", h.AccessPointModel(WireBedrockInvoke))
 		r.Get("/v1/realtime", h.AccessPointModel(WireOpenAIRealtime))
 		r.Get(geminiLivePath, h.AccessPointModel(WireGeminiLive))
+		h.mountAccessPointMedia(r)
 		r.Get("/v1/models", h.AccessPointListModels)
 		r.Get("/v1beta/models", h.AccessPointListGenAIModels)
 		h.mountAccessPointUtility(r)

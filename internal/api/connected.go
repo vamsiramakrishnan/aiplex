@@ -616,6 +616,8 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	opts.Batches = resourceBatchStore{store: h.Store}
+	opts.BatchSettler = batchSettler{quota: h.Quota, capture: usage, tenant: tenant}
 	usage.instrumentModel(&opts, connection)
 	defer h.installCapacityGate(r, tenant, id, connection, &opts, usage)()
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)

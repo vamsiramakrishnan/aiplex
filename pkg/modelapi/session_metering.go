@@ -167,8 +167,23 @@ func sessionLeaseRequest(r *http.Request, n int) *http.Request {
 	return clone
 }
 
+type sessionExchangeKey struct{}
+
+// sessionExchange marks a lease prepared inside an admitted session (a
+// Realtime/Responses response or a later Live allowance window). The
+// capacity hook (Options.Admit) runs once, at session admission, not again
+// for these.
+func sessionExchange(ctx context.Context) bool {
+	marked, _ := ctx.Value(sessionExchangeKey{}).(bool)
+	return marked
+}
+
 func (g *Gateway) admitSessionExchange(r *http.Request, trusted contracts.RequestContext, op Operation, model string, body []byte, n int, dispatched string) (*executionRun, error) {
-	lease, err := g.prepareExecution(sessionLeaseRequest(r, n), trusted, op, Metadata{Model: model, Transport: WebSocket}, body)
+	request := sessionLeaseRequest(r, n)
+	if n > 0 || op.ID != "live.connect" {
+		request = request.WithContext(context.WithValue(request.Context(), sessionExchangeKey{}, true))
+	}
+	lease, err := g.prepareExecution(request, trusted, op, Metadata{Model: model, Transport: WebSocket}, body)
 	if err != nil {
 		return nil, err
 	}

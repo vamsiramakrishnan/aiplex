@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
@@ -25,6 +26,7 @@ type tokenSessionRun struct {
 	bodies  [][]byte
 	replies [][]byte
 	dials   int
+	admits  int
 }
 
 func (r tokenSessionRun) settledSum() (map[string]int64, int, int) {
@@ -115,6 +117,12 @@ func runTokenSession(t *testing.T, route fixtureRoute, data []byte, allowance in
 		run.bodies = append(run.bodies, request.Body)
 		return lease, nil
 	})
+	opts.Admit = func(context.Context, contracts.RequestContext, Operation, Metadata) error {
+		mu.Lock()
+		defer mu.Unlock()
+		run.admits++
+		return nil
+	}
 	g, err := NewGateway(s, opts)
 	if err != nil {
 		t.Fatal(err)
@@ -184,6 +192,9 @@ func checkTokenSessionFixture(t *testing.T, route fixtureRoute, data []byte, wan
 	run := runTokenSession(t, route, data, allowance)
 	if len(run.leases) == 0 {
 		t.Fatal("token-metered session admitted nothing")
+	}
+	if run.admits != 1 {
+		t.Fatalf("capacity hook ran %d times; it runs once, at session admission", run.admits)
 	}
 	sum, settled, open := run.settledSum()
 	t.Logf("token session: %d admitted, %d settled, %d retained, %d refusals; settled %v", len(run.leases), settled, open, len(run.replies), sum)

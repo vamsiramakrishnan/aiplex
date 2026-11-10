@@ -116,9 +116,12 @@ func (c *usageCapture) noteError(err error) {
 	}
 }
 
-func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string, terminal bool, bound string) {
+func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string, terminal bool, bound string, dimensions ...map[string]string) {
 	if c == nil {
 		return
+	}
+	for _, d := range dimensions {
+		c.dimensions(d)
 	}
 	c.mu.Lock()
 	c.terminalSeen = c.terminalSeen || terminal
@@ -182,7 +185,7 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 	}
 	opts.Observe = func(_ context.Context, _ modelapi.Owner, value modelapi.UsageObservation) {
 		if value.Source == "upstream" {
-			c.observe(value.Counters, value.Cumulative, value.ModelVersion, value.Terminal, value.Bound)
+			c.observe(value.Counters, value.Cumulative, value.ModelVersion, value.Terminal, value.Bound, value.Dimensions)
 		}
 	}
 }
@@ -295,7 +298,7 @@ func (l *usageLease) BeforeDispatch(ctx context.Context) error {
 func (l *usageLease) Observe(ctx context.Context, observation execution.Observation) error {
 	err := l.inner.Observe(ctx, observation)
 	if observation.Source == "upstream" {
-		l.capture.observe(observation.Counters, observation.Cumulative, observation.ModelVersion, observation.Terminal, observation.Bound)
+		l.capture.observe(observation.Counters, observation.Cumulative, observation.ModelVersion, observation.Terminal, observation.Bound, observation.Dimensions)
 	}
 	l.capture.noteError(err)
 	return err
@@ -464,13 +467,18 @@ func (c *usageCapture) finish() {
 	})
 }
 
-// nonTokenUsage reports observed meters the record cannot represent:
-// non-token units (milliseconds of audio, counts of images) and separately
-// attributed meters such as Realtime input transcription (billed to the
-// transcription model, while a record carries one model).
+// nonTokenUsage reports observed meters the record cannot represent: units
+// without a ledger field and separately attributed meters such as Realtime
+// input transcription (billed to the transcription model, while a record
+// carries one model). Units the ledger holds (usageledger.HeldUnit: audio,
+// voice-session and video milliseconds, generated images, modality splits)
+// are representable and do not make a record partial.
 func nonTokenUsage(counters map[string]int64) bool {
 	for key := range counters {
-		if strings.HasSuffix(key, "_milliseconds") || strings.HasSuffix(key, "_images") || strings.HasPrefix(key, "transcription_") {
+		if strings.HasPrefix(key, "transcription_") {
+			return true
+		}
+		if (strings.HasSuffix(key, "_milliseconds") || strings.HasSuffix(key, "_images")) && !usageledger.HeldUnit(key) {
 			return true
 		}
 	}

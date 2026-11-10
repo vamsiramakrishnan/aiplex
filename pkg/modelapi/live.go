@@ -303,6 +303,14 @@ func liveUsageCounters(raw json.RawMessage) (map[string]int64, error) {
 		}
 		counters[target] = n
 	}
+	// Per-modality splits (promptTokensDetails / responseTokensDetails /
+	// candidatesTokensDetails, units.go): observed when reported, dropped
+	// (unknown) when unreadable. Admission and finality are unchanged.
+	if modality := map[string]int64{}; modalityCounters(fields, modality) == nil {
+		for key, n := range modality {
+			counters[key] = n
+		}
+	}
 	return counters, nil
 }
 

@@ -1,0 +1,204 @@
+package modelapi
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"mime/multipart"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Conformance routes for media and batch operations (provider_extended.go).
+
+func fixtureForm(fields map[string]string) (string, string) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.SetBoundary("aiplexfixtureboundary")
+	part, _ := mw.CreateFormFile("file", "audio.wav")
+	_, _ = part.Write([]byte("RIFF-synthetic-audio"))
+	for _, key := range []string{"model", "stream", "response_format"} {
+		if value, ok := fields[key]; ok {
+			_ = mw.WriteField(key, value)
+		}
+	}
+	_ = mw.Close()
+	return buf.String(), mw.FormDataContentType()
+}
+
+var (
+	openAIMediaProvider = Provider{ID: ProviderOpenAI}
+	callTranscription   = func() *fixtureCall {
+		body, contentType := fixtureForm(map[string]string{"model": "fixture-asr"})
+		return &fixtureCall{surface: providerSurfaceFor(openAIMediaProvider, ProtocolOpenAIAudio, []string{"fixture-asr"}, "openai.v1.audio-transcriptions"), path: "/v1/audio/transcriptions", body: body, contentType: contentType}
+	}()
+	callTranscriptionS = func() *fixtureCall {
+		body, contentType := fixtureForm(map[string]string{"model": "fixture-asr", "stream": "true"})
+		return &fixtureCall{surface: providerSurfaceFor(openAIMediaProvider, ProtocolOpenAIAudio, []string{"fixture-asr"}, "openai.v1.audio-transcriptions"), path: "/v1/audio/transcriptions", body: body, contentType: contentType}
+	}()
+	callImages  = &fixtureCall{surface: providerSurfaceFor(openAIMediaProvider, ProtocolOpenAIImages, []string{"fixture-image"}, "openai.v1.images-generations"), path: "/v1/images/generations", body: `{"model":"fixture-image","prompt":"x"}`}
+	callImagesS = &fixtureCall{surface: providerSurfaceFor(openAIMediaProvider, ProtocolOpenAIImages, []string{"fixture-image"}, "openai.v1.images-generations"), path: "/v1/images/generations", body: `{"model":"fixture-image","prompt":"x","stream":true,"partial_images":1}`}
+)
+
+func readFixture(t *testing.T, provider, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", "usage-formats", provider, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// batchFileCheck aggregates a results file with the gateway's own batch
+// parser and checks both the aggregate and whether the batch may settle.
+func batchFileCheck(provider, part string, native nativeSemantics, allow map[string]string, settle func(t *testing.T, aggregate BatchPart) (BatchRecord, bool)) func(*testing.T, []byte, canonical) {
+	return func(t *testing.T, data []byte, want canonical) {
+		lines, err := parseBatchLines(provider, part, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		aggregate := aggregateBatchLines(lines)
+		got := observedCanonical(native, aggregate.Usage)
+		if aggregate.Succeeded == 0 {
+			got = canonical{}
+		}
+		if diffs := compareCanonical(want, got, allow); len(diffs) > 0 {
+			t.Errorf("batch aggregate mismatch: %s\n want %s\n got  %s", strings.Join(diffs, "; "), describe(want), describe(got))
+		}
+		record, wantComplete := settle(t, aggregate)
+		settlement, complete, err := batchSettlement(record)
+		if err != nil || complete != wantComplete {
+			t.Fatalf("settlement complete=%v want %v err=%v", complete, wantComplete, err)
+		}
+		if complete && record.CrossCheck != nil && !crossCheckAgrees(record.CrossCheck, settlement.Counters) {
+			t.Fatal("per-line sum disagrees with the batch object")
+		}
+	}
+}
+
+func extendedUsageRoutes() []fixtureRoute {
+	const unitNote = "unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile)"
+	const batchNote = "batch-usage binding: admitted at create, settled once from complete per-line results through the gateway (succeeded lines only; batch-object usage is a cross-check, never added)"
+	media := func(file, surface, transport string, call *fixtureCall, final bool, note string) fixtureRoute {
+		return fixtureRoute{provider: "openai", file: file, surface: surface, transport: transport, status: statusExact, reason: note, call: call, conv: convOpenAI, native: natOpenAI, final: final, strict: strictNotApplicable}
+	}
+	anthropicResults := func(t *testing.T, aggregate BatchPart) BatchRecord {
+		return BatchRecord{Provider: ProviderAnthropic, BatchID: "b", Expected: 5, Parts: map[string]BatchPart{"results": aggregate}}
+	}
+	openAIRecord := func(t *testing.T, output, errorsFile BatchPart) BatchRecord {
+		object := readFixture(t, "openai", "batch.object.json")
+		_, fields, err := objectID(object)
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := BatchRecord{Provider: ProviderOpenAI, BatchID: "batch_fix1", Expected: -1}
+		applyBatchObject(ProviderOpenAI, fields, &record)
+		record.Expected, record.ErrorFileID = 3, "file-err1"
+		record.Parts = map[string]BatchPart{"output": output, "error": errorsFile}
+		return record
+	}
+	parse := func(t *testing.T, name, part string) BatchPart {
+		lines, err := parseBatchLines(ProviderOpenAI, part, readFixture(t, "openai", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return aggregateBatchLines(lines)
+	}
+	const liveNote = "WebSocket session: one request-count admission and one settlement per session (token-metered leases refused before the dial); voice seconds are the primary meter, observed as voice_session_milliseconds from cumulative session.usage.updated snapshots (never summed) and final only with session.closed; nested Responses/decision token usage is advisory, counted once per response"
+	callLive := &fixtureCall{surface: providerSurfaceFor(openAIMediaProvider, ProtocolOpenAILive, []string{"fixture-model-live"}, openAILiveOperation), path: "/v1/live/sessions?model=fixture-model-live", body: `{"type":"session.start","session":{"model":"fixture-model-live"}}`, ws: "openai-live"}
+	geminiBatch := func(t *testing.T, data []byte, want canonical) {
+		h := newBatchHarness(t, Provider{ID: ProviderGeminiDeveloper}, ProtocolGoogleGenAI, []string{"model-a"}, "gemini.models.batchGenerateContent", "gemini.batches.get")
+		h.route("POST", "/v1beta/models/model-a:batchGenerateContent", 200, "application/json", []byte(`{"name":"batches/synthbatch0001","state":"BATCH_STATE_PENDING"}`))
+		body := []byte(`{"batch":{"model":"models/model-a","displayName":"x","inputConfig":{"requests":{"requests":[{"request":{"model":"models/model-a","contents":[]}}]}}}}`)
+		if w := h.do(h.gateway(nil), "POST", "/v1beta/models/model-a:batchGenerateContent", "application/json", body); w.Code != 200 {
+			t.Fatalf("create: %d %s", w.Code, w.Body)
+		}
+		if w := h.do(h.gateway(nil), "POST", "/v1beta/models/model-a:batchGenerateContent", "application/json", bytes.Replace(body, []byte(`"models/model-a","contents"`), []byte(`"models/model-b","contents"`), 1)); w.Code != 403 {
+			t.Fatalf("batch item with another model accepted: %d", w.Code)
+		}
+		h.route("GET", "/v1beta/batches/synthbatch0001", 200, "application/json", data)
+		for i := 0; i < 2; i++ {
+			if w := h.do(h.gateway(nil), "GET", "/v1beta/batches/synthbatch0001", "", nil); w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) {
+				t.Fatalf("get: %d %s", w.Code, w.Body)
+			}
+		}
+		if _, records := h.settler.counts(); records != 1 {
+			t.Fatalf("inline batch recorded %d times", records)
+		}
+		counters := h.settler.records[0].Counters
+		delete(counters, "batch_requests")
+		got := observedCanonical(natGemini, counters)
+		if diffs := compareCanonical(want, got, nil); len(diffs) > 0 {
+			t.Errorf("inline batch settlement: %v\n want %s\n got  %s", diffs, describe(want), describe(got))
+		}
+	}
+	callVeo := &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderGeminiDeveloper}, ProtocolGoogleGenAI, []string{"model-a"}, "gemini.operations.get"), path: "/v1beta/models/model-a/operations/op-0001", method: "GET", bind: []Resource{{"prediction-operation", "op-0001"}}}
+	vertexRows := func(t *testing.T, data []byte, want canonical) {
+		var lines []batchLine
+		for i, raw := range bytes.Split(data, []byte("\n")) {
+			if len(bytes.TrimSpace(raw)) == 0 {
+				continue
+			}
+			var row struct {
+				Status   string          `json:"status"`
+				Response json.RawMessage `json:"response"`
+			}
+			if err := json.Unmarshal(raw, &row); err != nil {
+				t.Fatal(err)
+			}
+			line := batchLine{id: fmt.Sprint(i)}
+			if row.Status == "" {
+				counters, model, err := nativeBodyCounters(ProviderGeminiDeveloper, row.Response)
+				if err != nil {
+					t.Fatal(err)
+				}
+				line = batchLine{id: line.id, succeeded: true, counters: counters, model: model}
+			}
+			lines = append(lines, line)
+		}
+		got := observedCanonical(natGemini, aggregateBatchLines(lines).Usage)
+		if diffs := compareCanonical(want, got, nil); len(diffs) > 0 {
+			t.Errorf("Vertex batch rows: %v", diffs)
+		}
+	}
+	return []fixtureRoute{
+		{provider: "google", file: "vertex-batch-gcs.jsonl", surface: "vertex-batch", transport: "jsonl-file", status: statusUnsupported, formatOnly: true, reason: "output rows are Cloud Storage (or BigQuery) artifacts the gateway does not fetch, so a Vertex batch cannot settle through it; batch.create stays request-count. Rows are format-checked with the batch aggregation rules (succeeded rows only, proto3 zero omission)", conv: convGemini, native: natGemini, check: vertexRows},
+		{provider: "google", file: "gemini-batch-inlined.json", surface: "gemini-batch", transport: "json", status: statusExact, reason: "batch-usage binding: admitted at batchGenerateContent; the retrieve that first sees a terminal batch whose inline responses account for batchStats.requestCount settles it once (succeeded items only); a responsesFile output (per-line wrapper UNCONFIRMED) never settles and keeps its exposure", conv: convGemini, native: natGemini, check: geminiBatch},
+		{provider: "google", file: "gemini-veo-operation.json", surface: "gemini-predictLongRunning", transport: "json", status: statusAdvisory, reason: "predictLongRunning and the operation poll are request-count exchanges; the done result reports no usage and no duration, so video_output_milliseconds stays unknown (billed per output second by the provider)", call: callVeo, conv: convGemini, native: natGemini, final: true},
+		{provider: "openai", file: "live.ws.jsonl", surface: "live-voice-sessions", transport: "websocket", status: statusAdvisory, reason: liveNote, call: callLive, conv: convOpenAI, native: natOpenAI, final: true},
+		{provider: "openai", file: "live.interrupted.ws.jsonl", surface: "live-voice-sessions", transport: "websocket", status: statusAdvisory, reason: liveNote, call: callLive, conv: convOpenAI, native: natOpenAI, final: false},
+		media("transcription.json", "audio-transcriptions", "json", callTranscription, true, unitNote),
+		media("transcription.duration.json", "audio-transcriptions", "json", callTranscription, true, unitNote+"; duration-billed responses report seconds, observed as audio_input_milliseconds and never as tokens"),
+		media("transcription.sse", "audio-transcriptions", "sse", callTranscriptionS, true, unitNote+"; usage only on transcript.text.done, whose frame is held until acknowledged"),
+		media("transcription.interrupted.sse", "audio-transcriptions", "sse", callTranscriptionS, false, unitNote),
+		media("images.json", "images", "json", callImages, true, unitNote+"; images without a usage object (non-GPT image models) still report generated_images"),
+		media("images.sse", "images", "sse", callImagesS, true, unitNote+"; partial_image events carry no usage; the n-th completed event is terminal"),
+		media("images.interrupted.sse", "images", "sse", callImagesS, false, unitNote),
+		{provider: "openai", file: "batch.output.jsonl", surface: "batch", transport: "jsonl-file", status: statusExact, reason: batchNote + "; read through GET /v1/files/{id}/content of a tracked batch's output_file_id", conv: convOpenAI, native: natOpenAI, check: batchFileCheck(ProviderOpenAI, "output", natOpenAI, nil, func(t *testing.T, aggregate BatchPart) (BatchRecord, bool) {
+			return openAIRecord(t, aggregate, parse(t, "batch.errors.jsonl", "error")), true
+		})},
+		{provider: "openai", file: "batch.errors.jsonl", surface: "batch", transport: "jsonl-file", status: statusExact, reason: "error lines are provider evidence of failed/expired items (released, never charged)", conv: convOpenAI, native: natOpenAI, check: batchFileCheck(ProviderOpenAI, "error", natOpenAI, nil, func(t *testing.T, aggregate BatchPart) (BatchRecord, bool) {
+			record := openAIRecord(t, parse(t, "batch.output.jsonl", "output"), aggregate)
+			delete(record.Parts, "output")
+			return record, false // the output file is still needed
+		})},
+		{provider: "openai", file: "batch.object.json", surface: "batch", transport: "json", status: statusExact, reason: "batch object (create/retrieve/cancel): status, request_counts and results file ids drive settlement; its usage is a cross-check only", conv: convOpenAI, native: natOpenAI, check: func(t *testing.T, data []byte, want canonical) {
+			_, fields, err := objectID(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := observedCanonical(natOpenAI, openAIBatchObjectUsage(fields["usage"]))
+			if diffs := compareCanonical(want, got, nil); len(diffs) > 0 {
+				t.Errorf("cross-check usage: %v", diffs)
+			}
+		}},
+		{provider: "anthropic", file: "batch-results.jsonl", surface: "message-batches", transport: "jsonl-file", status: statusExact, reason: batchNote + "; GET /v1/messages/batches/{id}/results; a cache counter absent on any succeeded line leaves that sum unknown", conv: convAnthropic, native: natAnthropic, check: batchFileCheck(ProviderAnthropic, "results", natAnthropic, map[string]string{"cache_write_tokens": "absent on one succeeded line: sum unknown, not zero"}, func(t *testing.T, aggregate BatchPart) (BatchRecord, bool) {
+			return anthropicResults(t, aggregate), true
+		})},
+		{provider: "anthropic", file: "batch-results-partial.jsonl", surface: "message-batches", transport: "jsonl-file", status: statusExact, reason: batchNote, conv: convAnthropic, native: natAnthropic, check: batchFileCheck(ProviderAnthropic, "results", natAnthropic, nil, func(t *testing.T, aggregate BatchPart) (BatchRecord, bool) {
+			return anthropicResults(t, aggregate), false // one of five items: nothing settles
+		})},
+	}
+}

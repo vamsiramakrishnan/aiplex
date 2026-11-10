@@ -31,11 +31,16 @@ func providerClientNativePath(s modelapi.Surface, r *http.Request, path string) 
 	if native, ok := utilityClientPath(s, r.Method, path); ok {
 		return native, nil, nil
 	}
+	if native, ok := extendedClientNativePath(s, r, path); ok {
+		return native, nil, nil
+	}
 	if r.Method == http.MethodGet && s.Provider.ID == modelapi.ProviderOpenAI {
 		// WebSocket sessions (Realtime, Responses WebSocket mode) upgrade a GET.
 		switch strings.TrimPrefix(path, "/v1") {
 		case "/realtime":
 			return "/v1/realtime", nil, nil
+		case "/live/sessions":
+			return "/v1/live/sessions", nil, nil
 		case "/responses":
 			return "/v1/responses", nil, nil
 		}

@@ -166,7 +166,7 @@ func providerCatalog() map[string][]providerOp {
 	for provider, ops := range utilityProviderCatalog() {
 		catalog[provider] = append(catalog[provider], ops...)
 	}
-	return catalog
+	return withExtendedOperations(catalog)
 }
 
 // Providers returns every non-Google provider descriptor. Each call owns its slices.

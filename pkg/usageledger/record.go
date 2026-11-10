@@ -63,6 +63,9 @@ type Usage struct {
 	CacheWriteTokens *int64 `json:"cache_write_tokens"`
 	ReasoningTokens  *int64 `json:"reasoning_tokens"`
 	TotalTokens      *int64 `json:"total_tokens"`
+	// UnitUsage holds per-modality token splits and non-token units (see
+	// units.go). Each field is omitted when unknown.
+	UnitUsage
 }
 
 // Counter names usable in group sums and price meters.
@@ -110,7 +113,7 @@ func (u *Usage) Known() bool {
 			return true
 		}
 	}
-	return false
+	return u.UnitUsage.known()
 }
 
 // Cost is a fixed-point monetary amount: Amount minor units at Scale decimal
@@ -191,8 +194,17 @@ type Record struct {
 	// composition is unconfirmed) or "partial" (non-token units such as audio
 	// seconds were reported but are not representable here). Empty means the
 	// counters are the exchange's final reported usage (or unknown when nil).
+	// Units the ledger holds (UnitUsage) no longer make a record partial.
 	UsageBound string `json:"usage_bound,omitempty"`
-	Cost       Cost   `json:"cost"`
+	// Batch is true for an exchange that belongs to a provider batch job (its
+	// creation, or the results fetch that settled it), so an operator
+	// model-price with "batch": true can match it. No discount is built in.
+	Batch bool `json:"batch,omitempty"`
+	// ImageSize and ImageQuality are the billing dimensions the provider
+	// reported for generated images (for example "1024x1024", "high").
+	ImageSize    string `json:"image_size,omitempty"`
+	ImageQuality string `json:"image_quality,omitempty"`
+	Cost         Cost   `json:"cost"`
 	// ProviderLimits is the provider rate-limit metadata observed on the
 	// managed exchange's native response, when any was reported.
 	ProviderLimits *providerlimits.Limits `json:"provider_limits,omitempty"`
@@ -246,7 +258,7 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "actor_id": r.ActorID, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "actor_id": r.ActorID, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}
@@ -287,6 +299,9 @@ func (r Record) Validate() error {
 			if v := r.Usage.Counter(name); v != nil && *v < 0 {
 				return invalid("usage counter %s is negative", name)
 			}
+		}
+		if err := r.Usage.UnitUsage.validate(); err != nil {
+			return err
 		}
 	}
 	return r.Cost.Validate()
@@ -329,6 +344,7 @@ func (r Record) Clone() Record {
 		u.CacheWriteTokens = copyCounter(r.Usage.CacheWriteTokens)
 		u.ReasoningTokens = copyCounter(r.Usage.ReasoningTokens)
 		u.TotalTokens = copyCounter(r.Usage.TotalTokens)
+		u.UnitUsage = r.Usage.UnitUsage.clone()
 		r.Usage = &u
 	}
 	return r

@@ -163,7 +163,8 @@ func (l *quotaHostLease) Observe(ctx context.Context, observation execution.Obse
 			// allowing this claimed stream to produce complete actual evidence.
 		}
 	}
-	if !observation.Terminal {
+	if !observation.Terminal || l.binding.Profile == quotaProfileBatch {
+		// A batch attempt settles only through SettleBatch.
 		return nil
 	}
 	if l.binding.Profile == quotaProfileRequests {
@@ -359,6 +360,9 @@ func (l *quotaHostLease) Finish(ctx context.Context, result execution.Result) er
 			return quotaStatus(503, "QUOTA_DISPATCH_UNCERTAIN", "dispatch claim requires recovery")
 		}
 		return l.ticket.Abort(bounded)
+	}
+	if l.binding.Profile == quotaProfileBatch {
+		return l.finishBatchLocked(bounded, result)
 	}
 	if l.binding.Profile == quotaProfileRequests && result.ResponseComplete {
 		return l.terminalLocked(bounded, map[string]int64{"requests": 1, "tool_calls": 1})

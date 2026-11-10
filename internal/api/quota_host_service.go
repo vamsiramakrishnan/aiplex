@@ -144,7 +144,7 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 		if !ok {
 			return nil, fmt.Errorf("quota binding references an unconfigured tenant")
 		}
-		if binding.Profile != quotaProfileRequests && !quotaStrictProfile(binding.Profile) {
+		if binding.Profile != quotaProfileRequests && !quotaStrictProfile(binding.Profile) && !quotaExtendedProfile(binding.Profile) {
 			return nil, fmt.Errorf("quota binding profile is unsupported")
 		}
 		if quotaStrictProfile(binding.Profile) && ((!quotaInterfacePresent(bounds) && binding.Profile != quotaProfileLiveAllowance) || binding.Plane != "llmplex" || binding.Model == "" || binding.ModelVersion == "") {
@@ -160,19 +160,28 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 			return nil, fmt.Errorf("quota binding requires a request meter and bounded mappings")
 		}
 		policy := tenant.policy.Policy()
+		if quotaExtendedProfile(binding.Profile) {
+			if err := validateExtendedBinding(binding, policy); err != nil {
+				return nil, err
+			}
+		}
 		seenMeters := map[string]bool{}
 		for native, meterID := range binding.Meters {
 			unit := ""
-			switch native {
-			case "requests":
-				unit = "requests"
-			case "tool_calls":
-				if binding.Plane == "mcplex" {
-					unit = "calls"
-				}
-			default:
-				if quotaStrictProfile(binding.Profile) && quotaProfileTokenCounter(binding.Profile, native) {
-					unit = "tokens"
+			if quotaExtendedProfile(binding.Profile) {
+				unit = quotaExtendedMeterUnit(binding, native)
+			} else {
+				switch native {
+				case "requests":
+					unit = "requests"
+				case "tool_calls":
+					if binding.Plane == "mcplex" {
+						unit = "calls"
+					}
+				default:
+					if quotaStrictProfile(binding.Profile) && quotaProfileTokenCounter(binding.Profile, native) {
+						unit = "tokens"
+					}
 				}
 			}
 			meter, known := policy.Meters[meterID]

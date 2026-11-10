@@ -133,3 +133,19 @@ unset. The existing dedicated emulator CI lane and
 [production qualification guide](production-qualification.md) describe that
 separate qualification. No live provider invoice, cloud deployment, production
 enforcement or provider capacity reservation is produced by these tests.
+
+### Media, unit and batch operations
+
+| Path or operation | Enforced dimensions in its supported profile | Native semantics and remaining boundary |
+| --- | --- | --- |
+| OpenAI image generation/edit, audio transcription/translation (JSON, SSE, multipart) | `media-units`: requests plus generated images (bound = request `n`), input-audio milliseconds and tokens (bound = trusted authority); settled from the terminal response; or request-count | Multipart spooled to disk and relayed byte-for-byte; terminal SSE frames held until acknowledged; a response missing a bound unit fails closed (unknown). Speech is request-count only (no usage documented). See [unit profiles](model-metering-profiles.md#unit-and-media-profiles). |
+| OpenAI Live voice sessions (WebSocket) | Request-count only, as other sessions | Voice seconds observed as `voice_session_milliseconds` (ledger), final only with `session.closed`; no seconds ceiling is claimed. |
+| Provider batches (OpenAI Batch + Files, Anthropic Message Batches, Gemini Developer API batch) | `batch-usage`: admitted once at create with a trusted bound; settled exactly once from complete per-item results fetched through the gateway; or request-count per exchange | HTTP completion of create does not settle the job: the attempt stays unknown (`batch_results_pending`) with its exposure until results settle it; partial, interrupted, cross-check-mismatched or repeated fetches settle nothing more. Vertex batch output (Cloud Storage/BigQuery) is not fetched and cannot settle. See [provider batches](model-metering-profiles.md#provider-batches). |
+| Gemini Developer API predictLongRunning (video) | Request-count (asynchronous) | Neither usage nor duration is reported; video seconds stay unknown. |
+
+| Event | Required outcome | Regression evidence |
+| --- | --- | --- |
+| Batch results fetched twice, concurrently, or after a partial/interrupted fetch | One settlement and one ledger usage record; partial or cut bodies settle nothing | `TestAnthropicMessageBatchSettlesOnceFromCompleteResults`; `TestManagedMessageBatchSettlesOnceFromResults` |
+| Batch settlement cannot be acknowledged | Final results line withheld; record not settled | `TestBatchResultsWithholdFinalLineUntilAcknowledged` |
+| OpenAI batch object usage disagrees with output lines | Not settled; record flagged | `TestOpenAIBatchSettlesFromOutputAndErrorFiles` |
+| Image or duration response settles its unit meter | Exact units and money; ledger not partial | `TestManagedImageGenerationSettlesGeneratedImages`; `TestManagedTranscriptionSettlesAudioDuration` |

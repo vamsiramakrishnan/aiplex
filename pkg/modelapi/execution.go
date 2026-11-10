@@ -36,7 +36,7 @@ func (f ExecutionPreparerFunc) Prepare(ctx context.Context, request ExecutionReq
 }
 
 func (g *Gateway) prepareExecution(r *http.Request, trusted contracts.RequestContext, op Operation, metadata Metadata, body []byte) (execution.Lease, error) {
-	if g.options.Admit != nil {
+	if g.options.Admit != nil && !sessionExchange(r.Context()) {
 		if err := g.options.Admit(r.Context(), trusted, op, metadata); err != nil {
 			return nil, err
 		}
@@ -134,7 +134,7 @@ func (r *executionRun) observe(value UsageObservation) error {
 	for key, n := range value.Counters {
 		copy[key] = n
 	}
-	return r.lease.Observe(ctx, execution.Observation{Source: value.Source, EventID: value.EventID, ResourceID: value.ResourceID, ModelVersion: value.ModelVersion, Counters: copy, Cumulative: value.Cumulative, Terminal: value.Terminal, Bound: value.Bound})
+	return r.lease.Observe(ctx, execution.Observation{Source: value.Source, EventID: value.EventID, ResourceID: value.ResourceID, ModelVersion: value.ModelVersion, Counters: copy, Cumulative: value.Cumulative, Terminal: value.Terminal, Bound: value.Bound, Dimensions: cloneDimensions(value.Dimensions)})
 }
 func (r *executionRun) finish(result execution.Result) error {
 	if r == nil || r.closed {

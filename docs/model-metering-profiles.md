@@ -57,6 +57,13 @@ surface with the `websocket` block of the saved surface spec:
 | `websocket.max_session_seconds` | 60..86400 | the gateway's maximum stream duration (1800) | Hard session duration; both sockets close when it elapses. |
 | `websocket.token_allowance` | 1024..4194304 (`token` only) | 32768 | Gemini Live allowance window, held per mapped meter. |
 
+`metering: "token"` is refused at save time for a surface that includes the
+OpenAI Live voice operation (`openai.v1.live`): it is billed by session
+seconds, which no token path observes, so it keeps session metering. The
+provider-capacity hook (`Options.Admit`) runs once per session, at session
+admission (Live: the first allowance window; Realtime/Responses: before the
+upgrade), never per `response.create` or allowance renewal.
+
 **Session metering (default)** keeps the request-count contract: one admission
 prepared once the model is known (Live: after the bounded `setup`; Realtime:
 the `?model=` connect parameter; Responses: at the upgrade, each
@@ -243,6 +250,10 @@ default values.
 
 ## Provider rejections
 
+The same rule applies to the media and batch operations; for a batch only the
+create exchange can be released this way (later polls and results fetches are
+separate attempts and never release an open batch, which stays `unknown` with
+reason `batch_results_pending` until its results settle it).
 A provider status that its documentation defines as refused before generation
 releases the hold: the exchange settles as one request with zero consumption
 and the provider's status, error body and `Retry-After` reach the client
@@ -300,3 +311,106 @@ prove billing equivalence, native model availability or live cloud entitlement.
 - [Google Cloud Interactions API](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/models/interactions-api)
 - [Google Interactions generation configuration](https://googleapis.github.io/js-genai/release_docs/types/gaos_models_interactions_generation-config.GenerationConfig.html)
 - [Google model output/context semantics](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/guides/gemini-4-argon)
+
+## Unit and media profiles
+
+Media operations report usage that is not plain text tokens. The gateway observes
+it as first-class counters held beside the token counters (never added to them):
+`audio_input_milliseconds`, `voice_session_milliseconds`,
+`video_output_milliseconds`, `generated_images`, and the per-modality token splits
+`input_{text,audio,image,video}_tokens` and `output_{text,audio,image}_tokens`.
+The same names are usage ledger fields, `model-price` meters and quota binding
+counters. See [usage ledger units](usage-ledger.md#units-and-modality-splits).
+
+| Operation | Surface path | Observed | Quota profile |
+| --- | --- | --- | --- |
+| `openai.v1.audio-transcriptions`, `openai.v1.audio-translations` | `POST /v1/audio/{transcriptions,translations}` (multipart; JSON or SSE) | `usage.type: "tokens"`: input/output/total plus `input_token_details` audio/text splits; `usage.type: "duration"`: `seconds` as `audio_input_milliseconds` (rounded up). SSE usage only on `transcript.text.done`. Translations document no usage: unknown unless reported in the same shape. | `media-units` (`audio_input_milliseconds` bounded by the trusted bounds authority) or `request-count` |
+| `openai.v1.audio-speech` | `POST /v1/audio/speech` | Raw audio relayed without buffering; SSE relayed. No usage is documented for either (SSE event names unconfirmed in OpenAI's reference). | `request-count` |
+| `openai.v1.images-generations`, `openai.v1.images-edits` | `POST /v1/images/{generations,edits}` (JSON; edits multipart; SSE with partial images) | `generated_images` = images returned (JSON `data[]`, or `*.completed` events in a stream); GPT image models' token usage and image/text splits; `size`/`quality` as `image_size`/`image_quality`. With more than one completed stream event, tokens stay unknown (per-image vs cumulative unconfirmed). | `media-units` (`generated_images` bounded by the request's `n`, default 1, at most 10) or `request-count` |
+| `openai.v1.live` | `GET /v1/live/sessions?model=` (WebSocket) | `voice_session_milliseconds` from cumulative `session.usage.updated` snapshots (replaced, never summed), final only with `session.closed`; nested `response.event`/`decision.event` token usage counted once per response. | `request-count` only (existing session admission, unchanged) |
+| `gemini.models.predictLongRunning`, `gemini.operations.get` | `POST /v1beta/models/{model}:predictLongRunning`, `GET /v1beta/models/{model}/operations/{id}` | Nothing: the done result reports neither usage nor duration, so `video_output_milliseconds` stays unknown. Operation names are bound to the caller. | `request-count` (asynchronous) |
+| Gemini `generateContent`, Live | existing | `promptTokensDetails`, `candidatesTokensDetails`, `responseTokensDetails` modality entries as modality splits (subsets). | unchanged |
+
+Multipart uploads are spooled once to a private temporary file while a multipart
+reader walks the copy: form fields (at most 64, 64 KiB each) are kept for
+validation, authorization and the quota payload digest; file parts are only read
+to advance the parser and are never parsed, held in memory or logged. The spooled
+bytes are relayed upstream unchanged. `Options.MaxUploadBytes` bounds the upload
+(default 32 MiB, at most 1 GiB); a larger upload is refused with 413 before any
+reservation or provider I/O. The quota payload is the canonical JSON of the form
+fields, not the file bytes.
+
+A `media-units` binding maps `requests` plus any of `generated_images` (meter unit
+`images`), `audio_input_milliseconds` / `video_output_milliseconds` (unit
+`milliseconds`) and `input_tokens` / `output_tokens` (unit `tokens`). Quantities
+fixed by the request and enforced by the provider (image `n`) are derived from the
+native body; every other mapped meter needs the trusted bounds authority, as token
+profiles do. Settlement uses the terminal observation; a response that omits a
+bound meter (for example a token-billed transcription under a duration binding)
+fails closed: the attempt stays unknown with its exposure and the response is not
+delivered as settled.
+
+## Provider batches
+
+| Operation | Path |
+| --- | --- |
+| `openai.v1.files-create` | `POST /v1/files` (multipart, `purpose=batch` only; the file id is bound to the caller) |
+| `openai.v1.batches-create`, `-get`, `-cancel`, `-list` | `/v1/batches[/{id}[/cancel]]` (create requires an input file the caller uploaded; list requires shared-admin authorization) |
+| `openai.v1.files-content` | `GET /v1/files/{id}/content` (only output/error files of a batch the caller owns) |
+| `anthropic.message-batches-create`, `-get`, `-cancel`, `-list`, `-results` | `/v1/messages/batches[/{id}[/cancel or /results]]` (every request's model must be allowed) |
+| `gemini.models.batchGenerateContent`, `gemini.batches.get`, `gemini.batches.cancel` | `/v1beta/models/{model}:batchGenerateContent`, `/v1beta/batches/{id}[:cancel]` |
+
+Vertex batch prediction output is written to Cloud Storage or BigQuery, which the
+gateway does not read, so a Vertex batch cannot settle through it; `batch.create`
+stays request-count.
+
+**Admission.** A `batch-usage` binding on a batch-create operation admits the job
+once, at create, with a trusted exposure bound: `requests` = 1, `batch_requests`
+= the inline request count when the body lists requests (Anthropic), and every
+other mapped meter (`input_tokens`, `output_tokens`, `cached_tokens`,
+`cache_write_tokens`, or `batch_requests` for OpenAI's file input) from the
+trusted bounds authority. The create response's batch id is bound to the caller,
+pinned on the attempt and written to a durable batch record (tenant resource kind
+`model-batch`) before the id is released. The attempt then stays open: state
+`unknown`, reason `batch_results_pending`, holding its exposure and its
+concurrency permit (size concurrency rules that cover batch bindings
+accordingly). A provider rejection of the create (4xx other than 408/429) is
+provider evidence that no job exists and settles one request with zero for every
+other meter.
+
+**Settlement, exactly once.** Usage is taken only from results fetched through
+the gateway: the Anthropic results stream, the OpenAI output and error files, or
+the Gemini inline responses in a terminal batch object. A results body counts only
+if it ends cleanly and every line parses; a cut or malformed body changes nothing.
+The record is complete when the parsed items account for every item the provider
+reported (Anthropic: the inline create count, checked against the ended
+`request_counts`; OpenAI: `request_counts.total` of a terminal batch, covered by
+output plus error lines; Gemini: `batchStats.requestCount`), with no duplicate
+`custom_id`. Usage is the per-counter sum over succeeded items; a counter missing
+on any succeeded line has an unknown sum. Errored, cancelled and expired items
+contribute nothing because the results say so; an item without a line is never
+assumed released. The OpenAI batch object's `usage` is compared with the per-line
+sum and never added; a disagreement leaves the batch unsettled and flags the
+record (`cross_check_mismatch`).
+
+On completion the gateway settles the attempt with deterministic evidence (event
+id derived from the attempt, producer `native-batch`), then compare-and-swaps the
+batch record to settled. Quota settlement is idempotent: a repeated fetch
+re-acknowledges the same evidence, and different totals are refused as a conflict.
+Only the exchange that wins the swap writes the batch usage to its ledger record
+(marked `batch`, attributed to the batch's attempt and model), so a second or
+concurrent fetch never settles or records twice. The final results line is held
+until the settlement is acknowledged; if quota cannot acknowledge, it is withheld.
+If the binding's meters are not all reported (for example cache writes absent on
+a line), the results are delivered and the batch keeps its exposure. A batch whose
+results are never fetched keeps its admitted exposure and appears in the existing
+aging/unknown reporting.
+
+Batch pricing is the operator's: every batch exchange's ledger record has
+`batch: true`, so a `model-price` with `"batch": true` matches it in preference to
+the standard price. No discount is built in.
+
+**Managed Agents** session usage is not observed: the session object's cumulative
+`usage` is documented, but the `session.usage` event envelope is not shown and a
+session has no single terminal exchange through which a snapshot could settle once
+without double counting repeated polls.
