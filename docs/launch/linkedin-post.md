@@ -10,15 +10,26 @@ Facts every draft relies on, and where they come from:
 | One URL per audience, checked before anything is reached | access points, [docs/access-points.md](../access-points.md) |
 | A usage record per call: caller, model or tool, tokens, estimated cost; unknown stays unknown | [docs/usage-ledger.md](../usage-ledger.md); the README quickstart output |
 | Tested against local mocks, fixtures built from provider documentation and the Firestore emulator | CI, [production qualification](../production-qualification.md) |
-| Not run against live providers, not compared with an invoice, no recorded cloud deployment | README "Project status" |
-| OpenTelemetry traces and metrics, sent only to an OTLP endpoint you set; a record carries `trace_id` and `span_id` | [docs/observability.md](../observability.md); tested against an in-process receiver only |
-| `aiplex connect --write` shows a diff, keeps a backup and can be undone; never writes a token | [docs/harness-onboarding.md](../harness-onboarding.md); tested with isolated homes, not loaded by an installed client |
+| Live on Linux: the Gemini Developer API and z.ai, a few dozen requests each. Not run live: OpenAI and Anthropic first-party (the OpenAI key had no credit). Not compared with an invoice; no recorded cloud deployment | [docs/model-providers.md](../model-providers.md#what-was-run-against-live-providers), README "Project status" |
+| Request hooks redact or refuse prompts and responses by pattern and sidecar; redaction is not a guarantee. The Presidio and LLM Guard adapters were not run against the real services | [docs/request-hooks.md](../request-hooks.md) |
+| Routing across backends with retry, fallback, circuit breakers and an opt-in response cache, all in memory per process | [docs/reliability-and-routing.md](../reliability-and-routing.md) |
+| Team and project budgets above per-caller quota, in memory; Firestore-backed budgets not validated | [docs/budgets.md](../budgets.md) |
+| MCP Registry import (streamable-HTTP remotes), Python and TypeScript SDKs (both unpublished) | [docs/mcp-registry-import.md](../mcp-registry-import.md), [sdk/python](../../sdk/python/README.md), [sdk/typescript](../../sdk/typescript/README.md) |
+| Install channels: install script, Homebrew cask (macOS) and container images are produced by the release workflow on a tag; none is published yet | [README](../../README.md#install) |
+| OpenTelemetry traces and metrics, sent only to an OTLP endpoint you set; a record carries `trace_id` and `span_id` | [docs/observability.md](../observability.md); tested against an in-process receiver. Claude Code's own telemetry was run live into the OTLP receiver; no real collector was used |
+| `aiplex connect --write` shows a diff, keeps a backup and can be undone; never writes a token | [docs/harness-onboarding.md](../harness-onboarding.md); Claude Code, Gemini CLI and Codex (against the mock model) loaded the files. Antigravity writes only its MCP server list. Model traffic for Antigravity was not observed |
 | A pinned third-party price list you import from by choice; imported cost stays estimated | [usage ledger, price catalogue](../usage-ledger.md#price-catalogue); snapshot dated 2026-11-10 |
 | `aiplex platform preflight` checks deployer permissions before apply | [docs/gcp-permissions.md](../gcp-permissions.md); not run against a live project |
 | Not run against an installed coding client, a real OTLP collector or a live Google Cloud project | README "Project status" and each guide's limits section |
 | Pre-1.0 | README, CHANGELOG |
 
 Avoid adding claims about speed, scale, customers or cost savings; none is measured or recorded.
+
+Proposed new lines for the drafts (proposals only; the drafts above are unchanged):
+
+1. "Models can fail over between backends with retries and a budget per team, so one provider outage does not have to be one outage for your team." Check against the reliability and budgets guides' limits before use; no outage was simulated against a live provider.
+2. "Prompts and tool arguments can be checked by request hooks before they leave, and a hook that cannot decide refuses the request."
+3. "The first live runs were against the Gemini Developer API and z.ai; OpenAI and Anthropic are next." Use only if the owner is comfortable saying what is not yet run.
 
 ---
 

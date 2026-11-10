@@ -11,7 +11,7 @@ AIPlex is a gateway that sits between the people, agents and developer tools tha
 
 ## Install
 
-Tagged releases publish the install script, release archives, a Homebrew cask for macOS and container images. No release has been tagged yet, so until the first one, build from source (below).
+No release has been tagged and nothing is published yet. The release workflow produces the install script's archives, a Homebrew cask for macOS and container images on the first `v*` tag. Until then, build from source (below).
 
 - **Install script** (Linux and macOS, amd64 or arm64). This installs `aiplex` and `aiplex-api` into `~/.local/bin`, verifies the archive against the release `checksums.txt` first, and needs no sudo:
 
@@ -20,8 +20,8 @@ Tagged releases publish the install script, release archives, a Homebrew cask fo
   curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash -s -- --version v0.1.0
   ```
 
-- **Homebrew, macOS only** (from the first tagged release): `brew install --cask vamsiramakrishnan/tap/aiplex`. The cask lives in the `vamsiramakrishnan/homebrew-tap` repository. Homebrew casks do not install on Linux; Linux users use the install script or the archive.
-- **Container images** (from the first tagged release): `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex` (the CLI), each for linux/amd64 and linux/arm64.
+- **Homebrew, macOS only** (not published yet): `brew install --cask vamsiramakrishnan/tap/aiplex`. The cask lives in the `vamsiramakrishnan/homebrew-tap` repository. Homebrew casks do not install on Linux; Linux users use the install script or the archive.
+- **Container images** (not published yet; the release workflow builds `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex` for linux/amd64 and linux/arm64 on the first tag).
 - **Build from source**: Go 1.25 or newer, then `make build`, which writes `bin/aiplex` and `bin/aiplex-api`.
 
 Full details are in the [getting started guide](docs-site/docs/getting-started/index.md).
@@ -266,6 +266,21 @@ Effective access for a delegated call is the intersection of three limits: what 
 
 The shared identity layer verifies workforce, workload and native-agent credentials and keeps principal and actor memberships separate. Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity and Microsoft Entra Agent ID through scoped inventory, reviewed policy plans and durable apply receipts ([native governance](docs/native-agent-governance.md)). See [module contracts](docs/modules.md).
 
+### Gateway features
+
+| Feature | What it does | Guide |
+| --- | --- | --- |
+| Request hooks | Redact, size-limit or refuse prompts, responses and tool calls; HTTP sidecar hooks | [request hooks](docs/request-hooks.md) |
+| Routing, retry, fallback, cache | Priority, weighted or lowest-cost backend order; retries and fallback; circuit breakers; opt-in exact-match response cache | [reliability and routing](docs/reliability-and-routing.md) |
+| Budgets | Team and project limits above per-caller quota | [budgets](docs/budgets.md) |
+| Tool policy rules | Expressions over tool calls, with a dry run | [policy rules on tool calls](docs/tool-policy-rules.md) |
+| MCP Registry import | Import streamable-HTTP remotes from the official registry as tool connections | [MCP Registry import](docs/mcp-registry-import.md) |
+| Harness telemetry | Claude Code, Codex and Gemini CLI usage over OTLP, recorded as `reported` ledger records | [harness onboarding](docs/harness-onboarding.md), [observability](docs/observability.md) |
+| Price catalogue | Two pinned snapshots (LiteLLM, models.dev); backfill prices records written before a price existed | [usage ledger](docs/usage-ledger.md) |
+| Antigravity | `connect --write` writes its MCP server list; model traffic is print-only | [harness onboarding](docs/harness-onboarding.md) |
+| Python and TypeScript SDKs | Unpublished clients for the API | [Python](sdk/python/README.md), [TypeScript](sdk/typescript/README.md) |
+| Request lifecycle | The order of checks for models and tools | [request lifecycle](docs/request-lifecycle.md) |
+
 ### QuotaPlex
 
 QuotaPlex supports unequal token, money and request allocations, independent human and agent attribution, fixed, anchored and calendar periods, explicit budget loans, atomic admission, rate limits, concurrency and weighted scheduling. LLMPlex and MCPlex keep their native protocols; QuotaPlex owns admission and accounting. A request-count profile measures the managed exchange; it does not measure an async job's lifetime or an agent's internal work.
@@ -288,14 +303,14 @@ The [usage-format coverage matrix](docs/reference/usage-formats/coverage.md) lis
 
 ## Try a real provider
 
-`aiplex dev` can forward to OpenAI, Anthropic or Gemini instead of the mock model. Name the environment variable that holds your key; the key is not accepted as a flag and is never printed or written to disk:
+`aiplex dev` can forward to OpenAI, Anthropic or Gemini instead of the mock model. The Gemini Developer API has been run live this way; OpenAI and Anthropic first-party endpoints have not (see [project status](#project-status)). Name the environment variable that holds your key; the key is not accepted as a flag and is never printed or written to disk:
 
 ```bash
 export OPENAI_API_KEY=...          # your own key
 aiplex dev --provider openai --api-key-env OPENAI_API_KEY
 ```
 
-Use `--provider anthropic` or `--provider gemini` with the matching variable, and `--model` to choose a model. Without the variable set, `aiplex dev` stops with an error that names it. **This path has not been run against a live provider by the project**, so treat the first run as a test. Real-provider requests cost whatever your provider charges.
+Use `--provider anthropic` or `--provider gemini` with the matching variable, and `--model` to choose a model. Without the variable set, `aiplex dev` stops with an error that names it. Real-provider requests cost whatever your provider charges.
 
 ## Deploy
 
@@ -313,13 +328,19 @@ What has been validated, from the repository's own tests and CI:
 - Console tests and build, Helm lint, Rust tests, and JSON schema checks.
 - Config merge, diff, backup and undo for the three client files, the stdio MCP server, OpenTelemetry export to an in-process OTLP receiver, the Google Cloud preflight against a fake Google API, and the price catalogue import. Each uses isolated homes, fixtures or fakes.
 
+Run live on Linux, 2026-11-10, a few dozen requests each ([details](docs/model-providers.md#what-was-run-against-live-providers), [harness onboarding](docs/harness-onboarding.md#what-has-and-has-not-been-validated)):
+
+- The Gemini Developer API and z.ai (as `openai-compatible` and through the `anthropic` provider). Ledger usage matched the provider's responses.
+- Claude Code, Gemini CLI and Codex loading the files `aiplex connect --write` writes. Codex was run against the mock model only. Antigravity CLI loaded its MCP server entry; a model turn was not observed.
+- Claude Code telemetry sent to the OTLP receiver and recorded as reported usage.
+
 What has not been validated, and is not recorded anywhere in this repository:
 
-- Any run against live OpenAI, Anthropic, Google, Azure or AWS model endpoints.
-- Any comparison of AIPlex's usage or cost figures against a provider invoice.
+- Any run against live OpenAI or Anthropic first-party endpoints (the OpenAI key had no credit), or against Azure, Bedrock or Vertex.
+- Any comparison of AIPlex's usage or cost figures against a provider invoice, and the Presidio and LLM Guard adapters against the real services.
 - A deployment to a live cloud project, and load, availability or backup-restore behaviour. The Google Cloud permissions table, the preflight, the custom deployer role and the narrowed runtime grants have not been run against a live project.
-- Client configuration written by `aiplex connect --write` has not been loaded by an installed Claude Code, Codex or Gemini CLI, and the Claude Code plugin and Gemini CLI extension have not been loaded by their harnesses.
-- OpenTelemetry export has not been run against a real collector, Jaeger, Cloud Trace or Cloud Monitoring, and the telemetry overhead has not been measured.
+- macOS and Windows; the container image build and push; the Homebrew cask; Firestore-backed budgets.
+- OpenTelemetry export to a real collector, Jaeger, Cloud Trace or Cloud Monitoring. The telemetry overhead has not been measured.
 - The price catalogue is a third-party snapshot (LiteLLM, retrieved 2026-11-10). Its prices have not been checked against provider price pages, and discounts and commitments are not reflected.
 - Cost shown by `aiplex dev` is from placeholder prices. The local development server is unauthenticated and must stay on loopback.
 

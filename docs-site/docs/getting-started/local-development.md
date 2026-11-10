@@ -163,10 +163,12 @@ aiplex dev --provider openai --api-key-env OPENAI_API_KEY
 
 ## Other flags
 
-`--port` and `--console-port` change the ports, `--no-console` skips the Console, `--no-tools` skips the built-in MCP server's connection, `--detach` runs in the background, `--allow-origin` lets the local API call another upstream origin, `--otel` exports traces and metrics to a collector you run ([Observability](../library/observability.md)), `--context` names the CLI context it creates, and `--api-bin` points at an `aiplex-api` binary. Run `aiplex dev --help` for the current list.
+`--port` and `--console-port` change the ports, `--no-console` skips the Console, `--no-tools` skips the built-in MCP server's connection, `--detach` runs in the background, `--allow-origin` lets the local API call another upstream origin, `--quota` turns QuotaPlex on for the mock surfaces and tools so request budgets count ([Budgets](../library/budgets.md)), `--otel` exports traces and metrics to a collector you run ([Observability](../library/observability.md)), `--context` names the CLI context it creates, and `--api-bin` points at an `aiplex-api` binary. Run `aiplex dev --help` for the current list.
 
 If a port is taken, `aiplex dev` says so and suggests another with `--port` or `--console-port`. The CLI's options, output formats and exit codes are in [the CLI reference](../library/cli.md).
 
 ## What this does not establish
 
 Everything is in memory and loopback-only, and prices are placeholders. Local success does not establish cloud routing, provider access, identity federation or quota behaviour. For the next steps, see [Local stack with Docker](./docker-stack.md) (emulators and Ory services), [Install the platform](./install-platform.md) and [Deploy a tool](./first-deploy.md).
+
+The local stack also runs the commands for request hooks, budgets, routing, the MCP Registry, the price catalogue and usage feedback. The list, with a link to each guide, is in the [local development guide](../library/local-development.md#gateway-features-on-the-local-stack).

@@ -266,14 +266,8 @@ unhooked body.
 Response hooks run once, on the response that is delivered. A held-back
 failure is a provider error body, which hooks never inspect.
 
-Order of one routed exchange:
-
-1. Identity, tenant, access point admission.
-2. Backend order (strategy, breakers, state owner).
-3. For each attempt: the backend's grants, capacity admission, request hooks
-   (first attempt only), quota lease, cache lookup (first attempt only),
-   credential, dispatch.
-4. Usage observation, then response hooks on the delivered response.
+The order of checks for one routed exchange, with the other checks around it,
+is in [request lifecycle](request-lifecycle.md#models).
 
 ## Response cache
 

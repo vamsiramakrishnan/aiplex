@@ -62,3 +62,5 @@ aiplex clients plan --help
 ```
 
 See the [ClientPlex guide](../guides/clientplex.md).
+
+`aiplex connect <access-point> --client <client> --write` merges the configuration into the client's own file after showing a diff. It covers `claude-code`, `codex`, `gemini-cli` and `antigravity`; for Antigravity only its MCP server list is written, and its model settings stay print-only ([Harness onboarding](../library/harness-onboarding.md)). Add `--with-telemetry aiplex` to send the client's usage events to this deployment's receiver as reported records; the token is never written to the file.

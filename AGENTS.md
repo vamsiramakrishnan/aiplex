@@ -35,7 +35,7 @@ AIPlex is a gateway for models, tools and agents. A coding agent reaches it thro
    aiplex connect local --client claude-code --write
    ```
 
-   It shows a diff, asks for confirmation (`--yes` when there is no terminal, only after the user agreed), backs up the original under `~/.aiplex/connect-backups`, merges rather than replaces, and refuses a file that is not valid JSON or TOML. It never writes a token value. Whatever it lists under "Still to do by hand" is shell environment the user must set, usually the access token. Undo with `aiplex connect --undo --client claude-code`. Antigravity is print-only.
+   It shows a diff, asks for confirmation (`--yes` when there is no terminal, only after the user agreed), backs up the original under `~/.aiplex/connect-backups`, merges rather than replaces, and refuses a file that is not valid JSON or TOML. It never writes a token value. Whatever it lists under "Still to do by hand" is shell environment the user must set, usually the access token. Undo with `aiplex connect --undo --client claude-code`. For Antigravity, `--write` writes only its MCP server list; its model settings are print-only. `--with-telemetry aiplex` points the client's OpenTelemetry export at this deployment's receiver.
 
 4. Verify with one request through the access point, then look at the ledger:
 

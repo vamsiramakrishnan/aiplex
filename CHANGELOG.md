@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-There has been no tagged release yet. This section summarises what exists in the repository, grouped by area. Nothing here has been validated against live model providers, provider invoices or a live cloud project; see the README's project status.
+There has been no tagged release yet. This section summarises what exists in the repository, grouped by area. Live runs so far are the Gemini Developer API and z.ai (see [model providers](docs/model-providers.md#what-was-run-against-live-providers)). OpenAI and Anthropic first-party endpoints, provider invoices and a live cloud project have not been validated; see the README's project status.
 
 ### Reliability and routing
 
@@ -21,13 +21,15 @@ There has been no tagged release yet. This section summarises what exists in the
 - `GET /ap/{id}/v0.1/servers` also answers in the MCP Registry response shape (`servers[]` of `{server, _meta}`, server.json schema 2025-12-11) next to the existing catalog members.
 - Deployment notes: how to build and push the `aiplex-authz` image (the release pipeline does not build it), the dashboard denials route documented as `admin`-only, and the health-check firewall rule documented as inert (it targets a node tag GKE never assigns; GKE manages those rules itself).
 
-### SDKs
+### SDKs and Console
 
-- Unpublished Python (`sdk/python`, package `aiplex`) and TypeScript (`sdk/typescript`, `@aiplex/sdk`) clients for the HTTP API, mirroring the Go SDK's covered routes; tested with `make sdk-test`.
+- Go SDK (`sdk/`) for the API. The Go client's `Error` carries `TraceID`, and the CLI prints it beside the request ID.
+- Unpublished Python (`sdk/python`, package `aiplex`) and TypeScript (`sdk/typescript`, `@aiplex/sdk`) clients for the HTTP API, mirroring the Go SDK's covered routes; tested with `make sdk-test`, against `aiplex dev`.
+- React Console covering the above, embedded in the CLI when built first; role-aware, so each view shows what the signed-in roles may do; brand identity and design tokens applied.
 
 ### Packaging and install
 
-- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew cask for macOS to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`, built with GoReleaser `dockers_v2`. GoReleaser is pinned to v2.20.0. The images are distroless, run as a non-root user and carry OCI labels.
+- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew cask for macOS (a cask, not a formula; Linux uses the install script or the archive) to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`, built with GoReleaser `dockers_v2`. GoReleaser is pinned to v2.20.0. The images are distroless, run as a non-root user and carry OCI labels.
 - The release also produces an SBOM and signs `checksums.txt` and the images keyless with the workflow's GitHub identity. The signing and the SBOM have not been run against a real release.
 - `install.sh` refuses an archive when `checksums.txt` cannot be downloaded or does not list it, rejects a malformed `--version`, and names the missing platform asset when a release has no build for it.
 - None of this has been published yet: no release is tagged, and the tap, the images and the signatures have not been produced.
@@ -81,7 +83,7 @@ There has been no tagged release yet. This section summarises what exists in the
 - A price catalogue: a pinned, trimmed snapshot of LiteLLM's public list prices (MIT, third-party data, see `THIRD_PARTY_NOTICES.md`) embedded in the CLI. `aiplex usage prices catalog search|show|import` creates ordinary price resources, with an optional `source` label, from the models you choose. Nothing is priced automatically; imported cost is `estimated`, a snapshot that can be stale, and pricing a price cannot express (context-length tiers, audio or image token rates) needs `--accept-partial`. `make update-price-catalog` refreshes the pin.
 - Guided creation from flags: `aiplex access-points create`, `aiplex mcp connections create|list|get|test|delete`, `aiplex llm surfaces create`, and `aiplex usage prices set <model> --input-per-mtok ... --output-per-mtok ...`. The file forms (`apply -f`, `prices set -f`) remain for full specifications.
 - Usage tables fit the terminal width, and show the caller by a readable name (`principal_display`, `actor_display`) instead of a principal hash. `aiplex usage records -o wide` adds a `PRINCIPAL ID` column, and `summary -o wide` adds the columns the default tables leave out. Summaries label empty groups `(no model)` and `(no tool)`.
-- Cost objects carry `amount_decimal`, the exact decimal form of `amount`. `tools/list` exchanges are recorded with operation `tools/list`.
+- Cost objects carry `amount_decimal`, the exact decimal form of `amount`.
 - `GET /api/v1/dashboard/stats` totals the last 24 hours from the usage ledger. Cost and tokens are `null` when unknown, with `daily_unknown_cost_records`, `daily_unknown_usage_records` and `usage_source` alongside.
 - `aiplex connect <access-point>` works for any caller the access point admits. Callers without an operator role get a reduced response. `--client claude-desktop` is refused with a reason, because that client needs a Claude apps gateway server.
 - `aiplex validate` runs the same checks as `aiplex apply`, and `apply` validates first. Under `aiplex dev`, instances in a manifest are skipped with a message.
@@ -136,6 +138,13 @@ There has been no tagged release yet. This section summarises what exists in the
 - The `anthropic` provider takes an optional `base_path` for an Anthropic-compatible endpoint served under a path prefix.
 - A request carrying the AIPlex token in `Authorization` and a different provider key in `x-api-key` (Claude Code with `ANTHROPIC_API_KEY` set) is still refused, with a message that names the header to remove and says the key reached the gateway in transit; the key value is not logged, stored or put in spans.
 - The Go SDK's `Error` carries `TraceID`, and the CLI prints it beside the request ID.
+- Usage summaries split managed and reported records by default (`--source`, `source_split`); the dashboard and the `/api/v1/overview` roll-ups count managed records only. `usage summary --by budget` and `--budget` count managed records only, because reported records never draw from a budget.
+- Tool `tools/list` exchanges are recorded in the ledger with operation `tools/list` (and no tool name).
+- A cache hit on a model with `cache` takes the request-count budget only: request-count budgets draw one, cost and token budgets draw nothing.
+- `aiplex apply` converges: each resource is reported as created, updated or unchanged, and `--dry-run` reports the same without writing.
+- In-cluster deploys use the Kubernetes API from a small built-in client instead of `kubectl`, and the API's namespaced Role grants only create, patch and delete on the kinds it renders (no reads). Existing deployments need the Helm upgrade in [Upgrading an existing deployment](#upgrading-an-existing-deployment). Objects `kubectl` created keep its field manager until the API takes them over.
+- The Helm chart now renders the Gateway (`deploy/helm/aiplex/templates/gateway.yaml`).
+- Homebrew distribution is a macOS cask, not a formula. GoReleaser is pinned to v2.20.0.
 - A provider's `secret_ref` must start with `aiplex-` when Secret Manager is configured. A reference without the prefix is refused when the provider is saved, with a message that names the rule. Name those secrets `aiplex-...`.
 - `GET /metrics` needs `AIPLEX_METRICS_TOKEN` as a bearer token. Without the variable it answers 503, except in development mode on loopback. The public gateway does not route `/metrics`; scrape the `aiplex-api` service inside the cluster.
 - `aiplex platform apply` refuses to run when the preflight fails. `--skip-preflight` overrides the check with a warning.
@@ -145,11 +154,6 @@ There has been no tagged release yet. This section summarises what exists in the
 ### Upgrading an existing deployment
 
 An existing deployment needs steps before the Helm upgrade: the secret, Firestore, backup, DNS, namespace and collector identity changes, among others. Read `docs/gcp-permissions.md`, [Upgrading an existing deployment](docs/gcp-permissions.md#upgrading-an-existing-deployment), and run `terraform plan` (or `aiplex platform apply` without `--yes`) before approving. None of these steps has been run against a live project.
-
-### Console and SDK
-
-- React Console covering the above, embedded in the CLI when built first; role-aware, so each view shows what the signed-in roles may do; brand identity and design tokens applied.
-- Go SDK for the API.
 
 ### Documentation, brand and project files
 
