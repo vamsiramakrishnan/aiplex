@@ -78,10 +78,10 @@ type Stack struct {
 	MCP        *MockMCP
 	APIURL     string
 	ModelsURL  string
-	MCPURL    string
-	IssuerURL string
-	Dir       string
-	Token     string
+	MCPURL     string
+	IssuerURL  string
+	Dir        string
+	Token      string
 
 	opts      Options
 	ownDir    bool

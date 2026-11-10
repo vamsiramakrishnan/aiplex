@@ -146,7 +146,7 @@ and carries a QoS class that is rendered into quota controls.
 		Example:     "  aiplex access-points list\n  aiplex access-points create team --model mock-gpt=local-models --tool local-tools",
 		Annotations: map[string]string{"kind": "access point"},
 	}
-	cmd.AddCommand(spAPListCmd(), spAPGetCmd(), spAPCreateCmd(), spAPApplyCmd(), spAPDeleteCmd(), spAPQuotaPlanCmd())
+	cmd.AddCommand(spAPListCmd(), spAPGetCmd(), spAPCreateCmd(), spAPApplyCmd(), spAPDeleteCmd(), spAPQuotaPlanCmd(), spAPRoutingCmd(), spAPPurgeCacheCmd())
 	registerLister("access-points", func(ctx context.Context, c *aiplex.Client) ([]string, error) {
 		list, err := c.ListAccessPoints(ctx)
 		ids := make([]string, 0, len(list))
@@ -239,7 +239,25 @@ func spAPGetCmd() *cobra.Command {
 				fmt.Fprintf(out, "  Subjects:  %d principals, %d agents, %d groups, %d client registrations\n", len(sub.Principals), len(sub.Agents), len(sub.Groups), len(sub.ClientRegistrations))
 			}
 			for _, m := range s.Models {
-				fmt.Fprintf(out, "  Model:     %s -> %s on %s\n", m.Name, m.NativeModel, m.SurfaceRef)
+				if len(m.Backends) == 0 {
+					fmt.Fprintf(out, "  Model:     %s -> %s on %s\n", m.Name, m.NativeModel, m.SurfaceRef)
+				} else {
+					strategy := "priority"
+					if m.Routing != nil && m.Routing.Strategy != "" {
+						strategy = m.Routing.Strategy
+					}
+					fmt.Fprintf(out, "  Model:     %s (%s)\n", m.Name, strategy)
+					for i, b := range m.Backends {
+						fmt.Fprintf(out, "    %d. %s on %s (weight %d, priority %d)\n", i+1, b.NativeModel, b.SurfaceRef, b.EffectiveWeight(), b.Priority)
+					}
+				}
+				if m.Cache != nil {
+					scope := m.Cache.Scope
+					if scope == "" {
+						scope = "principal"
+					}
+					fmt.Fprintf(out, "    cache: ttl %s, scope %s\n", m.Cache.TTL, scope)
+				}
 			}
 			for _, t := range s.Tools {
 				expose := "all permitted tools"

@@ -72,7 +72,7 @@ type Options struct {
 	InspectRequest func(context.Context, Request) ([]byte, error)
 	// InspectResponse runs once on a complete, valid successful response
 	// before it is written. A *Denial refuses the call.
-	InspectResponse   func(ctx context.Context, request Request, mediaType string, body []byte) ([]byte, error)
+	InspectResponse func(ctx context.Context, request Request, mediaType string, body []byte) ([]byte, error)
 	// Retry retries transport failures of tools/list and of tools/call on
 	// tools the host marks repeatable (retry.go). Nil never retries.
 	Retry             *TransportRetry
