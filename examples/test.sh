@@ -171,9 +171,16 @@ ok "validate"
 
 step "manifests: apply quickstart.yaml under aiplex dev (agents and routes apply, instances are skipped with a reason)"
 out=$(aiplex apply -f "$EX/quickstart.yaml" 2>&1) || fail "apply quickstart.yaml: $out"
-[[ "$out" == *"Skipping 2 instance(s)"* && "$out" == *"aiplex dev does not have"* ]] || fail "apply did not explain skipping instances: $out"
-[[ "$out" == *"Registering agent tutor-agent... OK"* && "$out" == *"Configuring route gemini-2.5-flash... OK"* ]] || fail "apply quickstart.yaml: $out"
+[[ "$out" == *"skipped"*"instance Knowledge Base"* && "$out" == *"aiplex dev has no Kubernetes"* ]] || fail "apply did not explain skipping instances: $out"
+[[ "$out" == *"created"*"agent tutor-agent"* && "$out" == *"created"*"route gemini-2.5-flash"* ]] || fail "apply quickstart.yaml: $out"
 ok "apply quickstart.yaml"
+
+step "manifests: applying quickstart.yaml again converges (nothing created, everything unchanged)"
+out=$(aiplex apply -f "$EX/quickstart.yaml" 2>&1) || fail "second apply quickstart.yaml: $out"
+[[ "$out" == *"Summary: 0 created, 0 updated, 3 unchanged, 2 skipped, 0 failed"* ]] || fail "second apply was not idempotent: $out"
+out=$(aiplex apply -f "$EX/quickstart.yaml" --dry-run 2>&1) || fail "apply --dry-run: $out"
+[[ "$out" == *"0 created, 0 updated, 3 unchanged"* ]] || fail "dry run disagrees with the second apply: $out"
+ok "apply is idempotent"
 
 step "Stop aiplex dev"
 kill -INT "$DEV_PID"

@@ -25,7 +25,15 @@ when valid signing keys cannot be obtained. `/healthz` checks process liveness.
 | `AUTHZ_BIND` | Listener IP, defaults to `0.0.0.0` |
 | `PORT` | Listener port, defaults to `9191` |
 | `AUTHZ_DEV_MODE` | Set exactly `true` for unsigned local development tokens; requires loopback `AUTHZ_BIND` |
-| `DENIAL_WEBHOOK_URL` | Optional best-effort denial event sink |
+| `DENIAL_WEBHOOK_URL` | Optional: the API's `POST /internal/policy-denials` URL. Reporting stays off unless `DENIAL_TOKEN_FILE` is also set |
+| `DENIAL_TOKEN_FILE` | Path of a mounted file holding the shared bearer secret for the denial route. The value is never read from the environment or logged |
+
+Denial reporting is best effort and never changes an authorization answer. For
+each denial of a token that passed verification the sidecar posts a closed JSON
+object (plane, agent, user, path, missing scope, `scope_missing`, request id and
+the trace id of the inbound `traceparent`) with `Authorization: Bearer` from the
+token file. It does not follow redirects, truncates fields to the API's limits
+and sends no tenant. See [policy denials](../docs/policy-denials.md).
 
 Development mode is never selected implicitly by missing configuration. Example:
 

@@ -7,8 +7,52 @@ resource "google_iam_workload_identity_pool" "aiplex" {
   description               = "Workload identity pool for external AI agents"
 }
 
+# External identity providers. Each is created only when its variables are
+# set, so a deployment without agents on AWS or Azure carries no provider that
+# trusts a placeholder account or tenant. Direct agent federation from those
+# clouds stays off until you set them.
+
+variable "aws_account_id" {
+  description = "AWS account ID whose IAM roles external agents assume. Empty (default) creates no AWS provider."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.aws_account_id == "" || can(regex("^[0-9]{12}$", var.aws_account_id))
+    error_message = "aws_account_id must be empty or a 12-digit AWS account ID."
+  }
+}
+
+variable "azure_agent_tenant_id" {
+  description = "Azure AD tenant ID for external agents (a GUID). Empty (default) creates no Azure provider."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.azure_agent_tenant_id == "" || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.azure_agent_tenant_id))
+    error_message = "azure_agent_tenant_id must be empty or an Azure AD tenant GUID."
+  }
+}
+
+variable "aws_agent_role" {
+  description = "AWS IAM role name that external agents assume (e.g. aiplex-agent). Used only when aws_account_id is set."
+  type        = string
+  default     = "aiplex-agent"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9+=,.@_-]{1,64}$", var.aws_agent_role))
+    error_message = "aws_agent_role must be a valid AWS IAM role name (1-64 characters: letters, digits and + = , . @ _ -)."
+  }
+}
+
+locals {
+  aws_agents_enabled   = var.aws_account_id != ""
+  azure_agents_enabled = var.azure_agent_tenant_id != ""
+}
+
 # AWS provider (agents running on AWS)
 resource "google_iam_workload_identity_pool_provider" "aws" {
+  count                              = local.aws_agents_enabled ? 1 : 0
   provider                           = google-beta
   project                            = var.project_id
   workload_identity_pool_id          = google_iam_workload_identity_pool.aiplex.workload_identity_pool_id
@@ -16,7 +60,7 @@ resource "google_iam_workload_identity_pool_provider" "aws" {
   display_name                       = "AWS Agents"
 
   aws {
-    account_id = "123456789012" # Placeholder — configure per deployment
+    account_id = var.aws_account_id
   }
 
   attribute_mapping = {
@@ -28,6 +72,7 @@ resource "google_iam_workload_identity_pool_provider" "aws" {
 
 # Azure AD provider (agents running on Azure)
 resource "google_iam_workload_identity_pool_provider" "azure" {
+  count                              = local.azure_agents_enabled ? 1 : 0
   provider                           = google-beta
   project                            = var.project_id
   workload_identity_pool_id          = google_iam_workload_identity_pool.aiplex.workload_identity_pool_id
@@ -35,13 +80,26 @@ resource "google_iam_workload_identity_pool_provider" "azure" {
   display_name                       = "Azure Agents"
 
   oidc {
-    issuer_uri = "https://sts.windows.net/AZURE_TENANT_ID/" # Configure per deployment
+    issuer_uri = "https://sts.windows.net/${var.azure_agent_tenant_id}/"
   }
 
   attribute_mapping = {
-    "google.subject"       = "assertion.sub"
-    "attribute.tenant_id"  = "assertion.tid"
+    "google.subject"      = "assertion.sub"
+    "attribute.tenant_id" = "assertion.tid"
   }
+}
+
+# Existing deployments created both providers without an index; keep them in
+# place when their variables are set. When they are not set, Terraform plans to
+# destroy the placeholder provider (see docs/gcp-permissions.md, upgrading).
+moved {
+  from = google_iam_workload_identity_pool_provider.aws
+  to   = google_iam_workload_identity_pool_provider.aws[0]
+}
+
+moved {
+  from = google_iam_workload_identity_pool_provider.azure
+  to   = google_iam_workload_identity_pool_provider.azure[0]
 }
 
 # Service accounts for AIPlex system components
@@ -215,30 +273,32 @@ resource "google_service_account" "external_agent" {
   project      = var.project_id
 }
 
-# Allow AWS agents with specific roles to impersonate the external agent SA
+# Allow AWS agents with the named role in the configured account to
+# impersonate the external agent SA (only when aws_account_id is set).
 resource "google_service_account_iam_member" "aws_agent_wif" {
+  count              = local.aws_agents_enabled ? 1 : 0
   service_account_id = google_service_account.external_agent.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.aiplex.name}/attribute.aws_role/${var.aws_agent_role}"
 }
 
-variable "aws_agent_role" {
-  description = "AWS IAM role name that external agents assume (e.g. aiplex-agent)"
-  type        = string
-  default     = "aiplex-agent"
+moved {
+  from = google_service_account_iam_member.aws_agent_wif
+  to   = google_service_account_iam_member.aws_agent_wif[0]
 }
 
-# Allow Azure AD service principals to impersonate the external agent SA
+# Allow Azure AD service principals of the configured tenant to impersonate
+# the external agent SA (only when azure_agent_tenant_id is set).
 resource "google_service_account_iam_member" "azure_agent_wif" {
+  count              = local.azure_agents_enabled ? 1 : 0
   service_account_id = google_service_account.external_agent.name
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.aiplex.name}/attribute.tenant_id/${var.azure_agent_tenant_id}"
 }
 
-variable "azure_agent_tenant_id" {
-  description = "Azure AD tenant ID for external agents"
-  type        = string
-  default     = ""
+moved {
+  from = google_service_account_iam_member.azure_agent_wif
+  to   = google_service_account_iam_member.azure_agent_wif[0]
 }
 
 # Grant the external agent SA minimal permissions: IAP access + token creator.

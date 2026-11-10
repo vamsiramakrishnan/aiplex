@@ -161,7 +161,10 @@ Exit codes:
 ### `aiplex list denials`
 
 ```text
-List policy denials
+List recent authorization denials: those the gateway's authz sidecar reports
+(when it is deployed and configured) and those the API records itself. Each row
+has the trace id of the refused request when the caller sent a traceparent.
+Denials are deployment-wide and need the admin role.
 
 Usage:
   aiplex list denials [flags]

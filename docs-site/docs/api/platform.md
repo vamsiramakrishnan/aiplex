@@ -28,6 +28,7 @@ The platform API covers the routes that are not specific to one plane. It has he
 | GET | `/api/v1/dashboard/stats` | Read the platform summary | Verified identity |
 | GET | `/api/v1/dashboard/denials` | List recent policy denials | Verified identity |
 | POST | `/api/v1/dashboard/denials` | Record a policy denial | `admin` outside development mode |
+| POST | `/internal/policy-denials` | Record a denial reported by the authz sidecar | Shared bearer secret (`AIPLEX_DENIAL_TOKEN`) |
 | GET | `/v0.1/servers` | List catalog entries as an MCP registry view | Verified identity. Mounted when `mcplex` is enabled. |
 | GET | `/a2a/{instanceId}/.well-known/agent.json` | Read the Agent Card of an A2A agent instance | Verified identity. Mounted when `a2aplex` is enabled. |
 | GET | `/auth/login` | Return the login challenge details for Hydra | None |
@@ -502,16 +503,18 @@ Returns the most recent 50 policy denials as a JSON array.
 
 ### POST `/api/v1/dashboard/denials`
 
-Records a policy denial. The body has the denial fields above. The server does not set `id` or `timestamp`, so send them when the caller has them. The response is `201 Created` with the stored denial.
+Records a policy denial. The body has the denial fields above, plus an optional `trace_id` (32 lower-case hex digits). The server assigns `id` and `timestamp` and ignores any the caller sends; unknown fields, control characters and values over the length limits (agent and user 256, action 512, scope 512, request id 128) are refused. The body is limited to 4096 bytes. The response is `201 Created` with the stored denial. `POST /internal/policy-denials` takes the same body from the authz sidecar behind a shared bearer secret; see [policy denials](../library/policy-denials.md).
 
 Outside development mode, this route requires the `admin` role, because the `/api/v1/dashboard/` prefix is restricted to `admin` for writes.
 
 | Status | Code | When |
 |---|---|---|
 | 201 | none | Denial recorded |
-| 400 | `BAD_REQUEST` | Body does not decode |
+| 400 | `BAD_REQUEST`, `INVALID_FIELD` | Body does not decode, has unknown fields, or a field is invalid |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
 | 403 | `FORBIDDEN` | Caller lacks `admin` outside development mode |
+| 413 | `PAYLOAD_TOO_LARGE` | Body over 4096 bytes |
+| 429 | `RATE_LIMITED` | Too many reports |
 | 500 | `STORE_ERROR` | Store write failed |
 
 ## Registry and Agent Cards

@@ -53,6 +53,23 @@ func applyCmd() *cobra.Command {
 		Short: "Apply a declarative configuration file",
 		Long: `Apply instances, agents, and routes from a YAML/JSON file. The file is checked
 first with the same checks as "aiplex validate"; nothing is applied if it fails.
+
+Apply converges: running it again with the same file changes nothing. Each
+object is reported as created (it was absent), updated (it differed and could
+be replaced), unchanged (it already matched) or skipped, then a summary. The
+exit status is non-zero only when an object failed. --dry-run prints the same
+plan and writes nothing.
+
+  routes     Replaced at the revision just read (If-Match), keeping a saved
+             cache TTL and rate limit the file does not mention. A revision
+             written in the file is a precondition: apply fails if the saved
+             route is at a different revision.
+  agents     Created when absent. The API has no update for an agent (its OAuth
+             client is issued once), so an agent that differs fails and names
+             the field; delete it and apply again.
+  instances  Matched by plane and name. A different template or configuration
+             fails the same way; undeploy it first.
+
 Routes are applied in file order, so a route named as a fallback must come
 before the route that lists it. Under "aiplex dev", instances are skipped
 (they need Kubernetes and a template catalog).
@@ -112,95 +129,30 @@ Usage:
 				return fmt.Errorf("%d validation error(s)", len(problems))
 			}
 
-			c := newClient()
-			ctx := context.Background()
-			var errors []string
-
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
 			// Instances deploy onto Kubernetes from the platform's template
 			// catalog. aiplex dev has neither, so say so instead of failing
 			// with "template not found".
-			skipped := 0
-			instances := manifest.Instances
-			if len(instances) > 0 && localDevAPI() {
-				fmt.Printf("Skipping %d instance(s): deploying MCP servers and agents needs a Kubernetes cluster and a template catalog, which aiplex dev does not have.\n", len(instances))
-				fmt.Println("  Agents and routes in this file are applied. Apply the instances against a cloud deployment.")
-				skipped, instances = len(instances), nil
+			skipReason := ""
+			if len(manifest.Instances) > 0 && localDevAPI() {
+				skipReason = "aiplex dev has no Kubernetes cluster or template catalog; apply instances against a cloud deployment"
 			}
 
-			// Apply instances
-			for _, inst := range instances {
-				fmt.Printf("Deploying %s (%s/%s)... ", inst.Name, inst.Plane, inst.Template)
-				result, err := c.Deploy(ctx, &aiplex.DeployRequest{
-					Plane:       inst.Plane,
-					TemplateID:  inst.Template,
-					DisplayName: inst.Name,
-					Config:      inst.Config,
-				})
-				if err != nil {
-					fmt.Printf("FAILED: %v\n", err)
-					errors = append(errors, fmt.Sprintf("instance %s: %v", inst.Name, err))
-				} else {
-					fmt.Printf("OK (%s)\n", result.ID)
+			results := applyManifest(context.Background(), newClient(), manifest, dryRun, skipReason)
+			failed := printApplyResults(cmd.OutOrStdout(), results, dryRun)
+			if failed > 0 {
+				for _, r := range results {
+					if r.Action == actFailed {
+						fmt.Fprintf(os.Stderr, "%s %s: %s\n", r.Kind, r.Name, r.Detail)
+					}
 				}
-			}
-
-			// Apply agents
-			for _, agent := range manifest.Agents {
-				fmt.Printf("Registering agent %s... ", agent.ClientID)
-				_, err := c.RegisterAgent(ctx, &aiplex.RegisterAgentRequest{
-					ClientID:      agent.ClientID,
-					DisplayName:   agent.DisplayName,
-					Description:   agent.Description,
-					AuthMethod:    agent.AuthMethod,
-					GrantTypes:    agent.GrantTypes,
-					AllowedScopes: agent.AllowedScopes,
-					WIFPrincipal:  agent.WIFPrincipal,
-					RedirectURIs:  agent.RedirectURIs,
-				})
-				if err != nil {
-					fmt.Printf("FAILED: %v\n", err)
-					errors = append(errors, fmt.Sprintf("agent %s: %v", agent.ClientID, err))
-				} else {
-					fmt.Println("OK")
-				}
-			}
-
-			// Apply routes
-			for _, route := range manifest.Routes {
-				fmt.Printf("Configuring route %s... ", route.ModelID)
-				_, err := c.PutLLMRoute(ctx, route.ModelID, &aiplex.LLMRouteConfig{
-					ModelID:   route.ModelID,
-					Revision:  route.Revision,
-					Backends:  route.Backends,
-					Fallbacks: route.Fallbacks,
-					Budget:    route.Budget,
-				})
-				if err != nil {
-					fmt.Printf("FAILED: %v\n", err)
-					errors = append(errors, fmt.Sprintf("route %s: %v", route.ModelID, err))
-				} else {
-					fmt.Println("OK")
-				}
-			}
-
-			fmt.Println()
-			total := len(instances) + len(manifest.Agents) + len(manifest.Routes)
-			if len(errors) > 0 {
-				fmt.Printf("Applied %d/%d resources (%d failed)\n", total-len(errors), total, len(errors))
-				for _, e := range errors {
-					fmt.Printf("  - %s\n", e)
-				}
-				return fmt.Errorf("%d resource(s) failed", len(errors))
-			}
-
-			fmt.Printf("Applied %d resource(s) successfully.\n", total)
-			if skipped > 0 {
-				fmt.Printf("%d instance(s) were skipped (not available under aiplex dev).\n", skipped)
+				return fmt.Errorf("%d resource(s) failed", failed)
 			}
 			return nil
 		},
 	}
 
+	cmd.Flags().Bool("dry-run", false, "Show what would be created, updated, or left unchanged, and write nothing")
 	cmd.Flags().StringP("file", "f", "", "Path to manifest file (YAML or JSON)")
 	cmd.MarkFlagRequired("file")
 	return cmd

@@ -44,6 +44,9 @@ opa:
 otel:
   enabled: false  # Skip observability in dev
 
+gateway:
+  enabled: false  # No GKE load balancer in dev
+
 alloydbProxy:
   enabled: false  # Use local PostgreSQL instead
 

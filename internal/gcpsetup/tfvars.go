@@ -13,12 +13,20 @@ type Toggles struct {
 	OrganizationID string
 	AlertEmail     string
 	OTelCollector  bool
+	// ClusterNetwork is "default" or "aiplex" (cluster_network).
+	ClusterNetwork string
+	// AWSAccountID and AzureTenantID (aws_account_id, azure_agent_tenant_id)
+	// switch on the external agent identity providers.
+	AWSAccountID  string
+	AzureTenantID string
 	// Found reports whether a tfvars file was read.
 	Found bool
 }
 
 // DefaultToggles are the Terraform variable defaults.
-func DefaultToggles() Toggles { return Toggles{ManageDNS: true, OTelCollector: true} }
+func DefaultToggles() Toggles {
+	return Toggles{ManageDNS: true, OTelCollector: true, ClusterNetwork: "default"}
+}
 
 var tfvarLine = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$`)
 
@@ -57,6 +65,14 @@ func ReadToggles(path string) (Toggles, error) {
 			t.AlertEmail = value
 		case "otel_collector":
 			t.OTelCollector = value != "false"
+		case "cluster_network":
+			if value != "" {
+				t.ClusterNetwork = value
+			}
+		case "aws_account_id":
+			t.AWSAccountID = value
+		case "azure_agent_tenant_id":
+			t.AzureTenantID = value
 		}
 	}
 	return t, s.Err()
@@ -65,13 +81,15 @@ func ReadToggles(path string) (Toggles, error) {
 // EnabledFeatures returns the features the toggles switch on.
 func EnabledFeatures(t Toggles) map[FeatureID]bool {
 	return map[FeatureID]bool{
-		FeatureState:      true,
-		FeatureCore:       true,
-		FeatureBackup:     true,
-		FeatureBinaryAuth: true,
-		FeatureDNS:        t.ManageDNS,
-		FeatureWorkforce:  t.OrganizationID != "",
-		FeatureAlertEmail: t.AlertEmail != "",
-		FeatureTelemetry:  t.OTelCollector,
+		FeatureState:            true,
+		FeatureCore:             true,
+		FeatureBackup:           true,
+		FeatureBinaryAuth:       true,
+		FeatureDNS:              t.ManageDNS,
+		FeatureWorkforce:        t.OrganizationID != "",
+		FeatureAlertEmail:       t.AlertEmail != "",
+		FeatureTelemetry:        t.OTelCollector,
+		FeatureDedicatedNetwork: t.ClusterNetwork == "aiplex",
+		FeatureExternalAgents:   t.AWSAccountID != "" || t.AzureTenantID != "",
 	}
 }

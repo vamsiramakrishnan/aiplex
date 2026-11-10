@@ -58,7 +58,8 @@ func platformApplyCmd() *cobra.Command {
   1. Creates GCS bucket for Terraform state (if needed)
   2. Runs terraform init + apply (GKE, AlloyDB, Firestore, certs, DNS)
   3. Configures kubectl context
-  4. Runs helm install/upgrade (AIPlex API, Console, Ory, OPA)
+  4. Runs helm install/upgrade (AIPlex API, Console, Ory, OPA, and the
+     Gateway with its routes and Cloud Armor attachment)
   5. Waits for cert provisioning
   6. Runs health check
 
@@ -202,7 +203,7 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 
 			// Step 5: Helm deploy
 			if !skipDeploy {
-				fmt.Println("[5/6] Helm deploy (AIPlex API, Console, Ory, OPA)...")
+				fmt.Println("[5/6] Helm deploy (AIPlex API, Console, Ory, OPA, Gateway)...")
 				helmArgs := []string{
 					"upgrade", "--install", "aiplex", helmDir,
 					"--namespace", "aiplex-system", "--create-namespace",

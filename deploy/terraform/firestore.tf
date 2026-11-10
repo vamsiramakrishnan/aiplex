@@ -238,3 +238,15 @@ resource "google_firestore_field" "usage_ledger_ttl" {
 
   ttl_config {}
 }
+
+# Policy denial retention. Denials reported by the authz sidecar and recorded
+# by the API carry expires_at (30 days, api.DenialRetention); Firestore deletes
+# them after that.
+resource "google_firestore_field" "policy_denials_ttl" {
+  project    = var.project_id
+  database   = google_firestore_database.aiplex.name
+  collection = "policy_denials"
+  field      = "expires_at"
+
+  ttl_config {}
+}
