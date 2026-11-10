@@ -49,7 +49,7 @@ aiplex tui      # terminal dashboard
 aiplex console  # local web console
 ```
 
-[Documentation](https://docs.aiplex.dev) · [Quickstart guide](https://docs.aiplex.dev/docs/getting-started/quickstart)
+[Documentation](https://docs.aiplex.dev) · [Getting started](https://docs.aiplex.dev/docs/getting-started/local-development)
 
 ## Request path
 
@@ -288,7 +288,7 @@ aiplex completion bash >> ~/.bashrc
 
 The Go requirement is in `go.mod`; it takes precedence over the older Go entry in `.mise.toml`. Terraform, Helm, kubectl and Node versions are pinned in `.mise.toml`.
 
-See [Installation](https://docs.aiplex.dev/docs/getting-started/installation) for the full setup path.
+See [Installation](https://docs.aiplex.dev/docs/getting-started/install-platform) for the full setup path.
 
 ## Repository layout
 
