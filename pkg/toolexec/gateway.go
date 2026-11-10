@@ -210,7 +210,15 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = lease.Finish(cleanup, execution.Result{StatusCode: uncertainStatus, Err: errors.New("tool execution did not establish terminal usage")})
 		}
 	}()
-	credential, upstream, err := g.upstreamRequest(r.Context(), request.Body)
+	// The upstream sees the exchange's span context in params._meta as well as
+	// in the HTTP headers; the rest of the caller's request is relayed
+	// byte for byte.
+	upstreamBody, err := withTraceMeta(r.Context(), request.Body)
+	if err != nil {
+		http.Error(w, "invalid or oversized tool request", http.StatusBadRequest)
+		return
+	}
+	credential, upstream, err := g.upstreamRequest(r.Context(), upstreamBody)
 	if err != nil {
 		http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
 		return
