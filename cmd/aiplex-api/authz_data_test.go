@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -28,6 +29,12 @@ func (s *authzServer) do(t *testing.T, method, path, token, body string) *httpte
 	t.Helper()
 	rec := httptest.NewRecorder()
 	s.handler.ServeHTTP(rec, authzRequest(method, path, token, body))
+	return rec
+}
+
+func (s *authzServer) do2(req *http.Request) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	s.handler.ServeHTTP(rec, req)
 	return rec
 }
 
