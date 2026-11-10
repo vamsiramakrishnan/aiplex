@@ -522,6 +522,14 @@ func (x *extendedExchange) serve() {
 		x.fail(errors.New("upstream redirect refused"), http.StatusBadGateway, "upstream redirects are not supported")
 		return
 	}
+	switch x.spec.kind {
+	case kindBatchCreate, kindBatchRead, kindBatchList, kindBatchResults, kindFileContent, kindFileUpload:
+		// Every batch exchange is labelled batch on the ledger, whatever its outcome.
+		if err := x.batchMarker(); err != nil {
+			x.fail(err, http.StatusBadGateway, "upstream response could not be acknowledged")
+			return
+		}
+	}
 	if !x.success() {
 		data, err := x.readBounded()
 		if err != nil {
