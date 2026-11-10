@@ -119,16 +119,30 @@ discount. The operator configures the contracted batch rates. See
 ## Listing batches
 
 `GET /api/v1/llm/batches` lists the tenant's batch records. It requires the admin role.
-Otherwise it returns `403 ADMIN_REQUIRED`.
+Other callers are refused by the route policy with `403 ROLE_REQUIRED`. Callers with no
+verified identity get `401 UNAUTHENTICATED`.
 
 | Query parameter | Values | Default | Meaning |
 | --- | --- | --- | --- |
 | `state` | `open`, `settled` | all | Filter by state. Any other value returns `400 INVALID_QUERY`. |
 | `surface_id` | surface ID | all | Only batches created through this surface. |
 | `limit` | 1 to 500 | 100 | Page size. Any other value returns `400 INVALID_QUERY`. |
-| `cursor` | opaque | none | Continue after the `next_cursor` of the previous page. |
+| `cursor` | opaque | none | Continue after the `next_cursor` of the previous page. Valid only with the `order` that issued it. |
+| `order` | `id`, `newest` | `id` | `id` orders by record ID. `newest` orders by `created_at`, newest first. Any other value returns `400 INVALID_QUERY`. |
+| `older_than` | RFC 3339 timestamp | none | Only batches with `created_at` before this time. Any other value returns `400 INVALID_QUERY`. |
 
-Batches are ordered by record ID. `next_cursor` is present when more pages exist.
+`next_cursor` is present when more pages exist.
+
+Ordering rules:
+
+- `order=id` (the default) sorts by record ID. The cursor is the last record ID of the page.
+- `order=newest` sorts by `created_at` descending. Ties are broken by record ID. Records without
+  `created_at` sort after all dated records. Their cursor has the form `n:-:<id>`.
+- A cursor from one order is refused with the other. `order=id` with a cursor that starts with
+  `n:` returns `400 INVALID_QUERY`. `order=newest` with a cursor that is not in that form returns
+  `400 INVALID_QUERY`.
+- `older_than` excludes records without `created_at`, because their age is unknown. To find
+  open batches whose results were never fetched, use `state=open&older_than=<timestamp>`.
 
 The response has a `batches` array and an optional `next_cursor`. Each entry has these fields:
 
@@ -143,6 +157,11 @@ The response has a `batches` array and an optional `next_cursor`. Each entry has
 | `provider_status` | The provider's last reported status. Omitted when empty. |
 | `ended` | `true` once the provider reported a terminal status. |
 | `expected` | The provider's item count. `null` while unknown. |
+| `created_at` | RFC 3339 time the gateway first recorded the batch. Omitted for records written before timestamps existed. |
+| `settled_at` | RFC 3339 time the gateway settled the batch. Omitted while open, and for records written before timestamps existed. |
+
+A record without `created_at` is not an error. The field is absent, meaning the age is unknown,
+not zero. `created_at` and `settled_at` are written once and not rewritten.
 
 The view carries no usage counters, prompts or results.
 
@@ -156,6 +175,8 @@ aiplex llm batches list --surface openai-prod --limit 50 --all
 `--state`, `--surface`, `--limit` (1 to 500), `--cursor` and `--all` map to the query
 parameters above. `--all` follows every page. Machine output is available with `-o json` or
 `-o yaml`. The table output names the open-batch caveat when `--state` is not `settled`.
+The CLI has no flag for `order` or `older_than`. The Go SDK exposes both as
+`ModelBatchQuery.Order` and `ModelBatchQuery.OlderThan`.
 
 ## Access points
 

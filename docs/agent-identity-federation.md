@@ -27,10 +27,11 @@ admin or deployer role. Writes need the admin role.
 | `PUT /api/v1/agents/{clientId}/identities/{id}` | Create or replace a binding. Updates send the current revision in `If-Match`. The agent must be active (`409 AGENT_NOT_ACTIVE` otherwise). |
 | `DELETE /api/v1/agents/{clientId}/identities/{id}` | Delete a binding. Send the current revision in `If-Match`. |
 | `POST /api/v1/agents/{clientId}/identities/{id}/plan` | Setup steps for the other cloud. The plan is rendered text for review. |
-| `POST /api/v1/agents/identities/verify` | Dry run: checks a presented token against bindings. Body: `token`, and optionally `client_id` and `binding_id` (supply both or neither). |
+| `POST /api/v1/agents/identities/verify` | Dry run: checks a presented token against bindings. Body: `token`, and optionally `client_id` and `binding_id` (supply both or neither). Admin or deployer only. Limited to 20 requests per minute per caller. A caller over the limit gets `429 RATE_LIMITED`. |
 
 The verify route never echoes the token. A malformed body is answered with a generic
-400 that does not repeat the body.
+400 that does not repeat the body. The limit is kept in each API process, so a deployment with
+several replicas allows 20 per minute per replica.
 
 ## Binding request
 
@@ -125,7 +126,11 @@ provider is rejected. Restart the API after changing these variables.
 
 - Nothing is provisioned in the other cloud. Plans are text for an operator to run.
 - Trust rests on the issuer's JWKS. JWKS URLs must pass the outbound endpoint policy
-  when a binding is saved.
+  when a binding is saved. Issuers must be `https`. A JWKS URL may be plain `http` only when
+  its host is `localhost` or a loopback address. Even then the outbound endpoint policy refuses
+  it unless the `network.allow_loopback` option is set in the connections file
+  (`AIPLEX_CONNECTIONS_FILE`). The API refuses that option unless development mode is on
+  (`AIPLEX_DEV_MODE`), and stops at startup otherwise.
 - A token that matches more than one binding is rejected.
 - Live authentication applies only to the tenant named by `AIPLEX_TENANT_ID`.
 - The verified identity is rebuilt from the binding: issuer, subject, audience,
