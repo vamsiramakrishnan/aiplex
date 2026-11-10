@@ -98,6 +98,7 @@ const sidebars: SidebarsConfig = {
           items: [L('access-points', 'Specification and routes')],
         },
         L('request-hooks', 'Request hooks'),
+        L('reliability-and-routing', 'Reliability and routing'),
         {
           type: 'category',
           label: 'Identity',

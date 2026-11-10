@@ -260,9 +260,13 @@ func (h Hook) runsIn(phase string) bool {
 
 // Target is what one exchange is: the scopes it falls under.
 type Target struct {
-	Plane          string
-	AccessPointID  string
-	ModelSurface   string
+	Plane         string
+	AccessPointID string
+	ModelSurface  string
+	// ModelSurfaces adds further model surfaces: a routed access-point model
+	// resolves the policies of every one of its backends together, so the
+	// request hooks run once with the union (scopes add, never remove).
+	ModelSurfaces  []string
 	ToolConnection string
 }
 
@@ -368,7 +372,15 @@ func (p Policy) applies(t Target) bool {
 	case ScopeAccessPoint:
 		return t.AccessPointID != "" && p.Scope.ID == t.AccessPointID
 	case ScopeModelSurface:
-		return t.Plane == PlaneModels && p.Scope.ID == t.ModelSurface
+		if t.Plane != PlaneModels {
+			return false
+		}
+		for _, s := range t.ModelSurfaces {
+			if p.Scope.ID == s {
+				return true
+			}
+		}
+		return p.Scope.ID == t.ModelSurface
 	case ScopeToolConnection:
 		return t.Plane == PlaneTools && p.Scope.ID == t.ToolConnection
 	}

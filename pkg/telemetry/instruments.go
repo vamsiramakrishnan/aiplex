@@ -31,6 +31,7 @@ type Instruments struct {
 	otlpIngest          metric.Int64Counter
 	tagRejected         metric.Int64Counter
 	hooks               hookInstruments
+	routing             routingInstruments
 	toolPolicy          toolPolicyInstruments
 }
 
@@ -73,6 +74,7 @@ func newInstruments(m metric.Meter) *Instruments {
 		otlpIngest:          counter(MetricOTLPIngest, "{record}", "Records, data points and spans received over OTLP from harnesses, by signal, harness and outcome (recorded, duplicate, rejected, dropped, forwarded)."),
 		tagRejected:         counter(MetricTagRejected, "{tag}", "Record tags not stored, by reason (not_allowed, invalid, overflow)."),
 		hooks:               newHookInstruments(histogram, counter),
+		routing:             newRoutingInstruments(m, counter),
 		toolPolicy:          newToolPolicyInstruments(counter),
 	}
 }

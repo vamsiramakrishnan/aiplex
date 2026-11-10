@@ -74,6 +74,7 @@ func quotaFile(tenant string, noTools, tariff bool) (map[string]any, error) {
 	}
 	for _, op := range ops {
 		add("llmplex", SeedSurface, op, MockModel, provider, false)
+		add("llmplex", SeedSurfaceB, op, MockModel, provider, false)
 	}
 	for _, m := range MockSurfaces {
 		spec, err := MockSurfaceSpec(m, "http://127.0.0.1")

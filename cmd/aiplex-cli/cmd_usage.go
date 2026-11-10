@@ -516,7 +516,7 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 	columns := []column{
 		wideCol("ID").trunc(truncNever), col("TIME"), wideCol("PLANE"), col("MODEL/TOOL"), col("CALLER").trunc(truncMiddle),
 		wideCol("AGENT"), wideCol("USER").trunc(truncNever), wideCol("PRINCIPAL ID").trunc(truncNever), wideCol("CLIENT"), col("ACCESS POINT"), wideCol("SESSION"), wideCol("BATCH"), wideCol("TAGS"),
-		col("STATUS"), wideCol("HOOKS"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST").trunc(truncNever), wideCol("LATENCY"),
+		col("STATUS"), wideCol("HOOKS"), wideCol("ATTEMPTS"), wideCol("BACKEND"), wideCol("CACHE"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST").trunc(truncNever), wideCol("LATENCY"),
 	}
 	if reported {
 		columns = append(columns[:4], append([]column{col("SOURCE")}, columns[4:]...)...)
@@ -532,6 +532,7 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 		}
 		row := []string{r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalDisplay), usageDash(r.PrincipalID), usageDash(r.ClientID),
 			usageDash(usageAccessPointCell(r)), usageSessionCell(r), usageBatchCell(r), usageTagsCell(r.Tags), usageStatusCell(r), usageHooksCell(r),
+			usageAttemptsCell(r), usageBackendCell(r), usageCacheCell(r),
 			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageRecordCounter(r, usageledger.CounterCacheWrite),
 			usageModalityCell(r), usageUnitsCell(r), cost, latency}
 		if reported {
@@ -568,7 +569,41 @@ func usageTagsCell(tags map[string]string) string {
 		parts = append(parts, k+"="+tags[k])
 	}
 	return strings.Join(parts, " ")
+}
 
+// usageAttemptsCell lists a routed exchange's attempt outcomes in order,
+// e.g. "2: unavailable,ok"; "—" for an exchange that was not routed.
+func usageAttemptsCell(r usageledger.Record) string {
+	if len(r.Attempts) == 0 {
+		return "—"
+	}
+	outcomes := make([]string, 0, len(r.Attempts))
+	for _, a := range r.Attempts {
+		outcomes = append(outcomes, a.Outcome)
+	}
+	return fmt.Sprintf("%d: %s", len(r.Attempts), strings.Join(outcomes, ","))
+}
+
+// usageBackendCell is the backend that served a routed exchange.
+func usageBackendCell(r usageledger.Record) string {
+	if r.Backend == nil {
+		return "—"
+	}
+	if r.Backend.NativeModel == "" || r.Backend.NativeModel == "-" {
+		return r.Backend.SurfaceRef
+	}
+	return r.Backend.SurfaceRef + "/" + r.Backend.NativeModel
+}
+
+// usageCacheCell is the response-cache outcome (hit, miss or bypass and why).
+func usageCacheCell(r usageledger.Record) string {
+	if r.Cache == nil {
+		return "—"
+	}
+	if r.Cache.Reason != "" {
+		return r.Cache.Status + " (" + r.Cache.Reason + ")"
+	}
+	return r.Cache.Status
 }
 
 // usageHooksCell summarizes request-hook decisions: the overall decision,
@@ -762,8 +797,43 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		rows = append(rows, [2]string{name + " (unit)", usageUnitCounter(r, name)})
 	}
 	rows = append(rows, [2]string{"cost", usageCost(r.Cost)})
+	rows = append(rows, usageRoutingRows(r)...)
 	rows = append(rows, usageHookRows(r.Hooks)...)
 	return append(rows, usageLimitRows(r.ProviderLimits)...)
+}
+
+// usageRoutingRows describes a routed exchange: strategy, backend, cache
+// and each attempt in order.
+func usageRoutingRows(r usageledger.Record) [][2]string {
+	if len(r.Attempts) == 0 && r.Cache == nil {
+		return nil
+	}
+	rows := [][2]string{{"routing_strategy", usageDash(r.RoutingStrategy)}, {"backend", usageBackendCell(r)}, {"cache", usageCacheCell(r)}}
+	if r.CachedResponseUsage != nil {
+		u := usageledger.Record{Usage: r.CachedResponseUsage}
+		rows = append(rows, [2]string{"cached_response_usage", fmt.Sprintf("in %s out %s (not provider usage of this exchange)", usageRecordCounter(u, usageledger.CounterInput), usageRecordCounter(u, usageledger.CounterOutput))})
+	}
+	for i, a := range r.Attempts {
+		cell := fmt.Sprintf("%s %dms", a.Outcome, a.DurationMS)
+		if a.UpstreamStatus != 0 {
+			cell += fmt.Sprintf(" status %d", a.UpstreamStatus)
+		}
+		if a.RetryAfterMS != nil {
+			cell += fmt.Sprintf(" retry-after %dms", *a.RetryAfterMS)
+		}
+		if a.BreakerState != "" {
+			cell += " breaker " + a.BreakerState
+		}
+		if a.Reason != "" {
+			cell += " (" + a.Reason + ")"
+		}
+		backend := a.SurfaceRef
+		if a.NativeModel != "" {
+			backend += "/" + a.NativeModel
+		}
+		rows = append(rows, [2]string{fmt.Sprintf("  attempt %d %s", i+1, backend), cell})
+	}
+	return rows
 }
 
 func usageHookRows(s *usageledger.HookSummary) [][2]string {

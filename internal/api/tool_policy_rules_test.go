@@ -417,3 +417,60 @@ func TestToolRulesTimeIsProvidedNotCallerControlled(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+func TestToolRulesSeeAccessPointLabels(t *testing.T) {
+	f := newRuleFixture(t, rulesOf(denyRule("no-prod-delete", "'env' in access_point.labels && access_point.labels.env == 'prod' && tool.name == 'delete'", "not in production")))
+	prod := ruleCaller{access: &accessPointCall{ID: "team", CallerKind: "user", labels: map[string]string{"env": "prod"}}}
+	dev := ruleCaller{access: &accessPointCall{ID: "team", CallerKind: "user", labels: map[string]string{"env": "dev"}}}
+	if w := f.call("delete", `{"n":1}`, prod); w.Code != 403 || decodeDenied(t, w).Error.Data["rule"] != "no-prod-delete" {
+		t.Fatalf("the access point's labels reach the rule: %d %s", w.Code, w.Body.String())
+	}
+	if w := f.call("delete", `{"n":1}`, dev); w.Code != 200 {
+		t.Fatalf("another label value is allowed: %d %s", w.Code, w.Body.String())
+	}
+	if w := f.call("delete", `{"n":1}`, ruleCaller{}); w.Code != 200 {
+		t.Fatalf("without an access point labels are empty: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// A read-only tool call whose transport fails is sent once more with the
+// same, already checked and hooked body: rules and hooks are not run again.
+func TestToolRetryResendsTheCheckedBodyOnce(t *testing.T) {
+	f := newRuleFixture(t, rulesOf(denyRule("no-big", "args.n > 10", "too big")))
+	putHookPolicy(t, f.store, `{"id":"mask","scope":{"kind":"tenant"},"planes":["mcplex"],"hooks":[{"id":"m","type":"redact","phases":["request"],"redact":{"rules":[{"id":"email","builtin":"email","action":"mask"}]}}]}`)
+	f.list(ruleCaller{}) // observe readOnlyHint=true for "search"
+	f.upstream.mu.Lock()
+	f.upstream.dropCalls, f.upstream.bodies = 1, nil
+	f.upstream.mu.Unlock()
+	w := f.call("search", `{"n":1,"to":"jane@example.com"}`, ruleCaller{})
+	if w.Code != 200 {
+		t.Fatalf("retried read-only call: %d %s", w.Code, w.Body.String())
+	}
+	f.upstream.mu.Lock()
+	bodies := append([]string(nil), f.upstream.bodies...)
+	f.upstream.mu.Unlock()
+	if len(bodies) != 2 || bodies[0] != bodies[1] || !strings.Contains(bodies[0], "[EMAIL]") {
+		t.Fatalf("the retry re-sends the same hooked body: %q", bodies)
+	}
+	var rec *usageledger.Record
+	for _, r := range f.records() {
+		if r.ToolName == "search" && r.Operation == "tools/call" {
+			r := r
+			rec = &r
+		}
+	}
+	if rec == nil || rec.Hooks == nil || len(rec.Hooks.Results) != 1 {
+		t.Fatalf("hooks ran once: %+v", rec)
+	}
+	// A tool that is not read-only is never re-sent.
+	f.upstream.mu.Lock()
+	f.upstream.dropCalls, f.upstream.bodies = 1, nil
+	f.upstream.mu.Unlock()
+	w = f.call("delete", `{"n":1}`, ruleCaller{})
+	f.upstream.mu.Lock()
+	sends := len(f.upstream.bodies)
+	f.upstream.mu.Unlock()
+	if w.Code != http.StatusBadGateway || sends != 1 {
+		t.Fatalf("non-read-only call retried: %d (%d sends)", w.Code, sends)
+	}
+}

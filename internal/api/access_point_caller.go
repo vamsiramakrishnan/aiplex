@@ -152,6 +152,9 @@ type accessPointCall struct {
 	missingGrant string
 	// toolRules are the access point's policy rules by tool connection.
 	toolRules map[string][]toolpolicy.Rule
+	// labels are the access point's trusted labels (access_point.labels in
+	// tool policy rules). Never caller-supplied.
+	labels map[string]string
 }
 
 type accessPointKey struct{}
@@ -247,7 +250,7 @@ func (h *ConnectedHandler) accessPointGate(w http.ResponseWriter, r *http.Reques
 		return "", AccessPoint{}, nil, false
 	}
 	revision := record.Revision
-	call := &accessPointCall{ID: id, CallerKind: caller.Kind, ClientID: caller.ClientID, Revision: revision, QoS: ap.QoS != nil, Project: ap.Project}
+	call := &accessPointCall{ID: id, CallerKind: caller.Kind, ClientID: caller.ClientID, Revision: revision, QoS: ap.QoS != nil, Project: ap.Project, labels: ap.Labels}
 	for _, t := range ap.Tools {
 		if len(t.Rules) > 0 {
 			if call.toolRules == nil {

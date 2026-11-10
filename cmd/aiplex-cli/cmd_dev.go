@@ -459,6 +459,7 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		}
 		row("Models", strings.Join(names, ", ")+"  (built-in mock provider, no API key)")
 		row("", "wires: "+strings.Join(wires, ", "))
+		row("Mock B", s.ModelsBURL+"  (a second mock provider for routing; models named *-fault-* fail on demand)")
 	default:
 		row("Model", seeded.Model+"  via "+seeded.Provider+" (key from $"+o.keyEnv+")")
 	}

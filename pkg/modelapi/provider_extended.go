@@ -304,7 +304,9 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 		writeExecutionError(w, err)
 		return true
 	}
-	response, err := g.client.Do(request)
+	// Media exchanges are observed for routing but settle a transport
+	// failure as uncertain (their leases do not take NotSent).
+	response, _, err := g.do(request)
 	if err != nil {
 		if finishErr := run.finish(execution.Result{Err: err}); finishErr != nil {
 			writeExecutionError(w, finishErr)

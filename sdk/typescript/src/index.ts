@@ -1,6 +1,10 @@
 export { AiplexError, type AiplexErrorInit } from "./errors.js";
 export {
   type AccessPointModel,
+  type CacheInfo,
+  type ResponseCacheConfig,
+  type RouteAttempt,
+  type RoutingBackend,
   type AccessPointRecord,
   type AccessPointSkill,
   type AccessPointSpec,
@@ -34,6 +38,7 @@ export {
   type Whoami,
   formatMinorDecimal,
   parseAccessPointModel,
+  parseRoutingBackend,
   parseAccessPointRecord,
   parseAccessPointSkill,
   parseAccessPointSpec,

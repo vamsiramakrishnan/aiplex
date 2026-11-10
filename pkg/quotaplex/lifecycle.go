@@ -264,7 +264,13 @@ func (e *Engine) Settle(ctx context.Context, settlement Settlement) (Decision, e
 			}
 		}
 		actual := CloneVector(settlement.Usage)
-		if len(record.Plan.Prices) > 0 || planHasMoneyBudget(record.Plan) {
+		if settlement.Unpriced {
+			for meter, definition := range record.Plan.Meters {
+				if definition.Unit == "money" {
+					actual[meter] = 0
+				}
+			}
+		} else if len(record.Plan.Prices) > 0 || planHasMoneyBudget(record.Plan) {
 			money, err := PriceUsage(actual, record.Plan.Prices, record.Plan.Meters)
 			if err != nil {
 				return err

@@ -92,6 +92,9 @@ type SummaryGroup struct {
 	UnitRecords map[string]int64 `json:"unit_records,omitempty"`
 	// BatchRecords counts records of provider batch exchanges.
 	BatchRecords int64 `json:"batch_records,omitempty"`
+	// CachedResponseRecords counts answers served from the AIPlex response
+	// cache (cost basis "cached"): no provider usage, no provider cost.
+	CachedResponseRecords int64 `json:"cached_response_records,omitempty"`
 	// Feedback totals the latest feedback of the group's records, when the
 	// summary asked for it.
 	Feedback *FeedbackTotals `json:"feedback,omitempty"`
@@ -256,6 +259,10 @@ func (g *groupAccumulator) add(r Record) error {
 	}
 	if err := g.addUnits(r); err != nil {
 		return err
+	}
+	if r.Cost.Basis == BasisCached {
+		s.CachedResponseRecords++
+		return nil
 	}
 	if r.Cost.Basis != BasisSettled && r.Cost.Basis != BasisEstimated && r.Cost.Basis != BasisReported {
 		s.UnknownCostRecords++

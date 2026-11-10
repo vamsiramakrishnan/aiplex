@@ -13,6 +13,8 @@ An access point is one stable URL, `/ap/{id}/…`, in front of a tenant's models
 | PUT | `/api/v1/access-points/{id}` | Create or update an access point | `admin` role |
 | DELETE | `/api/v1/access-points/{id}` | Delete an access point | `admin` role |
 | POST | `/api/v1/access-points/{id}/quota-plan` | Render and validate the QoS quota fragment. Never activates a policy. | `admin` role |
+| GET | `/api/v1/access-points/{id}/routing` | Live routing state of routed models in the answering API process: per backend, the circuit breaker (`state`, `consecutive_failures`, `opened_at`, `half_open_at`) and the last outcomes; response-cache occupancy (`cache_store`). | `admin` or `deployer` role |
+| POST | `/api/v1/access-points/{id}/cache/purge` | Remove cached answers of the access point, or of one model with `?model=`, in the answering API process. Returns `{"purged": n}`. | `admin` role |
 
 All routes are under `/api/v1`, which requires a verified identity. Outside development mode, the `admin` or `deployer` role is required for non-GET methods, and the access-point writes narrow that to `admin`. A caller without the role receives `403 FORBIDDEN`.
 
@@ -50,8 +52,13 @@ At least one of `models`, `tools` or `skills` must be present.
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `name` | string | Yes | Client-facing model name. Matches `[A-Za-z0-9._@-]` first, then `[A-Za-z0-9._@/:-]`, up to 256 characters, no `..`. Unique within the access point. |
-| `surface_ref` | string | Yes | Identifier of a saved `model-surface` resource in the tenant |
-| `native_model` | string | Yes | Model identifier the surface lists. Same character rules as `name`. |
+| `surface_ref` | string | Yes, unless `backends` | Identifier of a saved `model-surface` resource in the tenant |
+| `native_model` | string | Yes, unless `backends` | Model identifier the surface lists. Same character rules as `name`. |
+| `backends` | array of `{surface_ref, native_model, weight, priority}` | No | One to eight backends instead of `surface_ref`/`native_model`. Every backend must serve the same client wires natively. |
+| `routing` | object | No | `strategy` (`priority`, `weighted`, `lowest_cost`), `retry`, `fallback`, `breaker`, `lowest_cost`, `deadline_ms`. |
+| `cache` | object | No | `ttl` (1s to 24h), `scope` (`principal` default, or `access_point`), `max_entry_bytes`. Off unless present. |
+
+The routing and cache fields, their defaults and the safety rules are in [Reliability and routing](/docs/library/reliability-and-routing).
 
 A `name` that differs from `native_model` is allowed only when the surface's facade rewrites the model in the request. Otherwise the save is rejected.
 

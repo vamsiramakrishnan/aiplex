@@ -71,6 +71,10 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(get, "/api/v1/access-points/{id}", api.RouteAuthenticated),
 		tenantRule([]string{http.MethodPut, http.MethodDelete}, "/api/v1/access-points/{id}", api.RouteAdmin),
 		tenantRule(post, "/api/v1/access-points/{id}/quota-plan", api.RouteAdmin),
+		// Routing state (breakers, recent outcomes) names backends: operators
+		// only. Purging the response cache: admins.
+		tenantRule(get, "/api/v1/access-points/{id}/routing", api.RouteOperator),
+		tenantRule(post, "/api/v1/access-points/{id}/cache/purge", api.RouteAdmin),
 		// Budgets: operators read definitions, admins write and preview. Any
 		// verified caller may ask for the status of a budget; the handler
 		// answers only a direct member (404 otherwise) with spent and

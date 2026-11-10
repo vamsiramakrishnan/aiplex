@@ -192,6 +192,13 @@ func (h *UsageHandler) ListRecords(w http.ResponseWriter, r *http.Request) {
 		h.storeError(w, r, err)
 		return
 	}
+	if visibility != nil {
+		// A caller reading its own records sees attempts, not which
+		// backends a routed model is built from.
+		for i := range page.Records {
+			page.Records[i].RedactRouting()
+		}
+	}
 	JSON(w, http.StatusOK, page)
 }
 
@@ -219,6 +226,9 @@ func (h *UsageHandler) GetRecord(w http.ResponseWriter, r *http.Request) {
 	if record.TenantID != tenant || !(usageledger.Filter{Visibility: visibility}).Matches(record) {
 		Error(w, r, http.StatusNotFound, "NOT_FOUND", "usage record not found")
 		return
+	}
+	if visibility != nil {
+		record.RedactRouting()
 	}
 	detail := usageRecordDetail{Record: record}
 	if h.Feedback != nil {

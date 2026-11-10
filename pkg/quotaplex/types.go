@@ -295,4 +295,9 @@ type Settlement struct {
 	Claim              DispatchClaim `json:"claim"`
 	Usage              Vector        `json:"usage"`
 	ProviderResourceID string        `json:"provider_resource_id,omitempty"`
+	// Unpriced settles every money meter at zero instead of pricing the
+	// usage: no provider ran (an answer served from the AIPlex response
+	// cache), so no provider price applies, while request-count meters and
+	// budgets still count the request.
+	Unpriced bool `json:"unpriced,omitempty"`
 }

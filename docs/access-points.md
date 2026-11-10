@@ -81,7 +81,7 @@ not flags: use `aiplex access-points apply -f <file>` for them, and the [specifi
 | `id` | `[A-Za-z0-9._-]`, 1 to 128 characters, starting with a letter or digit. It must equal the resource ID. |
 | `caller_kinds` | One to three of `agent`, `user`, `client`. Unknown kinds are rejected. |
 | `subjects` | Narrows who may call. An empty block admits every caller of an allowed kind. See [admission](#admission). |
-| `models[]` | `name` is the client-facing name, `surface_ref` a saved model surface, `native_model` the model the surface lists. Names are unique. |
+| `models[]` | `name` is the client-facing name, `surface_ref` a saved model surface, `native_model` the model the surface lists. Names are unique. Instead of `surface_ref`/`native_model`, a model can list `backends` (surface and native model pairs, with optional `weight` and `priority`) and a `routing` block for retry, fallback, circuit breakers and cost-aware ordering; `cache` turns on the exact-match response cache. Every backend must serve the same client wires natively. See [reliability and routing](reliability-and-routing.md). |
 | `tools[]` | `connection_ref` names a saved tool connection. `expose` is an optional list of tool names or prefixes ending in `*`. Omitted means every tool the connection permits. `rules` is an optional list of [policy rules](tool-policy-rules.md) for calls through this access point; they run in addition to the connection's own rules, so an access point can only add restrictions. Rules are compiled when the access point is saved. |
 | `skills[]` | `instance_ref` names a deployed skill instance. Requires the `skillsplex` module. |
 | `project` | Optional label, `[A-Za-z0-9._-]` up to 128 characters, set by an administrator. A [tenant budget](budgets.md) may select it in `members.projects`. It is trusted because only an administrator can set it; it is never read from a request. |
@@ -109,6 +109,8 @@ one. The route classes are in [authorization](authorization.md).
 | `PUT /api/v1/access-points/{id}` | Create or replace. Updates send the current revision in `If-Match`. |
 | `DELETE /api/v1/access-points/{id}` | Delete. |
 | `POST /api/v1/access-points/{id}/quota-plan` | Render the QoS block as QuotaPlex controls for review. Admin only. Does not activate anything. |
+| `GET /api/v1/access-points/{id}/routing` | Live routing state of the routed models in the API process that answers: each backend's circuit breaker and last outcomes, and the response-cache occupancy. Admin or deployer. See [reliability and routing](reliability-and-routing.md). |
+| `POST /api/v1/access-points/{id}/cache/purge` | Remove the access point's cached answers (or one model's, with `?model=`) in the API process that answers. Admin only. |
 | `GET /api/v1/overview/subjects?kind=agent\|user\|client` | Callers of one kind, with identity source, last seen, access points and a usage roll-up. Admin or deployer. The usage roll-up, last-seen times and ledger-derived subjects are admin only. A deployer gets the rest with those fields reported as unavailable. |
 | `GET /api/v1/overview/subjects/{kind}/{id}` | Effective access of one caller, with the reason for each grant. Also `GET /api/v1/overview/subjects/{kind}?id=…` for IDs that contain `/`. |
 | `GET /api/v1/overview/access-points/{id}` | Callers, resources, QoS and live usage of one access point. Usage is admin only. |
@@ -207,6 +209,11 @@ same authorized party.
 The model name selects the route to a saved surface. The request is then handed to the
 existing client facade and managed native handler, so credentials, quota admission and
 the usage ledger are the ones already in place.
+
+A model with `backends` (or a `routing` or `cache` block) goes through the router
+described in [reliability and routing](reliability-and-routing.md): each attempt is one
+pass through this same path for one backend, with that backend's grants, capacity
+admission, quota lease and credential.
 
 A model is reachable through a protocol only when its surface speaks that protocol
 natively. There is no cross-protocol translation. A request that uses a protocol the

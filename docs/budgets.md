@@ -128,7 +128,7 @@ The bound is conservative in the other direction: because reservations are worst
 
 **Streams and unknown usage.** A stream that ends without terminal usage, a client disconnect and a cancelled response are not settled from what was observed: the existing rule applies, which retains the hold as unknown exposure. Such a request counts as reserved, not consumed, until recovery or reconciliation. A budget therefore stays conservative when usage is unknown. [Quota administration](quotaplex-administration.md) describes reviewed reconciliation.
 
-**Cached responses.** Budgets count dispatched attempts. A request answered without a dispatched attempt draws nothing. How the exact-match response cache interacts with the quota lease is described in its own guide; this page makes no claim beyond the rule above.
+**Cached responses and routed attempts.** An answer served from the [response cache](reliability-and-routing.md#response-cache) takes the quota lease and settles it as one request with every money meter at zero: request-count budgets draw one, cost and token budgets draw nothing, and the record still lists the budgets it was admitted under. Each attempt of a routed model takes its own admission, so it draws from the caller's budgets like any request; an attempt whose connection was never established settles at zero and draws nothing, and a quota or budget denial is final unless the model sets `fallback.on_quota_denied: next_backend` (see [reliability and routing](reliability-and-routing.md#grants-quota-and-capacity-per-attempt)).
 
 ## Thresholds and status
 
