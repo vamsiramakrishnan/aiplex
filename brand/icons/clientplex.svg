@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-clientplex-title aiplex-icon-clientplex-desc">
+  <title id="aiplex-icon-clientplex-title">ClientPlex</title>
+  <desc id="aiplex-icon-clientplex-desc">Developer clients: a terminal window with a prompt and cursor.</desc>
+  <path id="clientplex-lines" d="M3 4h18v16H3ZM7 9l3 3-3 3M12 15h5"/>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-mcplex-title aiplex-icon-mcplex-desc">
+  <title id="aiplex-icon-mcplex-title">MCPlex</title>
+  <desc id="aiplex-icon-mcplex-desc">Tools over MCP: a plug with two prongs and a cable.</desc>
+  <path id="mcplex-lines" d="M3 9h5M3 15h5M9 6h8v12H9ZM17 12h5"/>
+</svg>

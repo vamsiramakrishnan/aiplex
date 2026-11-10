@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-a2aplex-title aiplex-icon-a2aplex-desc">
+  <title id="aiplex-icon-a2aplex-title">A2APlex</title>
+  <desc id="aiplex-icon-a2aplex-desc">Agent to agent: two agents joined by one lane through a gate.</desc>
+  <path id="a2aplex-lines" d="M3 3h6v6H3ZM15 15h6v6h-6ZM9 6h9v9"/>
+  <path id="a2aplex-gate" d="M16 4h4v4h-4Z" fill="currentColor" stroke="none"/>
+</svg>

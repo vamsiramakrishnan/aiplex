@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-access-point-title aiplex-icon-access-point-desc">
+  <title id="aiplex-icon-access-point-title">Access Point</title>
+  <desc id="aiplex-icon-access-point-desc">One enforcement point per audience: a lane passing between two posts through a gate.</desc>
+  <path id="access-point-lines" d="M2 12h7M15 12h7M6 4v16M18 4v16"/>
+  <path id="access-point-gate" d="M9 9h6v6H9Z" fill="currentColor" stroke="none"/>
+</svg>
