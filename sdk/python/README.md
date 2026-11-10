@@ -37,6 +37,7 @@ Errors raise `aiplex.AiplexError` with `status_code`, `code`, `message`, `detail
 
 - `whoami()`
 - Access points: `list_access_points()`, `get_access_point(id)`, `put_access_point(spec, revision)` (revision 0 creates), `delete_access_point(id, revision)`, `connect_access_point(id, client=None)`
+- Budgets: `get_budget_status(id)` (counters in the current window; operators and members only)
 - Usage: `list_usage_records(filter, limit=, cursor=)`, `iter_usage_records(filter, limit=)`, `get_usage_record(id)`, `usage_summary(filter, group_by=, bucket=)`, `list_prices()`, `get_price(id)`, `put_price(price, revision)`, `delete_price(id, revision)`
 - Model surfaces: `list_model_surfaces()`, `get_model_surface(id)`
 - Tool connections: `list_tool_connections()`, `get_tool_connection(id)`
@@ -45,7 +46,7 @@ Errors raise `aiplex.AiplexError` with `status_code`, `code`, `message`, `detail
 ## Not covered
 
 - Model and tool calls themselves (chat completions, MCP, A2A). Point an OpenAI or Anthropic SDK at the access point URL instead.
-- Usage record ingestion, quota administration and QuotaPlex plans, agent and client registrations, identity providers, skills, runs, dashboards, deployment plans, model routes and providers, catalog, instances, and the Go SDK's other administrative resources.
+- Budget administration (create, update, delete), usage feedback, usage record ingestion, quota administration and QuotaPlex plans, agent and client registrations, identity providers, skills, runs, dashboards, deployment plans, model routes and providers, catalog, instances, and the Go SDK's other administrative resources.
 - Asynchronous client, automatic retries, streaming responses.
 - Typed models cover the documented fields. Every model keeps the full JSON in `raw`, so newer server fields are available there.
 

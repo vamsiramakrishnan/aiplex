@@ -40,7 +40,8 @@ Errors throw `AiplexError` with `statusCode`, `code`, `message`, `details`, `req
 
 - `whoami()`
 - Access points: `listAccessPoints()`, `getAccessPoint(id)`, `putAccessPoint(spec, revision)` (revision 0 creates), `deleteAccessPoint(id, revision)`, `connectAccessPoint(id, client?)`
-- Usage: `listUsageRecords(filter, options)`, `iterUsageRecords(filter, options)`, `getUsageRecord(id)`, `usageSummary(filter, options)`, `listPrices()`, `getPrice(id)`, `putPrice(price, revision)`, `deletePrice(id, revision)`
+- Budgets: `getBudgetStatus(id)` (counters in the current window; operators and members only)
+- Usage: `listUsageRecords(filter, options)`, `iterUsageRecords(filter, options)`, `getUsageRecord(id)`, `addUsageFeedback(recordId, {score, label?, comment?})`, `usageSummary(filter, options)`, `listPrices()`, `getPrice(id)`, `putPrice(price, revision)`, `deletePrice(id, revision)`
 - Model surfaces: `listModelSurfaces()`, `getModelSurface(id)`
 - Tool connections: `listToolConnections()`, `getToolConnection(id)`
 - Overview: `listOverviewAccessPoints()` / `iterOverviewAccessPoints()`, `getOverviewAccessPoint(id)`, `listOverviewSubjects(kind)` / `iterOverviewSubjects(kind)`, `getOverviewSubject(kind, id)`
@@ -48,7 +49,7 @@ Errors throw `AiplexError` with `statusCode`, `code`, `message`, `details`, `req
 ## Not covered
 
 - Model and tool calls themselves (chat completions, MCP, A2A). Point an OpenAI or Anthropic SDK at the access point URL instead.
-- Usage record ingestion, quota administration and QuotaPlex plans, agent and client registrations, identity providers, skills, runs, dashboards, deployment plans, model routes and providers, catalog, instances, and the Go SDK's other administrative resources.
+- Budget administration (create, update, delete), usage record ingestion, quota administration and QuotaPlex plans, agent and client registrations, identity providers, skills, runs, dashboards, deployment plans, model routes and providers, catalog, instances, and the Go SDK's other administrative resources.
 - Automatic retries and streaming responses.
 - Typed models cover the documented fields. Every model keeps the full JSON in `raw`, so newer server fields are available there.
 

@@ -14,6 +14,7 @@ Prefer the `aiplex` MCP tools (this plugin starts them with `aiplex mcp serve`).
 | Which models does one offer? | `list_models` | `aiplex connect <access-point>` |
 | Totals of requests, tokens, cost | `usage_summary` | `aiplex usage summary --by model --since 7d` |
 | Individual requests | `usage_records` | `aiplex usage records --since 24h` |
+| Spent and remaining in a budget | (CLI only) | `aiplex budgets status <budget-id>` |
 
 ## What did I spend
 
@@ -28,7 +29,12 @@ Prefer the `aiplex` MCP tools (this plugin starts them with `aiplex mcp serve`).
 2. Read `error_class` and the access point, model and caller kind on each record. The error class names the reason; quote it instead of guessing.
 3. For a policy denial, `whoami` shows the roles and scopes the caller actually has. Compare them with what the model or tool needs; a user token can reach an access point yet still lack the grant for a model.
 4. For a quota decision, the CLI can show what admission would do: `aiplex quota preview --help` lists its arguments, and `aiplex quota attempt <id>` reads one attempt.
-5. Operators can also review `aiplex list denials`.
+5. A refusal by a budget (an error class such as `budget_exceeded` or `budget_exhausted`) is answered by `aiplex budgets status <budget-id>`: it shows spent, reserved and remaining for the current window. Members see their own budgets; operators see all of them.
+6. Operators can also review `aiplex list denials`.
+
+## Feedback
+
+Feedback on a record is a write. Run `aiplex usage feedback <record-id> --score <-1..1>` only when the user asks to rate a specific request, and show the record ID first. It is append-only: a later entry replaces the current one, and the history stays.
 
 If nothing matches, widen `since`, check the `access_point` filter, and confirm with `whoami` that the token is the identity the user expects. A different token means a different caller and different usage.
 
