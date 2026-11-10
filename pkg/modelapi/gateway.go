@@ -594,6 +594,9 @@ func (g *Gateway) resourceID(kind, name string) (string, error) {
 	if validSegment(name) {
 		return name, nil
 	}
+	if g.surface.Provider != nil {
+		return g.providerResourceID(kind, name)
+	}
 	if kind == "prediction-operation" {
 		prefix := "projects/" + g.surface.Project + "/locations/" + g.surface.Location + "/"
 		if !strings.HasPrefix(name, prefix) {
