@@ -298,6 +298,8 @@ func TestToolHooksMaskArgumentsDenyResultsAndKeepQuota(t *testing.T) {
 	putHookPolicy(t, store, `{"id":"tools","scope":{"kind":"tool_connection","id":"surface"},"hooks":[
 	 {"id":"result","type":"redact","phases":["response"],"redact":{"rules":[{"id":"marker","pattern":"`+hookMarker+`","action":"deny"}]}}]}`)
 	putHookPolicy(t, store, `{"id":"budget","scope":{"kind":"tenant"},"planes":["llmplex"],"hooks":[{"id":"s","type":"size_limit","phases":["request"],"size_limit":{"max_chars":100000}}]}`)
+	// The ledger writes asynchronously and reads h.Quota; let it finish first.
+	h.Ledger.Flush()
 	h.Quota = nil
 	withheld := call("result", `{"query":"q"}`)
 	if withheld.Code != 403 || strings.Contains(withheld.Body.String(), hookMarker) || !strings.Contains(withheld.Body.String(), "hook_denied") {
