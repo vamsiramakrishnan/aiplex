@@ -260,7 +260,7 @@ func portFree(port int) error {
 // filterEnv drops variables that would change what the local API connects to
 // (for example a cloud project that switches the store to Firestore).
 func filterEnv(in []string) []string {
-	drop := map[string]bool{"GCP_PROJECT": true, "FIRESTORE_EMULATOR_HOST": true, "KUBERNETES_SERVICE_HOST": true, "AIPLEX_IDENTITY_PROVIDERS_FILE": true, "AIPLEX_QUOTA_FILE": true, "AIPLEX_MODULE_MANIFEST": true, "TLS_CERT_FILE": true, "TLS_KEY_FILE": true, "CLIENT_CA_FILE": true, "CONSOLE_ORIGINS": true, "AIPLEX_MODULES": true}
+	drop := map[string]bool{"GCP_PROJECT": true, "GCP_PROJECT_ID": true, "FIRESTORE_PROJECT_ID": true, "FIRESTORE_DATABASE": true, "HYDRA_ADMIN_URL": true, "AIPLEX_TENANT_ID": true, "AIPLEX_ROLE_BINDINGS_FILE": true, "AIPLEX_CONNECTIONS_FILE": true, "JWT_ISSUER": true, "JWT_AUDIENCE": true, "JWT_JWKS_URL": true, "FIRESTORE_EMULATOR_HOST": true, "KUBERNETES_SERVICE_HOST": true, "AIPLEX_IDENTITY_PROVIDERS_FILE": true, "AIPLEX_QUOTA_FILE": true, "AIPLEX_MODULE_MANIFEST": true, "TLS_CERT_FILE": true, "TLS_KEY_FILE": true, "CLIENT_CA_FILE": true, "CONSOLE_ORIGINS": true, "AIPLEX_MODULES": true}
 	out := make([]string, 0, len(in))
 	for _, kv := range in {
 		name, _, _ := strings.Cut(kv, "=")
