@@ -1,17 +1,21 @@
 # AIPlex — Unified Control Plane for AI Agent Interactions
 #
-# Quick start:
-#   make deps         Install tools
-#   make dev          Start local services + API
+# Quick start (Go only; no Docker or cloud account):
+#   make build && bin/aiplex dev   Local API + mock model + mock MCP server
+#   make demo         Scripted end-to-end run of `aiplex dev` (CI-safe)
+#   make e2e          End-to-end tests against the real binaries
+#   make deps         Check the tools each workflow needs
 #   make test         Run all tests
-#   make build        Build binaries
+#
+# Full local stack (Docker: Firestore emulator, Postgres, Hydra, Kratos, OPA):
+#   make dev          Start local services + API
 #
 # GCP deployment:
 #   make infra        Terraform apply
 #   make deploy       Helm install
 #   make verify       Health check + status
 
-.PHONY: help build test lint run-local dev deps clean \
+.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race \
         infra infra-plan infra-destroy deploy deploy-dry verify \
         docker-up docker-down console
 
@@ -56,6 +60,15 @@ test-coverage: ## Run tests with coverage report
 	$(GO) test ./... -coverprofile=coverage.out -covermode=atomic
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
+
+demo: ## Scripted first run of `aiplex dev`: chat, stream, MCP tool call, usage, connect (exits non-zero on failure)
+	@bash tools/demo.sh
+
+e2e: ## End-to-end tests: real aiplex-api + aiplex CLI against local mock upstreams
+	$(GO) test -tags e2e ./tests/e2e/ -count=1 -v
+
+e2e-race: ## End-to-end tests with aiplex-api built with the race detector
+	E2E_RACE=1 $(GO) test -tags e2e ./tests/e2e/ -count=1 -v
 
 e2e-aiplex-tape: ## Run the AIPlex+Tape end-to-end demo as an in-process smoke test
 	$(GO) test ./tests/... -run "AIPlexTape" -v -count=1
@@ -130,7 +143,7 @@ docker-clean: ## Stop and remove all local data
 
 console: ## Build React console
 	cd console && npm ci && npm run build
-	@echo "Console built: console/build/"
+	@echo "Console built: console/dist/ (run make build-cli to embed it in bin/aiplex)"
 
 console-dev: ## Start React dev server
 	cd console && npm start
@@ -189,8 +202,18 @@ verify: build-cli ## Run health check + status
 setup: ## Install tools + CLI, run aiplex init
 	@chmod +x setup.sh && ./setup.sh
 
-deps: ## Check installed tools
-	@command -v mise >/dev/null 2>&1 && mise ls --current || echo "Run: make setup"
+deps: ## Check the tools each workflow needs
+	@need=$$(sed -n 's/^go \([0-9.]*\).*/\1/p' go.mod); \
+	if command -v go >/dev/null 2>&1; then \
+		have=$$(go env GOVERSION | sed 's/^go//'); \
+		if [ "$$(printf '%s\n%s\n' "$$need" "$$have" | sort -V | head -1)" = "$$need" ]; then echo "  [ok]   go $$have (go.mod needs $$need)"; \
+		else echo "  [FAIL] go $$have is older than $$need (go.mod); install a newer Go: https://go.dev/dl"; fi; \
+	else echo "  [FAIL] go not found; install Go $$need+: https://go.dev/dl"; fi
+	@echo "  Local (aiplex dev, make demo, make e2e): Go only."
+	@for t in node:"Console build (make console)" docker:"make dev" terraform:"cloud infrastructure" helm:"cloud deploy" kubectl:"cloud deploy" gcloud:"cloud deploy"; do \
+		name=$${t%%:*}; use=$${t#*:}; \
+		if command -v $$name >/dev/null 2>&1; then echo "  [ok]   $$name ($$use)"; else echo "  [--]   $$name not found (only needed for $$use)"; fi; \
+	done
 
 # ─── Release ────────────────────────────────────────────
 
