@@ -102,7 +102,10 @@ auth: {type: bearer, secret_ref: openai-key}
 			check            func(map[string]any) bool
 		}{
 			{"openai chat", "/ap/hooked/v1/chat/completions", `{"model":"gpt-e2e","messages":[{"role":"user","content":"` + e2ePrivateKey + `"}]}`, nil,
-				func(m map[string]any) bool { e, _ := m["error"].(map[string]any); return e["code"] == "hook_denied" && e["type"] == "permission_error" }},
+				func(m map[string]any) bool {
+					e, _ := m["error"].(map[string]any)
+					return e["code"] == "hook_denied" && e["type"] == "permission_error"
+				}},
 			{"openai responses", "/ap/hooked/v1/responses", `{"model":"resp-e2e","input":"` + e2ePrivateKey + `"}`, nil,
 				func(m map[string]any) bool { e, _ := m["error"].(map[string]any); return e["code"] == "hook_denied" }},
 			{"anthropic messages", "/ap/hooked/v1/messages", `{"model":"claude-e2e","max_tokens":16,"messages":[{"role":"user","content":"` + e2ePrivateKey + `"}]}`, anthropic,
