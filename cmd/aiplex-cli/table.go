@@ -321,21 +321,6 @@ func humanDuration(ms int64) string {
 	return d.Round(time.Second).String()
 }
 
-// moneySymbol is the prefix used for a currency in tables.
-func moneySymbol(currency string) string {
-	switch currency {
-	case "USD":
-		return "$"
-	case "EUR":
-		return "€"
-	case "GBP":
-		return "£"
-	case "JPY":
-		return "¥"
-	}
-	return currency + " "
-}
-
 // shortMoney renders a fixed-point amount for a table: "USD 0.000006 est.",
 // "USD 12.40". Unknown stays "unknown"; it is never shown as 0.
 func shortMoney(currency, amount string, scale uint8, basis string) string {

@@ -64,7 +64,7 @@ func TestPriceEstimateMatchesDecimalArithmetic(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 1000 input + 2000 output tokens = 0.003 + 0.030 = $0.033 = 33000 micro-dollars.
-	if got := humanPriceMeters(p); got != "input $3/Mtok, output $15/Mtok" {
+	if got := humanPriceMeters(p); got != "input USD 3/Mtok, output USD 15/Mtok" {
 		t.Errorf("human rates = %q", got)
 	}
 	cost := new(big.Rat).Add(new(big.Rat).Mul(big.NewRat(1000, 1), big.NewRat(in.Numerator, in.Denominator)), new(big.Rat).Mul(big.NewRat(2000, 1), big.NewRat(out.Numerator, out.Denominator)))
@@ -97,7 +97,7 @@ func TestPricesSetFromFlagsReadsModifiesWrites(t *testing.T) {
 	if !strings.Contains(sent, `"input_tokens":{"numerator":3,"denominator":20}`) || !strings.Contains(sent, `"output_tokens":{"numerator":1,"denominator":2}`) {
 		t.Errorf("merge wrong: %s", sent)
 	}
-	if !strings.Contains(out, "output $0.50/Mtok") || !strings.Contains(out, "input $0.15/Mtok") {
+	if !strings.Contains(out, "output USD 0.50/Mtok") || !strings.Contains(out, "input USD 0.15/Mtok") {
 		t.Errorf("summary wrong: %s", out)
 	}
 	if _, err := runUsage(t, server, "table", "prices", "set", "gpt", "--scale", "4", "--output-per-mtok", "1"); err == nil {

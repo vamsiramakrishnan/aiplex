@@ -75,7 +75,7 @@ var meterLabels = map[string]string{
 	usageledger.MeterRequests:   "request",
 }
 
-// humanPriceMeters renders "input $3/Mtok, output $15/Mtok".
+// humanPriceMeters renders "input USD 3/Mtok, output USD 15/Mtok".
 func humanPriceMeters(p usageledger.Price) string {
 	names := make([]string, 0, len(p.Meters))
 	for name := range p.Meters {
@@ -83,7 +83,7 @@ func humanPriceMeters(p usageledger.Price) string {
 	}
 	sort.Slice(names, func(i, j int) bool { return meterOrder(names[i]) < meterOrder(names[j]) })
 	parts := make([]string, 0, len(names))
-	sym := moneySymbol(p.Currency)
+	sym := p.Currency + " "
 	for _, name := range names {
 		rate := p.Meters[name]
 		label := meterLabels[name]

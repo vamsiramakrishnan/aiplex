@@ -4,7 +4,10 @@ package main
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -17,7 +20,17 @@ func processAlive(pid int) bool {
 		return false
 	}
 	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
+	if err != nil && !errors.Is(err, syscall.EPERM) {
+		return false
+	}
+	// A zombie (exited, not yet reaped) is not running. /proc exists on Linux;
+	// elsewhere an orphaned zombie is reaped by launchd/init promptly.
+	if stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat"); err == nil {
+		if i := strings.LastIndexByte(string(stat), ')'); i >= 0 && i+2 < len(stat) && stat[i+2] == 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 func terminateProcess(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
