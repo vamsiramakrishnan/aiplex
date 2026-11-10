@@ -107,6 +107,8 @@ type fixtureCall struct {
 	media    string // upstream content type override
 	// ws marks a WebSocket fixture replayed through a relay.
 	ws string
+	// contentType overrides the request Content-Type (multipart uploads).
+	contentType string
 }
 
 type fixtureRoute struct {
@@ -126,6 +128,9 @@ type fixtureRoute struct {
 	// allowUnknown: canonical fields the observer may leave unknown although
 	// the fixture states a value (an UNCONFIRMED composition), with the reason.
 	allowUnknown map[string]string
+	// check replaces the HTTP replay for fixtures that are not one exchange
+	// (batch results files aggregated across fetches).
+	check func(t *testing.T, data []byte, want canonical)
 }
 
 type expectedUsage struct {
@@ -340,17 +345,7 @@ func usageRoutes() []fixtureRoute {
 		unsupported("openai", "live.ws.jsonl", "live-voice-sessions", "websocket", "OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens"),
 		unsupported("openai", "live.interrupted.ws.jsonl", "live-voice-sessions", "websocket", "OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens"),
 		unsupported("openai", "embeddings.json", "embeddings", "json", "no /v1/embeddings operation on the OpenAI provider surface"),
-		unsupported("openai", "transcription.json", "audio-transcriptions", "json", "no /v1/audio/transcriptions operation; duration-billed variants report seconds"),
-		unsupported("openai", "transcription.duration.json", "audio-transcriptions", "json", "no /v1/audio/transcriptions operation; duration-billed variants report seconds"),
-		unsupported("openai", "transcription.sse", "audio-transcriptions", "sse", "no /v1/audio/transcriptions operation"),
-		unsupported("openai", "transcription.interrupted.sse", "audio-transcriptions", "sse", "no /v1/audio/transcriptions operation"),
-		unsupported("openai", "images.json", "images", "json", "no /v1/images operation; non-GPT image models bill per image"),
-		unsupported("openai", "images.sse", "images", "sse", "no /v1/images operation"),
-		unsupported("openai", "images.interrupted.sse", "images", "sse", "no /v1/images operation"),
 		unsupported("openai", "moderation.json", "moderations", "json", "no /v1/moderations operation (no usage documented)"),
-		unsupported("openai", "batch.output.jsonl", "batch", "jsonl-file", "batch output files are downloaded artifacts, not gateway responses; no /v1/batches operation"),
-		unsupported("openai", "batch.errors.jsonl", "batch", "jsonl-file", "batch error files are downloaded artifacts, not gateway responses"),
-		unsupported("openai", "batch.object.json", "batch", "json", "no /v1/batches operation"),
 
 		// ---------------- Anthropic ----------------
 		exact("anthropic", "messages.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
@@ -362,8 +357,6 @@ func usageRoutes() []fixtureRoute {
 		exact("anthropic", "messages-iterations.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
 		exact("anthropic", "messages-code-execution.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, toolRefuse),
 		unsupported("anthropic", "count-tokens.json", "count-tokens", "json", "no /v1/messages/count_tokens operation (an estimate, never consumption)"),
-		unsupported("anthropic", "batch-results.jsonl", "message-batches", "jsonl-file", "no Message Batches operation; results files are downloaded artifacts"),
-		unsupported("anthropic", "batch-results-partial.jsonl", "message-batches", "jsonl-file", "no Message Batches operation; results files are downloaded artifacts"),
 		unsupported("anthropic", "managed-agents-session.json", "managed-agents", "json", "no Managed Agents operation"),
 		unsupported("anthropic", "ratelimit.json", "rate-limit-metadata", "json", "documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits"),
 		exact("anthropic", "vertex-raw.json", "vertex-rawPredict", "json", callVertexClaude, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
@@ -437,7 +430,7 @@ func usageRoutes() []fixtureRoute {
 		advisory("openai", "responses.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, true, sessionReason),
 		advisory("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, false, sessionReason),
 	}
-	return routes
+	return append(routes, extendedUsageRoutes()...)
 }
 
 func withAllow(r fixtureRoute, allow map[string]string) fixtureRoute {
@@ -590,6 +583,9 @@ func runFixtureHTTP(t *testing.T, route fixtureRoute, data []byte, mode leaseMod
 	}
 	r := httptest.NewRequest("POST", call.path, strings.NewReader(call.body))
 	r.Header.Set("Content-Type", "application/json")
+	if call.contentType != "" {
+		r.Header.Set("Content-Type", call.contentType)
+	}
 	w := httptest.NewRecorder()
 	g.ServeHTTP(w, r)
 	run.code, run.body = w.Code, w.Body.Bytes()
@@ -667,14 +663,18 @@ func TestUsageFormatConformance(t *testing.T) {
 				}
 				return
 			}
-			if route.call == nil {
-				t.Fatal("served fixture needs a call")
-			}
 			data, err := os.ReadFile(filepath.Join("testdata", "usage-formats", route.provider, route.file))
 			if err != nil {
 				t.Fatal(err)
 			}
 			want := expectedCanonical(route.conv, expectations[route.provider][route.file])
+			if route.check != nil {
+				route.check(t, data, want)
+				return
+			}
+			if route.call == nil {
+				t.Fatal("served fixture needs a call")
+			}
 			checkFixture(t, route, data, want)
 		})
 	}
@@ -1022,9 +1022,12 @@ Strict Gemini settlement treats an omitted ` + "`cachedContentTokenCount`" + ` a
 omission; conservative, all input charged as uncached) and derives thoughts as
 total - prompt - candidates. WebSocket sessions are request-count metered: one
 admission and one settlement per session; usage without final evidence is
-labelled ` + "`lower_bound`" + `, ` + "`ambiguous`" + ` (resumed Live session) or ` + "`partial`" + ` (non-token units
-such as transcription seconds, kept as ` + "`*_milliseconds`" + ` counters the token ledger
-cannot hold).
+labelled ` + "`lower_bound`" + `, ` + "`ambiguous`" + ` (resumed Live session) or ` + "`partial`" + ` (units the
+ledger has no field for, such as Realtime input-transcription meters billed to
+another model). Non-token units the ledger holds (audio/voice/video milliseconds,
+generated images, per-modality token splits) are compared by the media and batch
+checks; batch results files are aggregated with the gateway's own batch parser
+and must settle only when complete.
 
 `
 

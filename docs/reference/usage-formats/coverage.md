@@ -40,17 +40,20 @@ Strict Gemini settlement treats an omitted `cachedContentTokenCount` as 0 (proto
 omission; conservative, all input charged as uncached) and derives thoughts as
 total - prompt - candidates. WebSocket sessions are request-count metered: one
 admission and one settlement per session; usage without final evidence is
-labelled `lower_bound`, `ambiguous` (resumed Live session) or `partial` (non-token units
-such as transcription seconds, kept as `*_milliseconds` counters the token ledger
-cannot hold).
+labelled `lower_bound`, `ambiguous` (resumed Live session) or `partial` (units the
+ledger has no field for, such as Realtime input-transcription meters billed to
+another model). Non-token units the ledger holds (audio/voice/video milliseconds,
+generated images, per-modality token splits) are compared by the media and batch
+checks; batch results files are aggregated with the gateway's own batch parser
+and must settle only when complete.
 
 ## Summary (rows)
 
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
-| anthropic | 4 | 4 | 5 |
+| anthropic | 5 | 4 | 4 |
 | google | 8 | 4 | 12 |
-| openai | 4 | 2 | 11 |
+| openai | 10 | 2 | 5 |
 
 ## Matrix
 
@@ -63,7 +66,7 @@ cannot hold).
 | anthropic | bedrock-mantle-messages | sse | unsupported | `bedrock-mantle.sse (format-checked)` | no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer |
 | anthropic | count-tokens | json | unsupported | `count-tokens.json` | no /v1/messages/count_tokens operation (an estimate, never consumption) |
 | anthropic | managed-agents | json | unsupported | `managed-agents-session.json` | no Managed Agents operation |
-| anthropic | message-batches | jsonl-file | unsupported | `batch-results-partial.jsonl`<br>`batch-results.jsonl` | no Message Batches operation; results files are downloaded artifacts |
+| anthropic | message-batches | jsonl-file | exact | `batch-results-partial.jsonl`<br>`batch-results.jsonl` | batch-usage binding: admitted at create, settled once from complete per-line results through the gateway (succeeded lines only; batch-object usage is a cross-check, never added); GET /v1/messages/batches/{id}/results; a cache counter absent on any succeeded line leaves that sum unknown<br>batch-usage binding: admitted at create, settled once from complete per-line results through the gateway (succeeded lines only; batch-object usage is a cross-check, never added) |
 | anthropic | messages | json | exact | `messages-code-execution.json`<br>`messages-iterations.json`<br>`messages.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed)<br>observation exact; strict settlement fails closed for this fixture: server-tool quantities are outside the output-inclusive token profile (fail closed) |
 | anthropic | messages | sse | exact | `messages-error-midstream.sse`<br>`messages-interrupted.sse`<br>`messages-server-tool.sse`<br>`messages-usage-absent.sse`<br>`messages.sse` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed)<br>observation exact; strict settlement fails closed for this fixture: server-tool quantities are outside the output-inclusive token profile (fail closed) |
 | anthropic | rate-limit-metadata | json | unsupported | `ratelimit.json` | documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits |
@@ -93,15 +96,15 @@ cannot hold).
 | google | vertex-streamGenerateContent | json-array | advisory | `vertex-generate.stream.json` | JSON-array framing (no alt=sse) is observed exactly, but the quota host admits protected Gemini streaming only with alt=sse; usage is ledger telemetry |
 | google | vertex-streamGenerateContent | sse | exact | `vertex-generate-cumulative.sse`<br>`vertex-generate-interrupted.sse`<br>`vertex-generate.sse` |  |
 | google | vertex-streamRawPredict | sse | exact | `vertex-claude-streamrawpredict-interrupted.sse`<br>`vertex-claude-streamrawpredict.sse` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
-| openai | audio-transcriptions | json | unsupported | `transcription.duration.json`<br>`transcription.json` | no /v1/audio/transcriptions operation; duration-billed variants report seconds |
-| openai | audio-transcriptions | sse | unsupported | `transcription.interrupted.sse`<br>`transcription.sse` | no /v1/audio/transcriptions operation |
-| openai | batch | json | unsupported | `batch.object.json` | no /v1/batches operation |
-| openai | batch | jsonl-file | unsupported | `batch.errors.jsonl`<br>`batch.output.jsonl` | batch output files are downloaded artifacts, not gateway responses; no /v1/batches operation<br>batch error files are downloaded artifacts, not gateway responses |
+| openai | audio-transcriptions | json | exact | `transcription.duration.json`<br>`transcription.json` | unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile)<br>unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile); duration-billed responses report seconds, observed as audio_input_milliseconds and never as tokens |
+| openai | audio-transcriptions | sse | exact | `transcription.interrupted.sse`<br>`transcription.sse` | unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile); usage only on transcript.text.done, whose frame is held until acknowledged<br>unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile) |
+| openai | batch | json | exact | `batch.object.json` | batch object (create/retrieve/cancel): status, request_counts and results file ids drive settlement; its usage is a cross-check only |
+| openai | batch | jsonl-file | exact | `batch.errors.jsonl`<br>`batch.output.jsonl` | batch-usage binding: admitted at create, settled once from complete per-line results through the gateway (succeeded lines only; batch-object usage is a cross-check, never added); read through GET /v1/files/{id}/content of a tracked batch's output_file_id<br>error lines are provider evidence of failed/expired items (released, never charged) |
 | openai | chat-completions | json | exact | `chat.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
 | openai | chat-completions | sse | exact | `chat.interrupted.sse`<br>`chat.nousage.sse`<br>`chat.sse` |  |
 | openai | embeddings | json | unsupported | `embeddings.json` | no /v1/embeddings operation on the OpenAI provider surface |
-| openai | images | json | unsupported | `images.json` | no /v1/images operation; non-GPT image models bill per image |
-| openai | images | sse | unsupported | `images.interrupted.sse`<br>`images.sse` | no /v1/images operation |
+| openai | images | json | exact | `images.json` | unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile); images without a usage object (non-GPT image models) still report generated_images |
+| openai | images | sse | exact | `images.interrupted.sse`<br>`images.sse` | unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile); partial_image events carry no usage; the n-th completed event is terminal<br>unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile) |
 | openai | live-voice-sessions | websocket | unsupported | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens |
 | openai | moderations | json | unsupported | `moderation.json` | no /v1/moderations operation (no usage documented) |
 | openai | realtime | websocket | advisory | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous; input-transcription usage is a separate transcription_* meter (ASR model) not merged into the session tokens; duration-billed transcription seconds are not captured by the token ledger (session labelled partial)<br>WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
