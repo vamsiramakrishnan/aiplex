@@ -272,10 +272,10 @@ func overviewGenericSnippets(c OverviewConnect, wires map[string]string) []Overv
 		env = append(env, "# OpenAI-compatible clients (chat completions / responses)", `export OPENAI_BASE_URL="`+u+`"`, `export OPENAI_API_KEY="$`+overviewTokenEnv+`"  # an AIPlex token, not an OpenAI key`)
 	}
 	if u, ok := c.BaseURLs["anthropic"]; ok {
-		env = append(env, "# Anthropic Messages clients", `export ANTHROPIC_BASE_URL="`+u+`"`, `export ANTHROPIC_AUTH_TOKEN="$`+overviewTokenEnv+`"`)
+		env = append(env, "# Anthropic Messages clients", `export ANTHROPIC_BASE_URL="`+u+`"`, `export ANTHROPIC_AUTH_TOKEN="$`+overviewTokenEnv+`"`, `# or, for SDKs that take an API key: export ANTHROPIC_API_KEY="$`+overviewTokenEnv+`"`)
 	}
 	if u, ok := c.BaseURLs["genai"]; ok {
-		env = append(env, "# Google GenAI clients", `export GOOGLE_GEMINI_BASE_URL="`+u+`"`)
+		env = append(env, "# Google GenAI clients", `export GOOGLE_GEMINI_BASE_URL="`+u+`"`, `export GEMINI_API_KEY="$`+overviewTokenEnv+`"  # an AIPlex token, sent as x-goog-api-key`)
 	}
 	if len(env) > 0 {
 		out = append(out, OverviewSnippet{Title: "Environment variables", Language: "bash", Content: strings.Join(append([]string{`# Set AIPLEX_TOKEN to your AIPlex access token first.`}, env...), "\n") + "\n"})
