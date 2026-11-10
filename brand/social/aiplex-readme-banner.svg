@@ -20,17 +20,23 @@
   <g id="lockup"><g transform="translate(72 92) scale(2.75)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#E8EBF2" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#8DA2FF"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#E8EBF2"/></g></g>
   <text x="74" y="236" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="26" fill="#B6BDCB">One governed path between agents, models, tools and skills.</text>
   <g id="modules">
-    <rect x="900" y="72" width="80" height="80" rx="8" fill="#1B2142"/>
-    <use href="#i-mcplex" x="920" y="92" width="40" height="40" color="#58ACEF"/>
-    <rect x="1012" y="72" width="80" height="80" rx="8" fill="#1B2142"/>
-    <use href="#i-a2aplex" x="1032" y="92" width="40" height="40" color="#FFBA81"/>
-    <rect x="1124" y="72" width="80" height="80" rx="8" fill="#1B2142"/>
-    <use href="#i-llmplex" x="1144" y="92" width="40" height="40" color="#B78FE4"/>
-    <rect x="900" y="184" width="80" height="80" rx="8" fill="#1B2142"/>
-    <use href="#i-quotaplex" x="920" y="204" width="40" height="40" color="#57ECDC"/>
-    <rect x="1012" y="184" width="80" height="80" rx="8" fill="#1B2142"/>
-    <use href="#i-clientplex" x="1032" y="204" width="40" height="40" color="#E6819A"/>
-    <rect x="1124" y="184" width="80" height="80" rx="8" fill="#1B2142"/>
-    <use href="#i-skillsplex" x="1144" y="204" width="40" height="40" color="#B5E287"/>
+    <rect x="884" y="72" width="152" height="52" rx="8" fill="#1B2142"/>
+    <use href="#i-mcplex" x="898" y="84" width="28" height="28" color="#58ACEF"/>
+    <text x="936" y="105" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="500" fill="#E8EBF2">MCPlex</text>
+    <rect x="1052" y="72" width="152" height="52" rx="8" fill="#1B2142"/>
+    <use href="#i-a2aplex" x="1066" y="84" width="28" height="28" color="#FFBA81"/>
+    <text x="1104" y="105" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="500" fill="#E8EBF2">A2APlex</text>
+    <rect x="884" y="136" width="152" height="52" rx="8" fill="#1B2142"/>
+    <use href="#i-llmplex" x="898" y="148" width="28" height="28" color="#B78FE4"/>
+    <text x="936" y="169" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="500" fill="#E8EBF2">LLMPlex</text>
+    <rect x="1052" y="136" width="152" height="52" rx="8" fill="#1B2142"/>
+    <use href="#i-quotaplex" x="1066" y="148" width="28" height="28" color="#57ECDC"/>
+    <text x="1104" y="169" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="500" fill="#E8EBF2">QuotaPlex</text>
+    <rect x="884" y="200" width="152" height="52" rx="8" fill="#1B2142"/>
+    <use href="#i-clientplex" x="898" y="212" width="28" height="28" color="#E6819A"/>
+    <text x="936" y="233" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="500" fill="#E8EBF2">ClientPlex</text>
+    <rect x="1052" y="200" width="152" height="52" rx="8" fill="#1B2142"/>
+    <use href="#i-skillsplex" x="1066" y="212" width="28" height="28" color="#B5E287"/>
+    <text x="1104" y="233" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="500" fill="#E8EBF2">SkillsPlex</text>
   </g>
 </svg>
