@@ -47,6 +47,7 @@ type usageCapture struct {
 	anthropicRaw bool
 	attemptID    string
 	errorCode    string
+	noCost       bool
 	incomplete   bool
 	streaming    bool
 	finished     bool
@@ -126,6 +127,17 @@ func (c *usageCapture) noteError(err error) {
 		}
 		c.mu.Unlock()
 	}
+}
+
+// uncosted marks an exchange that must never be priced: no provider was
+// called, so no settlement or per-request price may apply.
+func (c *usageCapture) uncosted() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.noCost = true
+	c.mu.Unlock()
 }
 
 // noteClass keeps the error class of a failure the gateway attributes itself
@@ -428,6 +440,7 @@ func (c *usageCapture) finish() {
 	record := c.record.Clone()
 	counters := c.usage.Snapshot()
 	anthropicRaw, attemptID, code, incomplete := c.anthropicRaw, c.attemptID, c.errorCode, c.incomplete
+	noCost := c.noCost
 	streaming := c.streaming || hijacked
 	bound, terminalSeen := c.bound, c.terminalSeen
 	if c.hooks != nil {
@@ -506,6 +519,9 @@ func (c *usageCapture) finish() {
 		// The span ends once the cost is resolved (settlement or price), at
 		// the exchange's own finish time.
 		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
+		if noCost {
+			return record, nil
+		}
 		if attemptID != "" && h.Quota != nil {
 			if cost, ok := h.Quota.settledCost(ctx, record.TenantID, attemptID); ok {
 				record.Cost = cost
