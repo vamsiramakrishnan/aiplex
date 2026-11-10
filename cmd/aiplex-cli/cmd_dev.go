@@ -205,7 +205,7 @@ func runDev(parent context.Context, o devOptions) error {
 		consoleURL, consoleNote = startDevConsole(ctx, stack.APIURL, stack.Token, o.consolePort)
 	}
 	statePath, _ := devStatePath()
-	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, IssuerURL: stack.IssuerURL, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath, DevLog: detachedLogPath()}
+	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, IssuerURL: stack.IssuerURL, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339Nano), APILog: logPath, DevLog: detachedLogPath()}
 	if raw, e := json.MarshalIndent(state, "", "  "); e == nil && statePath != "" {
 		_ = os.WriteFile(statePath, raw, 0o600)
 		defer os.Remove(statePath)
