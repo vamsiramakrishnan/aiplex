@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
 	"github.com/vamsiramakrishnan/aiplex/internal/harness"
 )
 
@@ -28,7 +29,7 @@ func (f *connectWriteFlags) bind(cmd *cobra.Command) {
 	fl.BoolVar(&f.undo, "undo", false, "Restore the most recent backup made by --write (for --client, or the latest of any)")
 	fl.StringVar(&f.scope, "scope", "user", "With --write: user (home directory files) or project (this directory's files; claude-code and gemini-cli)")
 	fl.StringVar(&f.model, "model", "", "With --write: model to select, instead of the first one the access point offers on the client's API")
-	fl.BoolVar(&f.tokenHelper, "token-helper", false, "With --write: let the client fetch its token from \"aiplex auth print-token\" (claude-code, codex)")
+	fl.BoolVar(&f.tokenHelper, "token-helper", false, "With --write: let the client fetch its token from \"aiplex --context NAME auth print-token\" for the context in effect (needs a stored token; claude-code, codex)")
 	fl.StringVar(&f.telemetry, "with-telemetry", "", "With --write: also point the client's own OpenTelemetry export at this OTLP endpoint (prompts stay redacted)")
 }
 
@@ -105,6 +106,13 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 		return fmt.Errorf("connect: %w", err)
 	}
 	opts := harness.Options{Home: home, Cwd: cwd, Scope: f.scope, Model: f.model, TokenHelper: f.tokenHelper, Telemetry: f.telemetry}
+	if f.tokenHelper {
+		name, err := tokenHelperContext()
+		if err != nil {
+			return err
+		}
+		opts.HelperContext = name
+	}
 	var plan *harness.Plan
 	switch client {
 	case "claude-code":
@@ -146,6 +154,23 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 		}
 	}
 	return nil
+}
+
+// tokenHelperContext names the context the credential helper must use. The
+// helper runs later, from the client, so it cannot see this command's flags or
+// environment: it is told the context explicitly. That only works when the
+// context has a stored token.
+func tokenHelperContext() (string, error) {
+	t := resolveTarget()
+	hint := "Create and sign in to a context first: aiplex config set-context NAME --url URL, then aiplex login --context NAME. Or drop --token-helper and export the token in the shell that starts the client."
+	if t.Context == "" {
+		return "", usageError("--token-helper needs a stored context, and none is selected; your credentials come only from the environment or flags", hint)
+	}
+	creds, err := cliconfig.LoadCredentials()
+	if err != nil || creds.GetToken(t.Context) == nil || creds.GetToken(t.Context).AccessToken == "" {
+		return "", usageError(fmt.Sprintf("--token-helper needs a stored token for context %q, and there is none", t.Context), hint)
+	}
+	return t.Context, nil
 }
 
 func runConnectUndo(cmd *cobra.Command, client string, f *connectWriteFlags) error {

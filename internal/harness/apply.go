@@ -38,25 +38,6 @@ func (c Change) Changed() bool {
 	return !c.Existed || string(c.Before) != string(c.After)
 }
 
-// Diff is the unified diff of the change ("" when nothing changes).
-func (c Change) Diff() string {
-	if !c.Changed() {
-		return ""
-	}
-	after := c.After
-	if c.Delete {
-		after = nil
-	}
-	d := UnifiedDiff(c.Path, c.Before, after, c.Existed)
-	if c.Delete {
-		d = strings.Replace(d, "+++ "+diffName("b", c.Path), "+++ /dev/null", 1)
-	}
-	if d == "" && !c.Existed {
-		d = fmt.Sprintf("--- /dev/null\n+++ %s\n(new empty file)\n", diffName("b", c.Path))
-	}
-	return d
-}
-
 // readFile reads a config file. A missing file is not an error.
 func readFile(path string) (data []byte, existed bool, mode os.FileMode, err error) {
 	real := resolveLink(path)

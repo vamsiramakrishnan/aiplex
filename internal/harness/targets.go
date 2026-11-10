@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
@@ -16,7 +17,8 @@ var Writable = []string{"claude-code", "codex", "gemini-cli"}
 // TokenEnv is the environment variable every written file refers to.
 const TokenEnv = "AIPLEX_TOKEN"
 
-// DefaultHelper is the credential helper command written by --token-helper.
+// DefaultHelper is the credential helper command written by --token-helper
+// when no context is named.
 const DefaultHelper = "aiplex auth print-token"
 
 // Options controls what a plan writes.
@@ -26,7 +28,10 @@ type Options struct {
 	Scope       string // "user" (default) or "project"
 	Model       string // overrides the model chosen from the access point
 	TokenHelper bool   // reference a credential helper command instead of $AIPLEX_TOKEN
-	Helper      string // helper command line; DefaultHelper when empty
+	// HelperContext is the CLI context the helper must use. The helper runs
+	// later, from the client, where it would otherwise resolve the default
+	// context and return the wrong token.
+	HelperContext string
 	Telemetry   string // OTLP endpoint for the harness's own telemetry; "" = off
 }
 
@@ -46,11 +51,28 @@ func (o Options) scope() string {
 	return o.Scope
 }
 
-func (o Options) helper() string {
-	if o.Helper != "" {
-		return o.Helper
+// helperArgv is the credential helper as a command and arguments.
+func (o Options) helperArgv() []string {
+	if o.HelperContext == "" {
+		return strings.Fields(DefaultHelper)
 	}
-	return DefaultHelper
+	return []string{"aiplex", "--context", o.HelperContext, "auth", "print-token"}
+}
+
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_.@:/+=,-]+$`)
+
+// helper is the helper as one shell command line, quoted for a POSIX shell.
+func (o Options) helper() string {
+	argv := o.helperArgv()
+	out := make([]string, len(argv))
+	for i, a := range argv {
+		if shellSafe.MatchString(a) {
+			out[i] = a
+		} else {
+			out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 func (o Options) validate() error {
@@ -309,7 +331,7 @@ func PlanCodex(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	t.WriteString("wire_api = \"responses\"\n")
 	t.WriteString("requires_openai_auth = false\n")
 	if o.TokenHelper {
-		fields := strings.Fields(o.helper())
+		fields := o.helperArgv()
 		args := make([]string, 0, len(fields))
 		for _, a := range fields[1:] {
 			args = append(args, tomlString(a))
