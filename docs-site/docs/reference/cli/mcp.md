@@ -25,6 +25,7 @@ Examples:
 
 Available Commands:
   connections Add, list, inspect, test and delete MCP tool connections
+  serve       Run a read-only MCP server on stdio that lets a coding agent inspect AIPlex
 
 Flags:
   -h, --help   help for mcp
@@ -291,6 +292,51 @@ Examples:
 
 Flags:
   -h, --help   help for test
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex mcp serve`
+
+```text
+Serves the Model Context Protocol on stdin and stdout. Point an MCP client
+(Claude Code, Codex, Gemini CLI) at the command "aiplex mcp serve".
+
+Tools, all read-only and made with your own token and context:
+  whoami                who AIPlex sees you as, with roles and scopes
+  list_access_points    the access points you can use
+  get_connect_config    what "aiplex connect" prints, for an access point and client
+  list_models           the models an access point offers
+  usage_summary         totals of your own usage
+  usage_records         a bounded page of your own usage records
+
+Nothing is changed through this server. Errors carry the API's message; the
+token is never included. Diagnostics go to stderr, never to stdout.
+
+Usage:
+  aiplex mcp serve [flags]
+
+Examples:
+  claude mcp add aiplex -- aiplex mcp serve
+  aiplex --context prod mcp serve
+
+Flags:
+  -h, --help   help for serve
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

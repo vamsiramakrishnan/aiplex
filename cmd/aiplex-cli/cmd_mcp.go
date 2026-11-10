@@ -37,7 +37,7 @@ callers may use. Expose it to callers by adding it to an access point:
 		Example: `  aiplex mcp connections list
   aiplex mcp connections add docs --url http://127.0.0.1:3000/mcp`,
 	}
-	cmd.AddCommand(mcpConnectionsCmd())
+	cmd.AddCommand(mcpConnectionsCmd(), mcpServeCmd())
 	return cmd
 }
 
@@ -627,11 +627,17 @@ func mcpConnDeleteCmd() *cobra.Command {
 // terminal there is nobody to ask, so the command refuses (exit 2) unless
 // --yes was given: a script that deletes something must say so.
 func confirm(cmd *cobra.Command, yes bool, question string) error {
+	return confirmWith(cmd, yes, question, "this is destructive", "cancelled; nothing was deleted")
+}
+
+// confirmWith is confirm with its own wording: what is risky about the
+// action (for the no-terminal refusal) and what to say when declined.
+func confirmWith(cmd *cobra.Command, yes bool, question, risk, cancelled string) error {
 	if yes {
 		return nil
 	}
 	if !stdinIsTerminal() || !stderrIsTerminal() {
-		return usageError("refusing to proceed: this is destructive and there is no terminal to ask for confirmation. "+question,
+		return usageError("refusing to proceed: "+risk+" and there is no terminal to ask for confirmation. "+question,
 			"Add --yes (-y) to run it non-interactively")
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)
@@ -640,7 +646,7 @@ func confirm(cmd *cobra.Command, yes bool, question string) error {
 	case "y", "yes":
 		return nil
 	}
-	return newCLIError(exitError, "cancelled; nothing was deleted")
+	return newCLIError(exitError, cancelled)
 }
 
 // confirmDestructive gives every delete/undeploy command without its own

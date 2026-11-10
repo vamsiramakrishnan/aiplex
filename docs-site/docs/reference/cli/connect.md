@@ -13,17 +13,43 @@ antigravity) or "generic" (the default) for environment variables and curl.
 
 Snippets read the token from $AIPLEX_TOKEN; no token or secret is printed.
 
+With --write, the configuration is merged into the client's own config file
+instead of only being printed. Supported for claude-code (settings.json and the
+MCP server list), codex (config.toml) and gemini-cli (settings.json). Each file
+is shown as a diff and needs confirmation (--yes without a terminal). A copy of
+the original goes to ~/.aiplex/connect-backups first, existing keys are never
+replaced wholesale, and a file that is not valid JSON or TOML is refused rather
+than overwritten. A token value is never written: files refer to $AIPLEX_TOKEN,
+or to "aiplex auth print-token" with --token-helper. Parts a file cannot hold
+(an environment variable for the shell) are printed as remaining steps.
+antigravity has no documented config file location, so it stays print-only.
+
+--undo restores the most recent backup for --client (or the most recent one).
+--dry-run shows the diff and writes nothing. aiplex does not install the client.
+
 Usage:
   aiplex connect <access-point> [flags]
 
 Examples:
   aiplex connect ide
   aiplex connect ide --client claude-code
+  aiplex connect local --client claude-code --write
+  aiplex connect local --client codex --write --dry-run
+  aiplex connect local --client gemini-cli --write --with-telemetry http://localhost:4318
+  aiplex connect --undo --client claude-code
   aiplex connect ide -o json
 
 Flags:
-      --client string   Client profile ID, or generic (default "generic")
-  -h, --help            help for connect
+      --client string           Client profile ID, gemini-cli, or generic (default "generic")
+      --dry-run                 With --write or --undo: show the diff and write nothing
+  -h, --help                    help for connect
+      --model string            With --write: model to select, instead of the first one the access point offers on the client's API
+      --scope string            With --write: user (home directory files) or project (this directory's files; claude-code and gemini-cli) (default "user")
+      --token-helper            With --write: let the client fetch its token from "aiplex auth print-token" (claude-code, codex)
+      --undo                    Restore the most recent backup made by --write (for --client, or the latest of any)
+      --with-telemetry string   With --write: also point the client's own OpenTelemetry export at this OTLP endpoint (prompts stay redacted)
+      --write                   Merge the configuration into the client's own config file (shows a diff, backs up first)
+  -y, --yes                     Do not ask for confirmation (required without a terminal)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

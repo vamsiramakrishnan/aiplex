@@ -430,29 +430,74 @@ func spAPQuotaPlanCmd() *cobra.Command {
 
 func connectCmd() *cobra.Command {
 	var client string
+	var wf connectWriteFlags
 	cmd := &cobra.Command{
 		Use:   "connect <access-point>",
-		Short: "Print ready-to-paste configuration for pointing a client at an access point",
+		Short: "Show, or write, the configuration that points a client at an access point",
 		Long: `Shows the base URLs, MCP and skills URLs, how to obtain a token, and snippets
 for a client. --client takes a client profile (for example claude-code, codex,
 antigravity) or "generic" (the default) for environment variables and curl.
 
-Snippets read the token from $AIPLEX_TOKEN; no token or secret is printed.`,
-		Example: "  aiplex connect ide\n  aiplex connect ide --client claude-code\n  aiplex connect ide -o json",
-		Args:    cobra.ExactArgs(1),
+Snippets read the token from $AIPLEX_TOKEN; no token or secret is printed.
+
+With --write, the configuration is merged into the client's own config file
+instead of only being printed. Supported for claude-code (settings.json and the
+MCP server list), codex (config.toml) and gemini-cli (settings.json). Each file
+is shown as a diff and needs confirmation (--yes without a terminal). A copy of
+the original goes to ~/.aiplex/connect-backups first, existing keys are never
+replaced wholesale, and a file that is not valid JSON or TOML is refused rather
+than overwritten. A token value is never written: files refer to $AIPLEX_TOKEN,
+or to "aiplex auth print-token" with --token-helper. Parts a file cannot hold
+(an environment variable for the shell) are printed as remaining steps.
+antigravity has no documented config file location, so it stays print-only.
+
+--undo restores the most recent backup for --client (or the most recent one).
+--dry-run shows the diff and writes nothing. aiplex does not install the client.`,
+		Example: `  aiplex connect ide
+  aiplex connect ide --client claude-code
+  aiplex connect local --client claude-code --write
+  aiplex connect local --client codex --write --dry-run
+  aiplex connect local --client gemini-cli --write --with-telemetry http://localhost:4318
+  aiplex connect --undo --client claude-code
+  aiplex connect ide -o json`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newClient().ConnectAccessPoint(cmd.Context(), args[0], client)
+			if wf.undo {
+				return runConnectUndo(cmd, client, &wf)
+			}
+			if len(args) != 1 {
+				return usageError("connect needs an access point ID", "List the ones you can use with: aiplex access-points list")
+			}
+			if wf.write || wf.dryRun {
+				return runConnectWrite(cmd, args[0], client, &wf)
+			}
+			if err := wf.rejectWriteOnly(cmd); err != nil {
+				return err
+			}
+			apiClient := client
+			if client == "gemini-cli" {
+				apiClient = "generic"
+			}
+			c, err := newClient().ConnectAccessPoint(cmd.Context(), args[0], apiClient)
 			if err != nil {
 				return fmt.Errorf("connect: %w", err)
 			}
+			c.Client = client
 			if spStructured(cmd, c) {
 				return nil
 			}
 			spRenderConnect(cmd.OutOrStdout(), c)
+			if client == "gemini-cli" {
+				fmt.Fprintln(cmd.OutOrStdout(), "\nGemini CLI: use the genai base URL as GOOGLE_GEMINI_BASE_URL and $AIPLEX_TOKEN as GEMINI_API_KEY.")
+			}
+			if hint := connectWriteHint(args[0], client); hint != "" {
+				fmt.Fprintln(cmd.OutOrStdout(), "\n"+hint)
+			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&client, "client", "generic", "Client profile ID, or generic")
+	cmd.Flags().StringVar(&client, "client", "generic", "Client profile ID, gemini-cli, or generic")
+	wf.bind(cmd)
 	return cmd
 }
 

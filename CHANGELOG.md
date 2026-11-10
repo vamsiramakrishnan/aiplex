@@ -17,6 +17,13 @@ There has been no tagged release yet. This section summarises what exists in the
 - The `aiplex dev` summary ends with numbered "Try next" steps, and says plainly when the Console is not built into the binary.
 - Release binaries embed the built Console; a source build says how to build it (`make console && make build`).
 
+### Harness onboarding
+
+- `aiplex connect <access-point> --client claude-code|codex|gemini-cli --write` merges the connection settings into the client's own config file after showing a diff, with a timestamped backup under `~/.aiplex/connect-backups`, `--dry-run`, `--yes` for scripts and `aiplex connect --undo`. It refuses files that are not valid JSON or TOML and never writes a token value (`--token-helper` uses `aiplex auth print-token`). `--with-telemetry <otlp-endpoint>` sets the client's own OpenTelemetry export, never prompt logging. See `docs/harness-onboarding.md`.
+- `aiplex mcp serve`: a stdio MCP server with read-only tools (`whoami`, `list_access_points`, `get_connect_config`, `list_models`, `usage_summary`, `usage_records`) using your own token.
+- `aiplex auth print-token` for client credential helpers.
+- `integrations/claude-code` (plugin with three skills), `integrations/gemini-cli` (extension) and a root `AGENTS.md`; a test checks that every `aiplex` command in them exists.
+
 ### Access points and usage
 
 - Access points: one stable URL per audience (`/ap/{id}/...`) in front of models, MCP tools and skills, with caller-kind admission, model aliases, optional QoS scope, native error shapes, and wires for OpenAI (chat, responses, embeddings, images, audio), Anthropic Messages, Gemini, Azure OpenAI (including `api-key` header and path shapes), Bedrock and WebSocket sessions.
