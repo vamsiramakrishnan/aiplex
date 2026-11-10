@@ -215,7 +215,7 @@ func TestBudgetStatusScopesWhatMembersAndOperatorsSee(t *testing.T) {
 	b.role(models.RoleAdmin)
 	w = b.call("GET", "/api/v1/budgets/org/status", "")
 	var op BudgetStatus
-	if err := json.Unmarshal(w.Body.Bytes(), &op); err != nil || w.Code != 200 || op.Spent != "2" || len(op.Children) != 2 || op.UnknownCostRequests == nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &op); err != nil || w.Code != 200 || op.Spent != "2" || len(op.Children) != 2 || op.UnknownCostRequests != nil {
 		t.Fatalf("operator status: %d %s", w.Code, w.Body.String())
 	}
 	w = b.call("GET", "/api/v1/budgets/team/status", "")
@@ -234,7 +234,7 @@ func TestBudgetStatusScopesWhatMembersAndOperatorsSee(t *testing.T) {
 	b.role(models.RoleDeployer)
 	w = b.call("GET", "/api/v1/budgets/team/status", "")
 	var dep BudgetStatus
-	if err := json.Unmarshal(w.Body.Bytes(), &dep); err != nil || len(dep.TopSpenders) != 0 || dep.UnknownCostRequests == nil {
+	if err := json.Unmarshal(w.Body.Bytes(), &dep); err != nil || len(dep.TopSpenders) != 0 || len(dep.ThresholdEvents) == 0 {
 		t.Fatalf("deployer status: %s", w.Body.String())
 	}
 }

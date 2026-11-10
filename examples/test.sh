@@ -198,4 +198,30 @@ step "Stop aiplex dev"
 kill -INT "$DEV_PID"
 wait "$DEV_PID" || fail "aiplex dev exited with an error on Ctrl+C"
 DEV_PID=""
+
+# ─── budgets (needs QuotaPlex on: aiplex dev --quota) ───────────────────────
+step "budgets: aiplex dev --quota"
+aiplex dev --port "$PORT" --no-console --quota >"$WORK/dev.out" 2>&1 &
+DEV_PID=$!
+for _ in $(seq 1 120); do
+    aiplex dev env >/dev/null 2>&1 && break
+    kill -0 "$DEV_PID" 2>/dev/null || fail "aiplex dev --quota exited"
+    sleep 0.5
+done
+aiplex dev env >/dev/null 2>&1 || fail "aiplex dev --quota did not become ready"
+eval "$(aiplex dev env)"
+step "budgets: budgets.sh"
+out=$(bash "$EX/budgets/budgets.sh" 2>&1) || fail "budgets.sh: $out"
+echo "$out"
+[[ "$out" == *"Created budget demo-team"* ]] || fail "budgets.sh did not create the team budget: $out"
+[[ "$out" == *"group:eng"* && "$out" == *"via demo-team"* ]] || fail "budgets.sh preview did not explain the draws: $out"
+[[ "$out" == *'budget \"Demo team\" (demo-team) is exhausted'* ]] || fail "budgets.sh: the third request was not refused naming the budget: $out"
+[[ "$out" == *"Spent:     2"* && "$out" == *"Remaining: 0"* ]] || fail "budgets.sh status: $out"
+[[ "$out" == *"demo-org"* && "$out" == *"demo-team"* ]] || fail "budgets.sh: the ledger summary lacks the budgets: $out"
+[[ "$out" == *"Deleted budget demo-org"* ]] || fail "budgets.sh did not clean up: $out"
+ok "budgets.sh"
+step "Stop aiplex dev --quota"
+kill -INT "$DEV_PID"
+wait "$DEV_PID" || fail "aiplex dev --quota exited with an error on Ctrl+C"
+DEV_PID=""
 printf '\nEXAMPLES PASSED (%s checks passed, %s skipped)\n' "$PASSED" "$SKIPPED"

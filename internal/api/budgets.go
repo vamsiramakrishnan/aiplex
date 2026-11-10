@@ -410,8 +410,10 @@ func (h *ConnectedHandler) budgetStatus(ctx context.Context, tenant string, tree
 		return st, nil
 	}
 	unknown := bal.UnknownCost
-	st.UnknownCostRequests = &unknown
-	st.OnUnknownCost = b.EffectiveOnUnknownCost()
+	if b.Limit.Unit == budgets.UnitCost {
+		st.UnknownCostRequests = &unknown
+		st.OnUnknownCost = b.EffectiveOnUnknownCost()
+	}
 	st.Thresholds = b.EffectiveThresholds()
 	for _, c := range bal.Crossed {
 		st.ThresholdEvents = append(st.ThresholdEvents, BudgetThresholdEvent{Percent: c.Percent, At: c.At, Consumed: budgetAmount(b, c.Consumed, scale)})
