@@ -3,7 +3,8 @@ package pricecatalog
 // ConfirmedTiers lists, per catalogue provider, the long-context thresholds
 // (input tokens) whose billing rule was confirmed from the provider's own
 // documentation: the higher rates apply to the WHOLE request once the total
-// input exceeds the threshold, and cached tokens count toward it. A usageledger
+// input exceeds the threshold. Cached tokens count toward it where the provider
+// says so (Anthropic) and by inference elsewhere (see below). A usageledger
 // price tier has exactly that meaning, so only these thresholds are carried
 // into snapshots; any other tier field stays "blocking" and the entry needs
 // --accept-partial.
@@ -16,7 +17,9 @@ package pricecatalog
 //   - openai: "prompts with >272K input tokens are priced at 2x input and 1.5x
 //     output for the full session" (https://developers.openai.com/api/docs/models/gpt-5.5).
 //     272K is read as 272,000 (the 400K window splits as 272K input + 128K
-//     output).
+//     output). The page does not say in words that cached tokens count; OpenAI
+//     input_tokens includes them and the ledger compares that total, which is
+//     an inference.
 //
 // Not confirmed, so their tier fields stay unimported: Gemini (the pricing
 // page labels "prompts <= 200k tokens" and "> 200k" but does not say whether
