@@ -248,6 +248,7 @@ func main() {
 			api.MaxBody(limit)(next).ServeHTTP(w, r)
 		})
 	}) // 1MB max request body
+	r.Use(api.NativeKeyHeaders) // provider-native key headers -> bearer, model routes only
 	r.Use(api.WIFAuthMode(wifValidator, cfg.DevelopmentMode)) // Extract WIF identity + sync Dimension B
 	r.Use(api.AuditLog)                                       // Log all mutations
 	r.Use(api.RateLimit(200))                                 // 200 req/min per user (in-process)
