@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
+	"os"
 	"time"
 
 	"github.com/spf13/cobra"
