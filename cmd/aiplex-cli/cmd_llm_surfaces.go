@@ -247,20 +247,59 @@ func llmxRecordsJSON(records []aiplex.ModelSurfaceRecord) []llmxRecordJSON {
 
 func llmxSurfacesGetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use: "get <id>", Short: "Show one surface and its revision", Example: "  aiplex llm surfaces get openai-prod -o yaml", Args: cobra.ExactArgs(1),
+		Use: "get <id>", Short: "Show one surface and its revision (-o json or -o yaml for the full specification)", Example: "  aiplex llm surfaces get openai-prod\n  aiplex llm surfaces get openai-prod -o yaml > openai-prod.yaml", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, err := newClient().GetModelSurface(cmd.Context(), args[0])
 			if err != nil {
 				return fmt.Errorf("get surface: %w", err)
 			}
-			if output == "yaml" {
+			if output == "yaml" || output == "json" {
 				llmxPrint(llmxRecordJSON{r.ID, r.Revision, r.Spec})
-			} else {
-				printJSON(llmxRecordJSON{r.ID, r.Revision, r.Spec})
+				return nil
 			}
+			llmxRenderSurface(cmd.OutOrStdout(), r.ID, r.Revision, r.Spec)
 			return nil
 		},
 	}
+}
+
+// llmxRenderSurface prints a surface as a readable summary; -o json or -o yaml
+// give the full specification.
+func llmxRenderSurface(out io.Writer, id string, revision uint64, c aiplex.ModelSurfaceSpec) {
+	s := c.Surface
+	fmt.Fprintf(out, "Model surface %s (revision %d)\n", id, revision)
+	provider := s.Publisher
+	if s.Provider != nil {
+		provider = s.Provider.ID
+	}
+	if provider == "" {
+		provider = "google"
+	}
+	fmt.Fprintf(out, "  Provider:    %s (protocol %s)\n", provider, s.Protocol)
+	fmt.Fprintf(out, "  Origin:      %s\n", usageDash(s.Origin))
+	fmt.Fprintf(out, "  Models:      %s\n", usageDash(strings.Join(s.Models, ", ")))
+	ops := make([]string, 0, len(s.Operations))
+	for _, o := range s.Operations {
+		ops = append(ops, o.ID)
+	}
+	fmt.Fprintf(out, "  Operations:  %s\n", usageDash(strings.Join(ops, ", ")))
+	switch {
+	case c.Auth != nil && c.Auth.SecretRef != "":
+		fmt.Fprintf(out, "  Credential:  %s (secret reference %s)\n", c.Auth.Type, c.Auth.SecretRef)
+	case c.Auth != nil:
+		fmt.Fprintf(out, "  Credential:  %s\n", c.Auth.Type)
+	case c.IdentityRef != "":
+		fmt.Fprintf(out, "  Credential:  identity %s\n", c.IdentityRef)
+	default:
+		fmt.Fprintln(out, "  Credential:  none")
+	}
+	if c.NetworkProfileRef != "" {
+		fmt.Fprintf(out, "  Network:     profile %s\n", c.NetworkProfileRef)
+	}
+	if c.CapacityPolicy != nil {
+		fmt.Fprintln(out, "  Capacity:    advisory policy on (aiplex llm surfaces capacity "+id+")")
+	}
+	fmt.Fprintf(out, "Full specification: aiplex llm surfaces get %s -o json\n", id)
 }
 
 func llmxSurfacesApplyCmd() *cobra.Command {
