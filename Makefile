@@ -16,7 +16,7 @@
 #   make deploy       Helm install
 #   make verify       Health check + status
 
-.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race examples-test release-smoke \
+.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race examples-test release-smoke update-price-catalog \
         infra infra-plan infra-destroy deploy deploy-dry verify \
         docker-up docker-down console
 
@@ -76,6 +76,10 @@ e2e-race: ## End-to-end tests with aiplex-api built with the race detector
 
 examples-test: ## Run the examples in examples/ against `aiplex dev` (EXAMPLES_INSTALL_SDKS=1 installs the OpenAI SDKs temporarily)
 	@bash examples/test.sh
+
+update-price-catalog: ## Refresh the price catalogue snapshot to a pinned upstream commit: make update-price-catalog [COMMIT=<40-hex sha>] (default: current upstream main)
+	@commit="$(COMMIT)"; if [ -z "$$commit" ]; then commit=$$(git ls-remote https://github.com/BerriAI/litellm.git refs/heads/main | cut -f1); fi; \
+	echo "pinning $$commit"; cd pkg/pricecatalog && $(GO) run ./gen -commit $$commit && $(GO) test . ./gen -count=1
 
 e2e-aiplex-tape: ## Run the AIPlex+Tape end-to-end demo as an in-process smoke test
 	$(GO) test ./tests/... -run "AIPlexTape" -v -count=1

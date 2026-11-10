@@ -298,7 +298,7 @@ See [SECURITY.md](SECURITY.md) for the security model's current limits.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE). The price catalogue snapshot under `pkg/pricecatalog/` is third-party data under the MIT licence; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 <!-- The documentation address. This block is the only place the README spells it out. -->
 [docs]: https://vamsiramakrishnan.github.io/aiplex/
