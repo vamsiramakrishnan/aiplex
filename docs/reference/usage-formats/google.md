@@ -217,3 +217,9 @@ Fixtures: `gemini-generate-error-429.json`, `vertex-generate-error-429.json`.
 15. gRPC-specific differences.
 16. Billing class of `toolUsePromptTokenCount` and of cache creation on the Developer API.
 17. Whether `promptFeedback`-blocked responses carry `usageMetadata`.
+
+## Fixture notes (batch and video, 2026-11-10)
+
+- `gemini-batch-inlined.json` is settled through `gemini.batches.get` on a Developer API surface. https://aistudio.google.com/api-reference/batch-api (re-read 2026-11-10) confirms the create/get/cancel/delete paths, the `batches/{batch_id}` name and the inlined `response`/`error` union; whether create returns the batch or an Operation wrapper is not stated. Absent `cachedContentTokenCount` is treated as 0 and thoughts derived from the total, as in strict Gemini settlement.
+- `gemini-veo-operation.json` is relayed by `gemini.operations.get`; no usage or duration is observed.
+- `vertex-batch-gcs.jsonl` rows are format-checked only; the gateway does not read Cloud Storage.
