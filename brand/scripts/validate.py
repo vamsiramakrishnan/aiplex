@@ -7,7 +7,8 @@ Each file must: parse as XML; have an <svg> root in the SVG namespace with a
 viewBox; contain <title> and <desc>; have unique ids; contain no <script>,
 <image>, <foreignObject>, event-handler attributes, editor namespaces or
 metadata, external references (href/url() other than #fragment) or @font-face/
-@import. Files whose name contains "-mono" and every file in icons/ must use
+@import. Every brand SVG is meant to be font-independent, so any <text>,
+<tspan>, <textPath> or font-family/font attribute fails. Files whose name contains "-mono" and every file in icons/ must use
 only currentColor for fill and stroke. Exit status is non-zero on any failure.
 """
 import os
@@ -19,6 +20,7 @@ BRAND = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SVG = "{http://www.w3.org/2000/svg}"
 EDITOR = ("inkscape", "sodipodi", "sketch", "illustrator", "adobe", "figma", "serif.com")
 FORBIDDEN = {"script", "image", "foreignObject", "metadata"}
+FONT_DEPENDENT = {"text", "tspan", "textPath"}
 
 
 def check(path):
@@ -44,12 +46,19 @@ def check(path):
     for e in EDITOR:
         if e in low:
             errs.append(f"editor trace: {e}")
+    if "font-family" in low:
+        errs.append("font-family in a style")
     if "@font-face" in low or "@import" in low:
         errs.append("font or stylesheet import")
     for el in root.iter():
         tag = el.tag.replace(SVG, "")
         if tag in FORBIDDEN:
             errs.append(f"forbidden element <{tag}>")
+        if tag in FONT_DEPENDENT:
+            errs.append(f"font-dependent element <{tag}> (draw text as outlines with outline_text.py)")
+        for fa in ("font-family", "font"):
+            if el.get(fa):
+                errs.append(f"font-dependent attribute {fa}")
         for k, v in el.attrib.items():
             name = k.split("}")[-1]
             if name.startswith("on"):
