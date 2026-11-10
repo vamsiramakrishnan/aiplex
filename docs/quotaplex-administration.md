@@ -9,7 +9,7 @@ alone is not a quota action grant.
 | Scope | Operations |
 |---|---|
 | `aiplex:quota:read` | Policy, bounded inventories, balances, loans, original terminal evidence and reconciliation inspection |
-| `aiplex:quota:simulate` | Admission preview and policy validation/export |
+| `aiplex:quota:simulate` | Admission preview and policy validation (the active policy document itself is read with `aiplex:quota:read` via `GET /api/v1/quota/policy`; there is no separate export route) |
 | `aiplex:quota:loans` | Policy-authorized loan grant and unused-loan return |
 | `aiplex:quota:reconcile:plan` | Propose terminal reconciliation against the exact stored attempt |
 | `aiplex:quota:reconcile:approve` | Apply the exact reviewed reconciliation digest |
