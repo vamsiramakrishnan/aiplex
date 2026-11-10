@@ -244,6 +244,11 @@ func (a *routeAttempt) continuable() bool {
 	x := a.route
 	a.mu.Lock()
 	outcome := a.outcome
+	if a.operation.Stateful || a.operation.Transport == modelapi.WebSocket {
+		// The operation table marks it stateful (stored responses, batches,
+		// files, cached contents, long-running operations, sessions).
+		x.stateful = true
+	}
 	a.mu.Unlock()
 	if x.policy.Retries(outcome) && a.number < x.policy.MaxAttempts && (!x.stateful || outcome == routing.OutcomeConnectError) {
 		return true
