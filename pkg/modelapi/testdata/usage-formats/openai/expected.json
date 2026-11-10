@@ -268,5 +268,14 @@
     "reasoning_tokens": 5,
     "total_tokens": 580,
     "notes": "Batch object usage (GET /v1/batches/{id}), only populated for batches created after 2025-09-07 and only when finished; note input_tokens_details has cached_tokens only (no cache_write). Must NOT be added on top of batch.output.jsonl totals - same tokens, two views."
+  },
+  "responses-web-search.json": {
+    "input_tokens": 3000,
+    "output_tokens": 200,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 50,
+    "total_tokens": 3200,
+    "notes": "Built-in tool call items in output[] (web_search_call x2, file_search_call x1) are per-call server-tool requests, not tokens; function_call items are executed by the caller and are not counted. service_tier at the response root names the tier that served the request. Fixture is synthetic, shaped after the Responses object."
   }
 }

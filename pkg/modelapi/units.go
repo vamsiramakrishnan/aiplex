@@ -30,6 +30,9 @@ const (
 	DimensionBatch        = "batch"
 	DimensionImageSize    = "image_size"
 	DimensionImageQuality = "image_quality"
+	// DimensionServiceTier is the processing tier the provider reported
+	// (OpenAI service_tier, Anthropic usage.service_tier).
+	DimensionServiceTier = "service_tier"
 )
 
 func cloneDimensions(in map[string]string) map[string]string {

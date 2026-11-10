@@ -1,0 +1,66 @@
+{
+  "id": "resp_fix0002",
+  "object": "response",
+  "created_at": 1700000020,
+  "status": "completed",
+  "completed_at": 1700000024,
+  "error": null,
+  "incomplete_details": null,
+  "model": "fixture-model-b",
+  "service_tier": "flex",
+  "output": [
+    {
+      "id": "ws_fix1",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {"type": "search", "query": "synthetic query one"}
+    },
+    {
+      "id": "ws_fix2",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {"type": "search", "query": "synthetic query two"}
+    },
+    {
+      "id": "fs_fix1",
+      "type": "file_search_call",
+      "status": "completed",
+      "queries": ["synthetic"]
+    },
+    {
+      "id": "fc_fix1",
+      "type": "function_call",
+      "status": "completed",
+      "name": "client_side_function",
+      "arguments": "{}",
+      "call_id": "call_fix1"
+    },
+    {
+      "id": "msg_fix1",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Hello from the fixture.",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "background": false,
+  "store": true,
+  "usage": {
+    "input_tokens": 3000,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 200,
+    "output_tokens_details": {
+      "reasoning_tokens": 50
+    },
+    "total_tokens": 3200
+  }
+}

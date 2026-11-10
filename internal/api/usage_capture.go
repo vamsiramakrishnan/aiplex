@@ -469,6 +469,7 @@ func (c *usageCapture) finish() {
 		normalizeExclusiveInput(counters)
 	}
 	record.Usage = usageledger.FromCounters(counters)
+	record.ServerTools = usageledger.ServerToolsFromCounters(counters)
 	if bound != "" {
 		record.UsageBound = bound
 	} else if nonTokenUsage(counters) {

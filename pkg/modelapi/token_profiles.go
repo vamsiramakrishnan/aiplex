@@ -7,7 +7,10 @@ func anthropicOperation(op Operation) bool {
 }
 
 // serverToolCounters names the documented Anthropic server_tool_use request
-// counters. They are kept as ledger telemetry only.
+// counters; the same normalized form ("server_tool_<kind>_requests") carries
+// the built-in tool calls OpenAI reports in Responses output items and the
+// Gemini grounding queries (server_tools.go). The ledger keeps them in a
+// record's server_tools map.
 //
 // Server-tool metering choice (explicit, per counter): web_search_requests,
 // web_fetch_requests and code_execution_requests are billed per request (code
@@ -17,11 +20,6 @@ func anthropicOperation(op Operation) bool {
 // positive quantity keeps every token profile failing closed. Unknown
 // server_tool_use keys also fail closed. Gemini tool-use prompt tokens
 // (toolUsePromptTokenCount / total_tool_use_tokens) likewise fail closed.
-var serverToolCounters = map[string]string{
-	"web_search_requests":     "server_tool_web_search_requests",
-	"web_fetch_requests":      "server_tool_web_fetch_requests",
-	"code_execution_requests": "server_tool_code_execution_requests",
-}
 
 // cacheWriteFamily returns the per-TTL cache-write meters reported by an
 // output-inclusive format: Anthropic Messages and Bedrock (5m/1h) or OpenAI
