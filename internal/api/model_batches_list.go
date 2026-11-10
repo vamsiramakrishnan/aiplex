@@ -51,14 +51,7 @@ func (h *ConnectedHandler) ListModelBatches(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	access := GetWIFAccess(r.Context())
-	admin := false
-	if access != nil {
-		for _, role := range access.Roles {
-			admin = admin || role == models.RoleAdmin
-		}
-	}
-	if !admin {
+	if !privilegedOrDevelopment(r, h.Development, models.RoleAdmin) {
 		Error(w, r, 403, "ADMIN_REQUIRED", "listing model batches requires an administrative role")
 		return
 	}
