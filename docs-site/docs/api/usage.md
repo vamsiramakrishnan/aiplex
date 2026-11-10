@@ -439,7 +439,7 @@ curl -sS -X DELETE "$AIPLEX_URL/api/v1/usage/prices/price-example" \
   - `settled`: the amount a quota settlement charged for the record's `quota_attempt_id`. It is exact.
   - `estimated`: computed from the single matching model price. The sum of all meters is rounded up once.
   - `unknown`: neither a settlement nor a matching price exists, or a priced meter's quantity is unknown. Such a cost has no `currency`, `amount` or `scale`.
-- **Amounts are fixed-point.** `cost.amount` is a decimal integer string in fixed-point units at `cost.scale`, so an amount of `"1500"` at scale `6` is 0.001500 of the currency unit. The amount is always a string so that JSON readers do not lose precision. The `cost` array in a summary uses the same convention and rescales amounts of different scales to the largest scale without loss.
+- **Amounts are fixed-point.** `cost.amount` is a decimal integer string of minor units, with `cost.scale` decimal places of the currency. An amount of `"1500"` at scale `6` is 0.001500 of the currency unit. The amount is always a string so that JSON readers do not lose precision. The `cost` array in a summary uses the same convention and rescales amounts of different scales to the largest scale without loss.
 - **No built-in prices.** Without a matching price resource, estimated cost is unknown. The API never invents a price.
 - **Price matching.** When several prices match a record, the one with the most selectors wins (`provider`, `batch`, `image_size`, `image_quality`). A tie yields no match, and the cost is unknown.
 - **Usage bounds.** `usage_bound` is omitted when the counters are final.
