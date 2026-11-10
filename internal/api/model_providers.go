@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -232,17 +233,22 @@ func (h *ConnectedHandler) SurfaceCapacity(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	id := idParam(r)
-	if _, err := h.Store.Get(r.Context(), tenant, "model-surface", id); err != nil {
+	record, err := h.Store.Get(r.Context(), tenant, "model-surface", id)
+	if err != nil {
 		resourceError(w, r, err)
 		return
 	}
+	var connection ModelConnection
+	_ = json.Unmarshal(record.Spec, &connection)
 	limits, observed := h.capacityStore().LastObserved(tenant, id)
 	response := struct {
 		SurfaceID string                 `json:"surface_id"`
 		Observed  bool                   `json:"observed"`
 		Scope     string                 `json:"scope"`
 		Limits    *providerlimits.Limits `json:"limits,omitempty"`
-	}{SurfaceID: id, Observed: observed, Scope: "replica-local last observation; advisory"}
+		// CapacityPolicy is the surface's enforcement policy and cooldown state.
+		CapacityPolicy capacityPolicyReport `json:"capacity_policy"`
+	}{SurfaceID: id, CapacityPolicy: h.capacityReport(tenant, id, connection), Observed: observed, Scope: "replica-local last observation; advisory"}
 	if observed {
 		response.Limits = &limits
 	}

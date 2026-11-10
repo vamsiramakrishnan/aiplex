@@ -138,6 +138,7 @@ type accessPointCall struct {
 	ClientID   string
 	Revision   uint64
 	QoS        bool
+	Weight     uint32 // QoS weight; zero without QoS
 	recheck    func(context.Context) error
 }
 
@@ -235,6 +236,9 @@ func (h *ConnectedHandler) accessPointGate(w http.ResponseWriter, r *http.Reques
 	}
 	revision := record.Revision
 	call := &accessPointCall{ID: id, CallerKind: caller.Kind, ClientID: caller.ClientID, Revision: revision, QoS: ap.QoS != nil}
+	if ap.QoS != nil {
+		call.Weight = ap.QoS.Weight
+	}
 	call.recheck = func(ctx context.Context) error {
 		current, currentAP, err := h.loadAccessPointRecord(ctx, tenant, id)
 		if err != nil || current.Revision != revision {
