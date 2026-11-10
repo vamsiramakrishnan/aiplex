@@ -33,7 +33,7 @@ func (preflightFake) EnabledServices(context.Context, string) (map[string]bool, 
 	return s, nil
 }
 func (preflightFake) BillingEnabled(context.Context, string) (bool, error) { return true, nil }
-func (preflightFake) BucketExists(context.Context, string) (bool, error)  { return false, nil }
+func (preflightFake) BucketExists(context.Context, string) (bool, error)   { return false, nil }
 
 func usePreflightFake(t *testing.T, deny ...string) {
 	t.Helper()

@@ -2,8 +2,24 @@
 {{- $project := required "global.projectId is required for the OpenTelemetry collector's Google Cloud exporters" .Values.global.projectId }}
 # OpenTelemetry collector: receives OTLP from aiplex-api and forwards traces to
 # Cloud Trace and metrics to Cloud Monitoring in global.projectId. It runs as
-# the aiplex-api Kubernetes service account (Workload Identity), which needs
-# roles/cloudtrace.agent and roles/monitoring.metricWriter on the project.
+# its own Kubernetes service account, mapped by Workload Identity to the
+# aiplex-otel-collector Google service account that Terraform creates when
+# otel_collector = true, holding only roles/cloudtrace.agent and
+# roles/monitoring.metricWriter. It does not use the API's identity, which
+# holds secret, Firestore and Kubernetes deploy rights the collector never needs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: {{ include "aiplex.namespace" . }}
+  annotations:
+    iam.gke.io/gcp-service-account: aiplex-otel-collector@{{ $project }}.iam.gserviceaccount.com
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+# The collector never calls the Kubernetes API (no k8sattributes processor),
+# so its token is not mounted; GKE Workload Identity does not need it.
+automountServiceAccountToken: false
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -69,11 +85,24 @@ spec:
       labels:
         app.kubernetes.io/name: otel-collector
     spec:
-      serviceAccountName: aiplex-api
+      serviceAccountName: otel-collector
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # opentelemetry-collector-contrib images run as uid 10001.
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: otel-collector
         image: {{ required "otel.image is required" .Values.otel.image | quote }}
         args: ["--config=/etc/otel/config.yaml"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
         ports:
         - containerPort: 4317
           name: otlp-grpc

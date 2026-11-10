@@ -258,3 +258,34 @@ spec:
         limit:
           requests: 5000
           unit: Hour
+---
+# Cloud Armor: attach the aiplex-waf backend security policy (Terraform,
+# security.tf) to the Services this Gateway routes to. Without these the
+# policy exists but filters nothing. GCPBackendPolicy per
+# https://docs.cloud.google.com/kubernetes-engine/docs/how-to/configure-gateway-resources
+# Not validated against a live cluster.
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: aiplex-api-waf
+  namespace: aiplex-system
+spec:
+  default:
+    securityPolicy: aiplex-waf
+  targetRef:
+    group: ""
+    kind: Service
+    name: aiplex-api
+---
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: aiplex-console-waf
+  namespace: aiplex-system
+spec:
+  default:
+    securityPolicy: aiplex-waf
+  targetRef:
+    group: ""
+    kind: Service
+    name: aiplex-console

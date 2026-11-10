@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/idtoken"
@@ -32,7 +33,7 @@ type ToolSecrets struct{ Manager SecretReader }
 // prefix (Terraform variable api_secret_prefix, IAM condition on the
 // binding), so a secret the API should read must be named with it; tool
 // secret references get it automatically (see ToolSecretID).
-const SecretIDPrefix = "aiplex-"
+const SecretIDPrefix = secrets.IDPrefix
 
 func toolSecretPrefix(tenant string) string {
 	sum := sha256.Sum256([]byte(tenant))

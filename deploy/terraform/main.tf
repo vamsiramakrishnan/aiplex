@@ -64,6 +64,7 @@ resource "google_project_service" "apis" {
     "certificatemanager.googleapis.com",
     "cloudkms.googleapis.com",
     "cloudscheduler.googleapis.com",
+    "cloudtrace.googleapis.com",
     "compute.googleapis.com",
     "container.googleapis.com",
     "containeranalysis.googleapis.com",

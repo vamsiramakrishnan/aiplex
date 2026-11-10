@@ -1,0 +1,52 @@
+{{- /*
+Namespaced RBAC for the API's deploy engine. The kinds are exactly those
+internal/deploy renders (manifests.go, routes.go, tape.go); the verbs are what
+`kubectl apply --server-side` (get, create, patch) and
+`kubectl delete --ignore-not-found` (delete, plus get/list/watch while it
+waits) need. No ClusterRole: every object is namespaced.
+TestHelmAPIRoleMatchesDeployEngine keeps this list and the code in step.
+*/ -}}
+{{- if .Values.api.rbac.create }}
+{{- range $ns := .Values.api.rbac.namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: aiplex-api-deployer
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" $ | nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["serviceaccounts", "services"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["httproutes"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+- apiGroups: ["aigateway.envoyproxy.io"]
+  resources: ["aiservicebackends", "llmroutes", "mcproutes"]
+  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aiplex-api-deployer
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: aiplex-api-deployer
+subjects:
+- kind: ServiceAccount
+  name: aiplex-api
+  namespace: {{ include "aiplex.namespace" $ }}
+{{- end }}
+{{- end }}

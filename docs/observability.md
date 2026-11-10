@@ -246,10 +246,16 @@ api:
 ```
 
 The chart's collector exports to Cloud Trace and Cloud Monitoring in
-`global.projectId`. It runs as the `aiplex-api` Kubernetes service account, whose
-Google service account needs `roles/cloudtrace.agent` and
-`roles/monitoring.metricWriter`. To use a collector you already run, set
-`otel.endpoint` to its URL and `otel.collector: false`.
+`global.projectId`. It runs as its own `otel-collector` Kubernetes service
+account (no mounted token, non-root, read-only root filesystem), mapped by
+Workload Identity to the `aiplex-otel-collector` Google service account.
+Terraform creates that account with `roles/cloudtrace.agent` and
+`roles/monitoring.metricWriter` on the project when `otel_collector = true`
+(the default, matching the chart's `otel.enabled` and `otel.collector`
+defaults); both roles can only be granted at project level. It does not use the
+API's identity. To use a collector you already run, set `otel.endpoint` to its
+URL and `otel.collector: false`, and `otel_collector = false` in
+`terraform.tfvars`. See [Google Cloud permissions](gcp-permissions.md).
 
 The raw manifests in `deploy/k8s` carry a `PROJECT_ID` placeholder. Substitute it
 before applying (see the comment at the top of `deploy/k8s/otel-collector.yaml`).

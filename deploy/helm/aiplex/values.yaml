@@ -27,6 +27,12 @@ api:
   # to ConfigMap/Secret references; the chart never embeds their contents.
   extraVolumes: []
   extraVolumeMounts: []  # name, mountPath, optional subPath; always read-only
+  # Namespaced RBAC for the API's in-cluster deploy engine (internal/deploy):
+  # one Role + RoleBinding per namespace it deploys into, with exactly the
+  # kinds it renders and the verbs kubectl server-side apply and delete use.
+  rbac:
+    create: true
+    namespaces: [aiplex-system, mcplex, a2aplex, llmplex, skillsplex]
   # GET /metrics (Prometheus text) needs the AIPLEX_METRICS_TOKEN bearer
   # secret; without it the route answers 503. Reference an existing
   # Kubernetes Secret (the chart never holds the value).

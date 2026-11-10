@@ -20,20 +20,27 @@ spec:
       # The console serves static files and never calls the Kubernetes API.
       automountServiceAccountToken: false
       securityContext:
+        runAsNonRoot: true
+        # nginxinc/nginx-unprivileged (console/Dockerfile) runs as uid 101.
+        runAsUser: 101
+        runAsGroup: 101
         seccompProfile:
           type: RuntimeDefault
       containers:
       - name: nginx
         image: {{ include "aiplex.console.image" . }}
-        # The image is nginx:alpine, which starts as root, binds port 80 and
-        # writes its cache and pid under /var. runAsNonRoot, a read-only root
-        # filesystem and dropping every capability need an unprivileged nginx
-        # image on a high port first (follow-up; see docs/gcp-permissions.md).
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
         ports:
-        - containerPort: 80
+        - containerPort: 8080
           name: http
+        volumeMounts:
+        # nginx-unprivileged keeps its pid and temp files under /tmp.
+        - name: tmp
+          mountPath: /tmp
         resources:
           {{- toYaml .Values.console.resources | nindent 10 }}
         livenessProbe:
@@ -41,6 +48,9 @@ spec:
             path: /
             port: http
           periodSeconds: 30
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
