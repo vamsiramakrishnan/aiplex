@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import * as api from '../api/usage'
 import UsagePrices from './UsagePrices'
 import { useAccess } from '../hooks/useAccess'
 import { ErrorPanel } from '../components/UsageError'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 const field = 'w-full rounded border border-gray-300 bg-transparent px-3 py-2 text-sm dark:border-gray-700'
 const button = 'rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40 dark:bg-gray-200 dark:text-gray-900'
@@ -11,7 +12,7 @@ const card = 'rounded border border-gray-200 p-4 dark:border-gray-800'
 const muted = 'text-xs text-gray-500 dark:text-gray-400'
 
 export const GROUP_LABELS: Record<api.GroupField, string> = {
-  plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', access_point_id: 'Access point', caller_kind: 'Caller kind', status: 'Status',
+  plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', access_point_id: 'Access point', caller_kind: 'Caller kind', status: 'Status', source: 'Source', error_class: 'Error class', usage_bound: 'Usage bound', batch: 'Batch',
 }
 
 // ---- filters -------------------------------------------------------------
@@ -27,13 +28,17 @@ export interface FilterDraft {
   access_point_id: string
   caller_kind: string
   status: string
+  source: string
+  error_class: string
+  usage_bound: string
+  batch: string
 }
-export const emptyDraft: FilterDraft = { preset: '24h', plane: '', model_id: '', tool_name: '', actor_id: '', principal_id: '', client_id: '', access_point_id: '', caller_kind: '', status: '' }
+export const emptyDraft: FilterDraft = { preset: '24h', plane: '', model_id: '', tool_name: '', actor_id: '', principal_id: '', client_id: '', access_point_id: '', caller_kind: '', status: '', source: '', error_class: '', usage_bound: '', batch: '' }
 
 /** Turns the form into API filters; the time window is resolved once, at apply time. */
 export function buildFilter(draft: FilterDraft, now: Date = new Date()): api.UsageFilter {
   const filter: api.UsageFilter = { since: api.presetSince(draft.preset, now) }
-  for (const name of ['plane', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status'] as const) {
+  for (const name of ['plane', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status', 'source', 'error_class', 'usage_bound', 'batch'] as const) {
     const value = draft[name].trim()
     if (value) filter[name] = value
   }
@@ -58,6 +63,10 @@ function FilterBar({ draft, onChange, onApply }: { draft: FilterDraft; onChange:
     <Field label="Client"><input className={field} value={draft.client_id} onChange={set('client_id')} placeholder="client ID" /></Field>
     <Field label="Access point"><input className={field} value={draft.access_point_id} onChange={set('access_point_id')} placeholder="access point ID" /></Field>
     <Field label="Caller kind"><select className={field} value={draft.caller_kind} onChange={set('caller_kind')}><option value="">Any caller kind</option><option value="agent">agent</option><option value="user">user</option><option value="client">client</option></select></Field>
+    <Field label="Source"><select className={field} value={draft.source} onChange={set('source')}><option value="">Any source</option><option value="managed">managed (through AIPlex)</option><option value="reported">reported (by the caller)</option></select></Field>
+    <Field label="Error class"><input className={field} value={draft.error_class} onChange={set('error_class')} placeholder="e.g. rate_limited" /></Field>
+    <Field label="Usage bound"><select className={field} value={draft.usage_bound} onChange={set('usage_bound')}><option value="">Any</option><option value="lower_bound">lower bound</option><option value="ambiguous">ambiguous</option><option value="partial">partial</option><option value="none">exact (no bound)</option></select></Field>
+    <Field label="Batch"><select className={field} value={draft.batch} onChange={set('batch')}><option value="">Batch and not</option><option value="true">Provider batches only</option><option value="false">Not batches</option></select></Field>
     <div className="flex items-end gap-3 sm:col-span-2 lg:col-span-4"><button type="submit" className={button}>Apply filters</button><button type="button" className="text-sm underline" onClick={() => { onChange(emptyDraft); }}>Reset fields</button></div>
   </form>
 }
@@ -110,8 +119,13 @@ function sortValue(g: api.SummaryGroup, key: SortKey, currency: string): bigint 
   return costs.reduce((sum, c) => sum + BigInt(c.amount) * 10n ** BigInt(SCALE_FLOOR - c.scale), 0n)
 }
 
+/** Display text of one group key; batch is a boolean the server sends as "true" or "false". */
+export function keyText(field: api.GroupField, value: string | undefined): string {
+  if (field === 'batch') return value === 'true' ? 'provider batch' : value === 'false' ? 'not a batch' : '(none)'
+  return value || '(none)'
+}
 function groupLabel(g: api.SummaryGroup, fields: readonly api.GroupField[]): string {
-  return fields.map((f) => g.key[f] || '(none)').join(' · ') || 'All records'
+  return fields.map((f) => keyText(f, g.key[f])).join(' · ') || 'All records'
 }
 
 function Headline({ summary }: { summary: api.UsageSummary }) {
@@ -253,15 +267,9 @@ const DETAIL_FIELDS: [string, (r: api.UsageRecord) => string][] = [
 ]
 
 export function RecordDrawer({ record, onClose }: { record: api.UsageRecord; onClose: () => void }) {
-  const closeRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    closeRef.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-  return <aside role="dialog" aria-label="Usage record detail" className="fixed inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950">
-    <div className="mb-4 flex items-start justify-between gap-3"><h3 className="text-lg font-medium">Usage record</h3><button ref={closeRef} type="button" className="underline" onClick={onClose}>Close</button></div>
+  const ref = useFocusTrap<HTMLElement>(true, onClose)
+  return <aside ref={ref} role="dialog" aria-modal="true" aria-label="Usage record detail" tabIndex={-1} className="fixed inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950">
+    <div className="mb-4 flex items-start justify-between gap-3"><h3 className="text-lg font-medium">Usage record</h3><button type="button" className="underline" onClick={onClose}>Close</button></div>
     {record.usage_bound && <p role="note" className="mb-3 rounded border border-amber-400 p-2 text-sm text-amber-900 dark:text-amber-200"><strong>Not a final count.</strong> {api.USAGE_BOUND_TEXT[record.usage_bound]} Any cost computed from these counters is not final either.</p>}
     {api.isSessionRecord(record) && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>WebSocket session.</strong> One request was admitted and settled for the whole session; token usage reported during the session is advisory.</p>}
     {record.error_class && api.CAPACITY_REASONS[record.error_class] && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>{api.CAPACITY_REASONS[record.error_class].label}.</strong> {api.CAPACITY_REASONS[record.error_class].text}</p>}

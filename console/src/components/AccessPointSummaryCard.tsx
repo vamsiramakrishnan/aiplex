@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { AccessPointSpec } from '../api/accessPoints'
+import { qosScopeLabel, type AccessPointSpec } from '../api/accessPoints'
 
 /** Compact summary of one access point: name, caller kinds, resource counts, QoS class. */
 export default function AccessPointSummaryCard({ spec, revision, footer, headingLevel = 3 }: {
@@ -24,6 +24,7 @@ export default function AccessPointSummaryCard({ spec, revision, footer, heading
         {counts.map(([label, n]) => <div key={label} className="contents"><dt className="text-gray-500">{label}</dt><dd>{n}</dd></div>)}
         <dt className="text-gray-500">QoS class</dt>
         <dd>{spec.qos ? spec.qos.class : 'none'}</dd>
+        {spec.qos && <><dt className="text-gray-500">Limit scope</dt><dd>{qosScopeLabel(spec.qos.scope)}</dd></>}
         {revision !== undefined && <><dt className="text-gray-500">Revision</dt><dd>{revision}</dd></>}
       </dl>
       {footer && <div className="mt-3">{footer}</div>}

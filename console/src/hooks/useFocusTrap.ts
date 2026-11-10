@@ -26,9 +26,9 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean, onClose: ()
       if (event.shiftKey && (document.activeElement === first || !node.contains(document.activeElement))) { event.preventDefault(); last.focus() }
       else if (!event.shiftKey && (document.activeElement === last || !node.contains(document.activeElement))) { event.preventDefault(); first.focus() }
     }
-    document.addEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey)
     return () => {
-      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey)
       if (opener && document.contains(opener)) opener.focus()
     }
   }, [active])

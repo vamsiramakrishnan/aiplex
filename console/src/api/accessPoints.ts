@@ -1,5 +1,5 @@
 import { authenticatedRequest, listAgents, type Agent } from './client'
-import type { ConnectInfo } from './overview'
+import type { ConnectEndpoint, ConnectInfo } from './overview'
 import { listToolConnections, type ToolConnectionRecord } from './toolAuth'
 
 // Access points: one stable URL (/ap/{id}/...) that enforces identity, access
@@ -19,7 +19,11 @@ export interface AccessPointModel { name: string; surface_ref: string; native_mo
 export interface AccessPointTool { connection_ref: string; expose?: string[] }
 export interface AccessPointSkill { instance_ref: string }
 export interface AccessPointLimits { requests_per_minute?: number; tokens_per_minute?: number; concurrency?: number }
-export interface AccessPointQoS { class: string; weight?: number; limits?: AccessPointLimits; budget_refs?: string[] }
+/** principal: limits apply to each caller separately; access_point: one pool shared by every caller. */
+export type QoSScope = 'principal' | 'access_point'
+/** What the limits are shared by. An absent scope is the server's default, which is per principal. */
+export const qosScopeLabel = (scope?: QoSScope) => (scope === 'access_point' ? 'shared pool (every caller)' : scope === 'principal' ? 'per caller' : 'per caller (default)')
+export interface AccessPointQoS { class: string; weight?: number; scope?: QoSScope; limits?: AccessPointLimits; budget_refs?: string[] }
 
 export interface AccessPointSpec {
   id: string
@@ -153,11 +157,6 @@ export const WIRES: readonly Wire[] = [
   { id: 'openai-images', label: 'OpenAI Images', path: '/v1/images/generations', surfaceProtocols: MEDIA_SURFACE_PROTOCOLS, extra: [{ label: 'Image edits', path: '/v1/images/edits' }] },
   { id: 'openai-audio', label: 'OpenAI Audio', path: '/v1/audio/transcriptions', surfaceProtocols: MEDIA_SURFACE_PROTOCOLS, extra: [{ label: 'Translations', path: '/v1/audio/translations' }, { label: 'Speech', path: '/v1/audio/speech' }] },
 ]
-const wireUrls = (w: Wire, root: string) => {
-  const ws = (u: string) => (w.websocket ? u.replace(/^http/, 'ws') : u)
-  return [{ label: 'Endpoint', url: ws(root + w.path) }, ...(w.extra ?? []).map(e => ({ label: e.label, url: ws(root + e.path) }))]
-}
-
 /** Client wires that reach a surface speaking this protocol. */
 export const wiresForProtocol = (protocol: string) => WIRES.filter(w => w.surfaceProtocols.includes(protocol))
 
@@ -176,70 +175,24 @@ export const surfaceOptionLabel = (s: SurfaceInfo) => {
 
 export interface EndpointGroup { id: string; title: string; note?: string; urls: { label: string; url: string }[] }
 
-/**
- * Endpoint URLs for an access point, grouped by protocol. Model protocols are
- * limited to those a configured model's surface speaks natively (there is no
- * cross-protocol translation). When a model's surface protocol is not known
- * (surface list unavailable or surface missing), every model protocol is
- * shown with a note.
- */
-export function endpointGroups(spec: AccessPointSpec, origin: string, surfaces: ModelSurfaceRecord[] | undefined): EndpointGroup[] {
-  const root = `${origin.replace(/\/$/, '')}/ap/${spec.id}`
-  const groups: EndpointGroup[] = []
-  const models = spec.models ?? []
-  if (models.length) {
-    const protocols = surfaces ? models.map(m => surfaces.find(s => s.id === m.surface_ref)?.spec.surface.protocol) : undefined
-    const unknown = !protocols || protocols.some(p => !p)
-    const served = new Set(protocols)
-    const wires = unknown ? WIRES : WIRES.filter(w => w.surfaceProtocols.some(p => served.has(p)))
-    for (const w of wires) {
-      groups.push({
-        id: w.id, title: w.label,
-        note: unknown ? 'Could not determine which models speak this protocol. A request through the wrong protocol returns an error naming the protocols that serve the model.' : undefined,
-        urls: wireUrls(w, root),
-      })
-    }
-    if (wires.some(w => !w.websocket && !w.id.startsWith('bedrock'))) groups.push({ id: 'models', title: 'Model listing', urls: [{ label: 'List models', url: `${root}/v1/models` }] })
-  }
-  if ((spec.tools ?? []).length) {
-    groups.push({
-      id: 'mcp', title: 'MCP tools (Streamable HTTP)',
-      urls: [
-        { label: 'All tools, named {connection}__{tool}', url: `${root}/mcp` },
-        ...(spec.tools ?? []).map(t => ({ label: `Connection ${t.connection_ref}`, url: `${root}/mcp/${t.connection_ref}` })),
-        { label: 'MCP registry catalog', url: `${root}/v0.1/servers` },
-      ],
-    })
-  }
-  if ((spec.skills ?? []).length) groups.push({ id: 'skills', title: 'Skills', urls: [{ label: 'Skills manifest', url: `${root}/skills` }] })
-  return groups
+/** A save error: the server's message and, when it names one, the field path from `details.field`. */
+export interface FieldIssue { message: string; field?: string }
+
+/** Reads `details.field` (a slash-separated path such as `models/1/surface_ref`) from a failed save. */
+export function fieldIssue(error: unknown): FieldIssue {
+  const e = error as { message?: unknown; details?: { field?: unknown } } | null
+  const field = e?.details?.field
+  return { message: error instanceof Error ? error.message : typeof e?.message === 'string' ? e.message : 'Could not save the access point.', ...(typeof field === 'string' && field ? { field } : {}) }
 }
 
-const FIELD_HINTS: [RegExp, string][] = [
-  [/at least one model, tool connection or skill/, 'resources'],
-  [/caller_kinds/, 'caller_kinds'],
-  [/subjects\.groups/, 'subjects.groups'],
-  [/subjects\.principals/, 'subjects.principals'],
-  [/subjects\.agents/, 'subjects.agents'],
-  [/client registration|subjects\.client_registrations/, 'subjects.client_registrations'],
-  [/display_name/, 'display_name'],
-  [/access point id/, 'id'],
-  [/model surface|model name|native model|models entries|models is bounded|\bmodel "/, 'models'],
-  [/tools\[|tool connection|tools is bounded|cannot be namespaced/, 'tools'],
-  [/skill/, 'skills'],
-  [/qos\.budget_refs/, 'qos.budget_refs'],
-  [/qos\.limits/, 'qos.limits'],
-  [/qos\.weight/, 'qos.weight'],
-  [/qos\.class/, 'qos.class'],
-]
-/**
- * Maps a server validation message to the form field it names. The server
- * returns one message string, not a field map, so this keys off the field
- * names the messages quote; anything unrecognised stays a form-level error.
- */
-export function fieldForError(message: string): string | undefined {
-  for (const [re, field] of FIELD_HINTS) if (re.test(message)) return field
-  return undefined
+/** `models/1/surface_ref` becomes section "models", index 1, leaf "surface_ref". */
+export function parseFieldPath(field: string | undefined): { section: string; index?: number; leaf?: string } | undefined {
+  if (!field) return undefined
+  const [section, ...rest] = field.split('/')
+  if (!section) return undefined
+  const index = rest.length && /^\d+$/.test(rest[0]) ? Number(rest[0]) : undefined
+  const tail = index === undefined ? rest : rest.slice(1)
+  return { section, ...(index !== undefined ? { index } : {}), ...(tail.length ? { leaf: tail.join('/') } : {}) }
 }
 
 export function parseList(text: string): string[] {
@@ -247,40 +200,34 @@ export function parseList(text: string): string[] {
 }
 
 /**
- * Endpoint groups from the server-built connect response (built from the
- * configured public URL, not from this browser's address).
+ * Endpoint groups from the server-built connect response. The server lists
+ * only the wires the access point really serves: the OpenAI, Anthropic and
+ * GenAI families come as a base URL (a wire's own path is appended to it) and
+ * every other endpoint (Bedrock, WebSocket sessions, Azure OpenAI shapes, ...)
+ * comes in `endpoints` and is shown exactly as given. Nothing is derived from
+ * this browser's address.
  */
 export function endpointGroupsFromConnect(spec: AccessPointSpec, c: ConnectInfo): EndpointGroup[] {
   const groups: EndpointGroup[] = []
   const reach = new Set((c.models ?? []).flatMap(m => m.protocols ?? []))
-  // The connect response gives base URLs for the OpenAI, Anthropic and GenAI
-  // families, and lists Bedrock and WebSocket endpoints in `endpoints`. Only
-  // when a server predates `endpoints` are they built here from the server's
-  // public URL (taken from the access point root it returned).
-  const serverEndpoints = c.endpoints ?? undefined
-  const root =[c.base_urls?.genai, c.base_urls?.anthropic, c.base_urls?.openai?.replace(/\/v1$/, ''), c.mcp_url?.replace(/\/mcp$/, '')].find(Boolean)
   for (const w of WIRES.filter(w => reach.has(w.id))) {
     const family = w.id.startsWith('openai-') && !w.websocket ? 'openai' : w.id === 'anthropic-messages' ? 'anthropic' : w.id === 'google-genai' ? 'genai' : ''
-    if (family) {
-      const baseUrl = c.base_urls?.[family]
-      if (!baseUrl) continue
-      const at = (path: string) => baseUrl + (family === 'openai' ? path.replace(/^\/v1/, '') : path)
-      groups.push({ id: w.id, title: w.label, urls: [{ label: 'Endpoint', url: at(w.path) }, ...(w.extra ?? []).map(e => ({ label: e.label, url: at(e.path) }))] })
-    } else if (serverEndpoints) {
-      const mine = serverEndpoints.filter(e => e.protocol === w.id)
-      if (mine.length) {
-        groups.push({
-          id: w.id, title: w.label,
-          urls: mine.map(e => ({
-            label: e.label ?? (e.transport === 'websocket' ? 'Endpoint' : e.transport),
-            // A WebSocket connection needs its query parameters (the model selector).
-            url: e.url + (e.query?.length ? '?' + e.query.map(q => `${q}={${q}}`).join('&') : ''),
-          })),
-        })
-      }
-    } else if (root) {
-      groups.push({ id: w.id, title: w.label, note: 'Built by this console from the server\'s public URL; the connect response does not list this endpoint.', urls: wireUrls(w, root) })
-    }
+    const baseUrl = family ? c.base_urls?.[family] : undefined
+    if (!baseUrl) continue
+    const at = (path: string) => baseUrl + (family === 'openai' ? path.replace(/^\/v1/, '') : path)
+    groups.push({ id: w.id, title: w.label, urls: [{ label: 'Endpoint', url: at(w.path) }, ...(w.extra ?? []).map(e => ({ label: e.label, url: at(e.path) }))] })
+  }
+  const byProtocol = new Map<string, ConnectEndpoint[]>()
+  for (const e of c.endpoints ?? []) byProtocol.set(e.protocol, [...(byProtocol.get(e.protocol) ?? []), e])
+  for (const [protocol, list] of byProtocol) {
+    groups.push({
+      id: protocol, title: WIRES.find(w => w.id === protocol)?.label ?? list[0].label ?? protocol.replace(/[-_]/g, ' '),
+      urls: list.map(e => ({
+        label: e.label ?? (e.transport === 'websocket' ? 'Endpoint' : e.transport),
+        // A WebSocket connection needs its query parameters (the model selector).
+        url: e.url + (e.query?.length ? '?' + e.query.map(q => `${q}={${q}}`).join('&') : ''),
+      })),
+    })
   }
   if (c.base_urls?.openai && (reach.has('openai-chat-completions') || reach.has('openai-responses'))) {
     groups.push({ id: 'models', title: 'Model listing', urls: [{ label: 'List models', url: `${c.base_urls.openai}/models` }] })

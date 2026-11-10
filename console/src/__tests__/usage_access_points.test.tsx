@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Usage from '../pages/Usage'
 
-vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { sub: 'principal-a' } }) }))
+vi.mock('../hooks/useAuth', () => { const session = { user: { sub: 'principal-a', roles: ['admin'], scopes: [] } }; return { useAuth: () => session, useOptionalAuth: () => session } })
 
 const base = { tenant_id: 't', finished_at: '2026-11-09T10:00:01Z', latency_ms: 10, streaming: false, source: 'managed', requests: 1, plane: 'llmplex', status: 'ok', usage: null, cost: { basis: 'unknown' } }
 const withLimits = { ...base, id: 'ul_limits', started_at: '2026-11-09T10:00:00Z', access_point_id: 'ide-team', caller_kind: 'user', provider_limits: { provider: 'openai', classification: 'rate_limited', retry_after_ms: 1500 } }

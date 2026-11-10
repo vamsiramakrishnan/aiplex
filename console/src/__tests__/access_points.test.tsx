@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AccessPoints from '../pages/AccessPoints'
 import * as api from '../api/accessPoints'
 import * as apUsage from '../api/accessPointUsage'
-import { endpointGroups, fieldForError } from '../api/accessPoints'
+import { fieldIssue, parseFieldPath } from '../api/accessPoints'
 import { listInstances } from '../api/client'
 import * as overview from '../api/overview'
 
@@ -46,7 +46,7 @@ function show(path: string) {
     </QueryClientProvider>,
   )
 }
-const apiError = (message: string, status: number, code?: string) => Object.assign(new Error(message), { status, code })
+const apiError = (message: string, status: number, code?: string, field?: string) => Object.assign(new Error(message), { status, code, ...(field ? { details: { field } } : {}) })
 const group = (n: number): apUsage.APUsageSummary['groups'][number] => ({
   key: {}, records: n, requests: n, errors: 0, denied: 0, unknown_status: 0, tokens: {}, tokens_unknown: {}, unknown_usage_records: 0, cost: [], unknown_cost_records: 0,
 })
@@ -67,12 +67,12 @@ beforeEach(() => {
 })
 
 describe('access point list', () => {
-  it('shows name, caller kinds, resource counts, QoS class and base URL', async () => {
+  it('shows name, caller kinds, resource counts and QoS class, and no URL the server did not provide', async () => {
     show('/access-points')
     const card = await screen.findByRole('article', { name: 'Access point IDE team' })
     expect(within(card).getByText('user, client')).toBeInTheDocument()
     expect(within(card).getByText('interactive')).toBeInTheDocument()
-    expect(within(card).getByText(`${window.location.origin}/ap/ide-team`)).toBeInTheDocument()
+    expect(within(card).queryByText(`${window.location.origin}/ap/ide-team`)).toBeNull()
     expect(within(card).getByText('Tools').nextSibling).toHaveTextContent('2')
   })
 
@@ -143,7 +143,7 @@ describe('create form', () => {
   })
 
   it('shows a server validation error next to the field it names', async () => {
-    vi.mocked(api.putAccessPoint).mockRejectedValue(apiError('model surface "ghost" does not resolve in this tenant', 400, 'INVALID_SPEC'))
+    vi.mocked(api.putAccessPoint).mockRejectedValue(apiError('model surface "ghost" does not resolve in this tenant', 400, 'INVALID_SPEC', 'models/0/surface_ref'))
     show('/access-points/new')
     fireEvent.change(await screen.findByLabelText(/Access point ID/), { target: { value: 'x' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add model' }))
@@ -223,10 +223,15 @@ describe('edit form', () => {
 })
 
 describe('detail', () => {
-  it('shows endpoint URLs only for protocols a configured model speaks, with copy buttons', async () => {
+  it('shows endpoint URLs the server built, only for wires it lists, with copy buttons', async () => {
+    vi.mocked(overview.getConnect).mockResolvedValue({
+      access_point_id: 'ide-team', client: 'generic', base_urls: { genai: 'https://public.example.com/ap/ide-team' }, models: [{ name: 'gemini-pro', protocols: ['google-genai'] }],
+      mcp_url: 'https://public.example.com/ap/ide-team/mcp', mcp_catalog_url: 'https://public.example.com/ap/ide-team/v0.1/servers', skills_url: 'https://public.example.com/ap/ide-team/skills',
+      auth: { scheme: 'Bearer', header: 'Authorization', token_env: 'AIPLEX_TOKEN', caller_kinds: [], steps: [] }, snippets: [], notes: [],
+    })
     show('/access-points/ide-team')
     const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
-    const root = `${window.location.origin}/ap/ide-team`
+    const root = 'https://public.example.com/ap/ide-team'
     await waitFor(() => expect(within(endpoints).getByRole('group', { name: 'Google GenAI' })).toBeInTheDocument())
     expect(within(endpoints).getByText(`${root}/v1beta/models/{model}:{op}`)).toBeInTheDocument()
     expect(within(endpoints).queryByRole('group', { name: 'Anthropic Messages' })).toBeNull()
@@ -237,14 +242,6 @@ describe('detail', () => {
     expect(within(endpoints).getByText(`${root}/skills`)).toBeInTheDocument()
     fireEvent.click(within(endpoints).getByRole('button', { name: `Copy Endpoint URL for Google GenAI` }))
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`${root}/v1beta/models/{model}:{op}`))
-  })
-
-  it('shows every model protocol with a note when surface protocols cannot be determined', async () => {
-    vi.mocked(api.listModelSurfaces).mockRejectedValue(apiError('boom', 500))
-    show('/access-points/ide-team')
-    const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
-    await waitFor(() => expect(within(endpoints).getByRole('group', { name: 'Anthropic Messages' })).toBeInTheDocument())
-    expect(within(endpoints).getByRole('group', { name: 'OpenAI Chat Completions' })).toHaveTextContent(/Could not determine/)
   })
 
   it('lists subject constraints as a table', async () => {
@@ -384,20 +381,13 @@ describe('usage panel', () => {
 })
 
 describe('pure helpers', () => {
-  it('maps server messages to the field they name', () => {
-    expect(fieldForError('model surface "x" does not resolve in this tenant')).toBe('models')
-    expect(fieldForError('tools[search].expose: bad pattern')).toBe('tools')
-    expect(fieldForError('qos.class must match [a-z]')).toBe('qos.class')
-    expect(fieldForError('qos.budget_refs "b" is not a budget')).toBe('qos.budget_refs')
-    expect(fieldForError('client registration "c" does not resolve in this tenant')).toBe('subjects.client_registrations')
-    expect(fieldForError('an access point exposes at least one model, tool connection or skill')).toBe('resources')
-    expect(fieldForError('boom')).toBeUndefined()
-  })
-
-  it('derives protocols from surfaces', () => {
-    const groups = endpointGroups(spec, 'https://a.example/', surfaces)
-    expect(groups.map(g => g.id)).toEqual(['google-genai', 'google-live', 'models', 'mcp', 'skills'])
-    expect(groups[0].urls[0].url).toBe('https://a.example/ap/ide-team/v1beta/models/{model}:{op}')
+  it('reads the field path the server names, never the message text', () => {
+    expect(fieldIssue(apiError('model surface "x" does not resolve', 400, 'INVALID_SPEC', 'models/1/surface_ref'))).toEqual({ message: 'model surface "x" does not resolve', field: 'models/1/surface_ref' })
+    expect(fieldIssue(apiError('qos.class must match [a-z]', 400, 'INVALID_SPEC'))).toEqual({ message: 'qos.class must match [a-z]' })
+    expect(parseFieldPath('models/1/surface_ref')).toEqual({ section: 'models', index: 1, leaf: 'surface_ref' })
+    expect(parseFieldPath('qos/limits')).toEqual({ section: 'qos', leaf: 'limits' })
+    expect(parseFieldPath('caller_kinds')).toEqual({ section: 'caller_kinds' })
+    expect(parseFieldPath('')).toBeUndefined()
   })
 })
 
@@ -451,53 +441,32 @@ describe('detail endpoint URLs from the server', () => {
     expect(within(endpoints).getByText(/built by the server/)).toBeInTheDocument()
   })
 
-  it('falls back to browser-derived URLs with a note naming why', async () => {
+  it('never derives URLs from the browser address when the server cannot provide them', async () => {
     show('/access-points/ide-team')
     const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
     const note = await within(endpoints).findByRole('note')
-    expect(note).toHaveTextContent(/derived from this console's address/)
+    expect(note).toHaveTextContent(/could not provide endpoint URLs/)
     expect(note).toHaveTextContent(/no public URL configured/)
-    expect(within(endpoints).getByText(`${window.location.origin}/ap/ide-team/mcp`)).toBeInTheDocument()
+    expect(within(endpoints).queryAllByRole('group')).toHaveLength(0)
   })
 
-  it('shows Bedrock and WebSocket endpoints for reachable models, built from the server root with a note', async () => {
-    vi.mocked(overview.getConnect).mockResolvedValue({ ...connectInfo, base_urls: { genai: 'https://public.example.com/ap/ide-team' }, models: [{ name: 'gemini-pro', protocols: ['google-genai', 'google-live', 'bedrock-converse', 'openai-realtime'] }] })
-    show('/access-points/ide-team')
-    const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
-    const root = 'https://public.example.com/ap/ide-team'
-    await waitFor(() => expect(within(endpoints).getByText(`${root}/model/{model}/converse`)).toBeInTheDocument())
-    expect(within(endpoints).getByText(`${root}/model/{model}/converse-stream`)).toBeInTheDocument()
-    expect(within(endpoints).getByText('wss://public.example.com/ap/ide-team/v1/realtime?model={model}')).toBeInTheDocument()
-    expect(within(endpoints).getByText('wss://public.example.com/ap/ide-team/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent?model={model}')).toBeInTheDocument()
-    expect(within(endpoints).getByRole('group', { name: 'Amazon Bedrock Converse' })).toHaveTextContent(/connect response does not list this endpoint/)
-    expect(within(endpoints).queryByRole('group', { name: 'Amazon Bedrock InvokeModel' })).toBeNull()
-  })
-
-  it('uses the connect response endpoints for Bedrock and WebSocket when present, without the client-built note', async () => {
+  it('shows Bedrock, WebSocket and Azure endpoints exactly as the connect response gives them', async () => {
     vi.mocked(overview.getConnect).mockResolvedValue({
-      ...connectInfo, base_urls: { genai: 'https://public.example.com/ap/ide-team' },
-      models: [{ name: 'gemini-pro', protocols: ['google-genai', 'bedrock-converse', 'openai-realtime'] }],
+      ...connectInfo, base_urls: { openai: 'https://srv.example.com/ap/ide-team/v1' },
+      models: [{ name: 'gemini-pro', protocols: ['openai-chat-completions', 'bedrock-converse', 'openai-realtime'] }],
       endpoints: [
         { protocol: 'bedrock-converse', transport: 'http', url: 'https://srv.example.com/ap/ide-team/model/{model}/converse', label: 'Converse', models: ['gemini-pro'] },
         { protocol: 'openai-realtime', transport: 'websocket', url: 'wss://srv.example.com/ap/ide-team/v1/realtime', label: 'OpenAI Realtime', query: ['model'], models: ['gemini-pro'] },
+        { protocol: 'azure-openai-chat-completions', transport: 'http', url: 'https://srv.example.com/ap/ide-team/openai/deployments/{model}/chat/completions', label: 'Azure OpenAI deployment shape', models: ['gemini-pro'] },
       ],
     })
     show('/access-points/ide-team')
     const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
     await waitFor(() => expect(within(endpoints).getByText('https://srv.example.com/ap/ide-team/model/{model}/converse')).toBeInTheDocument())
     expect(within(endpoints).getByText('wss://srv.example.com/ap/ide-team/v1/realtime?model={model}')).toBeInTheDocument()
-    expect(within(endpoints).getByRole('group', { name: 'Amazon Bedrock Converse' })).not.toHaveTextContent(/connect response does not list/)
-    expect(within(endpoints).queryByText(/public\.example\.com\/ap\/ide-team\/model/)).toBeNull()
-  })
-
-  it('falls back to client-built Bedrock and WebSocket URLs for a Bedrock surface', async () => {
-    vi.mocked(api.listModelSurfaces).mockResolvedValue([{ id: 'bedrock-us', revision: 1, spec: { surface: { id: 'bedrock-us', protocol: 'bedrock-invoke', provider: { id: 'bedrock' } } } }])
-    vi.mocked(api.getAccessPoint).mockResolvedValue({ ...record, spec: { ...spec, models: [{ name: 'anthropic.claude:0', surface_ref: 'bedrock-us', native_model: 'anthropic.claude:0' }] } })
-    show('/access-points/ide-team')
-    const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
-    await waitFor(() => expect(within(endpoints).getByText(`${window.location.origin}/ap/ide-team/model/{model}/invoke-with-response-stream`)).toBeInTheDocument())
-    expect(within(endpoints).queryByRole('group', { name: 'Google GenAI' })).toBeNull()
-    expect(within(endpoints).queryByRole('group', { name: /WebSocket/ })).toBeNull()
+    expect(within(endpoints).getByText('https://srv.example.com/ap/ide-team/openai/deployments/{model}/chat/completions')).toBeInTheDocument()
+    expect(within(endpoints).getByRole('group', { name: 'Azure OpenAI deployment shape' })).toBeInTheDocument()
+    expect(within(endpoints).queryByRole('group', { name: 'Amazon Bedrock InvokeModel' })).toBeNull()
   })
 
   it('launches the connect wizard from the detail view', async () => {

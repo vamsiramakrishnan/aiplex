@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  accessPointView, deleteAccessPoint, errorStatus, getAccessPoint, isRevisionConflict, listAccessPoints, listModelSurfaces, putAccessPoint,
+  accessPointView, qosScopeLabel, deleteAccessPoint, errorStatus, fieldIssue, type FieldIssue, getAccessPoint, isRevisionConflict, listAccessPoints, putAccessPoint,
   type AccessPointRecord, type AccessPointSpec,
 } from '../api/accessPoints'
 import { connectErrorMessage, getConnect } from '../api/overview'
@@ -10,7 +10,6 @@ import ConnectWizard from '../components/ConnectWizard'
 import AccessPointForm from '../components/AccessPointForm'
 import AccessPointSummaryCard from '../components/AccessPointSummaryCard'
 import AccessPointUsagePanel from '../components/AccessPointUsagePanel'
-import CopyButton from '../components/CopyButton'
 import EndpointList from '../components/EndpointList'
 import QuotaPlanPanel from '../components/QuotaPlanPanel'
 import { useAccess, ADMIN_REASON } from '../hooks/useAccess'
@@ -21,8 +20,6 @@ import SubjectTable, { type SubjectRow } from '../components/SubjectTable'
 
 const btn = 'px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'
 const primary = 'px-3 py-1.5 text-sm bg-brand-600 text-white rounded disabled:opacity-50'
-
-export const accessPointBase = (id: string, origin: string = window.location.origin) => `${origin.replace(/\/$/, '')}/ap/${id}`
 
 function LoadError({ error, what, onRetry }: { error: unknown; what: string; onRetry?: () => void }) {
   const status = errorStatus(error)
@@ -81,10 +78,6 @@ function OperatorList() {
             <li key={r.id}>
               <AccessPointSummaryCard spec={r.spec} revision={r.revision} footer={
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <code className="font-mono text-xs break-all">{accessPointBase(r.id)}</code>
-                    <CopyButton text={accessPointBase(r.id)} label={`base URL of ${r.id}`} />
-                  </div>
                   <Link to={`/access-points/${encodeURIComponent(r.id)}`} className="text-sm text-brand-600 hover:underline" aria-label={`Open ${r.spec.display_name || r.id}`}>Open</Link>
                 </div>
               } />
@@ -110,7 +103,7 @@ function AccessPointEditorForm() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [conflict, setConflict] = useState<string | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<FieldIssue | null>(null)
   const [formKey, setFormKey] = useState(0)
 
   // The form is keyed by formKey and the record never refetches by itself, so a
@@ -126,13 +119,13 @@ function AccessPointEditorForm() {
     },
     onError: (e) => {
       if (isRevisionConflict(e)) {
-        setError('')
+        setError(null)
         setConflict(editing
           ? 'This access point was changed by someone else since you opened it. Your edits were not saved and nothing was overwritten. Reload the latest version to continue (your unsaved edits will be discarded).'
           : 'An access point with this ID already exists. Choose a different ID, or open the existing one to edit it.')
       } else {
         setConflict(null)
-        setError(e instanceof Error ? e.message : 'Could not save the access point.')
+        setError(fieldIssue(e))
       }
     },
   })
@@ -141,7 +134,7 @@ function AccessPointEditorForm() {
     try {
       const latest = await getAccessPoint(id!)
       queryClient.setQueryData(['access-point', id], latest)
-      setConflict(null); setError(''); save.reset(); setFormKey(k => k + 1)
+      setConflict(null); setError(null); save.reset(); setFormKey(k => k + 1)
     } catch (e) {
       setConflict(errorStatus(e) === 404 ? 'This access point no longer exists; it was deleted by someone else.' : `Could not reload: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -165,9 +158,9 @@ function AccessPointEditorForm() {
           key={formKey}
           initial={editing ? record.data!.spec : undefined}
           saving={save.isPending}
-          serverError={error || undefined}
+          serverError={error ?? undefined}
           locked={!!conflict && editing}
-          onSubmit={(spec) => { setConflict(null); setError(''); save.mutate(spec) }}
+          onSubmit={(spec) => { setConflict(null); setError(null); save.mutate(spec) }}
           onCancel={() => navigate(editing ? `/access-points/${encodeURIComponent(id!)}` : '/access-points')}
         />
       )}
@@ -215,7 +208,6 @@ function OperatorDetail() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const record = useQuery({ queryKey: ['access-point', id], queryFn: () => getAccessPoint(id) })
-  const surfaces = useQuery({ queryKey: ['ref-model-surfaces'], queryFn: listModelSurfaces })
   const [confirming, setConfirming] = useState(false)
   const [conflict, setConflict] = useState(false)
   const [connecting, setConnecting] = useState(false)
@@ -302,7 +294,7 @@ function OperatorDetail() {
         )}
         {!!spec.skills?.length && <p className="text-sm">Skills: {spec.skills.map(s => s.instance_ref).join(', ')}</p>}
         {spec.qos && (
-          <p className="text-sm">QoS class <strong>{spec.qos.class}</strong>{spec.qos.weight ? `, weight ${spec.qos.weight}` : ''}
+          <p className="text-sm">QoS class <strong>{spec.qos.class}</strong>{spec.qos.weight ? `, weight ${spec.qos.weight}` : ''}, limit scope <strong>{qosScopeLabel(spec.qos.scope)}</strong>
             {spec.qos.limits && `, limits: ${[
               spec.qos.limits.requests_per_minute && `${spec.qos.limits.requests_per_minute} requests/min`,
               spec.qos.limits.tokens_per_minute && `${spec.qos.limits.tokens_per_minute} tokens/min`,
@@ -312,7 +304,7 @@ function OperatorDetail() {
         )}
       </section>
 
-      <EndpointList spec={spec} surfaces={surfaces.data} connect={connect.data} connectLoading={connect.isLoading} connectError={connect.isError ? connectErrorMessage(connect.error) : undefined} />
+      <EndpointList spec={spec} connect={connect.data} connectLoading={connect.isLoading} connectError={connect.isError ? connectErrorMessage(connect.error) : undefined} />
       <QuotaPlanPanel spec={spec} />
       <AccessPointUsagePanel accessPointId={spec.id} />
     </div>
