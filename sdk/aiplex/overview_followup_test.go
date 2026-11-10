@@ -79,3 +79,22 @@ func TestUsageFilterAccessPointAndCallerKind(t *testing.T) {
 		t.Fatal("alias and wire name are the same field")
 	}
 }
+
+func TestUsageFilterBatchErrorClassAndBound(t *testing.T) {
+	var calls []seenCall
+	c := recordingServer(t, &calls, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"records":[],"next_cursor":""}`))
+	})
+	no := false
+	if _, err := c.QueryUsageRecords(context.Background(), UsageRecordsQuery{UsageFilter: UsageFilter{Batch: &no, ErrorClass: "timeout", UsageBound: "partial"}}); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := url.ParseQuery(calls[0].query)
+	if q.Get("batch") != "false" || q.Get("error_class") != "timeout" || q.Get("usage_bound") != "partial" {
+		t.Fatalf("%v", calls[0].query)
+	}
+	got, err := NormalizeUsageGroupBy([]string{"error-class", "bound", "source", "batch"})
+	if err != nil || strings.Join(got, ",") != "error_class,usage_bound,source,batch" {
+		t.Fatalf("%v %v", got, err)
+	}
+}

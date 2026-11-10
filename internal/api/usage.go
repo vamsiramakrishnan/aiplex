@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,7 +26,7 @@ func NewUsageHandler(ledger usageledger.Store, tenant TenantResolver, developmen
 }
 
 var (
-	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "since", "until"}
+	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "error_class", "usage_bound", "batch", "since", "until"}
 	usageListParams    = append(append([]string{}, usageFilterParams...), "limit", "cursor")
 	usageSummaryParams = append(append([]string{}, usageFilterParams...), "group_by", "bucket")
 )
@@ -86,7 +87,7 @@ func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, er
 			return usageledger.Filter{}, errors.New("query parameter " + strconv.Quote(name) + " is too long")
 		}
 	}
-	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), AccessPointID: values.Get("access_point_id"), CallerKind: values.Get("caller_kind"), Status: values.Get("status"), Source: values.Get("source")}
+	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), AccessPointID: values.Get("access_point_id"), CallerKind: values.Get("caller_kind"), Status: values.Get("status"), Source: values.Get("source"), ErrorClass: values.Get("error_class"), UsageBound: values.Get("usage_bound")}
 	switch f.Plane {
 	case "", usageledger.PlaneLLM, usageledger.PlaneMCP, usageledger.PlaneA2A:
 	default:
@@ -106,6 +107,18 @@ func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, er
 	case "", usageledger.SourceManaged, usageledger.SourceReported:
 	default:
 		return f, errors.New("source must be managed or reported")
+	}
+	switch f.UsageBound {
+	case "", usageledger.UsageLowerBound, usageledger.UsageAmbiguous, usageledger.UsagePartial, usageledger.UsageBoundNone:
+	default:
+		return f, errors.New("usage_bound must be lower_bound, ambiguous, partial or none")
+	}
+	if raw := values.Get("batch"); raw != "" {
+		b, err := strconv.ParseBool(raw)
+		if err != nil || (raw != "true" && raw != "false") {
+			return f, errors.New("batch must be true or false")
+		}
+		f.Batch = &b
 	}
 	for name, target := range map[string]*time.Time{"since": &f.Since, "until": &f.Until} {
 		if raw := values.Get(name); raw != "" {
@@ -201,7 +214,7 @@ func (h *UsageHandler) Summary(w http.ResponseWriter, r *http.Request) {
 	filter.Visibility = visibility
 	groupBy, err := usageledger.ParseGroupBy(r.URL.Query().Get("group_by"))
 	if err != nil {
-		usageQueryError(w, r, "group_by must be a comma-separated subset of plane,provider,model_id,tool_name,actor_id,principal_id,client_id,status")
+		usageQueryError(w, r, "group_by must be a comma-separated subset of "+strings.Join(usageledger.GroupByFields, ","))
 		return
 	}
 	bucket := r.URL.Query().Get("bucket")

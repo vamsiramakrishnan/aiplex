@@ -9,6 +9,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Provider batch jobs.
@@ -73,6 +74,19 @@ type BatchRecord struct {
 	Settled            bool             `json:"settled,omitempty"`
 	Usage              map[string]int64 `json:"usage,omitempty"`
 	CrossCheckMismatch bool             `json:"cross_check_mismatch,omitempty"`
+	// CreatedAt is set once when the gateway first records the batch and
+	// SettledAt once when it settles; neither is rewritten afterwards. Both
+	// are zero (omitted) on records written before they existed.
+	CreatedAt time.Time `json:"created_at,omitzero"`
+	SettledAt time.Time `json:"settled_at,omitzero"`
+}
+
+// batchNow returns the batch timestamp clock reading in UTC.
+func (g *Gateway) batchNow() time.Time {
+	if g.options.Clock != nil {
+		return g.options.Clock().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // BatchPart aggregates one complete results body.

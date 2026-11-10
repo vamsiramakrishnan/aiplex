@@ -91,6 +91,8 @@ type Options struct {
 	// batch operations are relayed and counted per exchange only.
 	Batches      BatchStore
 	BatchSettler BatchSettler
+	// Clock stamps batch record created_at and settled_at; nil is time.Now.
+	Clock func() time.Time
 	// MaxUploadBytes bounds one spooled multipart upload (default
 	// DefaultMaxUploadBytes, at most 1 GiB).
 	MaxUploadBytes int64

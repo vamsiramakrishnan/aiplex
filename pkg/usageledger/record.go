@@ -37,6 +37,8 @@ const (
 	UsageLowerBound = "lower_bound"
 	UsageAmbiguous  = "ambiguous"
 	UsagePartial    = "partial"
+	// UsageBoundNone is a filter value only: records with no usage_bound.
+	UsageBoundNone = "none"
 
 	BasisSettled   = "settled"
 	BasisEstimated = "estimated"
