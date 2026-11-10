@@ -446,7 +446,8 @@ func (h *ConnectedHandler) requireAdministrator(w http.ResponseWriter, r *http.R
 }
 
 // MountAccessPoints mounts the access-point resource API under /api/v1.
-// Reads follow resource revision semantics; writes are admin-only.
+// Operators read the revisioned resource; other callers read only the access
+// points that admit them (accessPointReads). Writes are admin-only.
 func (h *ConnectedHandler) MountAccessPoints(r chi.Router) {
 	resource := h.Resources(AccessPointKind)
 	write := func(w http.ResponseWriter, r *http.Request) {
@@ -454,9 +455,10 @@ func (h *ConnectedHandler) MountAccessPoints(r chi.Router) {
 			resource(w, r)
 		}
 	}
+	read := h.accessPointReads(resource)
 	r.Route("/access-points", func(r chi.Router) {
-		r.Get("/", resource)
-		r.Get("/{id}", resource)
+		r.Get("/", read)
+		r.Get("/{id}", read)
 		r.Put("/{id}", write)
 		r.Delete("/{id}", write)
 		r.Post("/{id}/quota-plan", h.AccessPointQuotaPlan)
@@ -473,7 +475,29 @@ func (h *ConnectedHandler) loadAccessPointRecord(ctx context.Context, tenant, id
 		return record, AccessPoint{}, resources.ErrNotFound
 	}
 	ap, err := decodeAccessPoint(id, record.Spec)
-	return record, ap, err
+	if err != nil {
+		return record, ap, fmt.Errorf("%w: %v", errAccessPointInvalid, err)
+	}
+	return record, ap, nil
 }
 
 var errAccessPointUnavailable = errors.New("access point unavailable")
+
+// writeAccessPointLoadError reports a failed loadAccessPointRecord on an
+// administrative route: missing is 404, a saved specification that no longer
+// decodes is 409 ACCESS_POINT_INVALID, and a store failure is 503
+// ACCESS_POINT_UNAVAILABLE, as on the request path.
+func writeAccessPointLoadError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, resources.ErrNotFound):
+		Error(w, r, http.StatusNotFound, "NOT_FOUND", "access point not found")
+	case errors.Is(err, errAccessPointInvalid):
+		Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", "saved access point is invalid")
+	default:
+		Error(w, r, http.StatusServiceUnavailable, "ACCESS_POINT_UNAVAILABLE", "access point configuration is unavailable")
+	}
+}
+
+// errAccessPointInvalid marks a saved access point that no longer decodes.
+// It is distinct from a store failure, which is reported as unavailable.
+var errAccessPointInvalid = errors.New("saved access point is invalid")

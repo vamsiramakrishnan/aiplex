@@ -127,6 +127,11 @@ func authzRoleBindings(t *testing.T, store *registry.MemoryStore) {
 // every module, including quotaplex, enabled.
 func newAuthzServer(t *testing.T, mutate ...func(*config.Config)) *authzServer {
 	t.Helper()
+	return newAuthzServerWithResources(t, resources.NewMemoryStore(), mutate...)
+}
+
+func newAuthzServerWithResources(t *testing.T, resourceStore resources.Store, mutate ...func(*config.Config)) *authzServer {
+	t.Helper()
 	registryURL := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(registryURL.Close)
 	hydra := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +140,7 @@ func newAuthzServer(t *testing.T, mutate ...func(*config.Config)) *authzServer {
 	t.Cleanup(hydra.Close)
 	memory := registry.NewMemoryStore()
 	authzRoleBindings(t, memory)
-	store := authzStore{MemoryStore: memory, quota: quotaplex.NewMemoryStore(), resources: resources.NewMemoryStore()}
+	store := authzStore{MemoryStore: memory, quota: quotaplex.NewMemoryStore(), resources: resourceStore}
 	cfg := &config.Config{
 		Host:           "0.0.0.0",
 		HydraAdminURL:  hydra.URL,

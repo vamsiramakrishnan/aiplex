@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
-	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 )
 
 // AccessPointQuotaFragment is the reviewable QuotaPlex rendering of a QoS
@@ -221,11 +220,7 @@ func (h *ConnectedHandler) AccessPointQuotaPlan(w http.ResponseWriter, r *http.R
 	id := idParam(r)
 	record, _, err := h.loadAccessPointRecord(r.Context(), tenant, id)
 	if err != nil {
-		if errors.Is(err, resources.ErrNotFound) {
-			Error(w, r, http.StatusNotFound, "NOT_FOUND", "access point not found")
-		} else {
-			Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", "saved access point is invalid")
-		}
+		writeAccessPointLoadError(w, r, err)
 		return
 	}
 	ap, err := h.validateAccessPoint(r.Context(), tenant, id, record.Spec)

@@ -2,14 +2,12 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"sort"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
-	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
@@ -231,11 +229,7 @@ func (h *OverviewHandler) AccessPointOverview(w http.ResponseWriter, r *http.Req
 	id := chi.URLParam(r, "id")
 	record, ap, err := h.Connected.loadAccessPointRecord(r.Context(), tenant, id)
 	if err != nil {
-		if errors.Is(err, resources.ErrNotFound) {
-			Error(w, r, http.StatusNotFound, "NOT_FOUND", "access point not found")
-		} else {
-			Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", "saved access point is invalid")
-		}
+		writeAccessPointLoadError(w, r, err)
 		return
 	}
 	ap = overviewNormalizeAccessPoint(ap)
