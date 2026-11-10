@@ -261,7 +261,7 @@ await section('connect', async () => {
   await page.getByRole('button', { name: 'Connect a client' }).click()
   const dialog = page.getByRole('dialog', { name: /Connect a client to team-research/ })
   report.ok('wizard opens as a modal with focus inside', await dialog.isVisible() && await page.evaluate(() => !!document.activeElement?.closest('[role=dialog]')))
-  const options = ['generic', ...profiles.map((p) => p.id)]
+  const options = ['generic', ...profiles.filter((p) => p.protocols.some((x) => x !== 'claude-apps')).map((p) => p.id)]
   for (const id of options) {
     await dialog.locator('select').selectOption(id)
     await dialog.getByRole('button', { name: 'Show connection details' }).click()
@@ -383,10 +383,14 @@ await section('no-role', async () => {
   const shown = await page.locator('section[aria-label="Your usage totals"], [aria-label="Your usage totals"]').locator('[aria-label=Requests] p').nth(1).textContent()
   report.ok('own usage on the home page equals the CLI summary', Number(shown.replace(/,/g, '')) === total, `${shown} vs ${total}`)
   await page.getByRole('button', { name: 'Connect a client to local' }).click()
-  const panel = page.getByRole('region', { name: 'Connect to local' })
-  report.ok('Connect shows server-built endpoint URLs and copy buttons', (await panel.textContent()).includes(`${h.api_url}/ap/local/`))
+  const panel = page.getByRole('dialog', { name: 'Connect a client to local' })
+  await panel.getByRole('button', { name: 'Show connection details' }).click()
+  const details = panel.getByLabel('Connection details')
+  await details.waitFor({ timeout: 10000 })
+  report.ok('the real Connect wizard shows server-built URLs and snippets to a no-role caller', (await details.textContent()).includes(`${h.api_url}/ap/local/`) && (await details.locator('pre').count()) > 0)
   await panel.getByRole('button', { name: /^Copy/ }).first().click()
   report.ok('copy works for a no-role caller', (await page.evaluate(() => navigator.clipboard.readText())).startsWith(`${h.api_url}/ap/local/`))
+  await page.keyboard.press('Escape')
   await page.goto(base + '/usage')
   await settle(page)
   report.ok('usage shows only bob\'s records', (await page.$$eval('section[aria-label="Requests"] tbody tr', (r) => r.length)) === cliJSON('norole', 'usage', 'records', '-o', 'json').records.length)
