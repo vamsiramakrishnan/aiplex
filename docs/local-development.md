@@ -64,6 +64,7 @@ From the cobra definitions in `cmd/aiplex-cli/cmd_dev.go`:
 | `-d`, `--detach` | off | Run in the background. Output goes to `~/.aiplex/dev.log`. Stop it with `aiplex dev stop`. |
 | `--allow-origin` | none | Extra upstream origin the local API may call, for example `https://mcp.example.com`. Repeatable. The loopback mock upstreams and the public OpenAI, Anthropic and Gemini APIs are always allowed. |
 | `--otel` | off | OTLP/HTTP endpoint of a collector you run, for example `http://127.0.0.1:4318`. Sets `OTEL_EXPORTER_OTLP_ENDPOINT` for the local API. Without it nothing is exported. See [observability](observability.md). |
+| `--quota` | off | Turns QuotaPlex on for the mock surfaces and tools, so budgets that count requests work. Mock provider only; the counters reset when the API restarts. See [budgets](budgets.md). |
 
 `aiplex dev` has four subcommands. `env`, `status` and `stop` take no flags beyond the global ones:
 
@@ -268,7 +269,7 @@ After the stack is ready, `aiplex dev` prints a summary. Its lines are:
 | `Tools` | The tool connection and its tools. Absent with `--no-tools`. |
 | `Access point` | The access point name and its URL. |
 | `Price` | The placeholder prices for the mock models. For a real provider, the line says none is seeded. |
-| `Quota` | `off`. QuotaPlex needs an operator quota file, which the local API does not get. |
+| `Quota` | `off` unless `--quota` is given. With `--quota`, QuotaPlex runs on the mock surfaces and tools (request counts); the local API gets no operator quota file otherwise. |
 | `Telemetry` | Present only with `--otel`: the collector URL the local API exports traces and metrics to. Without it, nothing is exported. |
 | `CLI context` | The context that is current, and the one that is restored on stop. |
 | `Console` | The Console URL, or why it is not served. |
@@ -336,7 +337,7 @@ The summary and the environment filter define these limits:
 
 | Area | Local behavior |
 | --- | --- |
-| Quota | Off. The quota file variable is removed from the API's environment. |
+| Quota | Off unless `--quota` is given (see the flags table). The quota file variable is removed from the API's environment. |
 | Persistence | None. Stores are in memory. The stack does not use Firestore, AlloyDB or a cloud secret store. |
 | Identity provider | Only the local issuer. Hydra and Kratos are not used. Agent registrations are kept in the local registry only, because `HYDRA_ADMIN_URL` is not set. |
 | Federation | The stack does not set the agent or user federation variables. |
@@ -408,3 +409,17 @@ covers its absence.
   Run the guided commands again after `aiplex dev` starts.
 - The mock model is for testing wiring, not for quality or behavior of a real model.
 - The developer token expires after 12 hours, and the API that issued it stops with the command.
+
+## Gateway features on the local stack
+
+Each command below exists in this version of the CLI. The guide named after each one says what it does and what it does not.
+
+- `aiplex hooks policies list|get|set|delete|test`: bind request hooks to the tenant, an access point, a surface or a tool connection ([request hooks](request-hooks.md)).
+- `aiplex budgets list|get|create|update|delete|status|preview`: team and project limits above per-caller quota. Use `--quota` with `aiplex dev` so request budgets count ([budgets](budgets.md)).
+- `aiplex access-points routing`: live routing and breaker state for an access point with routed backends ([reliability and routing](reliability-and-routing.md)).
+- `aiplex mcp registry search|show|import`: read the MCP Registry and import a streamable-HTTP remote as a tool connection ([MCP Registry import](mcp-registry-import.md)).
+- `aiplex usage prices catalog search|show|import` and `aiplex usage prices backfill`: the price catalogue and pricing of records written before a price existed ([usage ledger](usage-ledger.md#price-catalogue)).
+- `aiplex usage feedback`: append feedback to a usage record ([usage ledger](usage-ledger.md)).
+- `aiplex connect local --client <client> --write`, including `--client antigravity`, writes the client's configuration after a diff. `--with-telemetry aiplex` also points the client's own OpenTelemetry export at this deployment's receiver ([harness onboarding](harness-onboarding.md)).
+- `aiplex dev --otel <url>` exports traces and metrics to a collector you run ([observability](observability.md)).
+- The second mock provider, `local-models-b`, and the fault-injection model names (any model name that contains `fault`) are described in the surfaces table above; they are for trying routing and retries.
