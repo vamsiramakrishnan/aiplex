@@ -111,6 +111,17 @@ jobs:
           version: "~> v2"
           args: check
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      # The release embeds the Console in the CLI; goreleaser's before hook
+      # refuses to build from the placeholder page.
+      - name: Build console (embedded in CLI)
+        run: cd console && npm ci && npm run build
+
       - name: Snapshot release (no publish)
         uses: goreleaser/goreleaser-action@v6
         with:
