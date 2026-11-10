@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "aiplex": {
+      "command": "aiplex",
+      "args": ["mcp", "serve"]
+    }
+  }
+}

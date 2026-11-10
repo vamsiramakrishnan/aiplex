@@ -480,6 +480,9 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	fmt.Println("    # 2. See what it cost and who made it")
 	fmt.Println("    aiplex usage records")
 	fmt.Println()
+	fmt.Println("    # Configure your coding agent for it (shows a diff, keeps a backup, undo with --undo)")
+	fmt.Println("    aiplex connect " + seeded.AccessPoint + " --client claude-code --write      # or codex, gemini-cli")
+	fmt.Println()
 	if consoleURL != "" {
 		fmt.Println("    # 3. Open the Console (URL also shown by: aiplex dev status)")
 		fmt.Println("    " + openCommand() + " " + consoleURL)

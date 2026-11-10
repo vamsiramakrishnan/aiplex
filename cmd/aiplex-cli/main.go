@@ -69,7 +69,7 @@ var commandGroups = []*cobra.Group{
 
 // groupOf assigns each top-level command to a help group.
 var groupOf = map[string]string{
-	"dev": "start", "login": "start", "logout": "start", "whoami": "start", "config": "start", "ctx": "start",
+	"dev": "start", "login": "start", "auth": "start", "logout": "start", "whoami": "start", "config": "start", "ctx": "start",
 	"doctor": "start", "health": "start", "init": "start", "quickstart": "start", "version": "start",
 	"access-points": "connect", "connect": "connect", "clients": "connect", "who": "connect",
 	"llm": "models",
@@ -149,7 +149,7 @@ Start here (no Docker, no cloud account):
 	// Listed in this order within each help group (sorting is off).
 	cobra.EnableCommandSorting = false
 	root.AddCommand(
-		devCmd(), loginCmd(), logoutCmd(), whoamiCmd(), configCmd(), ctxCmd(), doctorCmd(), healthCmd(),
+		devCmd(), loginCmd(), logoutCmd(), authCmd(), whoamiCmd(), configCmd(), ctxCmd(), doctorCmd(), healthCmd(),
 		versionCmd(), initCmd(), quickstartCmd(),
 		accessPointsCmd(), connectCmd(), whoCmd(),
 		mcpCmd(), toolsCmd(), toolAuthCmd(),

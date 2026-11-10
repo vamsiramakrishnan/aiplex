@@ -526,6 +526,11 @@ aiplex connect ide-platform-team --client claude-code
 aiplex connect ide-platform-team -o json
 ```
 
+`aiplex connect <id> --client claude-code|codex|gemini-cli --write` merges that configuration
+into the client's own config file instead of printing it, with a diff, a backup and
+`aiplex connect --undo`; it never writes a token value. See [Harness onboarding](harness-onboarding.md).
+It does not install the client.
+
 Profiles are `generic` (the default), `antigravity`, `antigravity-acp`, `codex`,
 `claude-code` and `claude-desktop`. A profile is offered only when the access point
 serves a protocol that the client speaks. If it does not, the response is
