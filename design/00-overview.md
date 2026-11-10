@@ -1,6 +1,6 @@
 # AIPlex Design Documents
 
-This folder contains detailed design documents for each major subsystem of AIPlex. While `CLAUDE.md` provides the big picture, these documents go deep into implementation details, edge cases, failure modes, and technical decisions.
+This folder contains detailed design documents for each major subsystem of AIPlex. While `early-design-narrative.md` (the superseded original `CLAUDE.md`) gave the big picture, these documents go deep into implementation details, edge cases, failure modes, and technical decisions.
 
 ## Document Index
 
