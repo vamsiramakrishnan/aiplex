@@ -220,6 +220,12 @@ func redactLine(line string) string {
 		if isEnvRef(bare) || bare == redacted || bare == "" {
 			return m
 		}
+		// Documented: numbers and booleans are not redacted. Without this a
+		// TOML flag such as requires_openai_auth = false was shown as
+		// [redacted] because its name ends in an "auth" segment.
+		if val == bare && (bare == "true" || bare == "false" || numberLiteral.MatchString(bare)) {
+			return m
+		}
 		if keyClass(key) > 0 || looksLikeCredential(bare) {
 			q := ""
 			if len(val) > 0 && (val[0] == '"' || val[0] == '\'') {
@@ -231,6 +237,8 @@ func redactLine(line string) string {
 	})
 	return scrubString(line)
 }
+
+var numberLiteral = regexp.MustCompile(`^-?[0-9]+(\.[0-9]+)?$`)
 
 const maxFallbackLine = 4000
 

@@ -191,6 +191,27 @@ func TestReasoningIsDeclaredOnlyOnRequest(t *testing.T) {
 	}
 }
 
+// Live Gemini Developer API, 2026-11-10: gemini-2.5-flash-lite with a thinking
+// budget reported promptTokenCount 13, candidatesTokenCount 3 and
+// thoughtsTokenCount 336 (thinking is not inside candidates). Thinking tokens
+// are billed as output, so the imported price must carry the meter.
+func TestGeminiThinkingTokensArePricedAsOutput(t *testing.T) {
+	c := &Catalog{Snapshot: Snapshot{Meta: Meta{Catalog: "litellm"}}}
+	e := Entry{Provider: "gemini-developer", Model: "gemini-2.5-flash-lite", Rates: Rates{Input: "0.1", Output: "0.4"}}
+	plan, err := c.Convert(e, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, out, think, total, cached := int64(13), int64(3), int64(336), int64(352), int64(0)
+	got := usageledger.Estimate(plan.Prices, usageledger.Record{Provider: "gemini-developer", ModelID: e.Model, Requests: 1,
+		Usage: &usageledger.Usage{InputTokens: &in, OutputTokens: &out, ReasoningTokens: &think, TotalTokens: &total, CacheReadTokens: &cached}})
+	// (13*0.1 + (3+336)*0.4) per million = 136.9e-6, rounded up to 137.
+	_ = cached
+	if got.Basis != usageledger.BasisEstimated || got.Amount != "137" {
+		t.Fatalf("cost = %+v", got)
+	}
+}
+
 func TestBatchRatesBecomeASelectorPrice(t *testing.T) {
 	c := &Catalog{Snapshot: Snapshot{Meta: Meta{Catalog: "litellm"}}}
 	e := Entry{Provider: "openai", Model: "b", Rates: Rates{Input: "2", Output: "8"}, Batch: &Rates{Input: "1", Output: "4"}}

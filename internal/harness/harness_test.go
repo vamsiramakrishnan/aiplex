@@ -331,6 +331,90 @@ func TestGeminiCLI(t *testing.T) {
 	}
 }
 
+// Gemini CLI 0.67 (observed 2026-11-10) stops a headless run with "Invalid auth
+// method selected" unless security.auth.selectedType is set, and asks its own
+// default model unless model.name names one the access point serves.
+func TestGeminiCLISelectsAPIKeyAuthAndModel(t *testing.T) {
+	home := isolate(t)
+	c := connectFixture()
+	c.Models = append(c.Models, aiplex.ConnectModel{Name: "mock-gemini", Protocols: []string{"google-genai"}})
+	p, err := PlanGeminiCLI(c, Options{Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	apply(t, home, p)
+	got := read(t, filepath.Join(home, ".gemini", "settings.json"))
+	for _, want := range []string{`"selectedType": "gemini-api-key"`, `"name": "mock-gemini"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("settings.json lacks %s:\n%s", want, got)
+		}
+	}
+}
+
+// Claude Code sends ANTHROPIC_API_KEY from settings as x-api-key beside the
+// AIPlex token, which the access point refuses; the plan has to say so.
+func TestClaudeCodeWarnsAboutExistingAnthropicAPIKey(t *testing.T) {
+	home := isolate(t)
+	dir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"env":{"ANTHROPIC_API_KEY":"placeholder-FAKEFAKEFAKEFAKEFAKEFAKE"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := PlanClaudeCode(connectFixture(), Options{Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(p.Notes, "\n"), "ANTHROPIC_API_KEY") {
+		t.Errorf("no warning about the existing key: %v", p.Notes)
+	}
+	for _, n := range p.Notes {
+		if strings.Contains(n, "FAKEFAKE") {
+			t.Errorf("note leaks the key: %s", n)
+		}
+	}
+}
+
+// Antigravity CLI 1.5.4 (Linux, 2026-11-10): `agy mcp add` writes
+// ~/.gemini/config/mcp_config.json, and it sent "Bearer ${AIPLEX_TOKEN}" to an
+// MCP server literally, so the file may only hold the secret-free stdio entry.
+func TestAntigravityWritesOnlyTheStdioServerAndKeepsOtherServers(t *testing.T) {
+	home := isolate(t)
+	path := filepath.Join(home, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"mcpServers":{"other":{"serverUrl":"https://example.com/mcp","headers":{"Authorization":"Bearer FAKEBEARER0123456789abcdef"}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := PlanAntigravity(connectFixture(), Options{Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := p.Changes[0].Diff(); strings.Contains(d, "FAKEBEARER") {
+		t.Errorf("diff shows an existing secret:\n%s", d)
+	}
+	apply(t, home, p)
+	got := read(t, path)
+	for _, want := range []string{`"serverUrl": "https://example.com/mcp"`, `"command": "aiplex"`, `"serve"`, "FAKEBEARER0123456789abcdef"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("mcp_config.json lacks %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "${AIPLEX_TOKEN}") || strings.Contains(got, "serverUrl\": \"http://127.0.0.1") {
+		t.Errorf("the access point endpoint must not be written:\n%s", got)
+	}
+	p2, _ := PlanAntigravity(connectFixture(), Options{Home: home})
+	if p2.Changes[0].Diff() != "" {
+		t.Error("second run is not a no-op")
+	}
+	if _, err := PlanAntigravity(connectFixture(), Options{Home: home, TokenHelper: true}); err == nil {
+		t.Error("--token-helper should be refused")
+	}
+	assertNoToken(t, home)
+}
+
 func TestBackupDirIsPrivate(t *testing.T) {
 	home := isolate(t)
 	p, _ := PlanClaudeCode(connectFixture(), Options{Home: home})
