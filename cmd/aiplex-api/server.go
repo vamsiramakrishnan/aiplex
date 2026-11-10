@@ -259,10 +259,13 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	r.Use(api.RequestID)
 	r.Use(api.Logger)
 	corsOrigins := cfg.AllowedOrigins
-	if len(corsOrigins) == 0 {
-		log.Warn().Msg("CONSOLE_ORIGINS unset — allowing all origins (dev only)")
+	switch {
+	case len(corsOrigins) == 0 && cfg.DevelopmentMode:
+		log.Warn().Msg("CONSOLE_ORIGINS unset — allowing all origins (development mode)")
 		corsOrigins = []string{"*"}
-	} else {
+	case len(corsOrigins) == 0:
+		log.Warn().Msg("CONSOLE_ORIGINS unset — cross-origin browser access is disabled")
+	default:
 		log.Info().Strs("origins", corsOrigins).Msg("CORS restricted to configured origins")
 	}
 	r.Use(api.CORS(corsOrigins...))

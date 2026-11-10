@@ -136,6 +136,9 @@ func RoutePolicy(router chi.Routes, cfg RoutePolicyConfig) func(http.Handler) ht
 				next.ServeHTTP(w, r)
 				return
 			}
+			// Identity-dependent responses must not be stored by shared or
+			// browser caches. Handlers may still set their own value.
+			w.Header().Set("Cache-Control", "no-store")
 			access := GetWIFAccess(r.Context())
 			if access == nil || GetWIFIdentity(r.Context()) == nil {
 				if cfg.Development {

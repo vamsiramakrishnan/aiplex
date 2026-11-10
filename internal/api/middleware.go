@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,7 +40,8 @@ func RequestID(next http.Handler) http.Handler {
 	var counter atomic.Uint64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := r.Header.Get("X-Request-Id")
-		if rid == "" {
+		if !requestIDPattern.MatchString(rid) {
+			// Client ids reach logs and responses: accept only short tokens.
 			rid = "req-" + formatUint(counter.Add(1))
 		}
 		ctx := context.WithValue(r.Context(), keyRequestID, rid)
@@ -47,6 +49,8 @@ func RequestID(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 // Logger adds structured request logging.
 func Logger(next http.Handler) http.Handler {
@@ -93,19 +97,27 @@ func GetRequestID(ctx context.Context) string {
 }
 
 // CORS adds Cross-Origin Resource Sharing headers for the Console SPA.
+// Origins come only from configuration. A configured "*" is answered with a
+// literal "*" (never a reflected origin) and credentials are never allowed
+// cross-origin; an empty list allows no cross-origin reads.
 func CORS(allowedOrigins ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			allowed := false
+			allow := ""
 			for _, o := range allowedOrigins {
-				if o == "*" || o == origin {
-					allowed = true
+				if o == "*" {
+					allow = "*"
+				} else if origin != "" && o == origin {
+					allow = origin
 					break
 				}
 			}
-			if allowed {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
+			if allow != "*" {
+				w.Header().Add("Vary", "Origin")
+			}
+			if origin != "" && allow != "" {
+				w.Header().Set("Access-Control-Allow-Origin", allow)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-Id, Idempotency-Key, X-Aiplex-Funding-Account, X-Aiplex-Operation-Id, MCP-Protocol-Version")
 				w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id, X-Aiplex-Attempt-ID, Retry-After, ETag")
