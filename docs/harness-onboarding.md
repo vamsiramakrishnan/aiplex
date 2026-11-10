@@ -33,6 +33,7 @@ Supported clients and the files they touch (user scope; paths are under your hom
 - **Merge, never replace.** Unrelated keys, their values and their order stay. A key AIPlex sets is overwritten with the access point's value. A key AIPlex does not set is never removed by a later run (use `--undo`).
 - **Refuse, do not overwrite.** A file that is not valid JSON (or TOML) makes the command exit non-zero without touching it. So does a JSON value that is the wrong type, such as `env` being a string.
 - **Show a diff first.** Each changed file is shown as a unified diff. On a terminal you are asked to confirm. Without a terminal the command refuses unless you pass `--yes`.
+- **Existing secrets are never displayed.** Your files may already hold credentials (an `ANTHROPIC_API_KEY` in `env`, a bearer token in an MCP header, OAuth fields in `~/.claude.json`). The diff, for `--write`, `--dry-run` and `--undo`, is computed over redacted copies of both sides; the bytes that are merged, written, backed up and restored are the real ones, and the redacted form is never written. See "Redaction" below.
 - **Back up first.** The original of every changed file is copied to `~/.aiplex/connect-backups/<timestamp>-<client>/` with a `manifest.json` (paths, modes, SHA-256 of before and after; no file contents besides the copies, no token). The directory is `0700` and its files `0600`. Backups hold your original config files, so treat them as you treat the originals.
 - **Write atomically.** A temporary file in the same directory is renamed over the target. Existing permissions are kept; files AIPlex creates are `0600`. A symlinked config file (dotfile managers) is edited through the link.
 - **Idempotent.** Running the same command twice produces no diff, writes nothing and makes no second backup.
@@ -47,11 +48,24 @@ Configuration refers to a token and never contains one. The model-side credentia
 - The MCP entries use `Authorization: Bearer ${AIPLEX_TOKEN}` (Claude Code, Gemini CLI) or `bearer_token_env_var = "AIPLEX_TOKEN"` (Codex).
 - Codex's provider uses `env_key = "AIPLEX_TOKEN"`.
 - Claude Code settings files cannot reference an environment variable, and its model credential comes from `ANTHROPIC_AUTH_TOKEN` or `apiKeyHelper`. Without `--token-helper`, the command prints the remaining step (`export ANTHROPIC_AUTH_TOKEN="$AIPLEX_TOKEN"`) instead of writing a value.
-- `--token-helper` writes `apiKeyHelper: "aiplex auth print-token"` for Claude Code and `[model_providers.aiplex.auth]` with `command = "aiplex"`, `args = ["auth", "print-token"]` for Codex. `aiplex auth print-token` prints the token the CLI would use (flag, `AIPLEX_TOKEN`, or the signed-in context, refreshed) and exits 3 if there is none. `aiplex` must be on the client's `PATH`.
+- `--token-helper` writes `apiKeyHelper: "aiplex --context NAME auth print-token"` for Claude Code and `[model_providers.aiplex.auth]` with `command = "aiplex"`, `args = ["--context", "NAME", "auth", "print-token"]` for Codex, where NAME is the context in effect for the `connect` command (`--context`, `AIPLEX_CONTEXT` or the current context). The client runs the helper later, where it would otherwise resolve the default context and return the wrong token. The name is shell-quoted in the single-string form. Because the helper reads a stored token, `--token-helper` is refused when the context in effect has none (credentials from `--token`, `AIPLEX_TOKEN` or `AIPLEX_URL` only): create and sign in to a context first with `aiplex config set-context NAME --url URL` and `aiplex login --context NAME`. Re-running with the same context is a no-op; a different context is a visible diff. `aiplex --context NAME auth print-token` prints that context's token (flag, `AIPLEX_TOKEN`, or the stored token, refreshed) and exits 3 if there is none. `aiplex` must be on the client's `PATH`; the shell quoting is for POSIX shells.
 
 Gemini CLI has no credential helper and no settings key for the base URL, so for it the command prints, as remaining steps, `export GOOGLE_GEMINI_BASE_URL=<genai base URL>` and `export GEMINI_API_KEY="$AIPLEX_TOKEN"`.
 
 The command ends with a "Still to do by hand" list of exactly the parts a file cannot hold.
+
+### Redaction
+
+What is displayed is redacted; what is written is not. Where a file parses (JSON, or TOML) the walk is structure-aware; otherwise it falls back to lines.
+
+- A string under a key whose name contains (case-insensitive) `token`, `secret`, `password`, `passwd`, `passphrase`, `api_key`, `apikey`, `api-key`, `authorization`, `credential`, `cookie`, `session`, `private_key`, `client_secret`, `refresh`, `bearer` or `oauth`, or has `auth` as a whole segment (`auth`, `x-auth`, `userAuth`; not `author`), is shown as `[redacted]`. Everything below such a key is redacted too, except under a bare `auth` table, where only strings with sensitive names or credential shapes are (so `command` and `args` stay readable).
+- A string that looks like a credential is redacted under any key: `Bearer` or `Basic` followed by a literal, `sk-`, `sk-ant-`, `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`, `github_pat_`, `AIza`, `xox*-`, `glpat-`, `AKIA`, `ya29.`, a JWT shape (`eyJ...`), and any 32-or-more-character string of letters, digits and `_-+/=.` that mixes letters and digits and has high entropy (not a URL or path). Such tokens inside a longer string (a URL or command line) are replaced in place. The heuristic leans toward redacting, so a long identifier may be hidden unnecessarily.
+- A value that is only an environment reference stays visible: `${AIPLEX_TOKEN}`, `$VAR`, `Bearer ${VAR}`. So do `apiKeyHelper` (a command), and values of `env_key` and `*_env_var`/`*_env` keys (names of variables). Numbers and booleans are not redacted.
+- JSON is pretty-printed identically on both sides for display, so a compact file does not appear as one line. In TOML, every secret value found by the parse is also removed wherever it occurs in the text (multi-line strings included), and `key = value` pairs, inline tables included, are redacted by name.
+- A file that does not parse is redacted line by line with the same rules. If a line is very long, or the content is not UTF-8, only "N lines changed; content not shown" is printed.
+- A change that differs only inside redacted values is reported as "a value changed; content redacted", never as up to date.
+
+Backups are exact copies of your original files, so they contain whatever secrets those files held. They are created `0600` in a `0700` directory. The manifest holds paths, modes and SHA-256 hashes only. Error messages for an invalid file name the file and the parser's reason, not its content.
 
 ### Codex TOML
 

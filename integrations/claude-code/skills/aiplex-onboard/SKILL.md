@@ -61,7 +61,7 @@ If the diff looks right, ask the user, then run it with `--yes` only after they 
 aiplex connect local --client claude-code --write --yes
 ```
 
-Options worth knowing: `--scope project` (claude-code, gemini-cli: write the project's files instead of the home directory), `--model <id>` to pick a model, `--token-helper` so the client runs `aiplex auth print-token` instead of reading an environment variable, and `--with-telemetry <otlp-endpoint>` to turn on the client's own OpenTelemetry export (prompt logging is never enabled).
+Options worth knowing: `--scope project` (claude-code, gemini-cli: write the project's files instead of the home directory), `--model <id>` to pick a model, `--token-helper` so the client runs `aiplex --context NAME auth print-token` for the context in effect instead of reading an environment variable (it needs a stored token from `aiplex login`; it is refused when credentials come only from the environment), and `--with-telemetry <otlp-endpoint>` to turn on the client's own OpenTelemetry export (prompt logging is never enabled).
 
 The command ends with "Still to do by hand". Those are shell environment variables a config file cannot hold, usually the access token. Tell the user exactly what it printed; for Claude Code that is `export ANTHROPIC_AUTH_TOKEN="$AIPLEX_TOKEN"` in the shell that starts `claude`. A plugin cannot set the base URL or the token itself, which is why this step edits the settings file.
 

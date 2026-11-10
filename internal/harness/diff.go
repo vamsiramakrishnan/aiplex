@@ -10,17 +10,28 @@ const diffContext = 3
 // UnifiedDiff renders a unified diff from before to after. It returns ""
 // when the two are identical. A nil before means the file does not exist yet.
 func UnifiedDiff(path string, before, after []byte, existed bool) string {
+	return unifiedDiff(path, before, after, existed, "")
+}
+
+func diffHeader(path string, existed bool, newName string) string {
+	oldName := diffName("a", path)
+	if !existed {
+		oldName = "/dev/null"
+	}
+	if newName == "" {
+		newName = diffName("b", path)
+	}
+	return fmt.Sprintf("--- %s\n+++ %s\n", oldName, newName)
+}
+
+func unifiedDiff(path string, before, after []byte, existed bool, newName string) string {
 	if existed && string(before) == string(after) {
 		return ""
 	}
 	a, b := splitLines(string(before)), splitLines(string(after))
-	oldName, newName := diffName("a", path), diffName("b", path)
-	if !existed {
-		oldName = "/dev/null"
-	}
 	ops := diffOps(a, b)
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "--- %s\n+++ %s\n", oldName, newName)
+	sb.WriteString(diffHeader(path, existed, newName))
 
 	var changes []int
 	for i, op := range ops {

@@ -447,7 +447,8 @@ is shown as a diff and needs confirmation (--yes without a terminal). A copy of
 the original goes to ~/.aiplex/connect-backups first, existing keys are never
 replaced wholesale, and a file that is not valid JSON or TOML is refused rather
 than overwritten. A token value is never written: files refer to $AIPLEX_TOKEN,
-or to "aiplex auth print-token" with --token-helper. Parts a file cannot hold
+or, with --token-helper, to "aiplex --context NAME auth print-token" for the context in
+effect (which must have a stored token, since the client runs the helper later). Parts a file cannot hold
 (an environment variable for the shell) are printed as remaining steps.
 antigravity has no documented config file location, so it stays print-only.
 

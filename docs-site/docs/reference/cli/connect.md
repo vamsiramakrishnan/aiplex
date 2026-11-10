@@ -20,7 +20,8 @@ is shown as a diff and needs confirmation (--yes without a terminal). A copy of
 the original goes to ~/.aiplex/connect-backups first, existing keys are never
 replaced wholesale, and a file that is not valid JSON or TOML is refused rather
 than overwritten. A token value is never written: files refer to $AIPLEX_TOKEN,
-or to "aiplex auth print-token" with --token-helper. Parts a file cannot hold
+or, with --token-helper, to "aiplex --context NAME auth print-token" for the context in
+effect (which must have a stored token, since the client runs the helper later). Parts a file cannot hold
 (an environment variable for the shell) are printed as remaining steps.
 antigravity has no documented config file location, so it stays print-only.
 
@@ -45,7 +46,7 @@ Flags:
   -h, --help                    help for connect
       --model string            With --write: model to select, instead of the first one the access point offers on the client's API
       --scope string            With --write: user (home directory files) or project (this directory's files; claude-code and gemini-cli) (default "user")
-      --token-helper            With --write: let the client fetch its token from "aiplex auth print-token" (claude-code, codex)
+      --token-helper            With --write: let the client fetch its token from "aiplex --context NAME auth print-token" for the context in effect (needs a stored token; claude-code, codex)
       --undo                    Restore the most recent backup made by --write (for --client, or the latest of any)
       --with-telemetry string   With --write: also point the client's own OpenTelemetry export at this OTLP endpoint (prompts stay redacted)
       --write                   Merge the configuration into the client's own config file (shows a diff, backs up first)
