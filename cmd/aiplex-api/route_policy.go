@@ -79,7 +79,18 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(get, "/api/v1/usage/records", api.RouteAuthenticated),
 		tenantRule(get, "/api/v1/usage/records/{id}", api.RouteAuthenticated),
 		tenantRule(get, "/api/v1/usage/summary", api.RouteAuthenticated),
+		tenantRule(get, "/api/v1/usage/config", api.RouteAuthenticated),
+		// Feedback: the record's own principal or actor, or an operator (the
+		// handler checks which; an invisible record answers as missing).
+		tenantRule(get, "/api/v1/usage/records/{id}/feedback", api.RouteAuthenticated),
+		tenantRule(post, "/api/v1/usage/records/{id}/feedback", api.RouteAuthenticated),
 		tenantPrefix(writes, "/api/v1/usage/", api.RouteAdmin),
+		// OTLP receiver: any verified caller in the tenant reports its own
+		// telemetry. Records are attributed to the verified token's principal,
+		// never to attributes in the payload.
+		tenantRule(post, "/otlp/v1/logs", api.RouteAuthenticated),
+		tenantRule(post, "/otlp/v1/metrics", api.RouteAuthenticated),
+		tenantRule(post, "/otlp/v1/traces", api.RouteAuthenticated),
 		// Quota attempts: the caller's own, or the aiplex:quota:read grant.
 		tenantRule(get, "/api/v1/quota/attempts/{id}", api.RouteAuthenticated),
 

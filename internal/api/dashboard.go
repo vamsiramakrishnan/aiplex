@@ -129,7 +129,9 @@ func (h *DashboardHandler) ledgerUsage(r *http.Request, tenant string) (models.D
 		now = h.Now()
 	}
 	summary, err := usageledger.Summarize(r.Context(), h.Ledger, tenant, usageledger.SummaryQuery{
-		Filter:  usageledger.Filter{Since: now.Add(-24 * time.Hour)},
+		// Managed exchanges only: harness-reported records can describe the
+		// same requests, so they are not added to these totals.
+		Filter:  usageledger.Filter{Since: now.Add(-24 * time.Hour), Source: usageledger.SourceManaged},
 		GroupBy: []string{"plane", "tool_name"},
 	})
 	if err != nil {
