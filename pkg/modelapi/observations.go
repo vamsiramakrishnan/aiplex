@@ -263,6 +263,13 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 			}
 		}
 	}
+	// Per-modality token splits (units.go): subsets, observed when reported;
+	// an unreadable split is dropped (unknown), never guessed.
+	if modality := map[string]int64{}; modalityCounters(usage, modality) == nil {
+		for key, n := range modality {
+			counters[key] = n
+		}
+	}
 	if op.ID == "openai.chat-completions" && g.surface.Provider == nil {
 		vertexCompletionComposition(counters)
 	}

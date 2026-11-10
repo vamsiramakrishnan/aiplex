@@ -61,6 +61,9 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := Owner{trusted.TenantID, trusted.PrincipalID, g.surface.ID}
+	if g.serveProviderExtended(w, r, trusted, owner, op, params) {
+		return
+	}
 	if op.Transport == WebSocket {
 		g.serveProviderWebSocket(w, r, trusted, owner, op)
 		return

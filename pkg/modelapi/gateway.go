@@ -60,6 +60,9 @@ type UsageObservation struct {
 	// Bound labels a session-ending observation without final usage
 	// evidence (see execution.Observation.Bound).
 	Bound string `json:"bound,omitempty"`
+	// Dimensions carries provider-reported billing dimensions (see
+	// execution.Observation.Dimensions).
+	Dimensions map[string]string `json:"dimensions,omitempty"`
 }
 type Options struct {
 	UpstreamHeaders http.Header
@@ -83,6 +86,14 @@ type Options struct {
 	// ObserveLimits receives each provider response's normalized rate-limit
 	// metadata (provider surfaces only). It is advisory telemetry.
 	ObserveLimits func(context.Context, Owner, providerlimits.Limits)
+	// Batches durably tracks provider batches created through this gateway
+	// and BatchSettler settles and records them (batch.go). Without a store,
+	// batch operations are relayed and counted per exchange only.
+	Batches      BatchStore
+	BatchSettler BatchSettler
+	// MaxUploadBytes bounds one spooled multipart upload (default
+	// DefaultMaxUploadBytes, at most 1 GiB).
+	MaxUploadBytes int64
 }
 type compiledOperation struct {
 	operation Operation

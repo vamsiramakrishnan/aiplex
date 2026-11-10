@@ -125,7 +125,7 @@ func providerCatalog() map[string][]providerOp {
 	bedrock := func(id, suffix string, transport Transport, format, protocol string) providerOp {
 		return providerOp{Operation{ID: id, Method: "POST", Path: "/model/{model}/" + suffix, Transport: transport, Action: Invoke, SourceURL: bedrockRef}, format, protocol}
 	}
-	return map[string][]providerOp{
+	return withExtendedOperations(map[string][]providerOp{
 		ProviderOpenAI: {
 			chat("openai.v1.chat-completions", "/v1/chat/completions", openaiRef+"/resources/chat/subresources/completions/methods/create"),
 			responses("openai.v1.responses", "/v1/responses", openaiRef+"/resources/responses/methods/create"),
@@ -150,7 +150,7 @@ func providerCatalog() map[string][]providerOp {
 		ProviderOpenAICompatible: {
 			chat("compat.chat-completions", "{base}/chat/completions", openaiRef+"/resources/chat/subresources/completions/methods/create"),
 		},
-	}
+	})
 }
 
 // Providers returns every non-Google provider descriptor. Each call owns its slices.
