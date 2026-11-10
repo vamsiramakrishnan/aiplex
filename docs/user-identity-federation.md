@@ -215,4 +215,5 @@ receives the request. Run it on every replica, or wait for the TTL to expire.
   store. AIPlex does not write them.
 - `acknowledge_overlap`, `directory`, `client_claim` and `client_ids` are top-level
   fields of the provider file. `identity user-providers apply` passes them through
-  unchanged, so they work from YAML or JSON.
+  unchanged, so they work from YAML or JSON. After a successful apply the CLI prints each
+  server warning, including the acknowledged overlap.

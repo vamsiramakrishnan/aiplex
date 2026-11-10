@@ -41,7 +41,7 @@ Responses WebSocket mode (`openai.v1.responses-websocket`) are covered by the
 
 - **Admission**: one lease per session, prepared once the session's model is
   known (Live: after the bounded `setup` message; Realtime: the `?model=`
-  connect parameter; Responses: per `response.create`, each re-authorized) and
+  connect parameter; Responses: no model at upgrade, so the lease is prepared at the upgrade and each `response.create` is re-authorized, not admitted again) and
   before credentials or the upstream dial. A token-profile lease is aborted and
   the session refused (`UNSUPPORTED_EXECUTION_TRANSPORT`).
 - **Observation**: usage server events are forwarded as advisory, non-terminal

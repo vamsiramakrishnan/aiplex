@@ -69,7 +69,8 @@ need the admin role.
 | `GET /api/v1/overview/subjects?kind=agent\|user\|client` | Callers of one kind, with identity source, last seen, access points and a usage roll-up. Admin or deployer. |
 | `GET /api/v1/overview/subjects/{kind}/{id}` | Effective access of one caller, with the reason for each grant. Also `GET /api/v1/overview/subjects/{kind}?id=…` for IDs that contain `/`. |
 | `GET /api/v1/overview/access-points/{id}` | Callers, resources, QoS and live usage of one access point. |
-| `GET /api/v1/overview/access-points/{id}/connect?client=…` | Ready-to-paste configuration for one client profile. Defaults to `generic`. |
+| `GET /api/v1/overview/access-points` | List access points with their counts and quota coverage. Query: `limit` (1 to 200, default 50) and `cursor`. The response has `access_points` (each with `id`, `display_name`, `caller_kinds`, `qos_class`, `counts` of `models`, `tools` and `skills`, and `quota_coverage`), `next_cursor` when more pages exist, and `skipped_invalid` counting stored records that fail to decode. |
+| `GET /api/v1/overview/access-points/{id}/connect?client=…` | Ready-to-paste configuration for one client profile. Defaults to `generic`. The response includes an `endpoints` array (see below). |
 
 Client-facing routes are at the server root, not under `/api/v1`. They use the
 caller's own bearer token. A request without a verified identity is refused.
@@ -277,6 +278,14 @@ Access point routes are mounted with the API. Each part needs its module:
 | `aiplex connect` and overview routes | `AIPLEX_PUBLIC_URL` set to the trusted HTTPS origin. `connect` returns `409 PUBLIC_URL_REQUIRED` otherwise. |
 
 ## The single pane
+
+The connect response's `endpoints` array lists the Bedrock and WebSocket endpoints of the
+wires the access point serves. Each entry has `protocol`, `transport` (`http`, `http-stream`
+or `websocket`), `url` (with `{model}` where the model goes), `label`, `query` (the query
+parameters the client must send, for the WebSocket entries `model`), and `models` (the
+access point's model names that reach that protocol). The `wss://` or `ws://` scheme follows
+the public URL's scheme. Responses WebSocket mode is not listed, because it is not routed
+through access points.
 
 `aiplex who` lists callers of one kind, or one caller in detail, with usage for a window
 (24 hours by default):
