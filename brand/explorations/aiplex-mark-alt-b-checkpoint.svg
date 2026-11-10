@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-labelledby="alt-b-title alt-b-desc">
-  <title id="alt-b-title">AIPlex mark, exploration B: checkpoint gap</title>
-  <desc id="alt-b-desc">Exploration, not in use. The three lanes merge before the gate and stop 2 units short of it, cut square; the gap is the check. One lane leaves the gate.</desc>
-  <path id="lanes" d="M2 4H4.83L14 13.17V18.83L4.83 28H2V24H3.17L9.17 18H2V14H9.17L3.17 8H2ZM28 14H31V18H28Z" fill="#141A2E"/>
-  <rect id="gate" x="16" y="10" width="12" height="12" fill="#2F4FD8"/>
-</svg>
