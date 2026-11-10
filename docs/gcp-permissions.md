@@ -216,11 +216,23 @@ names its secrets `aiplex-...`, so reads and writes fail.
   Moving it replaces the cluster (see "Moving an existing cluster to the
   dedicated network" below). New installs from `aiplex init` use the dedicated
   network.
-- **The firewall rule for health checks targets the network tag `gke-aiplex`.**
-  GKE names node tags itself (`gke-CLUSTER-HASH-node`), so that rule probably
-  matches no node. It was not changed; the load balancer's own health-check
-  firewall rules are created by GKE. Check it on the first dedicated-network
-  install.
+- **The firewall rule for health checks (`aiplex-allow-health-checks`) is
+  inert.** It targets the network tag `gke-aiplex`, which GKE never assigns:
+  GKE names node tags itself (`gke-CLUSTER-HASH-node`), and the cluster is
+  Autopilot, where node tags cannot be set, so Terraform cannot target them. The
+  rule matches no node and changes nothing. It is kept because the health
+  checks do not rely on it: for a cluster in the project that owns the network,
+  GKE creates and maintains the firewall rules that admit Google's health check
+  probers (`35.191.0.0/16`, `130.211.0.0/22`). Google documents manual rules,
+  with the node tag as the target, only for when automatic firewall rule
+  creation is disabled or restricted, such as a Shared VPC service project
+  ([Deploying Gateways](https://cloud.google.com/kubernetes-engine/docs/how-to/deploying-gateways),
+  [container-native load balancing](https://cloud.google.com/kubernetes-engine/docs/how-to/container-native-load-balancing),
+  [probe ranges](https://cloud.google.com/load-balancing/docs/health-check-concepts#ip-ranges)).
+  In that case, set the real node tag as the rule's `target_tags` (or drop
+  `target_tags` to cover every instance in the network). This comes from Google's
+  documentation; it was not tested against a live cluster, so check on the
+  first dedicated-network install that the Gateway's backends report healthy.
 - **Nothing here was run against a live project or cluster.** The Gateway,
   Cloud Armor attachment and health check follow Google's Gateway
   documentation but were only rendered (`helm template`), never applied;

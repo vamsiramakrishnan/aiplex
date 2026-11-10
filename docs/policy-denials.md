@@ -121,7 +121,38 @@ authz:
 
 The chart sets `AIPLEX_DENIAL_TOKEN` on the API from the Secret and mounts the
 same Secret into the sidecar with `DENIAL_WEBHOOK_URL` pointing at the API
-Service. The sidecar's image (`global.registry/aiplex-authz`) is not built by
-the repository's CI; build it from `authz/Dockerfile`. The chart's default data
-path is still OPA; `authz.enabled` only deploys the Service, and your gateway's
-ext_authz filter has to be pointed at it.
+Service. The chart's default data path is still OPA; `authz.enabled` only
+deploys the Service, and your gateway's ext_authz filter has to be pointed at
+it.
+
+### Build and push the sidecar image
+
+The release pipeline does not build the sidecar image yet (see
+[limits](#limits)), so a deployment that sets `authz.enabled: true` builds and
+pushes it itself. The chart pulls
+`<global.registry>/aiplex-authz:<authz.image.tag>`, and the tag defaults to the
+chart's `appVersion` (`0.1.0` in this repository), unless `authz.image.repository`
+or `authz.image.tag` say otherwise. The image builds from `authz/Dockerfile`,
+with `authz/` as the build context:
+
+```bash
+REGISTRY=us-central1-docker.pkg.dev/my-gcp-project/aiplex   # your values.yaml global.registry
+TAG=0.1.0                                                   # authz.image.tag, or the chart appVersion
+docker build -t "$REGISTRY/aiplex-authz:$TAG" authz/
+docker push "$REGISTRY/aiplex-authz:$TAG"
+```
+
+The Dockerfile compiles `aiplex-authz` with `cargo build --release --locked` on
+Alpine and runs it as `nobody` on port 9191. Push from a machine that can reach
+your registry (for Artifact Registry, after `gcloud auth configure-docker
+us-central1-docker.pkg.dev`). Nothing signs the image or scans it: that is
+yours to add if your cluster's admission policy requires it.
+
+## Limits
+
+- **The authz sidecar image is not built by the release pipeline yet.** The
+  release workflow and `.goreleaser.yaml` publish the API and CLI images and
+  artifacts; there is no `aiplex-authz` image in them, and CI only builds and
+  tests the Rust crate. Until the pipeline builds it, follow the steps above.
+- The sidecar and the chart's `authz` Deployment have not been run behind a
+  real gateway (see the note at the top).
