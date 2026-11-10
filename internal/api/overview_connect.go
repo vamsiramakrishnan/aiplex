@@ -73,7 +73,7 @@ type OverviewConnect struct {
 // overviewWireFamily maps a wire protocol to the base-url family it uses.
 func overviewWireFamily(wire string) string {
 	switch wire {
-	case WireOpenAIChat, WireOpenAIResponses:
+	case WireOpenAIChat, WireOpenAIResponses, WireOpenAIEmbeddings, WireOpenAIModerations, WireOpenAIImages, WireOpenAIAudio:
 		return "openai"
 	case WireAnthropic:
 		return "anthropic"
@@ -219,7 +219,8 @@ func (h *OverviewHandler) connectAuth(base, id string, ap AccessPoint) OverviewC
 	return auth
 }
 
-// overviewEndpoints lists the Bedrock and WebSocket endpoints of the wires an
+// overviewEndpoints lists the Bedrock, WebSocket, embeddings, moderation,
+// image and audio endpoints of the wires an
 // access point serves, in the fixed wire order.
 func overviewEndpoints(base, apBase string, wires map[string]string, models []OverviewConnectModel) []OverviewEndpoint {
 	out := []OverviewEndpoint{}
@@ -256,6 +257,17 @@ func overviewEndpoints(base, apBase string, wires map[string]string, models []Ov
 		case WireBedrockInvoke:
 			add(wire.ID, "http", apBase+"/model/{model}/invoke", "InvokeModel", nil)
 			add(wire.ID, "http-stream", apBase+"/model/{model}/invoke-with-response-stream", "InvokeModelWithResponseStream", nil)
+		case WireOpenAIEmbeddings:
+			add(wire.ID, "http", apBase+"/v1/embeddings", "Embeddings", nil)
+		case WireOpenAIModerations:
+			add(wire.ID, "http", apBase+"/v1/moderations", "Moderations", nil)
+		case WireOpenAIImages:
+			add(wire.ID, "http", apBase+"/v1/images/generations", "Image generation", nil)
+			add(wire.ID, "http", apBase+"/v1/images/edits", "Image edits", nil)
+		case WireOpenAIAudio:
+			add(wire.ID, "http", apBase+"/v1/audio/transcriptions", "Audio transcription", nil)
+			add(wire.ID, "http", apBase+"/v1/audio/translations", "Audio translation", nil)
+			add(wire.ID, "http", apBase+"/v1/audio/speech", "Speech synthesis", nil)
 		case WireOpenAIRealtime:
 			add(wire.ID, "websocket", wsBase+"/v1/realtime", "OpenAI Realtime", []string{"model"})
 		case WireGeminiLive:
