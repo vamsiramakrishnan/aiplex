@@ -19,7 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import palette as P  # noqa: E402
-from outline_text import Typesetter  # noqa: E402
+from outline_text import Typesetter, single_path  # noqa: E402
 
 WM = ("M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 "
       "33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1Z"
@@ -404,6 +404,298 @@ def explorations():
     return d
 
 
+# ---------------------------------------------------------------- launch graphics
+LT = {
+    "light": dict(bg="#FFFFFF", text=INK, muted=N["600"], lane=INK, gate=GATE, chip=N["50"], border=N["200"],
+                  faint=N["300"], mode="light"),
+    "dark": dict(bg=N["950"], text=INKD, muted=N["400"], lane=INKD, gate=GATED, chip=N["900"], border=N["700"],
+                 faint=N["600"], mode="dark"),
+}
+CALLERS = [("agent", "Agents"), ("user", "Users"), ("client", "Clients")]
+RESOURCES = [("llmplex", "Models"), ("mcplex", "Tools"), ("a2aplex", "Agents"), ("skillsplex", "Skills")]
+
+
+def wrap(d, s, size, weight, maxw):
+    lines, cur = [], ""
+    for w_ in s.split(" "):
+        trial = (cur + " " + w_).strip()
+        if cur and d.width(trial, size, weight) > maxw:
+            lines.append(cur)
+            cur = w_
+        else:
+            cur = trial
+    lines.append(cur)
+    return lines
+
+
+def para(d, x, y, s, size, fill, bg, weight=400, maxw=900, leading=1.3):
+    lines = wrap(d, s, size, weight, maxw)
+    for i, line in enumerate(lines):
+        d.text(x, y + i * size * leading, line, size, fill, bg, weight)
+    return y + (len(lines) - 1) * size * leading
+
+
+def chip(d, t, x, y, icon, label, size, icon_color, align="left", sub=None):
+    """icon + label chip; (x, y) is the left (or right) edge and vertical centre. Returns (x0, x1)."""
+    pad, isz = size * 0.5, size * 1.2
+    tw = d.width(label, size, 500)
+    if sub:
+        tw = max(tw, d.width(sub, size * 0.62, 400))
+    w = pad + isz + pad * 0.8 + tw + pad
+    h = size * (2.3 if sub else 1.9)
+    x0 = x if align == "left" else x - w
+    d.add(f'<rect x="{x0:.1f}" y="{y - h/2:.1f}" width="{w:.1f}" height="{h:.1f}" rx="{size*0.3:.1f}" '
+          f'fill="{t["chip"]}" stroke="{t["border"]}"/>')
+    d.icon(icon, round(x0 + pad, 1), round(y - isz / 2, 1), round(isz, 1), icon_color)
+    tx = x0 + pad + isz + pad * 0.8
+    if sub:
+        d.text(tx, y - size * 0.08, label, size, t["text"], t["chip"], 500)
+        d.text(tx, y + size * 0.72, sub, size * 0.62, t["muted"], t["chip"], 400)
+    else:
+        d.text(tx, y + size * 0.36, label, size, t["text"], t["chip"], 500)
+    return x0, x0 + w
+
+
+def lane_in(x0, y0, x1, y1, stub):
+    dy = y1 - y0
+    xt = x1 - stub - abs(dy)
+    return f"M{x0:.1f} {y0:.1f}H{xt:.1f}l{abs(dy):.1f} {dy:.1f}H{x1:.1f}"
+
+
+def lane_out(x0, y0, x1, y1, stub):
+    dy = y1 - y0
+    return f"M{x0:.1f} {y0:.1f}h{stub:.1f}l{abs(dy):.1f} {dy:.1f}H{x1:.1f}"
+
+
+def flow(d, t, x, y, w, h, size, lane_w, gate, gate_label=None, callers=CALLERS, resources=RESOURCES,
+         gate_sub=None, caller_subs=None, resource_subs=None):
+    """callers -> one gate -> resources, drawn with the mark's geometry (45 degree lanes, square gate)."""
+    cy = y + h / 2
+    cpitch = h / len(callers)
+    rpitch = h / len(resources)
+    cys = [y + cpitch * (i + 0.5) for i in range(len(callers))]
+    rys = [y + rpitch * (i + 0.5) for i in range(len(resources))]
+    right = []
+    for i, (ic, lab) in enumerate(callers):
+        right.append(chip(d, t, x, cys[i], ic, lab, size, t["text"],
+                          sub=caller_subs[i] if caller_subs else None)[1])
+    lefts = []
+    for i, (ic, lab) in enumerate(resources):
+        lefts.append(chip(d, t, x + w, rys[i], ic, lab, size, P.MODULES[ic][t["mode"]] if ic in P.MODULES else t["text"], align="right",
+                          sub=resource_subs[i] if resource_subs else None)[0])
+    cr, rl = max(right), min(lefts)
+    span_in = max(abs(c - cy) for c in cys)
+    span_out = max(abs(r - cy) for r in rys)
+    stub = lane_w * 1.5
+    room = rl - cr - span_in - span_out - 4 * stub
+    g = min(gate, room)
+    gx = cr + stub * 2 + span_in + (room - g) / 2
+    paths = [lane_in(right[i], c, gx + 1, cy, stub) for i, c in enumerate(cys)]
+    paths += [lane_out(gx + g - 1, cy, lefts[i], r, stub) for i, r in enumerate(rys)]
+    d.add(f'<path d="{"".join(paths)}" fill="none" stroke="{t["lane"]}" stroke-width="{lane_w}" '
+          f'stroke-linejoin="miter"/>')
+    d.add(f'<rect x="{gx:.1f}" y="{cy - g/2:.1f}" width="{g:.1f}" height="{g:.1f}" fill="{t["gate"]}"/>')
+    if gate_label:
+        d.text(gx + g / 2, cy + g / 2 + size * 1.5, gate_label, size, t["text"], t["bg"], 600, "middle")
+    if gate_sub:
+        d.text(gx + g / 2, cy + g / 2 + size * 2.6, gate_sub, size * 0.8, t["muted"], t["bg"], 400, "middle",
+               mono=True)
+    return gx, g
+
+
+def linkedin(mode):
+    t = LT[mode]
+    W, H = 1200, 627
+    d = Doc(f"aiplex-launch-linkedin-{mode}", W, H, "AIPlex",
+            "AIPlex: a control plane for agent traffic. Agents, users and clients reach models, tools, agents and "
+            "skills through one access point with identity, access, quotas and a usage ledger.")
+    d.add(f'<rect width="{W}" height="{H}" fill="{t["bg"]}"/>')
+    d.add(lockup_h(64, 52, 1.5, t["lane"], t["gate"], t["text"]))
+    d.text(64, 178, "A control plane for agent traffic.", 56, t["text"], t["bg"], 600)
+    d.text(64, 232, "Identity, access, quotas and usage in one place.", 32, t["muted"], t["bg"], 500)
+    flow(d, t, 64, 282, 1072, 300, 30, 10, 96, "Access point")
+    return d
+
+
+def square(mode):
+    t = LT[mode]
+    W = H = 1080
+    d = Doc(f"aiplex-launch-square-{mode}", W, H, "AIPlex",
+            "AIPlex: a control plane for agent traffic. Agents, users and clients reach models, tools, agents and "
+            "skills through one access point with identity, access, quotas and a usage ledger.")
+    d.add(f'<rect width="{W}" height="{H}" fill="{t["bg"]}"/>')
+    d.add(lockup_h(80, 80, 2, t["lane"], t["gate"], t["text"]))
+    d.text(80, 280, "A control plane", 76, t["text"], t["bg"], 600)
+    d.text(80, 366, "for agent traffic.", 76, t["text"], t["bg"], 600)
+    para(d, 80, 446, "Identity, access, quotas and usage in front of models, tools, agents and skills.",
+         40, t["muted"], t["bg"], 500, 900)
+    flow(d, t, 80, 590, 920, 400, 36, 12, 112, "Access point")
+    return d
+
+
+CAROUSEL_BG = INK
+
+
+def frame(n, title, body, draw):
+    t = dict(LT["dark"], bg=CAROUSEL_BG, chip=MISTD, border=N["700"])
+    W = H = 1080
+    d = Doc(f"aiplex-launch-carousel-{n}", W, H, f"AIPlex launch carousel {n} of 5: {' '.join(title)}",
+            f"{' '.join(title)} {body}")
+    d.add(f'<rect width="{W}" height="{H}" fill="{t["bg"]}"/>')
+    d.add(lockup_h(80, 72, 1.5, t["lane"], t["gate"], t["text"]))
+    d.text(1000, 108, f"{n}/5", 30, N["400"], t["bg"], 500, "end", mono=True)
+    for i, line in enumerate(title):
+        d.text(80, 270 + i * 88, line, 76, t["text"], t["bg"], 600)
+    y = 270 + (len(title) - 1) * 88 + 84
+    if body:
+        para(d, 80, y, body, 40, N["300"], t["bg"], 400, 920)
+    draw(d, t)
+    return d
+
+
+def f_problem(d, t):
+    cys = [690, 800, 910]
+    rys = [670, 750, 830, 910]
+    lines = []
+    for c in cys:
+        for r in rys:
+            lines.append(f"M330 {c}C540 {c} 540 {r} 730 {r}")
+    d.add(f'<path d="{"".join(lines)}" fill="none" stroke="{N["500"]}" stroke-width="4"/>')
+    for (ic, lab), c in zip(CALLERS, cys):
+        chip(d, t, 80, c, ic, lab, 34, t["text"])
+    for (ic, lab), r in zip(RESOURCES, rys):
+        chip(d, t, 1000, r, ic, lab, 30, P.MODULES[ic]["dark"], align="right")
+
+
+def f_access(d, t):
+    gx, g = flow(d, t, 80, 620, 920, 320, 32, 12, 104, "Access point")
+    d.text(540, 1010, "https://<aiplex>/ap/{id}/", 30, N["300"], t["bg"], 500, "middle", mono=True)
+
+
+def f_ledger(d, t):
+    x0, y0 = 80, 690
+    cols = [("Caller", 80), ("Resource", 400), ("Tokens", 700), ("Cost", 860)]
+    for lab, cx in cols:
+        d.text(cx, y0, lab, 28, N["400"], t["bg"], 500)
+    d.add(f'<path d="M80 {y0 + 22}H1000" stroke="{N["700"]}" stroke-width="2"/>')
+    rows = [("agent", "tutor-agent", "llmplex", "model", 0.8, 0.6),
+            ("user", "alice", "mcplex", "tool", 0.3, 0.2),
+            ("client", "ide", "skillsplex", "skill", 0.5, 0.35),
+            ("agent", "research", "a2aplex", "agent", 0.65, 0.5)]
+    for i, (ci, cn, ri, rn, tok, cost) in enumerate(rows):
+        y = y0 + 84 + i * 76
+        d.icon(ci, 80, y - 26, 34, t["text"])
+        d.text(128, y, cn, 32, t["text"], t["bg"], 500, mono=True)
+        d.icon(ri, 400, y - 26, 34, P.MODULES[ri]["dark"])
+        d.text(448, y, rn, 32, t["text"], t["bg"], 500, mono=True)
+        d.add(f'<rect x="700" y="{y - 20}" width="{round(130 * tok)}" height="14" fill="{t["gate"]}"/>')
+        d.add(f'<rect x="860" y="{y - 20}" width="{round(130 * cost)}" height="14" fill="{P.MODULES["quotaplex"]["dark"]}"/>')
+        d.add(f'<path d="M80 {y + 28}H1000" stroke="{N["800"]}" stroke-width="2"/>')
+
+
+def f_identity(d, t):
+    flow(d, t, 80, 640, 920, 330, 30, 12, 96, "Identity",
+         callers=[("agent", "AWS IAM role"), ("agent", "Azure identity"), ("agent", "GitHub Actions")],
+         resources=[("identity", "sub: user"), ("agent", "act: agent")])
+
+
+COMMAND = dict(font="mono-500", size=48, x=176, y=602, fill=INKD, rid="launch-command")
+
+
+def f_try(d, t):
+    x, y, w, h = 80, 480, 920, 170
+    d.add(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="12" fill="{N["950"]}" stroke="{N["700"]}"/>')
+    d.add(f'<path d="M{x} {y + 44}H{x + w}" stroke="{N["700"]}" stroke-width="2"/>')
+    for i in range(3):
+        d.add(f'<rect x="{x + 24 + i * 24}" y="{y + 16}" width="12" height="12" fill="{N["600"]}"/>')
+    d.text(x + 40, y + 122, "$", 48, N["400"], N["950"], 500, mono=True)
+    # the command is one self-contained <path id="launch-command"> so it can be swapped on its own;
+    # regenerate with: python3 brand/scripts/outline_text.py --font mono-500 --size 48 --x 176 --y 602 \
+    #   --fill "#E8EBF2" --id launch-command "<command>"
+    if P.contrast(COMMAND["fill"], N["950"]) < 4.5:
+        FAILURES.append("launch-command contrast")
+    path, _ = single_path("aiplex init", COMMAND["font"], COMMAND["size"], COMMAND["x"], COMMAND["y"],
+                          COMMAND["fill"], rid=COMMAND["rid"])
+    d.add(path)
+    d.text(80, 730, "Apache 2.0. Source and documentation on GitHub.", 34, N["300"], t["bg"], 400)
+    for i, n in enumerate(ICON_NAMES[:6]):
+        cx, cy = 80 + (i % 3) * 312, 850 + (i // 3) * 96
+        chip(d, t, cx, cy, n, LABEL[n], 30, P.MODULES[n]["dark"])
+
+
+CAROUSEL = [
+    (["Agents reach", "everything on their own."],
+     "Every agent, IDE and script holds its own keys. Who called what, as whom and at what cost is spread "
+     "across providers.", f_problem),
+    (["One URL", "per audience."],
+     "An access point puts models, tools and skills behind one stable URL and checks who the caller is before "
+     "anything is reached.", f_access),
+    (["Who used what,", "in tokens and money."],
+     "One append-only usage ledger records each exchange: caller, resource, reported tokens, and cost "
+     "when priced.", f_ledger),
+    (["One identity", "across clouds."],
+     "Workloads on AWS, Azure or GitHub Actions sign in as a registered agent with a token their own "
+     "platform issued.", f_identity),
+    (["Try it in", "one command."], "", f_try),
+]
+
+
+# ---------------------------------------------------------------- architecture diagram
+def architecture(mode):
+    t = LT[mode]
+    W, H = 1200, 660
+    fid = "aiplex-architecture" + ("-dark" if mode == "dark" else "")
+    d = Doc(fid, W, H, "AIPlex architecture",
+            "Callers (agents, users, clients) reach models, tools, agents and skills through an AIPlex access point, "
+            "which applies identity, access, QoS and quota, and writes the usage ledger.")
+    d.add(f'<rect width="{W}" height="{H}" fill="{t["bg"]}"/>')
+    d.text(40, 56, "Callers", 18, t["muted"], t["bg"], 600)
+    d.text(600, 56, "AIPlex access point", 18, t["muted"], t["bg"], 600, "middle")
+    d.text(1160, 56, "Resources", 18, t["muted"], t["bg"], 600, "end")
+    # access point panel
+    px, py, pw, ph = 420, 92, 360, 528
+    d.add(f'<rect x="{px}" y="{py}" width="{pw}" height="{ph}" rx="12" fill="{t["chip"]}" stroke="{t["gate"]}" stroke-width="2"/>')
+    d.add(f'<rect x="{px}" y="{py}" width="{pw}" height="64" rx="12" fill="{t["gate"]}"/>')
+    d.add(f'<rect x="{px}" y="{py + 52}" width="{pw}" height="12" fill="{t["gate"]}"/>')
+    on = P.ON_GATE[mode]
+    d.icon("access-point", px + 20, py + 18, 28, on)
+    d.text(px + 60, py + 40, "One URL per audience", 20, on, t["gate"], 600)
+    stages = [("identity", "Identity", "Who is calling, as which agent"),
+              ("access-point", "Access", "Grants, caller kinds, subjects"),
+              ("quotaplex", "QoS and quota", "Rate, concurrency, budgets"),
+              ("usage", "Usage ledger", "Tokens and cost per exchange")]
+    for i, (ic, lab, sub) in enumerate(stages):
+        y = py + 96 + i * 108
+        d.add(f'<rect x="{px + 20}" y="{y}" width="{pw - 40}" height="88" rx="8" fill="{t["bg"]}" stroke="{t["border"]}"/>')
+        col = P.MODULES["quotaplex"][mode] if ic == "quotaplex" else t["text"]
+        d.icon(ic, px + 40, y + 28, 32, col)
+        d.text(px + 92, y + 40, lab, 20, t["text"], t["bg"], 600)
+        d.text(px + 92, y + 66, sub, 15, t["muted"], t["bg"], 400)
+        if i < 3:
+            d.add(f'<path d="M{px + pw/2} {y + 88}v20" stroke="{t["lane"]}" stroke-width="3"/>')
+    # callers
+    csub = ["A2A, SDKs, services", "Console, CLI", "IDEs, CLIs (ClientPlex)"]
+    cys = [196, 356, 516]
+    rights = []
+    for (ic, lab), sub, cy in zip(CALLERS, csub, cys):
+        rights.append(chip(d, t, 40, cy, ic, lab, 20, t["text"], sub=sub)[1])
+    rsub = [("llmplex", "Models", "LLMPlex"), ("mcplex", "Tools", "MCPlex"),
+            ("a2aplex", "Agents", "A2APlex"), ("skillsplex", "Skills", "SkillsPlex")]
+    rys = [176, 296, 416, 536]
+    lefts = []
+    for (ic, lab, sub), ry in zip(rsub, rys):
+        lefts.append(chip(d, t, 1160, ry, ic, lab, 20, P.MODULES[ic][mode], align="right", sub=sub)[0])
+    cy = py + ph / 2
+    paths = [lane_in(r, c, px, cy, 14) for r, c in zip(rights, cys)]
+    paths += [lane_out(px + pw, cy, l_, r, 14) for l_, r in zip(lefts, rys)]
+    d.add(f'<path d="{"".join(paths)}" fill="none" stroke="{t["lane"]}" stroke-width="4" stroke-linejoin="miter"/>')
+    d.add(f'<rect x="{px - 8}" y="{cy - 8}" width="16" height="16" fill="{t["gate"]}"/>')
+    d.add(f'<rect x="{px + pw - 8}" y="{cy - 8}" width="16" height="16" fill="{t["gate"]}"/>')
+    d.text(600, 648, "QuotaPlex sets the budgets the access point enforces; ClientPlex configures the clients.",
+           15, t["muted"], t["bg"], 400, "middle")
+    return d
+
+
 def build(which):
     out = []
     if "social" in which:
@@ -412,11 +704,20 @@ def build(which):
         out += [(sheet("light"), "brand-sheet.svg"), (sheet("dark"), "brand-sheet-dark.svg")]
     if "explorations" in which:
         out += [(explorations(), "explorations/aiplex-mark-explorations.svg")]
+    if "launch" in which:
+        for m in ("light", "dark"):
+            out += [(linkedin(m), f"launch/aiplex-linkedin-{m}.svg"), (square(m), f"launch/aiplex-square-{m}.svg")]
+        for i, (title, body, draw) in enumerate(CAROUSEL, 1):
+            out += [(frame(i, title, body, draw), f"launch/aiplex-carousel-{i}.svg")]
+    if "architecture" in which:
+        out += [(architecture("light"), "launch/architecture.svg"),
+                (architecture("dark"), "launch/architecture-dark.svg")]
     return out
 
 
 if __name__ == "__main__":
-    targets = ["social", "sheet", "explorations"]
+    targets = [a for a in sys.argv[1:] if not a.startswith("-")] or \
+        ["social", "sheet", "explorations", "launch", "architecture"]
     docs = build(targets)
     if "--check" not in sys.argv:
         for d, rel in docs:
