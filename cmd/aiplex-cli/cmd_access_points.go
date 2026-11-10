@@ -428,6 +428,19 @@ func spRenderConnect(out io.Writer, c *aiplex.AccessPointConnect) {
 			rows = append(rows, []string{family + " base URL", u})
 		}
 	}
+	// Endpoints that do not fit a single base URL: Bedrock paths, embeddings,
+	// moderations, images, audio and WebSocket sessions.
+	for _, e := range c.Endpoints {
+		label := e.Label
+		if label == "" {
+			label = e.Protocol
+		}
+		cell := e.URL
+		if len(e.Query) > 0 {
+			cell += " (requires ?" + strings.Join(e.Query, "&?") + "=…)"
+		}
+		rows = append(rows, []string{fmt.Sprintf("%s [%s, %s]", label, e.Protocol, e.Transport), cell})
+	}
 	if c.MCPURL != "" {
 		rows = append(rows, []string{"MCP URL", c.MCPURL}, []string{"MCP catalog", c.MCPCatalogURL})
 	}

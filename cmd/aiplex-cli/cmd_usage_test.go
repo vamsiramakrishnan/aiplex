@@ -108,12 +108,12 @@ func TestUsageRecordsTableShowsUnknownNotZero(t *testing.T) {
 	}
 	// Known zero input, unknown output, exact estimated cost.
 	fa := strings.Fields(a)
-	if !strings.Contains(a, "USD 0.001135 (estimated)") || fa[len(fa)-6] != "0" || fa[len(fa)-5] != "unknown" {
+	if !strings.Contains(a, "USD 0.001135 (estimated)") || fa[len(fa)-9] != "0" || fa[len(fa)-8] != "unknown" {
 		t.Errorf("record a rendering wrong: %q", a)
 	}
 	// Null usage and unknown cost must never become zero.
-	if strings.Contains(b, " 0 ") || strings.Count(b, "unknown") != 3 {
-		t.Errorf("record b must show unknown for in/out/cost: %q", b)
+	if strings.Contains(b, " 0 ") || strings.Count(b, "unknown") != 4 {
+		t.Errorf("record b must show unknown for in/out/cache-w/cost: %q", b)
 	}
 	if !strings.Contains(out, "--cursor CUR2") {
 		t.Errorf("next cursor not shown: %s", out)
@@ -233,8 +233,8 @@ func TestUsageSummaryAliasesTableUnknownsAndTruncation(t *testing.T) {
 			unknownRow = l
 		}
 	}
-	if unknownRow == "" || strings.Count(unknownRow, "unknown") != 3 || !strings.Contains(unknownRow, "—") {
-		t.Errorf("fully unknown group must say unknown for in/out/cost and (none) agent: %q", unknownRow)
+	if unknownRow == "" || strings.Count(unknownRow, "unknown") != 4 || !strings.Contains(unknownRow, "—") {
+		t.Errorf("fully unknown group must say unknown for in/out/cache-w/cost and (none) agent: %q", unknownRow)
 	}
 	if _, err = runUsage(t, server, "table", "summary", "--by", "colour"); err == nil {
 		t.Fatal("unknown group field accepted")

@@ -14,7 +14,7 @@ func llmCmd() *cobra.Command {
 		Short: "LLMPlex — manage model routes, providers, and costs",
 	}
 
-	cmd.AddCommand(llmRoutesCmd(), llmProvidersCmd(), llmCostsCmd(), llmUsageCmd())
+	cmd.AddCommand(llmRoutesCmd(), llmxProviderDescriptorsCmd(), llmxSurfacesCmd(), llmxCapacityCmd(), llmxBatchesCmd(), llmCostsCmd(), llmUsageCmd())
 	return cmd
 }
 
@@ -54,39 +54,6 @@ func llmRoutesCmd() *cobra.Command {
 			if len(routes) == 0 {
 				fmt.Println("No routing rules configured.")
 			}
-			return nil
-		},
-	}
-}
-
-func llmProvidersCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "providers",
-		Short: "List LLM providers",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			c := newClient()
-			providers, err := c.ListProviders(cmd.Context())
-			if err != nil {
-				return fmt.Errorf("list providers: %w", err)
-			}
-
-			if output == "json" {
-				printJSON(providers)
-				return nil
-			}
-
-			headers := []string{"PROVIDER", "NAME", "ENABLED", "REGION"}
-			var rows [][]string
-			for _, p := range providers {
-				enabled := "yes"
-				if !p.Enabled {
-					enabled = "no"
-				}
-				rows = append(rows, []string{
-					p.Provider, p.DisplayName, enabled, p.Region,
-				})
-			}
-			printTable(headers, rows)
 			return nil
 		},
 	}

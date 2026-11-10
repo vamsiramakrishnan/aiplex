@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
@@ -315,15 +316,125 @@ func usageTarget(r usageledger.Record) string {
 }
 
 func usageRecordRows(records []usageledger.Record) ([]string, [][]string) {
-	headers := []string{"ID", "TIME", "PLANE", "MODEL/TOOL", "AGENT", "USER", "CLIENT", "SESSION", "STATUS", "IN", "OUT", "COST", "LATENCY"}
+	headers := []string{"ID", "TIME", "PLANE", "MODEL/TOOL", "AGENT", "USER", "CLIENT", "SESSION", "BATCH", "STATUS", "IN", "OUT", "CACHE-W", "MODALITY", "UNITS", "COST", "LATENCY"}
 	rows := make([][]string, 0, len(records))
 	for _, r := range records {
 		rows = append(rows, []string{
-			r.ID, r.StartedAt.UTC().Format("2006-01-02T15:04:05Z"), r.Plane, usageTarget(r), usageDash(r.ActorID), usageDash(r.PrincipalID), usageDash(r.ClientID), usageSessionCell(r), r.Status,
-			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageCost(r.Cost), fmt.Sprintf("%dms", r.LatencyMS),
+			r.ID, r.StartedAt.UTC().Format("2006-01-02T15:04:05Z"), r.Plane, usageTarget(r), usageDash(r.ActorID), usageDash(r.PrincipalID), usageDash(r.ClientID), usageSessionCell(r), usageBatchCell(r), usageStatusCell(r),
+			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageRecordCounter(r, usageledger.CounterCacheWrite),
+			usageModalityCell(r), usageUnitsCell(r), usageCost(r.Cost), fmt.Sprintf("%dms", r.LatencyMS),
 		})
 	}
 	return headers, rows
+}
+
+func usageBatchCell(r usageledger.Record) string {
+	if r.Batch {
+		return "batch"
+	}
+	return "—"
+}
+
+// usageStatusCell appends the reason of a capacity rejection: the request was
+// refused by the capacity policy before reaching the provider.
+func usageStatusCell(r usageledger.Record) string {
+	switch r.ErrorClass {
+	case "capacity_cooldown", "capacity_shed":
+		return r.Status + " (" + r.ErrorClass + ")"
+	}
+	return r.Status
+}
+
+// usageDuration renders a millisecond unit as a duration, keeping the exact
+// milliseconds when they are not a whole second.
+func usageDuration(ms int64) string {
+	d := time.Duration(ms) * time.Millisecond
+	if ms%1000 == 0 {
+		return d.String()
+	}
+	return fmt.Sprintf("%s (%dms)", d.String(), ms)
+}
+
+// usageUnitLabel names a unit counter for tables. Units are never tokens.
+var usageUnitLabel = map[string]string{
+	usageledger.CounterAudioInputMilliseconds:   "audio-in",
+	usageledger.CounterVoiceSessionMilliseconds: "voice-session",
+	usageledger.CounterVideoOutputMilliseconds:  "video-out",
+	usageledger.CounterGeneratedImages:          "images",
+}
+
+// usageUnitValue renders one reported unit quantity: milliseconds as a
+// duration, images as a count with the record's size and quality when known.
+func usageUnitValue(name string, v int64, size, quality string) string {
+	if name == usageledger.CounterGeneratedImages {
+		cell := fmt.Sprintf("%d images", v)
+		if v == 1 {
+			cell = "1 image"
+		}
+		if dims := strings.TrimSpace(size + " " + quality); dims != "" {
+			cell += " (" + dims + ")"
+		}
+		return cell
+	}
+	return usageDuration(v)
+}
+
+// usageUnitsCell lists only the units the record reported. A unit that is not
+// listed is unknown, never zero; a reported zero is shown as zero.
+func usageUnitsCell(r usageledger.Record) string {
+	parts := []string{}
+	for _, name := range usageledger.UnitCounters {
+		if v := r.Usage.UnitCounter(name); v != nil {
+			value := usageUnitValue(name, *v, r.ImageSize, r.ImageQuality)
+			if name != usageledger.CounterGeneratedImages {
+				value = usageUnitLabel[name] + " " + value
+			}
+			parts = append(parts, value)
+		}
+	}
+	if len(parts) == 0 {
+		return "—"
+	}
+	return strings.Join(parts, ", ")
+}
+
+var usageModalityShort = strings.NewReplacer("input_", "", "output_", "", "_tokens", "")
+
+func usageModalityParts(counters []string, get func(string) (int64, bool)) string {
+	parts := []string{}
+	for _, name := range counters {
+		if v, ok := get(name); ok {
+			parts = append(parts, usageModalityShort.Replace(name)+"="+strconv.FormatInt(v, 10))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// usageModalityText renders modality token splits (subsets of IN / OUT):
+// "in text=7 audio=0 | out image=4". Splits the provider did not report are
+// omitted, never shown as zero.
+func usageModalityText(get func(string) (int64, bool)) string {
+	in := usageModalityParts(usageledger.InputModalityCounters, get)
+	out := usageModalityParts(usageledger.OutputModalityCounters, get)
+	switch {
+	case in != "" && out != "":
+		return "in " + in + " | out " + out
+	case in != "":
+		return "in " + in
+	case out != "":
+		return "out " + out
+	}
+	return "—"
+}
+
+func usageModalityCell(r usageledger.Record) string {
+	return usageModalityText(func(name string) (int64, bool) {
+		v := r.Usage.UnitCounter(name)
+		if v == nil {
+			return 0, false
+		}
+		return *v, true
+	})
 }
 
 func usageRecordDetail(r usageledger.Record) [][2]string {
@@ -342,10 +453,79 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		{"status", r.Status}, {"http_status", httpStatus}, {"error_class", usageDash(r.ErrorClass)}, {"source", r.Source},
 		{"requests", strconv.FormatInt(r.Requests, 10)},
 	}
+	rows = append(rows, [2]string{"batch", strconv.FormatBool(r.Batch)}, [2]string{"image_size", usageDash(r.ImageSize)}, [2]string{"image_quality", usageDash(r.ImageQuality)})
 	for _, name := range usageledger.TokenCounters {
 		rows = append(rows, [2]string{name, usageRecordCounter(r, name)})
 	}
+	// Modality splits are subsets of input_tokens / output_tokens.
+	for _, name := range usageledger.ModalityCounters {
+		rows = append(rows, [2]string{name + " (subset)", usageUnitCounter(r, name)})
+	}
+	// Units are other quantities and are never added to tokens.
+	for _, name := range usageledger.UnitCounters {
+		rows = append(rows, [2]string{name + " (unit)", usageUnitCounter(r, name)})
+	}
 	rows = append(rows, [2]string{"cost", usageCost(r.Cost)})
+	return append(rows, usageLimitRows(r.ProviderLimits)...)
+}
+
+// usageUnitCounter renders a modality split or unit; unreported is "unknown".
+func usageUnitCounter(r usageledger.Record, name string) string {
+	v := r.Usage.UnitCounter(name)
+	if v == nil {
+		return usageUnknown
+	}
+	cell := strconv.FormatInt(*v, 10)
+	switch name {
+	case usageledger.CounterGeneratedImages:
+		if r.ImageSize != "" || r.ImageQuality != "" {
+			cell += " (" + strings.TrimSpace(r.ImageSize+" "+r.ImageQuality) + ")"
+		}
+	case usageledger.CounterAudioInputMilliseconds, usageledger.CounterVoiceSessionMilliseconds, usageledger.CounterVideoOutputMilliseconds:
+		cell += " ms (" + usageDuration(*v) + ")"
+	}
+	if r.UsageBound != "" {
+		cell += " (" + r.UsageBound + ")"
+	}
+	return cell
+}
+
+func usageLimitInt(v *int64) string {
+	if v == nil {
+		return usageUnknown
+	}
+	return strconv.FormatInt(*v, 10)
+}
+
+func usageLimitWindow(w *providerlimits.Window) string {
+	if w == nil {
+		return "not reported"
+	}
+	cell := "remaining " + usageLimitInt(w.Remaining) + " of " + usageLimitInt(w.Limit)
+	if w.ResetAt != nil {
+		cell += ", resets " + w.ResetAt.UTC().Format(time.RFC3339)
+	}
+	return cell
+}
+
+// usageLimitRows renders the provider rate-limit metadata observed on the
+// exchange. Fields the provider did not report are "unknown", never zero.
+func usageLimitRows(l *providerlimits.Limits) [][2]string {
+	if l == nil {
+		return [][2]string{{"provider_limits", "none observed"}}
+	}
+	rows := [][2]string{{"provider_limits", l.Provider + " observed " + l.ObservedAt.UTC().Format(time.RFC3339)}}
+	if l.HTTPStatus != 0 {
+		rows = append(rows, [2]string{"  http_status", strconv.Itoa(l.HTTPStatus)})
+	}
+	rows = append(rows, [2]string{"  classification", usageDash(l.Classification)})
+	retry := usageUnknown
+	if l.RetryAfterMS != nil {
+		retry = (time.Duration(*l.RetryAfterMS) * time.Millisecond).String()
+	}
+	rows = append(rows, [2]string{"  retry_after", retry},
+		[2]string{"  requests", usageLimitWindow(l.Requests)}, [2]string{"  tokens", usageLimitWindow(l.Tokens)},
+		[2]string{"  input_tokens", usageLimitWindow(l.InputTokens)}, [2]string{"  output_tokens", usageLimitWindow(l.OutputTokens)})
 	return rows
 }
 
@@ -404,6 +584,38 @@ func usageUnknownCounts(g usageledger.SummaryGroup) string {
 	return fmt.Sprintf("usage:%d cost:%d", g.UnknownUsageRecords, g.UnknownCostRecords)
 }
 
+func usageGroupModality(g usageledger.SummaryGroup) string {
+	return usageModalityText(func(name string) (int64, bool) { v, ok := g.ModalityTokens[name]; return v, ok })
+}
+
+// usageGroupUnits lists the units some record reported, with how many records
+// reported each. Units no record reported are absent (unknown), never zero.
+func usageGroupUnits(g usageledger.SummaryGroup) string {
+	parts := []string{}
+	for _, name := range usageledger.UnitCounters {
+		v, ok := g.Units[name]
+		if !ok {
+			continue
+		}
+		value := usageUnitValue(name, v, "", "")
+		if name != usageledger.CounterGeneratedImages {
+			value = usageUnitLabel[name] + " " + value
+		}
+		parts = append(parts, fmt.Sprintf("%s (%d rec)", value, g.UnitRecords[name]))
+	}
+	if len(parts) == 0 {
+		return "—"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func usageGroupBatch(g usageledger.SummaryGroup) string {
+	if g.BatchRecords == 0 {
+		return "—"
+	}
+	return strconv.FormatInt(g.BatchRecords, 10)
+}
+
 func usageSummaryRows(s *usageledger.Summary) ([]string, [][]string) {
 	var headers []string
 	for _, field := range s.GroupBy {
@@ -416,7 +628,7 @@ func usageSummaryRows(s *usageledger.Summary) ([]string, [][]string) {
 	if s.Bucket != "" {
 		headers = append(headers, "BUCKET")
 	}
-	headers = append(headers, "REQUESTS", "ERRORS", "DENIED", "IN", "OUT", "COST", "UNKNOWN", "BOUNDED")
+	headers = append(headers, "REQUESTS", "ERRORS", "DENIED", "IN", "OUT", "CACHE-W", "MODALITY", "UNITS", "BATCH", "COST", "UNKNOWN", "BOUNDED")
 	rows := make([][]string, 0, len(s.Groups))
 	for _, g := range s.Groups {
 		var row []string
@@ -431,7 +643,8 @@ func usageSummaryRows(s *usageledger.Summary) ([]string, [][]string) {
 			row = append(row, start)
 		}
 		row = append(row, strconv.FormatInt(g.Requests, 10), strconv.FormatInt(g.Errors, 10), strconv.FormatInt(g.Denied, 10),
-			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageCostTotals(g), usageUnknownCounts(g), usageBoundedCounts(g))
+			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageTokens(g, usageledger.CounterCacheWrite),
+			usageGroupModality(g), usageGroupUnits(g), usageGroupBatch(g), usageCostTotals(g), usageUnknownCounts(g), usageBoundedCounts(g))
 		rows = append(rows, row)
 	}
 	return headers, rows
@@ -461,6 +674,24 @@ func usagePriceMeters(p usageledger.Price) string {
 	for _, name := range names {
 		rate := p.Meters[name]
 		parts = append(parts, fmt.Sprintf("%s=%d/%d", name, rate.Numerator, rate.Denominator))
+	}
+	return strings.Join(parts, " ")
+}
+
+// usagePriceSelectors lists the selectors that narrow a price.
+func usagePriceSelectors(p usageledger.Price) string {
+	parts := []string{}
+	if p.Batch != nil {
+		parts = append(parts, "batch="+strconv.FormatBool(*p.Batch))
+	}
+	if p.ImageSize != "" {
+		parts = append(parts, "image_size="+p.ImageSize)
+	}
+	if p.ImageQuality != "" {
+		parts = append(parts, "image_quality="+p.ImageQuality)
+	}
+	if len(parts) == 0 {
+		return "—"
 	}
 	return strings.Join(parts, " ")
 }
@@ -503,9 +734,9 @@ func usagePricesListCmd() *cobra.Command {
 			}
 			rows := make([][]string, 0, len(prices))
 			for _, p := range prices {
-				rows = append(rows, []string{p.ID, p.Price.ModelID, usageDash(p.Price.Provider), p.Price.Currency, strconv.Itoa(int(p.Price.Scale)), usagePriceMeters(p.Price), usageEffective(p.Price), strconv.FormatUint(p.Revision, 10)})
+				rows = append(rows, []string{p.ID, p.Price.ModelID, usageDash(p.Price.Provider), p.Price.Currency, strconv.Itoa(int(p.Price.Scale)), usagePriceMeters(p.Price), usagePriceSelectors(p.Price), usageEffective(p.Price), strconv.FormatUint(p.Revision, 10)})
 			}
-			printTable([]string{"ID", "MODEL", "PROVIDER", "CURRENCY", "SCALE", "METERS (units per denominator)", "EFFECTIVE", "REVISION"}, rows)
+			printTable([]string{"ID", "MODEL", "PROVIDER", "CURRENCY", "SCALE", "METERS (money per denominator)", "SELECTORS", "EFFECTIVE", "REVISION"}, rows)
 			return nil
 		},
 	}

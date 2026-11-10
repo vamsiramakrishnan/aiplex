@@ -45,6 +45,9 @@ export function ConnectDetails({ accessPointId, client }: { accessPointId: strin
       )}
       <section aria-label="Authentication" className="space-y-1 text-sm">
         <h4 className="text-sm font-semibold">Authentication</h4>
+        <p role="note" aria-label="API key headers" className="text-xs text-gray-600 dark:text-gray-400">
+          SDKs may pass the AIPlex token as their normal API key: on Anthropic paths in <code>x-api-key</code>, on Google paths in <code>x-goog-api-key</code>, and on Azure OpenAI model-gateway paths in <code>api-key</code>. OpenAI SDKs already send it as a bearer token. A token in a URL query parameter (such as <code>?key=</code>) is rejected.
+        </p>
         <p className="text-xs text-gray-600 dark:text-gray-400">
           {c.auth.scheme} in the <code>{c.auth.header}</code> header, read from <code>${c.auth.token_env}</code>. For caller kinds: {(c.auth.caller_kinds ?? []).join(', ') || 'any'}.
         </p>
