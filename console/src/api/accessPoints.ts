@@ -103,39 +103,51 @@ export function errorStatus(error: unknown): number | undefined {
 }
 
 export interface Wire {
-  id: string; label: string; path: string; surfaceProtocol: string
+  id: string; label: string; path: string
+  /** Model-surface protocols that serve this wire natively. */
+  surfaceProtocols: readonly string[]
   /** Further endpoints of the same protocol (streaming variants). */
   extra?: { label: string; path: string }[]
   /** WebSocket session endpoint: metered as one request, usage advisory. */
   websocket?: boolean
 }
+/** The images and audio wires are served by any of these surface protocols (accessPointMediaWires). */
+const MEDIA_SURFACE_PROTOCOLS = ['openai-chat', 'openai-responses', 'openai-images', 'openai-audio'] as const
 const GEMINI_LIVE_PATH = '/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent'
 /**
  * Client wire protocols and the model-surface protocol that serves each
- * natively. Mirrors accessPointWires in internal/api/access_point_models.go;
+ * natively. Mirrors accessPointWires in internal/api/access_point_models.go (plus accessPointMediaWires
+ * in client_gateway_media.go and the utility wires in client_gateway_utility.go);
  * a surface protocol listed here is one the server accepts at save time.
  */
 export const WIRES: readonly Wire[] = [
-  { id: 'openai-chat-completions', label: 'OpenAI Chat Completions', path: '/v1/chat/completions', surfaceProtocol: 'openai-chat' },
-  { id: 'openai-responses', label: 'OpenAI Responses', path: '/v1/responses', surfaceProtocol: 'openai-responses' },
-  { id: 'anthropic-messages', label: 'Anthropic Messages', path: '/v1/messages', surfaceProtocol: 'anthropic-messages' },
-  { id: 'google-genai', label: 'Google GenAI', path: '/v1beta/models/{model}:{op}', surfaceProtocol: 'google-genai' },
-  { id: 'bedrock-converse', label: 'Amazon Bedrock Converse', path: '/model/{model}/converse', surfaceProtocol: 'bedrock-converse', extra: [{ label: 'Streaming', path: '/model/{model}/converse-stream' }] },
-  { id: 'bedrock-invoke', label: 'Amazon Bedrock InvokeModel', path: '/model/{model}/invoke', surfaceProtocol: 'bedrock-invoke', extra: [{ label: 'Streaming', path: '/model/{model}/invoke-with-response-stream' }] },
-  { id: 'openai-realtime', label: 'OpenAI Realtime (WebSocket)', path: '/v1/realtime?model={model}', surfaceProtocol: 'openai-realtime', websocket: true },
-  { id: 'google-live', label: 'Gemini Live (WebSocket)', path: `${GEMINI_LIVE_PATH}?model={model}`, surfaceProtocol: 'google-genai', websocket: true },
+  { id: 'openai-chat-completions', label: 'OpenAI Chat Completions', path: '/v1/chat/completions', surfaceProtocols: ['openai-chat'] },
+  { id: 'openai-responses', label: 'OpenAI Responses', path: '/v1/responses', surfaceProtocols: ['openai-responses'] },
+  { id: 'anthropic-messages', label: 'Anthropic Messages', path: '/v1/messages', surfaceProtocols: ['anthropic-messages'], extra: [{ label: 'Count tokens', path: '/v1/messages/count_tokens' }] },
+  { id: 'google-genai', label: 'Google GenAI', path: '/v1beta/models/{model}:{op}', surfaceProtocols: ['google-genai'], extra: [{ label: 'Cached contents (Developer API)', path: '/v1beta/cachedContents' }, { label: 'Interactions (Developer API)', path: '/v1beta/interactions' }] },
+  { id: 'bedrock-converse', label: 'Amazon Bedrock Converse', path: '/model/{model}/converse', surfaceProtocols: ['bedrock-converse'], extra: [{ label: 'Streaming', path: '/model/{model}/converse-stream' }] },
+  { id: 'bedrock-invoke', label: 'Amazon Bedrock InvokeModel', path: '/model/{model}/invoke', surfaceProtocols: ['bedrock-invoke'], extra: [{ label: 'Streaming', path: '/model/{model}/invoke-with-response-stream' }] },
+  { id: 'openai-realtime', label: 'OpenAI Realtime (WebSocket)', path: '/v1/realtime?model={model}', surfaceProtocols: ['openai-realtime'], websocket: true },
+  { id: 'google-live', label: 'Gemini Live (WebSocket)', path: `${GEMINI_LIVE_PATH}?model={model}`, surfaceProtocols: ['google-genai'], websocket: true },
+  { id: 'openai-embeddings', label: 'OpenAI Embeddings', path: '/v1/embeddings', surfaceProtocols: ['openai-embeddings'] },
+  { id: 'openai-moderations', label: 'OpenAI Moderations', path: '/v1/moderations', surfaceProtocols: ['openai-moderations'] },
+  { id: 'openai-images', label: 'OpenAI Images', path: '/v1/images/generations', surfaceProtocols: MEDIA_SURFACE_PROTOCOLS, extra: [{ label: 'Image edits', path: '/v1/images/edits' }] },
+  { id: 'openai-audio', label: 'OpenAI Audio', path: '/v1/audio/transcriptions', surfaceProtocols: MEDIA_SURFACE_PROTOCOLS, extra: [{ label: 'Translations', path: '/v1/audio/translations' }, { label: 'Speech', path: '/v1/audio/speech' }] },
 ]
 const wireUrls = (w: Wire, root: string) => {
   const ws = (u: string) => (w.websocket ? u.replace(/^http/, 'ws') : u)
   return [{ label: 'Endpoint', url: ws(root + w.path) }, ...(w.extra ?? []).map(e => ({ label: e.label, url: ws(root + e.path) }))]
 }
 
+/** Client wires that reach a surface speaking this protocol. */
+export const wiresForProtocol = (protocol: string) => WIRES.filter(w => w.surfaceProtocols.includes(protocol))
+
 type SurfaceInfo = ModelSurfaceRecord['spec']['surface']
 /** Provider name shown for a surface: its explicit provider, else Google Cloud. */
 export const surfaceProviderName = (s: SurfaceInfo) => s.provider?.id ?? 'google-cloud'
 /** Why an access point cannot route this surface, or undefined when it can. */
 export function surfaceUnroutableReason(s: SurfaceInfo): string | undefined {
-  if (WIRES.some(w => w.surfaceProtocol === s.protocol)) return undefined
+  if (WIRES.some(w => w.surfaceProtocols.includes(s.protocol))) return undefined
   return `access points have no client protocol for ${s.protocol}`
 }
 export const surfaceOptionLabel = (s: SurfaceInfo) => {
@@ -160,7 +172,7 @@ export function endpointGroups(spec: AccessPointSpec, origin: string, surfaces: 
     const protocols = surfaces ? models.map(m => surfaces.find(s => s.id === m.surface_ref)?.spec.surface.protocol) : undefined
     const unknown = !protocols || protocols.some(p => !p)
     const served = new Set(protocols)
-    const wires = unknown ? WIRES : WIRES.filter(w => served.has(w.surfaceProtocol))
+    const wires = unknown ? WIRES : WIRES.filter(w => w.surfaceProtocols.some(p => served.has(p)))
     for (const w of wires) {
       groups.push({
         id: w.id, title: w.label,
@@ -233,7 +245,8 @@ export function endpointGroupsFromConnect(spec: AccessPointSpec, c: ConnectInfo)
     if (family) {
       const baseUrl = c.base_urls?.[family]
       if (!baseUrl) continue
-      groups.push({ id: w.id, title: w.label, urls: [{ label: 'Endpoint', url: baseUrl + (family === 'openai' ? w.path.replace(/^\/v1/, '') : w.path) }] })
+      const at = (path: string) => baseUrl + (family === 'openai' ? path.replace(/^\/v1/, '') : path)
+      groups.push({ id: w.id, title: w.label, urls: [{ label: 'Endpoint', url: at(w.path) }, ...(w.extra ?? []).map(e => ({ label: e.label, url: at(e.path) }))] })
     } else if (serverEndpoints) {
       const mine = serverEndpoints.filter(e => e.protocol === w.id)
       if (mine.length) {

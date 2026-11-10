@@ -1,7 +1,7 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  CALLER_KINDS, fieldForError, surfaceOptionLabel, surfaceUnroutableReason, listAgents, listClientRegistrations, listModelSurfaces, listToolConnections, parseList,
+  CALLER_KINDS, fieldForError, surfaceOptionLabel, surfaceUnroutableReason, wiresForProtocol, WIRES, listAgents, listClientRegistrations, listModelSurfaces, listToolConnections, parseList,
   type AccessPointSpec, type CallerKind, type GroupRef,
 } from '../api/accessPoints'
 import { listInstances } from '../api/client'
@@ -253,7 +253,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
       </Section>
 
       <Section title="Models" errorId={`${uid}-models-err`} error={fieldMsg('models')}
-        hint="Each entry maps a client-facing model name to a saved model surface and the provider-native model. A model is reachable only through the wire protocol its surface speaks natively.">
+        hint={`Each entry maps a client-facing model name to a saved model surface and the provider-native model. A model is reachable only through the wire protocols its surface speaks natively. Wires an access point can serve: ${WIRES.map(w => w.label).join(', ')}.`}>
         {surfaces.isLoading && <p role="status" className="text-xs text-gray-500">Loading model surfaces…</p>}
         {surfaces.error && <p role="alert" className="text-xs text-red-600">Could not load model surfaces: {(surfaces.error as Error).message}</p>}
         {d.models.map((m, i) => (
@@ -275,6 +275,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
               <label htmlFor={`${uid}-m${i}-name`} className="block text-xs mb-1">Name clients use</label>
               <input id={`${uid}-m${i}-name`} value={m.name} onChange={e => updateModel(i, { name: e.target.value })} className={`${input} font-mono`} />
             </div>
+            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); return surf && !surfaceUnroutableReason(surf.spec.surface) ? <p className="text-xs text-gray-500 sm:col-span-4">Reachable through: {wiresForProtocol(surf.spec.surface.protocol).map(w => w.label).join(', ')}.</p> : null })()}
             {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); const why = surf && surfaceUnroutableReason(surf.spec.surface); return why ? <p role="alert" className="text-xs text-red-600 sm:col-span-4">Surface {m.surface_ref} is unavailable for access points: {why}. Choose another surface.</p> : null })()}
             <button type="button" className={btn} aria-label={`Remove model ${i + 1}`} onClick={() => patch({ models: d.models.filter((_, j) => j !== i) })}>Remove</button>
           </div>

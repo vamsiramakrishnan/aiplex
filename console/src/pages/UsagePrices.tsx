@@ -16,18 +16,22 @@ export interface PriceDraft {
   meters: Record<api.PriceMeter, { numerator: string; denominator: string }>
   effective_from: string
   effective_until: string
+  /** Selectors: '' matches any exchange. */
+  batch: '' | 'true' | 'false'
+  image_size: string
+  image_quality: string
 }
 
-const blankMeters = () => Object.fromEntries(api.PRICE_METERS.map((m) => [m, { numerator: '', denominator: '' }])) as PriceDraft['meters']
-export const blankDraft = (): PriceDraft => ({ id: '', model_id: '', provider: '', currency: 'USD', scale: '6', meters: blankMeters(), effective_from: '', effective_until: '' })
+const blankMeters = () => Object.fromEntries(api.ALL_PRICE_METERS.map((m) => [m, { numerator: '', denominator: '' }])) as PriceDraft['meters']
+export const blankDraft = (): PriceDraft => ({ id: '', model_id: '', provider: '', currency: 'USD', scale: '6', meters: blankMeters(), effective_from: '', effective_until: '', batch: '', image_size: '', image_quality: '' })
 
 export function draftFromPrice(price: api.ModelPrice): PriceDraft {
   const meters = blankMeters()
-  for (const name of api.PRICE_METERS) {
+  for (const name of api.ALL_PRICE_METERS) {
     const rate = price.meters[name]
     if (rate) meters[name] = { numerator: String(rate.numerator), denominator: String(rate.denominator) }
   }
-  return { id: price.id, model_id: price.model_id, provider: price.provider ?? '', currency: price.currency, scale: String(price.scale), meters, effective_from: price.effective_from ?? '', effective_until: price.effective_until ?? '' }
+  return { id: price.id, model_id: price.model_id, provider: price.provider ?? '', currency: price.currency, scale: String(price.scale), meters, effective_from: price.effective_from ?? '', effective_until: price.effective_until ?? '', batch: price.batch === undefined ? '' : price.batch ? 'true' : 'false', image_size: price.image_size ?? '', image_quality: price.image_quality ?? '' }
 }
 
 const safeInt = (text: string, min: number) => /^\d+$/.test(text) && Number.isSafeInteger(Number(text)) && Number(text) >= min
@@ -41,7 +45,7 @@ export function priceFromDraft(draft: PriceDraft): { price?: api.ModelPrice; err
   if (!/^[A-Z]{3}$/.test(draft.currency)) errors.push('Currency must be three uppercase letters, e.g. USD.')
   if (!/^\d+$/.test(draft.scale) || Number(draft.scale) > 18) errors.push('Scale must be a whole number from 0 to 18.')
   const meters: api.ModelPrice['meters'] = {}
-  for (const name of api.PRICE_METERS) {
+  for (const name of api.ALL_PRICE_METERS) {
     const { numerator, denominator } = draft.meters[name]
     if (!numerator.trim() && !denominator.trim()) continue
     if (!safeInt(numerator.trim(), 0) || !safeInt(denominator.trim(), 1)) errors.push(`${name}: numerator must be a whole number ≥ 0 and denominator a whole number ≥ 1.`)
@@ -52,10 +56,12 @@ export function priceFromDraft(draft: PriceDraft): { price?: api.ModelPrice; err
   for (const [label, value] of [['Effective from', from], ['Effective until', until]] as const) if (value && Number.isNaN(Date.parse(value))) errors.push(`${label} must be an RFC 3339 timestamp, e.g. 2026-11-01T00:00:00Z.`)
   if (from && until && Date.parse(until) <= Date.parse(from)) errors.push('Effective until must be after effective from.')
   if (errors.length) return { errors }
-  return { errors, price: { id, model_id: draft.model_id.trim(), ...(draft.provider.trim() ? { provider: draft.provider.trim() } : {}), currency: draft.currency, scale: Number(draft.scale), meters, ...(from ? { effective_from: from } : {}), ...(until ? { effective_until: until } : {}) } }
+  return { errors, price: { id, model_id: draft.model_id.trim(), ...(draft.provider.trim() ? { provider: draft.provider.trim() } : {}), currency: draft.currency, scale: Number(draft.scale), meters, ...(from ? { effective_from: from } : {}), ...(until ? { effective_until: until } : {}), ...(draft.batch ? { batch: draft.batch === 'true' } : {}), ...(draft.image_size.trim() ? { image_size: draft.image_size.trim() } : {}), ...(draft.image_quality.trim() ? { image_quality: draft.image_quality.trim() } : {}) } }
 }
 
-const describeMeters = (p: api.ModelPrice) => api.PRICE_METERS.filter((m) => p.meters[m]).map((m) => `${m} ${p.meters[m]!.numerator}/${p.meters[m]!.denominator}`).join(', ')
+const describeMeters = (p: api.ModelPrice) => api.ALL_PRICE_METERS.filter((m) => p.meters[m]).map((m) => `${m} ${p.meters[m]!.numerator}/${p.meters[m]!.denominator}`).join(', ')
+
+const describeSelectors = (p: api.ModelPrice) => [p.batch === undefined ? '' : `batch ${p.batch ? 'only' : 'excluded'}`, p.image_size ? `size ${p.image_size}` : '', p.image_quality ? `quality ${p.image_quality}` : ''].filter(Boolean).join(', ') || 'any'
 
 type Editing = { mode: 'create' } | { mode: 'edit'; revision: number }
 
@@ -122,7 +128,9 @@ export default function UsagePrices() {
   }
 
   const setMeter = (name: api.PriceMeter, part: 'numerator' | 'denominator', value: string) => setDraft((d) => ({ ...d, meters: { ...d.meters, [name]: { ...d.meters[name], [part]: value } } }))
-  const text = (name: 'id' | 'model_id' | 'provider' | 'currency' | 'scale' | 'effective_from' | 'effective_until') => ({ value: draft[name], onChange: (e: { target: { value: string } }) => setDraft((d) => ({ ...d, [name]: e.target.value })) })
+  const text = (name: 'id' | 'model_id' | 'provider' | 'currency' | 'scale' | 'effective_from' | 'effective_until' | 'image_size' | 'image_quality') => ({ value: draft[name], onChange: (e: { target: { value: string } }) => setDraft((d) => ({ ...d, [name]: e.target.value })) })
+
+  const meterInputs = (m: api.PriceMeter) => <div key={m} className="grid grid-cols-[1fr_1fr] gap-2"><label className="text-sm">{m} numerator<input className={field} inputMode="numeric" value={draft.meters[m].numerator} onChange={(e) => setMeter(m, 'numerator', e.target.value)} /></label><label className="text-sm">{m} denominator<input className={field} inputMode="numeric" value={draft.meters[m].denominator} onChange={(e) => setMeter(m, 'denominator', e.target.value)} /></label></div>
 
   return <section className="space-y-3" aria-label="Model prices">
     <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-medium">Model prices</h2><button type="button" className={button} onClick={() => open({ mode: 'create' }, blankDraft())}>Add price</button></div>
@@ -135,10 +143,11 @@ export default function UsagePrices() {
       : query.data.length === 0 ? <p role="status">No prices configured. Cost is unknown until a price is configured or quota settles it.</p>
       : <div className="overflow-x-auto"><table className="w-full text-left text-sm">
         <caption className="sr-only">Configured model prices</caption>
-        <thead><tr className="border-b border-gray-200 dark:border-gray-800">{['ID', 'Model', 'Provider', 'Currency / scale', 'Meters (minor units per quantity)', 'Effective', 'Revision', 'Actions'].map((h) => <th key={h} scope="col" className="py-2 pr-4">{h}</th>)}</tr></thead>
+        <thead><tr className="border-b border-gray-200 dark:border-gray-800">{['ID', 'Model', 'Provider', 'Currency / scale', 'Meters (minor units per quantity)', 'Selectors', 'Effective', 'Revision', 'Actions'].map((h) => <th key={h} scope="col" className="py-2 pr-4">{h}</th>)}</tr></thead>
         <tbody>{query.data.map((p) => <tr key={p.id} className="border-t border-gray-200 align-top dark:border-gray-800">
           <th scope="row" className="py-2 pr-4 font-normal">{p.id}</th><td className="pr-4">{p.spec.model_id}</td><td className="pr-4">{p.spec.provider || '—'}</td>
           <td className="pr-4">{p.spec.currency} / {p.spec.scale}</td><td className="pr-4 font-mono text-xs">{describeMeters(p.spec)}</td>
+          <td className="pr-4 text-xs">{describeSelectors(p.spec)}</td>
           <td className="pr-4 text-xs">{p.spec.effective_from || p.spec.effective_until ? `${p.spec.effective_from ?? '…'} → ${p.spec.effective_until ?? '…'}` : 'always'}</td>
           <td className="pr-4">{p.revision}</td>
           <td className="whitespace-nowrap">{confirmDelete?.id === p.id
@@ -157,8 +166,21 @@ export default function UsagePrices() {
         <label className="text-sm">Currency<input className={field} {...text('currency')} maxLength={3} /></label>
         <label className="text-sm">Scale (decimal places of the minor unit)<input className={field} inputMode="numeric" {...text('scale')} /></label>
       </div>
-      <fieldset><legend className="text-sm font-medium">Meters</legend><p className={muted}>Rate = numerator minor units (at the scale above) per denominator raw units. A numerator of 0 declares a meter free; leave both blank if it is not priced.</p>
-        <div className="mt-2 grid gap-2 sm:grid-cols-2">{api.PRICE_METERS.map((m) => <div key={m} className="grid grid-cols-[1fr_1fr] gap-2"><label className="text-sm">{m} numerator<input className={field} inputMode="numeric" value={draft.meters[m].numerator} onChange={(e) => setMeter(m, 'numerator', e.target.value)} /></label><label className="text-sm">{m} denominator<input className={field} inputMode="numeric" value={draft.meters[m].denominator} onChange={(e) => setMeter(m, 'denominator', e.target.value)} /></label></div>)}</div>
+      <fieldset><legend className="text-sm font-medium">Token and request meters</legend><p className={muted}>Rate = numerator minor units (at the scale above) per denominator raw units. A numerator of 0 declares a meter free; leave both blank if it is not priced.</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">{api.PRICE_METERS.map(meterInputs)}</div>
+      </fieldset>
+      <fieldset><legend className="text-sm font-medium">Modality token meters</legend><p className={muted}>Audio, image, video and text splits are part of the input or output tokens. A split you price here is charged at its own rate and taken out of the parent total, so it is not counted twice. If a modality is priced and cache reads or writes are priced too, a record whose cache counters are unknown cannot be priced.</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">{api.MODALITY_METERS.map(meterInputs)}</div>
+      </fieldset>
+      <fieldset><legend className="text-sm font-medium">Unit meters</legend><p className={muted}>Milliseconds of audio, voice session or video, and the count of generated images. These are separate quantities, never tokens: a rate of 1 per 1000 on a milliseconds meter means 1 minor unit per second.</p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">{api.UNIT_METERS.map(meterInputs)}</div>
+      </fieldset>
+      <fieldset><legend className="text-sm font-medium">Selectors (optional)</legend><p className={muted}>Narrow the price to some exchanges. A price without a selector matches any value; when several prices match, the one with the most selectors wins, and an exact tie prices nothing.</p>
+        <div className="mt-2 grid gap-3 sm:grid-cols-3">
+          <label className="text-sm">Batch<select className={field} value={draft.batch} onChange={(e) => setDraft((d) => ({ ...d, batch: e.target.value as PriceDraft['batch'] }))}><option value="">Any exchange</option><option value="true">Batch exchanges only</option><option value="false">Non-batch exchanges only</option></select></label>
+          <label className="text-sm">Image size<input className={field} placeholder="1024x1024" {...text('image_size')} /></label>
+          <label className="text-sm">Image quality<input className={field} placeholder="high" {...text('image_quality')} /></label>
+        </div>
       </fieldset>
       <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">Effective from (RFC 3339, optional)<input className={field} placeholder="2026-11-01T00:00:00Z" {...text('effective_from')} /></label><label className="text-sm">Effective until (RFC 3339, optional)<input className={field} placeholder="2027-01-01T00:00:00Z" {...text('effective_until')} /></label></div>
       <div className="flex gap-3"><button type="submit" className={button} disabled={busy}>Save price</button><button type="button" className="underline" onClick={close}>Cancel</button></div>

@@ -159,11 +159,11 @@ describe('Usage requests', () => {
     show()
     const table = await within(region('Requests')).findByRole('table')
     const cells = (id: string) => within(rowOf(table, id)).getAllByRole('cell').map((c) => c.textContent)
-    // time, plane, model/tool, agent, principal, client, status, in, out, cost, latency
+    // time, plane, model/tool, agent, principal, client, status, in, out, cache write, modality, units, cost, latency
     const known = cells('gemini-2.5-flash')
-    expect(known.slice(1, 11)).toEqual(['llmplex', 'gemini-2.5-flash', 'tutor-agent', 'student-1', 'cursor', 'ok', '0', 'unknown', 'USD 0.001135estimated', '1200 ms'])
+    expect(known.slice(1, 14)).toEqual(['llmplex', 'gemini-2.5-flash', 'tutor-agent', 'student-1', 'cursor', 'ok', '0', 'unknown', 'unknown', '—', '—', 'USD 0.001135estimated', '1200 ms'])
     const denied = cells('search_curriculum')
-    expect(denied.slice(1, 11)).toEqual(['mcplex', 'search_curriculum', '—', '—', '—', 'denied', 'unknown', 'unknown', 'unknown', '5 ms'])
+    expect(denied.slice(1, 14)).toEqual(['mcplex', 'search_curriculum', '—', '—', '—', 'denied', 'unknown', 'unknown', 'unknown', '—', '—', 'unknown', '5 ms'])
   })
 
   it('opens a drawer with every metadata field and closes on Escape', async () => {
