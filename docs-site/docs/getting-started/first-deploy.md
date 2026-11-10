@@ -5,7 +5,7 @@ description: Sign in, deploy a catalog template, inspect the instance, or apply 
 
 # Deploy a tool
 
-This page assumes a running AIPlex platform (see [Install the platform](./install-platform.md)) or a local API ([Local development](./local-development.md)). Template IDs and their configuration come from your catalog, so the commands below use placeholders.
+This page assumes a running AIPlex platform (see [Install the platform](./install-platform.md)) or a local API from the [Docker stack](./docker-stack.md). `aiplex dev` has no template catalog, so deploying a catalog template needs one of those. Template IDs and their configuration come from your catalog, so the commands below use placeholders.
 
 ## From the catalog
 
@@ -58,7 +58,7 @@ aiplex validate aiplex.json
 aiplex apply -f aiplex.json
 ```
 
-YAML works as well. The repository's `examples/` directory has working files (`quickstart.yaml`, `mcplex-only.yaml`, `llm-routing.yaml`, `multi-agent.yaml`).
+YAML works as well. The repository's `examples/` directory has declarative files to start from (`quickstart.yaml`, `quickstart.json`, `mcplex-only.yaml`); their template IDs must exist in your catalog. `examples/README.md` says which examples are tested.
 
 These model routes configure Envoy. A ClientPlex gateway registration references a separately saved LLMPlex model surface (see [Connected Plexes](../library/connected-plexes.md#client-compatibility)); applying a route does not create that surface. Managed tool authorization and invocation follow the [MCP runtime guide](../library/mcp-runtime-authorization.md).
 

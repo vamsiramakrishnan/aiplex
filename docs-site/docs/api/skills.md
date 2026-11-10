@@ -2,7 +2,7 @@
 title: Skills API
 ---
 
-Access rules are being tightened in the same release; check the route's response for the authoritative answer.
+Route access is enforced by a default-deny route policy: a route with no explicit rule is open to operators only. Check the route's response for the authoritative answer.
 
 The skills API covers SkillsPlex, the plane that publishes skill servers and records skill invocations. It has three parts: a discovery list of running skill servers, a per-server skills manifest that agents read before they call a skill, and an invocation log. The invocation log is reported telemetry. A recorded invocation does not execute a skill and does not prove that live authorization succeeded.
 

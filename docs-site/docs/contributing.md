@@ -9,7 +9,7 @@ AIPlex is open source under the Apache 2.0 license.
 
 ## Set up
 
-Follow [Local development](./getting-started/local-development.md) to build and run the API, CLI and Console.
+Follow [Run it locally in a minute](./getting-started/local-development.md) to build the CLI and API and start `aiplex dev`. The repository's `CONTRIBUTING.md` has the full list of checks (Go tests, `make e2e`, `make demo`, `make examples-test`, the Console and this site).
 
 ## Repository layout
 
@@ -22,7 +22,7 @@ console/       React application
 sdk/           Go SDK
 deploy/        Terraform, Helm, Kubernetes manifests, Ory config
 policies/      Rego authorization policy
-examples/      Example configuration files
+examples/      Runnable examples (make examples-test)
 design/        Architecture documents
 docs/          Code-verified feature docs (rendered on this site)
 docs-site/     This documentation site (Docusaurus)
@@ -34,6 +34,9 @@ docs-site/     This documentation site (Docusaurus)
 make test          # all Go tests
 make test-short
 make lint          # go vet
+make e2e           # real binaries against local mock upstreams
+make demo          # scripted first run of `aiplex dev`
+make examples-test # the examples, against `aiplex dev`
 ```
 
 The Rust service has its own tests (`cargo test` in `authz/`), and the Console runs `npm --prefix console test`.
@@ -51,4 +54,4 @@ Feature documentation lives in `docs/*.md` and is the single source of truth. Th
 
 ## License
 
-Apache 2.0. See [LICENSE](https://github.com/vamsiramakrishnan/aiplex/blob/main/LICENSE).
+Apache 2.0. See [LICENSE](https://github.com/vamsiramakrishnan/aiplex/blob/main/LICENSE). Security issues go through the private route in [SECURITY.md](https://github.com/vamsiramakrishnan/aiplex/blob/main/SECURITY.md).

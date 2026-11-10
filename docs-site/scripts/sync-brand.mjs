@@ -7,7 +7,7 @@
 //   brand/logo/aiplex-favicon.svg                     -> static/img/favicon.svg
 //   brand/tokens/tokens.css                           -> src/css/brand-tokens.css
 //   brand/icons/*.svg                                 -> src/brand/icons/ (imported as React components)
-//   brand/{logo,icons,social,brand-sheet.svg}         -> static/img/brand/ (for the Brand page)
+//   brand/{logo,icons,social,brand-sheet.svg,brand-sheet-dark.svg} -> static/img/brand/ (for the Brand page)
 //
 // The social card PNG (static/img/aiplex-social-card.png) is committed, not copied;
 // see docs-site/README.md for how to regenerate it.
@@ -41,4 +41,5 @@ await copyDir('logo', 'static/img/brand/logo');
 await copyDir('icons', 'static/img/brand/icons');
 await copyDir('social', 'static/img/brand/social');
 await copy('brand-sheet.svg', 'static/img/brand/brand-sheet.svg');
+await copy('brand-sheet-dark.svg', 'static/img/brand/brand-sheet-dark.svg');
 console.log('sync-brand: brand assets copied');

@@ -5,7 +5,7 @@ description: Environment variables read by the AIPlex API, and the CLI contexts 
 
 # Configuration
 
-The API reads its configuration from environment variables when it starts (`internal/config/config.go`). In a cluster, Helm sets them; locally, export them as in [Local development](../getting-started/local-development.md).
+The API reads its configuration from environment variables when it starts (`internal/config/config.go`). In a cluster, Helm sets them; locally, export them as in [Local stack with Docker](../getting-started/docker-stack.md), or use [`aiplex dev`](../getting-started/local-development.md), which sets them for you.
 
 ## Server
 

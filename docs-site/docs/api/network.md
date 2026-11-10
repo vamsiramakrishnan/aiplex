@@ -2,7 +2,7 @@
 title: Network API
 ---
 
-Access rules are being tightened in the same release; check the route's response for the authoritative answer.
+Route access is enforced by a default-deny route policy: a route with no explicit rule is open to operators only. Check the route's response for the authoritative answer.
 
 The network API describes how an agent's runtime reaches its network and how infrastructure is deployed for it. It has four parts. Network profiles describe a network target, such as an agent identity or a private endpoint, and render reviewed configuration. Deployment providers hold the approved bindings that can change infrastructure. Deployment intents connect desired state to one approved binding. Deployment plans move through approval, execution, receipt and observation. Every deployment action is tied to the tenant, to a specific plan digest, and to the principal and actor that prepared it.
 

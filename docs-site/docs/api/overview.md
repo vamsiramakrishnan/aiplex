@@ -34,19 +34,19 @@ Errors are JSON:
 | Prefix | Purpose | Details |
 | --- | --- | --- |
 | `/healthz`, `/readyz` | Liveness and readiness | |
-| `/api/v1/catalog`, `/api/v1/instances` | Template catalog and deployed instances | |
+| `/api/v1/catalog`, `/api/v1/instances`, `/healthz` and others | Template catalog, deployed instances, probes, dashboard | [Platform](./platform.md) |
 | `/api/v1/agents` | Agent registration and permissions | [Identity: agents](./identity-agents.md) |
 | `/api/v1/usage` | Usage ledger records, summary, prices | [Usage](./usage.md) |
 | `/api/v1/access-points` | Access point management | [Access points](./access-points.md) |
 | `/api/v1/overview` | Single pane: callers, access points, connect | [Overview pane](./overview-pane.md) |
-| `/api/v1/iam` | Roles, role bindings, principal validation, native governance | [Identity: agents](./identity-agents.md) |
-| `/api/v1/llm` | Model surfaces, routes, providers, usage, batches | [Model surfaces](./model-surfaces.md), [Model batches](./model-batches.md) |
+| `/api/v1/iam` | Roles, role bindings, principal validation, native governance | [IAM](./iam.md), [Identity: agents](./identity-agents.md) |
+| `/api/v1/llm` | Model surfaces, routes, providers, usage, batches | [Model surfaces](./model-surfaces.md), [Model batches](./model-batches.md), [LLM routes](./llm-routes.md) |
 | `/api/v1/mcp/connections` | Tool connections and OAuth | [MCP connections](./mcp-connections.md) |
-| `/api/v1/a2a`, `/api/v1/skills` | Agent cards, delegations, skill servers, invocations | |
-| `/api/v1/clients` | ClientPlex registrations, destinations and plans | |
-| `/api/v1/network` | Deployment intents, plans and profiles | |
+| `/api/v1/a2a`, `/api/v1/skills` | Agent cards, delegations, skill servers, invocations | [A2A connections](./a2a-connections.md), [Skills](./skills.md) |
+| `/api/v1/clients` | ClientPlex registrations, destinations and plans | [Clients](./clients.md) |
+| `/api/v1/network` | Deployment intents, plans and profiles | [Network](./network.md) |
 | `/api/v1/dashboard` | Stats and policy denials | |
-| `/api/v1/runs` | Tape-backed run projection and operator actions | [Durable runs](../guides/runs.md) |
+| `/api/v1/runs` | Tape-backed run projection and operator actions | [Runs](./runs.md), [Durable runs](../guides/runs.md) |
 | `/api/v1/modules` | Enabled modules and their contracts | |
 | `/api/v1/quota` | QuotaPlex inspection and administration (opt-in) | [Quota](./quota.md) |
 | `/auth/consent`, `/auth/token-hook` | Hydra consent and token hook webhooks | |

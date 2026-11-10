@@ -2,7 +2,7 @@
 title: Clients API
 ---
 
-Access rules are being tightened in the same release; check the route's response for the authoritative answer.
+Route access is enforced by a default-deny route policy: a route with no explicit rule is open to operators only. Check the route's response for the authoritative answer.
 
 The clients API registers developer clients, such as coding CLIs and desktop apps, and produces reviewed configuration plans for them. A registration names a built-in client profile, a protocol, and either a direct Google Cloud connection or a gateway destination. A plan renders configuration fragments for the client. It never writes workstation files, fetches credentials, or runs helper commands, and it does not promise upstream model access. Gateway destinations are looked up by reference in the caller's tenant. A request can never supply a raw endpoint URL. Every route is tenant-scoped: the tenant comes from the verified binding, never from a query parameter.
 

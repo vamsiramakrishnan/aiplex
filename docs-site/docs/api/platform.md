@@ -2,7 +2,7 @@
 title: Platform API
 ---
 
-Access rules are being tightened in the same release; check the route's response for the authoritative answer.
+Route access is enforced by a default-deny route policy: a route with no explicit rule is open to operators only. Check the route's response for the authoritative answer.
 
 The platform API covers the routes that are not specific to one plane. It has health probes, the module list, the catalog of deployable templates, deployed instances, registered agents and their permissions, the dashboard summary, the MCP registry view, the A2A Agent Card, and the authentication webhooks and user scopes that connect AIPlex to Ory Hydra.
 
