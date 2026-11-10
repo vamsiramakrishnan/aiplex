@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
-	"text/tabwriter"
 
 	"gopkg.in/yaml.v3"
 )
@@ -25,14 +23,18 @@ func printYAML(v any) {
 	enc.Close()
 }
 
+// printTable renders rows under the CLI table policy (see table.go). Every
+// column is shown; cells shorten to fit the terminal.
 func printTable(headers []string, rows [][]string) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, strings.Join(headers, "\t"))
-	fmt.Fprintln(w, strings.Repeat("─", len(headers)*16))
-	for _, row := range rows {
-		fmt.Fprintln(w, strings.Join(row, "\t"))
+	tableFrom(headers, rows).render(os.Stdout)
+}
+
+func tableFrom(headers []string, rows [][]string) *outTable {
+	cols := make([]column, len(headers))
+	for i, h := range headers {
+		cols[i] = col(h)
 	}
-	w.Flush()
+	return &outTable{cols: cols, rows: rows}
 }
 
 func debugf(format string, args ...any) {

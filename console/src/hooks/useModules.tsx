@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { listModules, type ModuleDescriptor } from '../api/client'
 import { useAuth } from './useAuth'
-import { enabledConsoleModules } from '../modules'
+import { consoleModules, enabledConsoleModules } from '../modules'
 
 interface ModuleState {
   descriptors: ModuleDescriptor[]
@@ -12,7 +12,8 @@ interface ModuleState {
 const ModuleContext = createContext<ModuleState | null>(null)
 
 export function ModuleProvider({ children }: { children: ReactNode }) {
-  const { token, isAuthenticated } = useAuth()
+  const { user, token: bearer, isAuthenticated } = useAuth()
+  const token = bearer ?? user?.sub ?? null
   const [state, setState] = useState<ModuleState>({ descriptors: [], loading: true, error: null })
   // Scope the snapshot to the authenticated session. Never retain a previous
   // user's module visibility during a credential change or failed discovery.
@@ -45,6 +46,6 @@ export function RequireModule({ name, children }: { name: string; children: Reac
   const { enabled, loading, error } = useModules()
   if (loading) return <p role="status">Loading modules…</p>
   if (error) return <p role="alert">Module discovery unavailable: {error}</p>
-  if (!enabled.some((module) => module.name === name)) return <p role="alert">This module is not enabled on this Aiplex server.</p>
+  if (!enabled.some((module) => module.name === name)) return <div><h1 className="text-xl font-semibold mb-2">{consoleModules.find((m) => m.name === name)?.label ?? name}</h1><p role="alert">This module is not enabled on this Aiplex server.</p></div>
   return <>{children}</>
 }

@@ -35,9 +35,9 @@ var (
 )
 
 // Styled status indicators
-func pass(msg string) string { return passStyle.Render("✓") + " " + msg }
-func fail(msg string) string { return failStyle.Render("✗") + " " + msg }
-func warn(msg string) string { return warnStyle.Render("!") + " " + msg }
-func info(msg string) string { return infoStyle.Render("●") + " " + msg }
+func pass(msg string) string   { return passStyle.Render("✓") + " " + msg }
+func fail(msg string) string   { return failStyle.Render("✗") + " " + msg }
+func warn(msg string) string   { return warnStyle.Render("!") + " " + msg }
+func info(msg string) string   { return infoStyle.Render("●") + " " + msg }
 func step(label string) string { return stepStyle.Render(label) }
-func dim(msg string) string  { return dimStyle.Render(msg) }
+func dim(msg string) string    { return dimStyle.Render(msg) }

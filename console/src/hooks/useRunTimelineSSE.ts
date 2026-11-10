@@ -17,17 +17,18 @@ export function mergeRunEvents(prior: ExecutionEvent[], incoming: ExecutionEvent
 // Session generations scope cache keys without retaining bearer credentials in
 // query metadata. Polling continues until valid data proves the stream is live.
 export function useRunTimelineSSE(runID: string): { events: ExecutionEvent[]; live: boolean } {
-  const { token } = useAuth()
+  const { token, isAuthenticated: authed } = useAuth()
+  const isAuthenticated = authed ?? !!token
   const session = useMemo(() => ++nextSession, [token])
   const owner = `${session}:${runID}`
   const cursor = useMemo(() => ({ next: 0 }), [owner])
   const [snapshot, setSnapshot] = useState<{ owner: string; events: ExecutionEvent[]; live: boolean }>({ owner, events: [], live: false })
-  const enabled = !!token && !!runID
+  const enabled = isAuthenticated && !!runID
   const current = snapshot.owner === owner && enabled ? snapshot : { owner, events: [], live: false }
 
   useEffect(() => {
     setSnapshot({ owner, events: [], live: false })
-    if (!token || !runID) return
+    if (!isAuthenticated || !runID) return
     const controller = new AbortController()
     let retry: ReturnType<typeof setTimeout> | undefined
     const connect = async () => {

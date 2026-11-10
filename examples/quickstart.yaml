@@ -34,8 +34,15 @@ agents:
       # LLMPlex — which models it can use
       - llm:model:gemini-2.5-flash
 
-# LLM routing rules with failover and budgets
+# LLM routing rules with failover and budgets. Routes are applied in order, and
+# a fallback must already be a saved route, so gpt-4.1-mini comes first.
 routes:
+  - model_id: gpt-4.1-mini
+    backends:
+      - provider: openai
+        model_id: gpt-4.1-mini
+        weight: 100
+        enabled: true
   - model_id: gemini-2.5-flash
     backends:
       - provider: google

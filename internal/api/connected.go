@@ -185,6 +185,14 @@ func (h *ConnectedHandler) Resources(kind string) http.HandlerFunc {
 				return
 			}
 			if e = h.validate(r.Context(), tenant, kind, id, payload); e != nil {
+				if errors.Is(e, errAccessPointUnavailable) {
+					Error(w, r, 503, "RESOURCE_STORE_UNAVAILABLE", "a referenced resource could not be read")
+					return
+				}
+				if field, ok := specErrorField(e); ok {
+					JSON(w, 400, models.APIError{Code: "INVALID_SPEC", Message: e.Error(), Details: map[string]any{"field": field}, RequestID: GetRequestID(r.Context())})
+					return
+				}
 				Error(w, r, 400, "INVALID_SPEC", e.Error())
 				return
 			}
@@ -512,6 +520,11 @@ func (h *ConnectedHandler) authorize(r *http.Request, required string) error {
 	return nil
 }
 
+// AuthorizeCurrent re-resolves the caller's grants and requires scope.
+func (h *ConnectedHandler) AuthorizeCurrent(r *http.Request, scope string) error {
+	return h.authorizeCurrent(r.Context(), r, scope)
+}
+
 // authorizeCurrent re-resolves grants at the dispatch boundary. Quota-protected
 // hosts must supply their authoritative resolver rather than reuse ingress grants.
 func (h *ConnectedHandler) authorizeCurrent(ctx context.Context, r *http.Request, required string) error {
@@ -588,22 +601,36 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		headers.Set("X-Goog-User-Project", connection.BillingProject)
 	}
 	opts := modelapi.Options{UpstreamHeaders: headers, HTTPClient: h.Runtime.Streaming, TokenSource: modelapi.TokenSourceFunc(func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, connection.IdentityRef) }), Context: func(req *http.Request) (contracts.RequestContext, error) { return h.trusted(req, id) }, Authorize: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
-		if e := h.authorize(r, "llm:surface:"+id+":"+op.ID); e != nil {
-			return e
-		}
+		// Every required grant is checked (not just the first) so a refusal
+		// through an access point can name all that are missing.
+		required := []string{"llm:surface:" + id + ":" + op.ID}
 		if m.Agent != "" {
-			if e := h.authorize(r, "llm:agent:"+m.Agent); e != nil {
-				return e
-			}
+			required = append(required, "llm:agent:"+m.Agent)
 		}
 		if m.Model != "" {
 			model, e := s.ModelID(m.Model)
 			if e != nil {
 				return e
 			}
-			return h.authorize(r, "llm:model:"+model)
+			required = append(required, "llm:model:"+model)
 		}
-		return nil
+		var missing []string
+		for _, scope := range required {
+			if h.authorize(r, scope) != nil {
+				missing = append(missing, scope)
+			}
+		}
+		if len(missing) == 0 {
+			return nil
+		}
+		if call := accessPointCallFrom(r.Context()); call != nil {
+			principal := ""
+			if identity := GetWIFIdentity(r.Context()); identity != nil {
+				principal = identity.PrincipalID
+			}
+			call.missingGrant = missingGrantMessage(principal, missing)
+		}
+		return fmt.Errorf("action grant required")
 	}, AllowShared: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation) bool {
 		return h.authorize(r, "llm:surface:"+id+":shared-admin") == nil
 	}, Ownership: resourceOwnership{store: h.Store, namespace: strconv.FormatUint(record.Revision, 10)}, LiveDialer: liveDialer, AllowHTTPForTests: h.Development}
@@ -654,6 +681,12 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	var in cloudagents.Invocation
 	if e = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); e != nil {
 		Error(w, r, 400, "INVALID_INVOCATION", "invalid native invocation")
+		return
+	}
+	if strings.TrimSpace(in.Operation) == "" || in.Operation != strings.TrimSpace(in.Operation) {
+		// An empty operation would be checked as "a2a:agent:{id}:", which
+		// wildcard grants match.
+		Error(w, r, 400, "INVALID_INVOCATION", "operation required")
 		return
 	}
 	usage.agent(c.Provider, in.Operation)

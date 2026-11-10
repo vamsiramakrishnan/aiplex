@@ -23,6 +23,8 @@ type ovFixture struct {
 	router http.Handler
 	now    time.Time
 	roles  []models.IAMRole
+	// caller overrides the verified identity (default: a user named operator).
+	caller *models.WIFIdentity
 }
 
 func i64(v int64) *int64 { return &v }
@@ -86,6 +88,9 @@ func newOverviewFixture(t *testing.T) *ovFixture {
 			ctx := context.WithValue(r.Context(), keyRequestID, "request-1")
 			if f.roles != nil {
 				id := apUser("operator")
+				if f.caller != nil {
+					id = f.caller
+				}
 				ctx = context.WithValue(ctx, keyWIFIdentity, id)
 				ctx = context.WithValue(ctx, keyWIFAccess, &models.ResolvedAccess{Identity: *id, Roles: f.roles})
 			}
@@ -119,7 +124,9 @@ func (f *ovFixture) json(path string) map[string]any {
 
 func TestOverviewRoleMatrix(t *testing.T) {
 	f := newOverviewFixture(t)
-	paths := []string{"/api/v1/overview/subjects?kind=user", "/api/v1/overview/access-points/ide", "/api/v1/overview/access-points/ide/connect", "/api/v1/overview/subjects/client/ide"}
+	// connect is not in this list: any caller an access point admits may read it
+	// (TestOverviewConnectForAdmittedCallers).
+	paths := []string{"/api/v1/overview/subjects?kind=user", "/api/v1/overview/access-points/ide", "/api/v1/overview/subjects/client/ide"}
 	cases := []struct {
 		name  string
 		roles []models.IAMRole

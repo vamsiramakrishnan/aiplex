@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -37,6 +38,8 @@ const (
 	UsageLowerBound = "lower_bound"
 	UsageAmbiguous  = "ambiguous"
 	UsagePartial    = "partial"
+	// UsageBoundNone is a filter value only: records with no usage_bound.
+	UsageBoundNone = "none"
 
 	BasisSettled   = "settled"
 	BasisEstimated = "estimated"
@@ -127,6 +130,9 @@ type Cost struct {
 }
 
 // MarshalJSON omits the scale of an unknown cost so it cannot be read as zero.
+// A known cost also carries amount_decimal, the same value written as a decimal
+// string ("6" at scale 6 is "0.000006"); it is derived from amount and scale,
+// never stored, and amount and scale stay authoritative.
 func (c Cost) MarshalJSON() ([]byte, error) {
 	if c.Basis == BasisUnknown || c.Basis == "" {
 		return json.Marshal(struct {
@@ -134,7 +140,49 @@ func (c Cost) MarshalJSON() ([]byte, error) {
 		}{BasisUnknown})
 	}
 	type plain Cost
-	return json.Marshal(plain(c))
+	decimal, _ := DecimalString(c.Amount, c.Scale)
+	return json.Marshal(struct {
+		plain
+		AmountDecimal string `json:"amount_decimal,omitempty"`
+	}{plain(c), decimal})
+}
+
+// DecimalString writes a decimal-integer string of minor units at scale decimal
+// places exactly, without floating point and without grouping: ("6", 6) is
+// "0.000006" and ("250", 2) is "2.50". ok is false when amount is not a
+// decimal integer.
+func DecimalString(amount string, scale uint8) (string, bool) {
+	sign, digits := "", amount
+	if strings.HasPrefix(digits, "-") {
+		sign, digits = "-", digits[1:]
+	}
+	if digits == "" {
+		return "", false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	digits = strings.TrimLeft(digits, "0")
+	if digits == "" {
+		digits = "0"
+	}
+	n := int(scale)
+	if n == 0 {
+		if digits == "0" {
+			sign = ""
+		}
+		return sign + digits, true
+	}
+	if len(digits) <= n {
+		digits = strings.Repeat("0", n-len(digits)+1) + digits
+	}
+	whole, frac := digits[:len(digits)-n], digits[len(digits)-n:]
+	if whole == "0" && strings.Trim(frac, "0") == "" {
+		sign = ""
+	}
+	return sign + whole + "." + frac, true
 }
 
 // UnknownCost is the cost of an exchange no settlement or price establishes.
@@ -167,7 +215,13 @@ type Record struct {
 	ModelVersion string    `json:"model_version,omitempty"`
 	ToolName     string    `json:"tool_name,omitempty"`
 	PrincipalID  string    `json:"principal_id,omitempty"`
-	ActorID      string    `json:"actor_id,omitempty"`
+	// PrincipalDisplay is a human label for the principal (verified email,
+	// display name or subject) recorded by the server when the identity was
+	// verified. It is for display only; PrincipalID stays the key.
+	PrincipalDisplay string `json:"principal_display,omitempty"`
+	ActorID          string `json:"actor_id,omitempty"`
+	// ActorDisplay is the verified actor subject (an agent), for display only.
+	ActorDisplay string `json:"actor_display,omitempty"`
 	// ClientID is the verified token's authorized party. A public OAuth client
 	// id is attribution, not a security boundary.
 	ClientID string `json:"client_id,omitempty"`
@@ -258,7 +312,7 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "actor_id": r.ActorID, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}

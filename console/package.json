@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "sync:brand": "node scripts/sync-brand.mjs",
+    "build": "tsc && vite build && node -e \"require('fs').writeFileSync('built/.gitkeep','')\"",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx",
     "test": "vitest run",

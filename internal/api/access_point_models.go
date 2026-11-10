@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -219,6 +220,7 @@ func modelErrorWriter(protocol string) accessPointErrorWriter {
 type nativeErrorWriter struct {
 	http.ResponseWriter
 	protocol  string
+	call      *accessPointCall // set when the refusal can be explained
 	status    int
 	wrote     bool
 	buffering bool
@@ -322,6 +324,11 @@ func (w *nativeErrorWriter) finish() {
 			code = googleErrorStatus(w.status)
 		}
 		w.Header().Del("X-Content-Type-Options")
+		if w.status == http.StatusForbidden && w.call != nil && w.call.missingGrant != "" {
+			// The access point admitted this caller, but a model grant is
+			// missing: say which, and how to add it.
+			code, message = "permission_denied", w.call.missingGrant
+		}
 		writeNativeError(w.ResponseWriter, w.protocol, w.status, code, message)
 		return
 	}
@@ -355,17 +362,71 @@ func bodyModel(data []byte) (string, error) {
 	return *probe.Model, nil
 }
 
+// rewriteBodyModel replaces the value of the request's top-level "model"
+// string with model and leaves every other byte of the body (key order,
+// whitespace, unknown fields, escapes, numbers, nested "model" keys) exactly
+// as sent. The body must be one unambiguous JSON object: duplicate keys at any
+// level, including a second top-level "model" (also when spelled with
+// escapes), are rejected. The response's "model" field is the provider's and
+// stays the native name; only the request is rewritten.
 func rewriteBodyModel(data []byte, model string) ([]byte, error) {
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, err
+	if err := modelapi.ValidateJSON(data); err != nil {
+		return nil, fmt.Errorf("request body must be one unambiguous JSON object")
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if open, err := dec.Token(); err != nil || open != json.Delim('{') {
+		return nil, fmt.Errorf("request body must be one JSON object")
+	}
+	start, end := -1, -1
+	for dec.More() {
+		keyToken, err := dec.Token()
+		key, isString := keyToken.(string)
+		if err != nil || !isString {
+			return nil, fmt.Errorf("request body must be one JSON object")
+		}
+		var value json.RawMessage
+		if err = dec.Decode(&value); err != nil {
+			return nil, fmt.Errorf("request body must be one JSON object")
+		}
+		if key != "model" {
+			continue
+		}
+		if start >= 0 {
+			return nil, fmt.Errorf("request body names the model twice")
+		}
+		end = int(dec.InputOffset())
+		start = end - len(value)
+		if start < 0 || !bytes.Equal(data[start:end], value) || len(value) < 2 || value[0] != '"' {
+			return nil, fmt.Errorf("request body model must be a string")
+		}
+	}
+	if start < 0 {
+		return nil, fmt.Errorf("request body must name a model")
 	}
 	encoded, err := json.Marshal(model)
 	if err != nil {
 		return nil, err
 	}
-	payload["model"] = encoded
-	return json.Marshal(payload)
+	out := make([]byte, 0, len(data)-(end-start)+len(encoded))
+	out = append(out, data[:start]...)
+	out = append(out, encoded...)
+	return append(out, data[end:]...), nil
+}
+
+// accessPointBodyModelWire reports whether a wire carries the model as a
+// top-level JSON string field of the request body that can be rewritten in
+// place. Multipart image and audio uploads carry it as a form field next to
+// file parts; rewriting that would re-encode the upload, so aliases stay
+// unsupported there.
+func accessPointBodyModelWire(protocol, contentType string) bool {
+	switch protocol {
+	case WireOpenAIChat, WireOpenAIResponses, WireAnthropic, WireOpenAIEmbeddings:
+		return true
+	case WireOpenAIImages, WireOpenAIAudio:
+		media, _, _ := mime.ParseMediaType(contentType)
+		return media != "multipart/form-data"
+	}
+	return false
 }
 
 // AccessPointModel serves one client wire protocol. The model name selects
@@ -387,12 +448,14 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			fail(w, r, http.StatusBadRequest, "INVALID_PATH", "invalid request path")
 			return
 		}
+		local, deployment, azure := accessPointAzureLocal(local)
 		data, err := io.ReadAll(io.LimitReader(r.Body, (8<<20)+1))
 		if err != nil || len(data) > 8<<20 {
 			fail(w, r, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "request body exceeds 8 MiB")
 			return
 		}
 		var name, method string
+		var bodyHasModel bool
 		switch {
 		case protocol == WireGenAI:
 			match := genaiClientPath.FindStringSubmatch(local)
@@ -429,6 +492,10 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			if name, form, err = multipartModel(data, r.Header.Get("Content-Type")); !form {
 				name, err = bodyModel(data)
 			}
+		case deployment != "":
+			// Azure deployment routes name the model in the path.
+			name = deployment
+			bodyHasModel, err = deploymentBodyModel(data, deployment)
 		default:
 			name, err = bodyModel(data)
 		}
@@ -459,8 +526,9 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			}
 		}
 		if !reachable {
-			paths := make([]string, 0, len(serving))
-			for _, p := range serving {
+			served := accessPointServedWires(connection.Surface, entry.NativeModel)
+			paths := make([]string, 0, len(served))
+			for _, p := range served {
 				paths = append(paths, p+" ("+accessPointWirePath(p)+")")
 			}
 			fail(w, r, http.StatusBadRequest, "PROTOCOL_MISMATCH", fmt.Sprintf("model %q is not served through %s; it is served through: %s", name, protocol, strings.Join(paths, ", ")))
@@ -472,6 +540,19 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 		}
 		path, body := local, data
 		rawQuery := r.URL.RawQuery
+		if azure {
+			// api-version is accepted and ignored: the surface pins its own.
+			rawQuery = dropAPIVersion(rawQuery)
+		}
+		if deployment != "" && !bodyHasModel {
+			// A deployment-route body without a model gets the native one, so
+			// every surface sees the model where its own wire expects it.
+			if body, err = insertBodyModel(data, entry.NativeModel); err != nil {
+				fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+				return
+			}
+			data = body
+		}
 		if accessPointWebSocket(protocol) {
 			body = nil
 			rawQuery = url.Values{"model": {entry.NativeModel}}.Encode()
@@ -485,13 +566,15 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 				path = "/model/" + entry.NativeModel + "/" + method
 			case protocol == WireOpenAIRealtime:
 				// rawQuery already carries the native model.
-			case protocol == WireAnthropic && accessPointAliasRewritable(connection.Surface):
+			case accessPointBodyModelWire(protocol, r.Header.Get("Content-Type")) && accessPointAliasRewritable(connection.Surface):
+				// Only the request's model value changes; the response keeps
+				// the provider's native model name.
 				if body, err = rewriteBodyModel(data, entry.NativeModel); err != nil {
-					fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", "request body must be one JSON object")
+					fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 					return
 				}
 			default:
-				fail(w, r, http.StatusServiceUnavailable, "MODEL_ALIAS_UNSUPPORTED", "this surface relays the body verbatim; the model name must be the native name")
+				fail(w, r, http.StatusServiceUnavailable, "MODEL_ALIAS_UNSUPPORTED", "this wire relays the body verbatim; the model name must be the native name")
 				return
 			}
 		}
@@ -501,7 +584,7 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 		}
 		inner := delegateRequest(r, call, "/api/v1/llm/gateway/"+entry.SurfaceRef+path, entry.SurfaceRef, body)
 		inner.URL.RawQuery = rawQuery
-		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol}
+		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol, call: call}
 		defer writer.finish()
 		h.ClientGateway(writer, inner)
 	}
@@ -526,7 +609,7 @@ func (h *ConnectedHandler) listedModels(r *http.Request, tenant string, ap Acces
 		if err != nil || h.authorize(r, "llm:model:"+modelID) != nil {
 			continue
 		}
-		out = append(out, accessPointListedModel{Entry: entry, ModelID: modelID, Publisher: connection.Surface.Publisher, Protocols: accessPointWireProtocols(connection.Surface.Protocol)})
+		out = append(out, accessPointListedModel{Entry: entry, ModelID: modelID, Publisher: connection.Surface.Publisher, Protocols: accessPointServedWires(connection.Surface, entry.NativeModel)})
 	}
 	return out
 }
@@ -592,4 +675,31 @@ func (h *ConnectedHandler) AccessPointListGenAIModels(w http.ResponseWriter, r *
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	JSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+// missingGrantMessage explains a 403 from an admitted caller who lacks model
+// grants. Admission lets a caller reach the access point; the model, surface
+// and agent grants are separate and are set by an operator. The missing grants
+// are named exactly; the suggested command grants the whole surface
+// (llm:surface:{surface}:*) rather than the one operation. `user-scopes set`
+// replaces the whole list, so the message tells the operator to keep the
+// caller's existing scopes.
+func missingGrantMessage(principal string, missing []string) string {
+	if principal == "" {
+		principal = "<principal-id>"
+	}
+	var suggest []string
+	seen := map[string]bool{}
+	for _, scope := range missing {
+		if rest, ok := strings.CutPrefix(scope, "llm:surface:"); ok {
+			if surface, _, found := strings.Cut(rest, ":"); found {
+				scope = "llm:surface:" + surface + ":*"
+			}
+		}
+		if !seen[scope] {
+			seen[scope] = true
+			suggest = append(suggest, scope)
+		}
+	}
+	return fmt.Sprintf("this access point admits you, but your account is missing the grant(s): %s. An operator can add them with: aiplex agents user-scopes set %s --scopes %s (set replaces the list: include the scopes shown by `aiplex agents user-scopes get %s`)", strings.Join(missing, ", "), principal, strings.Join(suggest, ","), principal)
 }

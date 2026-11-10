@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/modelSurfaces'
 
 const input = 'w-full rounded border border-gray-300 bg-transparent px-3 py-2 text-sm dark:border-gray-700'
-const muted = 'text-xs text-gray-500 dark:text-gray-400'
+const muted = 'text-xs text-gray-600 dark:text-gray-400'
 const button = 'rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40 dark:bg-gray-200 dark:text-gray-900'
 
 function Labeled({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -87,9 +87,9 @@ export default function ModelSurfaceEditor({ record, onClose }: { record?: api.S
 
   return <form aria-label={editing ? `Edit model surface ${draft.id}` : 'Add model surface'} onSubmit={e => void save(e)} className="space-y-5 rounded border border-gray-200 p-4 dark:border-gray-800">
     <h3 className="text-lg font-medium">{editing ? `Edit model surface (revision ${current!.revision})` : 'Add model surface'}</h3>
-    {problems.length > 0 && <ul role="alert" className="list-disc pl-5 text-sm text-red-700 dark:text-red-400">{problems.map(p => <li key={p}>{p}</li>)}</ul>}
-    {message && <p role="alert" className="rounded border border-red-300 p-3 text-sm text-red-700 dark:border-red-800 dark:text-red-400">{message}</p>}
-    {conflict && <div role="alert" className="rounded border border-amber-400 p-3 text-sm text-amber-800 dark:text-amber-300"><p>This surface was changed by someone else (or already exists), so nothing was saved.</p><button type="button" className="mt-2 underline" disabled={busy} onClick={() => void loadLatest()}>Load latest revision</button></div>}
+    {problems.length > 0 && <ul role="alert" className="list-disc pl-5 text-sm text-status-denied-fg">{problems.map(p => <li key={p}>{p}</li>)}</ul>}
+    {message && <p role="alert" className="rounded border border-status-denied-fg p-3 text-sm text-status-denied-fg">{message}</p>}
+    {conflict && <div role="alert" className="rounded border border-status-warning-fg p-3 text-sm text-status-warning-fg"><p>This surface was changed by someone else (or already exists), so nothing was saved.</p><button type="button" className="mt-2 underline" disabled={busy} onClick={() => void loadLatest()}>Load latest revision</button></div>}
 
     <div className="grid gap-3 sm:grid-cols-2">
       <Labeled label="Surface ID"><input className={input} {...bind('id')} readOnly={editing} /></Labeled>
@@ -98,8 +98,8 @@ export default function ModelSurfaceEditor({ record, onClose }: { record?: api.S
       </Labeled>
     </div>
 
-    {descriptor.isPending && <p role="status" className="text-sm text-gray-500">Loading the {draft.provider} catalog…</p>}
-    {descriptor.isError && <p role="alert" className="text-sm text-red-700 dark:text-red-400">Could not load the provider catalog: {(descriptor.error as Error).message}</p>}
+    {descriptor.isPending && <p role="status" className="text-sm text-gray-600 dark:text-gray-400">Loading the {draft.provider} catalog…</p>}
+    {descriptor.isError && <p role="alert" className="text-sm text-status-denied-fg">Could not load the provider catalog: {(descriptor.error as Error).message}</p>}
 
     {d && <>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -132,7 +132,7 @@ export default function ModelSurfaceEditor({ record, onClose }: { record?: api.S
           <input type="checkbox" checked={draft.operationIds.includes(o.id)} onChange={() => toggleOperation(o.id)} />
           <span><span className="font-mono text-xs">{o.id}</span><span className={`${muted} block`}>{o.method} {o.path} · {o.transport}</span></span>
         </label></li>)}</ul>
-        {draft.operationIds.filter(id => !d.operations.some(o => o.id === id)).map(id => <p key={id} className="text-xs text-amber-700 dark:text-amber-400">{id} is selected but is not in this provider&apos;s catalog; the server will reject it unless you clear it.</p>)}
+        {draft.operationIds.filter(id => !d.operations.some(o => o.id === id)).map(id => <p key={id} className="text-xs text-status-warning-fg">{id} is selected but is not in this provider&apos;s catalog; the server will reject it unless you clear it.</p>)}
       </fieldset>
 
       <fieldset className="space-y-2"><legend className="text-sm font-medium">Credential (a reference, never a value)</legend>

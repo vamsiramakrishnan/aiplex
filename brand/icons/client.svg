@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-client-title aiplex-icon-client-desc">
+  <title id="aiplex-icon-client-title">Client</title>
+  <desc id="aiplex-icon-client-desc">Caller kind client: a display on a stand, such as an IDE or browser.</desc>
+  <path id="client-lines" d="M3 4h18v12H3ZM12 16v4M7 21h10"/>
+</svg>

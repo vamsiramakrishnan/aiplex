@@ -6,7 +6,7 @@ import Usage, { buildFilter, emptyDraft } from '../pages/Usage'
 import { blankDraft, priceFromDraft } from '../pages/UsagePrices'
 import { QuotaOverview } from '../pages/QuotaTabs'
 
-vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { sub: 'principal-a' } }) }))
+vi.mock('../hooks/useAuth', () => { const session = { user: { sub: 'principal-a', roles: ['admin'], scopes: [] } }; return { useAuth: () => session, useOptionalAuth: () => session } })
 vi.mock('../api/quota', () => ({ quotaPolicy: vi.fn().mockResolvedValue({ policy: { tenant_id: 't', id: 'team', revision: 1 }, reference: { digest: 'd' }, active: { digest: 'd' }, as_of: new Date().toISOString() }), quotaInventory: vi.fn().mockResolvedValue({ kind: 'budgets', records: [], done: true, as_of: new Date().toISOString() }), quotaAttempt: vi.fn(), quotaReconciliation: vi.fn(), quotaMutation: vi.fn(), validateQuotaPolicy: vi.fn(), quotaOperationKey: vi.fn(), safeQuotaJSON: (s: string) => JSON.parse(s) }))
 
 const base = { tenant_id: 't', finished_at: '2026-11-09T10:00:01Z', latency_ms: 1200, streaming: false, source: 'managed', requests: 1 }
@@ -137,9 +137,11 @@ describe('Usage summary', () => {
     fireEvent.change(within(form).getByLabelText('Plane'), { target: { value: 'mcplex' } })
     fireEvent.change(within(form).getByLabelText('Model'), { target: { value: ' gemini-2.5-flash ' } })
     fireEvent.change(within(form).getByLabelText('Tool'), { target: { value: 'search_curriculum' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'More filters' }))
     fireEvent.change(within(form).getByLabelText('Agent'), { target: { value: 'tutor-agent' } })
     fireEvent.change(within(form).getByLabelText('Principal'), { target: { value: 'student-1' } })
     fireEvent.change(within(form).getByLabelText('Client'), { target: { value: 'cursor' } })
+    expect(within(form).getByRole('button', { name: 'Fewer filters (3 active)' })).toHaveAttribute('aria-expanded', 'true')
     fireEvent.change(within(form).getByLabelText('Status'), { target: { value: 'error' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Apply filters' }))
     await waitFor(() => expect(lastCall('/api/v1/usage/records').url.searchParams.get('client_id')).toBe('cursor'))

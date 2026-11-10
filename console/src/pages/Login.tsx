@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import logoLight from '../brand/aiplex-lockup-horizontal.svg'
+import logoReversed from '../brand/aiplex-lockup-horizontal-reversed.svg'
 
 export default function Login() {
   const [token, setToken] = useState('')
@@ -20,19 +22,22 @@ export default function Login() {
     try {
       await login(raw)
       const from = location.state?.from?.pathname as string | undefined
-      navigate(from?.startsWith('/') && !from.startsWith('//') ? from : '/dashboard', { replace: true })
+      navigate(from?.startsWith('/') && !from.startsWith('//') ? from : '/overview', { replace: true })
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Sign in failed.')
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+    <main className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
       <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-lg p-8">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AIPlex</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Unified AI Control Plane
+          <h1 className="flex justify-center">
+            <img src={logoLight} alt="AIPlex" className="h-10 w-auto dark:hidden" />
+            <img src={logoReversed} alt="AIPlex" className="h-10 w-auto hidden dark:block" />
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            A control plane for agent interactions across models, tools, agents and skills
           </p>
         </div>
 
@@ -55,22 +60,22 @@ export default function Login() {
           </div>
 
           {(error || sessionError) && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error || sessionError}</p>
+            <p role="alert" className="text-sm text-status-denied-fg">{error || sessionError}</p>
           )}
 
           <button
             type="submit"
             disabled={verifying}
-            className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
+            className="w-full py-2.5 bg-brand-600 hover:bg-brand-700 text-brand-contrast text-sm font-medium rounded-lg transition-colors"
           >
             {verifying ? 'Verifying identity…' : 'Sign In'}
           </button>
         </form>
 
-        <p className="mt-6 text-xs text-gray-400 dark:text-gray-500 text-center">
-          Obtain a token via OAuth 2.1 device grant or authorization code flow.
+        <p className="mt-6 text-xs text-gray-600 dark:text-gray-400 text-center">
+          Obtain a token with your organisation's sign-in, or run `aiplex dev env` for a local one. Opening the Console that `aiplex dev` prints needs no token.
         </p>
       </div>
-    </div>
+    </main>
   )
 }

@@ -714,6 +714,10 @@ func (h *OverviewHandler) subjectRow(ctx context.Context, tenant, kind string, c
 		return row
 	}
 	if g, ok := usage[c.ID]; ok {
+		if kind == CallerUser && row.DisplayName == "" {
+			// The verified email or name recorded with the user's requests.
+			row.DisplayName = g.Labels["principal_id"]
+		}
 		row.Usage = overviewUsageOf(g)
 		if t, ok := scan.Last[c.ID]; ok {
 			tt := t
@@ -956,7 +960,7 @@ func (h *OverviewHandler) Subject(w http.ResponseWriter, r *http.Request) {
 	detail.Access = h.accessFor(r.Context(), tenant, dir.aps, kind, aliases, scopes)
 	detail.Quota = h.subjectQuota(tenant, dir.aps, detail.AccessPoints)
 	if h.Ledger == nil {
-		detail.Notes = append(detail.Notes, "The usage ledger is not configured; usage is unavailable.")
+		detail.Notes = append(detail.Notes, h.ledgerUnavailableNote())
 	} else {
 		filter, keep := dir.subjectMatcher(kind, id)
 		filter.Since = since

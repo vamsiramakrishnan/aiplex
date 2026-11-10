@@ -22,32 +22,32 @@ import {
 // glance. Stable across SDK versions because the kinds are typed in
 // the wire contract.
 const KIND_STYLE: Record<ExecutionEventKind, { colour: string; glyph: string; label: string }> = {
-  'run.started':         { colour: 'bg-gray-100   text-gray-700',   glyph: '▶', label: 'run started' },
-  'run.completed':       { colour: 'bg-green-100  text-green-700',  glyph: '✓', label: 'completed' },
-  'run.failed':          { colour: 'bg-red-100    text-red-700',    glyph: '✗', label: 'failed' },
-  'decision.recorded':   { colour: 'bg-blue-100   text-blue-700',   glyph: '◆', label: 'decision' },
-  'effect.begin':        { colour: 'bg-amber-100  text-amber-800',  glyph: '⟶', label: 'effect begin' },
-  'effect.confirmed':    { colour: 'bg-green-100  text-green-700',  glyph: '✓', label: 'effect confirmed' },
-  'effect.failed':       { colour: 'bg-red-100    text-red-700',    glyph: '✗', label: 'effect failed' },
-  'effect.unknown':      { colour: 'bg-orange-100 text-orange-800', glyph: '?', label: 'UNKNOWN' },
-  'effect.duplicate':    { colour: 'bg-yellow-100 text-yellow-800', glyph: '⚠', label: 'duplicate' },
-  'obligation.created':  { colour: 'bg-purple-100 text-purple-800', glyph: '↺', label: 'obligation' },
-  'gate.waiting':        { colour: 'bg-indigo-100 text-indigo-700', glyph: '⏸', label: 'waiting on gate' },
-  'timer.scheduled':     { colour: 'bg-gray-100   text-gray-600',   glyph: '⏲', label: 'timer' },
-  'budget.charged':      { colour: 'bg-blue-50    text-blue-600',   glyph: '$', label: 'budget' },
-  'policy.violation':    { colour: 'bg-red-100    text-red-800',    glyph: '✦', label: 'POLICY' },
-  'run.compacted':       { colour: 'bg-gray-100   text-gray-700',   glyph: '▣', label: 'archived' },
+  'run.started':         { colour: 'bg-gray-100   text-gray-700 dark:bg-gray-800 dark:text-gray-300',   glyph: '▶', label: 'run started' },
+  'run.completed':       { colour: 'bg-status-ok-bg  text-status-ok-fg',  glyph: '✓', label: 'completed' },
+  'run.failed':          { colour: 'bg-status-denied-bg  text-status-denied-fg',    glyph: '✗', label: 'failed' },
+  'decision.recorded':   { colour: 'bg-brand-100  text-brand-700',   glyph: '◆', label: 'decision' },
+  'effect.begin':        { colour: 'bg-status-warning-bg  text-status-warning-fg',  glyph: '⟶', label: 'effect begin' },
+  'effect.confirmed':    { colour: 'bg-status-ok-bg  text-status-ok-fg',  glyph: '✓', label: 'effect confirmed' },
+  'effect.failed':       { colour: 'bg-status-denied-bg  text-status-denied-fg',    glyph: '✗', label: 'effect failed' },
+  'effect.unknown':      { colour: 'bg-status-warning-bg text-status-warning-fg', glyph: '?', label: 'UNKNOWN' },
+  'effect.duplicate':    { colour: 'bg-status-warning-bg text-status-warning-fg', glyph: '⚠', label: 'duplicate' },
+  'obligation.created':  { colour: 'bg-brand-100 text-brand-800', glyph: '↺', label: 'obligation' },
+  'gate.waiting':        { colour: 'bg-brand-100 text-brand-700', glyph: '⏸', label: 'waiting on gate' },
+  'timer.scheduled':     { colour: 'bg-gray-100   text-gray-600 dark:bg-gray-800 dark:text-gray-400',   glyph: '⏲', label: 'timer' },
+  'budget.charged':      { colour: 'bg-brand-50  text-brand-600',   glyph: '$', label: 'budget' },
+  'policy.violation':    { colour: 'bg-status-denied-bg  text-status-denied-fg',    glyph: '✦', label: 'POLICY' },
+  'run.compacted':       { colour: 'bg-gray-100   text-gray-700 dark:bg-gray-800 dark:text-gray-300',   glyph: '▣', label: 'archived' },
 }
 
 const STATUS_STYLE: Record<ExecutionRunStatus, string> = {
-  runnable:     'bg-gray-100    text-gray-600',
-  running:      'bg-blue-100    text-blue-700',
-  waiting:      'bg-indigo-100  text-indigo-700',
-  terminal:     'bg-green-100   text-green-700',
-  failed:       'bg-red-100     text-red-700',
-  compensating: 'bg-purple-100  text-purple-700',
-  stuck:        'bg-red-200     text-red-900',
-  cancelled:    'bg-gray-200    text-gray-700',
+  runnable:     'bg-gray-100    text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  running:      'bg-brand-100  text-brand-700',
+  waiting:      'bg-brand-100  text-brand-700',
+  terminal:     'bg-status-ok-bg  text-status-ok-fg',
+  failed:       'bg-status-denied-bg  text-status-denied-fg',
+  compensating: 'bg-brand-100  text-brand-700',
+  stuck:        'bg-status-denied-bg  text-status-denied-fg',
+  cancelled:    'bg-gray-200    text-gray-700 dark:bg-gray-700 dark:text-gray-300',
 }
 
 interface Filters {
@@ -80,9 +80,9 @@ export default function Runs() {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-2xl font-bold">Runs</h2>
+        <h1 className="text-2xl font-bold">Runs</h1>
       </div>
-      <p className="text-gray-500 mb-6">
+      <p className="text-gray-600 dark:text-gray-400 mb-6">
         Durable agent runs (Tape-backed). What the agent decided, attempted,
         confirmed, replayed, compensated, or left UNKNOWN. See the{' '}
         <a className="underline" href="https://github.com/vamsiramakrishnan/aiplex/blob/main/docs-site/docs/guides/tape-runtime.md">
@@ -92,7 +92,7 @@ export default function Runs() {
 
       <FiltersBar filters={filters} onChange={setFilters} />
 
-      {runs.isLoading && <div className="text-gray-500 py-8">Loading runs…</div>}
+      {runs.isLoading && <div className="text-gray-600 dark:text-gray-400 py-8">Loading runs…</div>}
       {runs.isError && (
         <EmptyState
           title="Couldn't load runs"
@@ -113,7 +113,7 @@ export default function Runs() {
                 run={runs.data.runs.find(r => r.run_id === selected) ?? null}
               />
             ) : (
-              <div className="text-gray-400 italic p-6 border rounded">
+              <div className="text-gray-600 dark:text-gray-400 italic p-6 border rounded">
                 Select a run to see its timeline.
               </div>
             )}
@@ -126,17 +126,17 @@ export default function Runs() {
 
 function FiltersBar({ filters, onChange }: { filters: Filters; onChange: (f: Filters) => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-gray-50 rounded">
+    <div className="flex flex-wrap items-center gap-3 mb-4 p-3 bg-gray-50 rounded dark:bg-gray-900">
       <input
         type="text"
-        placeholder="tenant_id"
+        aria-label="Tenant ID" placeholder="tenant_id"
         value={filters.tenant_id}
         onChange={e => onChange({ ...filters, tenant_id: e.target.value })}
         className="px-3 py-1.5 border rounded text-sm"
       />
       <input
         type="text"
-        placeholder="agent_id"
+        aria-label="Agent ID" placeholder="agent_id"
         value={filters.agent_id}
         onChange={e => onChange({ ...filters, agent_id: e.target.value })}
         className="px-3 py-1.5 border rounded text-sm"
@@ -175,11 +175,11 @@ function RunList({
           }`}
         >
           <div className="flex items-center justify-between gap-2 mb-1">
-            <code className="text-xs font-mono text-gray-600 truncate">{r.run_id}</code>
+            <code className="text-xs font-mono text-gray-600 truncate dark:text-gray-400">{r.run_id}</code>
             <div className="flex items-center gap-1">
               {r.compacted && (
                 <span
-                  className="px-2 py-0.5 text-xs rounded bg-gray-200 text-gray-700"
+                  className="px-2 py-0.5 text-xs rounded bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
                   title={r.compacted_at ? `Compacted ${r.compacted_at}` : 'Compacted'}
                 >
                   archived
@@ -190,24 +190,24 @@ function RunList({
               </span>
             </div>
           </div>
-          <div className="text-sm text-gray-700">
+          <div className="text-sm text-gray-700 dark:text-gray-300">
             <span className="font-medium">{r.agent_id || '(no agent)'}</span>
             {' · '}
-            <span className="text-gray-500">{r.tenant_id || 'no tenant'}</span>
+            <span className="text-gray-600 dark:text-gray-400">{r.tenant_id || 'no tenant'}</span>
             {' · '}
-            <span className="text-gray-500">{r.subject || '(no subject)'}</span>
+            <span className="text-gray-600 dark:text-gray-400">{r.subject || '(no subject)'}</span>
           </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+          <div className="flex items-center gap-3 mt-1 text-xs text-gray-600 dark:text-gray-400">
             <span>{r.decisions_count} decisions</span>
             <span>{r.effects_count} effects</span>
             {r.unknown_effects > 0 && (
-              <span className="text-orange-700">{r.unknown_effects} UNKNOWN</span>
+              <span className="text-status-warning-fg">{r.unknown_effects} UNKNOWN</span>
             )}
             {r.obligations > 0 && (
-              <span className="text-purple-700">{r.obligations} obligations</span>
+              <span className="text-brand-700">{r.obligations} obligations</span>
             )}
             {r.policy_violations > 0 && (
-              <span className="text-red-700">{r.policy_violations} denials</span>
+              <span className="text-status-denied-fg">{r.policy_violations} denials</span>
             )}
             {r.budget_usd_charged > 0 && (
               <span>${r.budget_usd_charged.toFixed(2)}</span>
@@ -243,12 +243,12 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
   return (
     <div className="border rounded p-3 sticky top-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold">Timeline {live && <span className="text-xs text-green-600 ml-2">● live</span>}</h3>
-        <code className="text-xs text-gray-500 font-mono truncate max-w-[18ch]">{runID}</code>
+        <h3 className="font-semibold">Timeline {live && <span className="text-xs text-status-ok-fg ml-2">● live</span>}</h3>
+        <code className="text-xs text-gray-600 dark:text-gray-400 font-mono truncate max-w-[18ch]">{runID}</code>
       </div>
 
       {compacted ? (
-        <div className="text-xs p-3 mb-3 bg-gray-100 text-gray-700 rounded">
+        <div className="text-xs p-3 mb-3 bg-gray-100 text-gray-700 rounded dark:bg-gray-800 dark:text-gray-300">
           <div className="font-medium mb-1">Run archived</div>
           <div>
             Details were compacted on{' '}
@@ -263,11 +263,11 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
       )}
 
       {events.length === 0 && !compacted && (
-        <div className="text-gray-400 italic text-sm">No events yet.</div>
+        <div className="text-gray-600 dark:text-gray-400 italic text-sm">No events yet.</div>
       )}
       <ol className="space-y-1 max-h-[28rem] overflow-y-auto mt-3">
         {events.map(ev => {
-          const s = KIND_STYLE[ev.kind] ?? { colour: 'bg-gray-100 text-gray-700', glyph: '·', label: ev.kind }
+          const s = KIND_STYLE[ev.kind] ?? { colour: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', glyph: '·', label: ev.kind }
           return (
             <li key={ev.seq} className={`flex items-start gap-2 text-xs p-2 rounded ${s.colour}`}>
               <span className="font-mono flex-shrink-0 w-5 text-center">{s.glyph}</span>
@@ -275,7 +275,7 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{s.label}{ev.tool ? ` · ${ev.tool}` : ''}{ev.scope ? ` · ${ev.scope}` : ''}</div>
                 {ev.payload_json && (
-                  <div className="font-mono text-[10px] text-gray-600 truncate">
+                  <div className="font-mono text-[10px] text-gray-600 truncate dark:text-gray-400">
                     {ev.payload_json}
                   </div>
                 )}
@@ -287,7 +287,7 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
 
       {auditQ.data && auditQ.data.audit.length > 0 && (
         <div className="mt-4 pt-3 border-t">
-          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">
+          <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2 dark:text-gray-300">
             Operator audit
           </h4>
           <ol className="space-y-1">
@@ -300,7 +300,7 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
 }
 
 function OperatorAuditRow({ a }: { a: OperatorAudit }) {
-  const colour = a.status === 'accepted' ? 'text-gray-600' : 'text-red-700'
+  const colour = a.status === 'accepted' ? 'text-gray-600 dark:text-gray-400' : 'text-status-denied-fg'
   return (
     <li className={`text-xs ${colour} flex items-baseline gap-2`}>
       <span className="font-mono">{new Date(a.at).toLocaleTimeString()}</span>
@@ -308,7 +308,7 @@ function OperatorAuditRow({ a }: { a: OperatorAudit }) {
       <span>by {a.actor}</span>
       {a.reason && <span className="italic">({a.reason})</span>}
       {a.gate_name && <span className="italic">gate={a.gate_name}</span>}
-      {a.status === 'failed' && <span className="text-red-700 font-medium">FAILED: {a.error}</span>}
+      {a.status === 'failed' && <span className="text-status-denied-fg font-medium">FAILED: {a.error}</span>}
     </li>
   )
 }
@@ -368,32 +368,32 @@ function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTake
             onClick={b.onClick}
             className={`px-2 py-1 text-xs rounded border ${
               b.destructive
-                ? 'border-red-300 text-red-700 hover:bg-red-50'
-                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                ? 'border-status-denied-fg text-status-denied-fg hover:bg-status-denied-bg'
+                : 'border-gray-300 text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-800'
             } disabled:opacity-50`}
           >
             {pending === b.label ? '…' : b.label}
           </button>
         ))}
       </div>
-      {error && <div className="text-xs text-red-700">{error}</div>}
+      {error && <div className="text-xs text-status-denied-fg">{error}</div>}
       {signalForm.open && (
-        <div className="p-2 border rounded bg-indigo-50 space-y-2 text-xs">
+        <div className="p-2 border rounded bg-brand-50 space-y-2 text-xs">
           <input
-            placeholder="gate_name (required)"
+            aria-label="Gate name" placeholder="gate_name (required)"
             className="block w-full border rounded px-2 py-1"
             value={signalForm.gate}
             onChange={e => setSignalForm({ ...signalForm, gate: e.target.value })}
           />
           <input
-            placeholder='resolution_json e.g. {"approved":true}'
+            aria-label="Resolution JSON" placeholder='resolution_json e.g. {"approved":true}'
             className="block w-full border rounded px-2 py-1 font-mono"
             value={signalForm.resolution}
             onChange={e => setSignalForm({ ...signalForm, resolution: e.target.value })}
           />
           <div className="flex gap-2">
             <button
-              className="px-2 py-1 rounded bg-indigo-600 text-white"
+              className="px-2 py-1 rounded bg-brand-600 text-brand-contrast"
               disabled={!signalForm.gate}
               onClick={() => {
                 void fire('Signal', () => runSignal(runID, signalForm.gate, signalForm.resolution))
@@ -430,13 +430,13 @@ function EmptyRunsChecklist() {
   const hasRuns = healthQ.data?.has_runs ?? false
 
   const Row = ({ ok, title, body, href }: { ok: boolean; title: string; body: React.ReactNode; href: string }) => (
-    <li className={`flex items-start gap-3 p-3 border rounded ${ok ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
-      <span className={`font-mono text-lg flex-shrink-0 ${ok ? 'text-green-700' : 'text-gray-400'}`}>
+    <li className={`flex items-start gap-3 p-3 border rounded ${ok ? 'bg-status-ok-bg border-status-ok-fg' : 'bg-white dark:bg-gray-900'}`}>
+      <span className={`font-mono text-lg flex-shrink-0 ${ok ? 'text-status-ok-fg' : 'text-gray-600 dark:text-gray-400'}`}>
         {ok ? '✓' : '○'}
       </span>
       <div className="flex-1">
         <div className="font-medium">{title}</div>
-        <div className="text-sm text-gray-600">{body}</div>
+        <div className="text-sm text-gray-600 dark:text-gray-400">{body}</div>
         {!ok && (
           <a href={href} className="text-sm text-brand-600 underline">How to fix</a>
         )}
@@ -446,8 +446,8 @@ function EmptyRunsChecklist() {
 
   return (
     <div className="max-w-2xl mx-auto py-8">
-      <h3 className="font-medium text-gray-700 mb-2">No runs yet</h3>
-      <p className="text-sm text-gray-500 mb-4">
+      <h3 className="font-medium text-gray-700 mb-2 dark:text-gray-300">No runs yet</h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
         Three things must be true for runs to appear. The first row tells you
         what's missing.
       </p>
@@ -463,7 +463,7 @@ function EmptyRunsChecklist() {
           title="Tape ingestion seen recently"
           body={
             healthQ.data?.last_ingest_at
-              ? `Last event at ${new Date(healthQ.data.last_ingest_at).toLocaleString()}.`
+              ? (new Date(healthQ.data.last_ingest_at).getFullYear() <= 1 ? 'No event has ever been ingested.' : `Last event at ${new Date(healthQ.data.last_ingest_at).toLocaleString()}.`)
               : 'No events ingested yet — has the AIPlex outbox sink been wired into Tape?'
           }
           href="https://github.com/vamsiramakrishnan/durable-agents/blob/main/tape/docs/integrations/aiplex.md"
@@ -481,9 +481,9 @@ function EmptyRunsChecklist() {
 
 function EmptyState({ title, body }: { title: string; body: React.ReactNode }) {
   return (
-    <div className="text-center py-12 px-6 border-2 border-dashed border-gray-200 rounded">
-      <h3 className="font-medium text-gray-700">{title}</h3>
-      <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">{body}</p>
+    <div className="text-center py-12 px-6 border-2 border-dashed border-gray-200 rounded dark:border-gray-800">
+      <h3 className="font-medium text-gray-700 dark:text-gray-300">{title}</h3>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mt-2 max-w-md mx-auto">{body}</p>
     </div>
   )
 }

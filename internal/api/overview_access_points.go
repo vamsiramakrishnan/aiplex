@@ -100,7 +100,7 @@ func (h *OverviewHandler) apResources(ctx context.Context, tenant string, ap Acc
 		item := OverviewResourceModel{Name: m.Name, NativeModel: m.NativeModel, SurfaceRef: m.SurfaceRef, WireProtocols: []string{}}
 		if conn, err := h.Connected.accessPointSurface(ctx, tenant, m.SurfaceRef); err == nil {
 			item.Resolved, item.Publisher, item.SurfaceType = true, conn.Surface.Publisher, conn.Surface.Protocol
-			item.WireProtocols = accessPointWireProtocols(conn.Surface.Protocol)
+			item.WireProtocols = accessPointServedWires(conn.Surface, m.NativeModel)
 			if id, err := conn.Surface.ModelID(m.NativeModel); err == nil {
 				item.ModelID = id
 			}
@@ -231,11 +231,7 @@ func (h *OverviewHandler) AccessPointOverview(w http.ResponseWriter, r *http.Req
 	id := chi.URLParam(r, "id")
 	record, ap, err := h.Connected.loadAccessPointRecord(r.Context(), tenant, id)
 	if err != nil {
-		if errors.Is(err, resources.ErrNotFound) {
-			Error(w, r, http.StatusNotFound, "NOT_FOUND", "access point not found")
-		} else {
-			Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", "saved access point is invalid")
-		}
+		accessPointLoadError(w, r, err, func(err error) bool { return errors.Is(err, resources.ErrNotFound) })
 		return
 	}
 	ap = overviewNormalizeAccessPoint(ap)
@@ -256,7 +252,7 @@ func (h *OverviewHandler) AccessPointOverview(w http.ResponseWriter, r *http.Req
 	out.Callers = callers
 	out.Usage = OverviewAccessPointUsage{Available: h.Ledger != nil, ByCallerKind: []OverviewUsageGroup{}, ByModel: []OverviewUsageGroup{}, ByTool: []OverviewUsageGroup{}}
 	if h.Ledger == nil {
-		out.Notes = append(out.Notes, "The usage ledger is not configured; usage is unavailable.")
+		out.Notes = append(out.Notes, h.ledgerUnavailableNote())
 	} else {
 		filter := usageledger.Filter{Since: since, AccessPointID: id}
 		total, err := h.scan(r.Context(), tenant, filter, []string{}, nil)

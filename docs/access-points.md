@@ -14,6 +14,41 @@ Quota controls are described in [managed QuotaPlex execution](quotaplex-integrat
 Usage records carry `access_point_id` and `caller_kind`; see [usage ledger](usage-ledger.md).
 Client profiles are described in [ClientPlex](clientplex.md).
 
+## Create one with the CLI
+
+`aiplex access-points create <id>` builds the access point from flags, so a reader does not need a
+spec file for the common case. `--model name=surface[:native]` exposes a model of a saved model surface
+under a client-facing name. `--tool <connection>` exposes every permitted tool of a tool connection, named
+`<connection>__<tool>` to callers. Give at least one of them.
+
+Who may call: with no `--allow-*` flag, every verified caller of the kinds in `--callers` (default
+`user,agent,client`) is admitted. Otherwise a caller must match one of `--allow-users` (a subject, an email
+the usage ledger knows, or a `principal-…` ID), `--allow-groups`, `--allow-agents` or `--allow-clients`.
+On `aiplex dev`, a second caller from `aiplex dev token --user bob` has the email `bob@localhost`, so
+`--allow-users bob@localhost` admits it. A caller that is not admitted gets `not found` from `aiplex connect team`.
+
+```sh
+aiplex access-points create team --model mock-gpt=local-models --tool local-tools
+aiplex access-points create ide --model gpt-4o-mini=openai --model claude=claude:claude-sonnet-4-5 --allow-groups eng
+aiplex access-points create ci --model gpt-4o-mini=openai --callers agent --allow-agents ci-bot
+aiplex access-points create bob-only --model mock-gpt=local-models --allow-users bob --update
+```
+
+The output of the first command on `aiplex dev`, which has the `local-models` surface and the `local-tools`
+connection seeded:
+
+```text
+Created access point team (revision 1): http://127.0.0.1:8080/ap/team
+
+Next:
+  aiplex connect team                 # client configuration
+  aiplex access-points get team
+```
+
+The access point is created new. `--update` replaces an existing one; the CLI reads the current revision for you
+and writes against it. `--name` sets the display name. QoS classes and expose lists are
+not flags: use `aiplex access-points apply -f <file>` for them, and the [specification](#specification) below for the fields.
+
 ## Specification
 
 ```json
@@ -59,6 +94,12 @@ does not resolve in the tenant.
 Management routes are under `/api/v1`. Reads follow resource revision semantics. Writes
 need the admin role.
 
+Reads depend on the caller. Admins and deployers read the full resource. Any other verified
+caller reads only the access points that admit it, and gets a view with `id`, `display_name`
+and `endpoints` (the client-facing URLs). That view has no subject lists and no model or tool
+lists. An access point that does not admit the caller answers `404`, the same as a missing
+one. The route classes are in [authorization](authorization.md).
+
 | Route | Purpose |
 | --- | --- |
 | `GET /api/v1/access-points` | List access points. |
@@ -66,11 +107,11 @@ need the admin role.
 | `PUT /api/v1/access-points/{id}` | Create or replace. Updates send the current revision in `If-Match`. |
 | `DELETE /api/v1/access-points/{id}` | Delete. |
 | `POST /api/v1/access-points/{id}/quota-plan` | Render the QoS block as QuotaPlex controls for review. Admin only. Does not activate anything. |
-| `GET /api/v1/overview/subjects?kind=agent\|user\|client` | Callers of one kind, with identity source, last seen, access points and a usage roll-up. Admin or deployer. |
+| `GET /api/v1/overview/subjects?kind=agent\|user\|client` | Callers of one kind, with identity source, last seen, access points and a usage roll-up. Admin or deployer. The usage roll-up, last-seen times and ledger-derived subjects are admin only. A deployer gets the rest with those fields reported as unavailable. |
 | `GET /api/v1/overview/subjects/{kind}/{id}` | Effective access of one caller, with the reason for each grant. Also `GET /api/v1/overview/subjects/{kind}?id=…` for IDs that contain `/`. |
-| `GET /api/v1/overview/access-points/{id}` | Callers, resources, QoS and live usage of one access point. |
+| `GET /api/v1/overview/access-points/{id}` | Callers, resources, QoS and live usage of one access point. Usage is admin only. |
 | `GET /api/v1/overview/access-points` | List access points with their counts and quota coverage. Query: `limit` (1 to 200, default 50) and `cursor`. The response has `access_points` (each with `id`, `display_name`, `caller_kinds`, `qos_class`, `counts` of `models`, `tools` and `skills`, and `quota_coverage`), `next_cursor` when more pages exist, and `skipped_invalid` counting stored records that fail to decode. |
-| `GET /api/v1/overview/access-points/{id}/connect?client=…` | Ready-to-paste configuration for one client profile. Defaults to `generic`. The response includes an `endpoints` array (see below). |
+| `GET /api/v1/overview/access-points/{id}/connect?client=…` | Ready-to-paste configuration for one client profile. Defaults to `generic`. The response includes an `endpoints` array (see below). Any verified caller the access point admits may call it; operators get the full response and other callers a reduced one (see `aiplex connect` below). |
 
 Client-facing routes are at the server root, not under `/api/v1`. They use the
 caller's own bearer token. A request without a verified identity is refused.
@@ -109,6 +150,20 @@ Batch and file operations (`/v1/batches`, `/v1/files`, `/v1/messages/batches`,
 
 Provider SDKs that send their key in `x-api-key`, `x-goog-api-key` or `api-key` are
 accepted on the routes listed in [caller authentication](model-providers.md#caller-authentication).
+The header value is the AIPlex token. A token in a URL query parameter is refused on these
+routes with a `401` in the wire's own error shape.
+
+The Azure OpenAI shapes below `/ap/{id}` are listed here. They map onto the OpenAI wires
+and use the same admission, model resolution, quota and ledger path.
+
+| Path under `/ap/{id}` | Protocol | Where the model is |
+| --- | --- | --- |
+| `POST /openai/v1/chat/completions` | Azure OpenAI Chat Completions | Body. |
+| `POST /openai/v1/responses` | Azure OpenAI Responses | Body. |
+| `GET` or `DELETE` on `/openai/v1/responses/{id}`, `POST /openai/v1/responses/{id}/cancel` | Azure OpenAI Responses | No model. See [model-less operations](#model-less-operations). |
+| `POST /openai/v1/embeddings` | Azure OpenAI Embeddings | Body. |
+| `POST /openai/deployments/{deployment}/chat/completions` | Azure OpenAI Chat Completions (deployment shape) | Path. See [Azure OpenAI paths](#azure-openai-paths). |
+| `POST /openai/deployments/{deployment}/embeddings` | Azure OpenAI Embeddings (deployment shape) | Path. See [Azure OpenAI paths](#azure-openai-paths). |
 
 The same metadata is also served at the root as `/.well-known/oauth-protected-resource/ap/{id}/mcp`
 and `…/ap/{id}/mcp/{connection}`.
@@ -156,30 +211,63 @@ natively. There is no cross-protocol translation. A request that uses a protocol
 surface does not serve returns `400 PROTOCOL_MISMATCH` in that protocol's own error
 shape, and the message lists the paths that do serve the model.
 
+### Admission is not a grant
+
+Admission lets a caller reach the access point. It does not let the caller use a model. A
+caller with no operator role (an admin or deployer gets the grants with the role) also needs
+its own grants, set by an operator:
+
+| Grant | For |
+| --- | --- |
+| `llm:model:{model}` | The model, for example `llm:model:mock-gpt`. |
+| `llm:surface:{surface}:*` | The model surface that serves it, for example `llm:surface:local-models:*`. A single operation can be granted instead of `*`. |
+
+```sh
+aiplex agents user-scopes get  <principal-id>
+aiplex agents user-scopes set  <principal-id> --scopes llm:model:mock-gpt,llm:surface:local-models:*
+```
+
+`user-scopes set` replaces the caller's whole list, so include what `get` shows. Having only
+`llm:model:{model}` is not enough: the call is still refused. A caller that is admitted but
+missing grants gets `403` in the wire's own error shape (`permission_error` on OpenAI-style
+wires), and the message names every missing grant and the command above with the caller's
+principal ID. A caller that is not admitted does not get that message: it gets the same answer
+as before, which does not say whether the access point exists. `GET /v1/models` lists only models
+the caller holds `llm:model:{model}` for; it does not check the surface grant.
+
 Other model errors:
 
 | Status and code | Meaning |
 | --- | --- |
+| `403 permission_denied` | The caller is admitted but lacks a model, surface or agent grant. The message lists them. |
 | `404 MODEL_NOT_FOUND` | The model is not in the access point, or the caller may not use it. |
 | `404 UNSUPPORTED_OPERATION` | A GenAI operation that the surface does not implement. |
 | `503 SURFACE_UNAVAILABLE` | The surface cannot be resolved right now. |
-| `503 MODEL_ALIAS_UNSUPPORTED` | The client name differs from `native_model`, and the surface relays the body verbatim. |
+| `503 MODEL_ALIAS_UNSUPPORTED` | The client name differs from `native_model`, and the wire and surface cannot rewrite the name (see the aliasing table). |
 | `404 MODULE_DISABLED` | The `llmplex` module is off. |
 | `413 REQUEST_TOO_LARGE` | The body exceeds 8 MiB. |
 
 Model aliasing is limited. The client name may differ from `native_model` only when the
-access point can rewrite it without touching a body the surface relays verbatim:
+access point can rewrite it. Each wire rewrites the name in one place:
 
 | Wire | Alias allowed | How the name is rewritten |
 | --- | --- | --- |
-| GenAI | Yes | The path. |
+| GenAI (`:method` paths) | Yes | The path. |
 | Bedrock Converse and InvokeModel | Yes | The path segment. |
 | OpenAI Realtime | Yes | The `model` query parameter. |
-| Gemini Live | Yes | The `model` query parameter, rewritten to the native name. |
-| Anthropic Messages | Only when the surface is not a ready canonical operation | The body. |
-| OpenAI Chat Completions and Responses | No | The body is relayed verbatim, so the client name must equal `native_model`. |
+| OpenAI Chat Completions, OpenAI Responses, OpenAI Embeddings, Anthropic Messages (JSON bodies) | Yes, when the surface protocol is one of: OpenAI Chat, OpenAI Responses, Anthropic Messages, OpenAI Embeddings, GenAI, Bedrock Converse, Bedrock InvokeModel, OpenAI Realtime | The body's `model` value only. Other body fields are not changed. |
+| OpenAI Images and Audio (JSON bodies) | Only when the surface protocol is one of the list above. Images, audio and moderations surfaces are not on that list. | The body's `model` value. |
+| Multipart bodies (image edits, audio transcriptions and translations, when sent as `multipart/form-data`) | No | Not rewritten. |
+| Gemini Live (WebSocket) | No | Not rewritten. The request returns `503 MODEL_ALIAS_UNSUPPORTED`. |
+| OpenAI Moderations | No | Not rewritten. |
 
-The configuration check rejects an alias that the surface cannot rewrite.
+The response keeps the provider's native model name in every case. The client sees its own name
+only in the request.
+
+Two checks run when the access point is saved. An alias (a `name` that differs from
+`native_model`) is refused with `400` on `models/{n}/name` unless the surface protocol allows
+rewriting, as listed above. A model entry is also refused when its surface cannot serve the
+native model.
 
 ### Path translation
 
@@ -210,6 +298,18 @@ the save requires all of the following:
 - The native model is listed on the surface.
 - A `name` that differs from `native_model` is allowed only on a surface whose body can be
   rewritten (see the aliasing table above).
+
+### Azure OpenAI paths
+
+The Azure OpenAI routes map to the access point's OpenAI wires. The `api-version` query
+parameter is accepted and dropped. The surface pins its own version, so a caller cannot choose it.
+
+- On the deployment shapes, the `{deployment}` path segment is the access point's model name.
+  A `model` value in the JSON body must equal the deployment. Otherwise the request is refused
+  with `400 INVALID_REQUEST`. If the body has no `model`, the native model name is added to it.
+- On the `/openai/v1/...` shapes, the model comes from the body, as on `/v1/...`.
+- The `api-key` header is accepted as the AIPlex token. An `Authorization` header that differs
+  from it is refused with `401`. The two are never merged.
 
 ### Model-less operations
 
@@ -242,6 +342,26 @@ required is refused.
 
 Model names may contain letters, digits, `.`, `_`, `@`, `/`, `:` and `-`. The colon is
 allowed because Bedrock model IDs use it.
+
+**Model lists and connect output.** The `protocols` field of each model in `GET /v1/models` and
+`GET /v1beta/models` lists only the wires that the access point serves for that model. The
+`aiplex connect` output uses the same list. A wire that the surface's protocol could reach, but
+that the surface does not install for the native model, is left out. Discovery therefore never
+advertises an endpoint that refuses every request.
+
+**Load failures.** The quota-plan, overview and connect routes answer for a saved access point
+that cannot be read:
+
+| Status and code | Meaning |
+| --- | --- |
+| `404 NOT_FOUND` | The access point does not exist. |
+| `409 ACCESS_POINT_INVALID` | The stored record loads but does not validate. Re-save it. |
+| `503 ACCESS_POINT_UNAVAILABLE` | The store failed. The access point may exist. Retry. |
+
+**Validation errors.** A rejected save returns `400 INVALID_SPEC`. `details.field` names the
+offending field as a slash-separated path, for example `models/1/surface_ref`, `caller_kinds/0`,
+`qos/scope` or `subjects/principals`. The field is absent when the error has no field. A referenced
+resource that cannot be read returns `503 RESOURCE_STORE_UNAVAILABLE`, not a field error.
 
 ## Tool requests
 
@@ -339,12 +459,17 @@ aiplex access-points quota-plan ide-platform-team
 
 The plan contains rate rules for `requests_per_minute` and `tokens_per_minute`, a
 concurrency rule, the budget rules named in `budget_refs`, and a scheduler flow with the
-QoS `weight`. Every control is scoped to the caller's principal and to this access point
-through `access_point_id`. A plan includes `applied: false`. Apply it through the existing
+QoS `weight`. Every control is scoped to this access point through `access_point_id`. Rate and
+concurrency controls are also scoped to the caller's principal, unless `qos.scope` is
+`access_point`. A plan includes `applied: false`. Apply it through the existing
 QuotaPlex policy flow, not through this route. See [QuotaPlex administration](quotaplex-administration.md).
 
 Notes from the rendering code:
 
+- `qos.scope` chooses who shares the rate and concurrency limits. `principal` (the default) gives
+  each caller principal its own allowance. `access_point` gives one pool shared by every caller of
+  the access point. In either case the rules match this access point through `access_point_id`.
+  Any other value is refused on save as `qos/scope`.
 - `tokens_per_minute` admits on the bounded token exposure of a token meter. A model
   binding without that meter is denied.
 - A QoS block with no limits and no matching quota control fails closed for requests.
@@ -376,7 +501,8 @@ Access point routes are mounted with the API. Each part needs its module:
 ## The single pane
 
 The connect response's `endpoints` array lists the Bedrock and WebSocket endpoints of the
-wires the access point serves. Each entry has `protocol`, `transport` (`http`, `http-stream`
+wires the access point serves. Its `models` entries carry `protocols`, which lists only the
+served wires (see [model lists and connect output](#model-requests)). Each entry has `protocol`, `transport` (`http`, `http-stream`
 or `websocket`), `url` (with `{model}` where the model goes), `label`, `query` (the query
 parameters the client must send, for the WebSocket entries `model`), and `models` (the
 access point's model names that reach that protocol). The `wss://` or `ws://` scheme follows
@@ -403,15 +529,25 @@ aiplex connect ide-platform-team -o json
 Profiles are `generic` (the default), `antigravity`, `antigravity-acp`, `codex`,
 `claude-code` and `claude-desktop`. A profile is offered only when the access point
 serves a protocol that the client speaks. If it does not, the response is
-`422` and lists the protocols the access point offers. An unknown profile returns
-`404 UNKNOWN_CLIENT`.
+`422 CLIENT_NOT_APPLICABLE` and names the protocols the access point offers. An unknown
+profile returns `404 UNKNOWN_CLIENT`.
+
+`claude-desktop` speaks the Claude apps gateway protocol, which signs in through a gateway
+server rather than an access point. `--client claude-desktop` is therefore always refused with
+`422 CLIENT_NOT_APPLICABLE`, and the message says to use `claude-code` for an access point.
+
+Any verified caller that the access point admits can run `aiplex connect`. Operators (admins
+and deployers) get the full response. Other callers get a reduced one: only the auth step and
+`caller_kinds` for their own kind, and no notes that name internal resource IDs or the other
+subjects the access point admits. A caller the access point does not admit gets `404`, the same
+as for a missing access point.
 
 The snippets read the bearer token from the `AIPLEX_TOKEN` environment variable. No
 snippet contains a token or secret value. The caller still needs a token that the
 access point admits.
 
-`aiplex access-points` also has `list`, `get`, `apply -f <file>` (JSON or YAML), and
-`delete <id>`. `apply` creates or replaces the access point.
+`aiplex access-points` also has `list`, `get`, `create` (see [Create one with the CLI](#create-one-with-the-cli)),
+`apply -f <file>` (JSON or YAML), and `delete <id>`. `apply` creates or replaces the access point from the full specification.
 
 ## Limits
 
@@ -425,7 +561,8 @@ access point admits.
   invocation.
 - The `connect` output is built from the configured public URL. It does not check that
   the client can reach that URL.
-- Overview data is read from the usage ledger and resource store. Its roll-ups are only
+- Overview data is read from the usage ledger and resource store. Its usage roll-ups are
+  admin-only. A deployer gets the same configuration view with usage withheld. Roll-ups are only
   as complete as the ledger's records.
 - Google Agent Registry import, publish and Agent Gateway push-down are not part of this
   increment.

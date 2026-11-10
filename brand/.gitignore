@@ -1,0 +1,3 @@
+# render output from brand/scripts/render.js
+.renders/
+__pycache__/

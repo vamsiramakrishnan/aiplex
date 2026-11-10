@@ -19,22 +19,42 @@ authority. This page describes the ledger's fields and routes, not what each pro
 All routes are under `/api/v1/usage`. They require a verified tenant. Callers with
 the admin role read every record in their tenant. Other callers read only records
 where they are the principal or the actor. Writes to `/api/v1/usage/` require the
-admin role.
+admin role. Deployers are not admins: they read only their own records, like any other
+non-admin caller. The overview roll-ups under `/api/v1/overview` are admin-only too. A
+deployer gets the overview's configuration view with usage withheld (see
+[access points](access-points.md#the-single-pane)).
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `status`, `source`, `since`, `until`. Pagination: `limit`, `cursor`. |
+| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
 | `GET /api/v1/usage/records/{id}` | One record. |
-| `GET /api/v1/usage/summary` | Totals. Accepts the same filters plus `group_by` and `bucket=hour\|day`. Returns requests, errors, token sums, records with unknown usage and cost per currency. |
+| `GET /api/v1/usage/summary` | Totals. Accepts the same filters, except `limit` and `cursor`, plus `group_by` and `bucket=hour\|day`. Returns requests, errors, token sums, records with unknown usage and cost per currency. |
 | `GET /api/v1/usage/prices` | List model-price resources. |
 | `GET /api/v1/usage/prices/{id}` | One price with its revision. |
 | `PUT /api/v1/usage/prices/{id}` | Create or replace a price. Send the current revision in `If-Match`; `0` creates. |
 | `DELETE /api/v1/usage/prices/{id}` | Delete a price. Send the current revision in `If-Match`. |
 
-Unknown query parameters and unknown `group_by` fields are rejected with
+Unknown query parameters, repeated parameters, and unknown `group_by` fields are rejected with
 `400 INVALID_QUERY`. The valid `group_by` fields are `plane`, `provider`,
 `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`,
-`access_point_id`, `caller_kind` and `status`.
+`access_point_id`, `caller_kind`, `status`, `source`, `error_class`, `usage_bound`
+and `batch`. A `group_by` field may appear once.
+
+Filter values are checked before the query runs:
+
+| Parameter | Accepted values |
+| --- | --- |
+| `plane` | `llmplex`, `mcplex`, `a2aplex` |
+| `caller_kind` | `agent`, `user`, `client` |
+| `status` | `ok`, `error`, `denied`, `unknown` |
+| `source` | `managed`, `reported` |
+| `usage_bound` | `lower_bound`, `ambiguous`, `partial`, `none` |
+| `batch` | `true` or `false`. A record with `batch: true` matches `true`. |
+| `error_class` | Any text up to 512 characters. Matches records with exactly that `error_class`. |
+| `since`, `until` | RFC 3339 timestamps. `until` must be after `since`. |
+
+`usage_bound=none` matches records with no `usage_bound`, meaning counters that are final or
+unknown. Any other value is matched exactly.
 
 ## Record fields
 
@@ -44,7 +64,7 @@ Unknown query parameters and unknown `group_by` fields are rejected with
 | `plane` | `llmplex`, `mcplex` or `a2aplex`. |
 | `provider`, `model_id`, `model_version` | Set for model exchanges. Tool calls use provider `mcp`. |
 | `resource_id` | Surface, tool connection or agent connection identifier. |
-| `tool_name` | Tool name for `tools/call` exchanges. |
+| `tool_name` | Tool name for `tools/call` exchanges. A `tools/list` exchange has `operation: tools/list` and no tool name, so it counts as a request but not as a tool call in the dashboard. |
 | `principal_id`, `actor_id` | Verified principal and delegated actor, when present. |
 | `client_id` | The verified token's authorized party (`azp`). A public OAuth client ID is attribution, not a security boundary. |
 | `access_point_id`, `caller_kind` | Set only when the exchange entered through an [access point](access-points.md). `caller_kind` is `agent`, `user` or `client`. |
@@ -60,7 +80,7 @@ Unknown query parameters and unknown `group_by` fields are rejected with
 | `batch` | `true` when the exchange belongs to a provider batch job (its creation, retrieval, or the results fetch that settled it). Omitted otherwise. |
 | `image_size`, `image_quality` | Billing dimensions the provider reported for generated images (for example `1024x1024`, `high`); `mixed` when one exchange reported different values. Omitted when not reported. |
 | `usage_bound` | Present only when `usage` is not final. One of `lower_bound`, `ambiguous` or `partial`. See [bounded usage](#bounded-usage). |
-| `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`) and `scale`. |
+| `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`), `scale` and `amount_decimal`, the same amount written as an exact decimal string (for example `0.000006` for `amount` `6` at scale `6`). |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
 | `session` | `true` for a WebSocket session. One record covers the whole session, and its usage is final only with a terminal observation. Omitted otherwise. |
@@ -107,12 +127,13 @@ is `null` when nothing was observed.
 **Summaries add bounded records into totals.** `GET /api/v1/usage/summary` sums every
 record's counters, including records with a `usage_bound`. The summary also reports
 `bounded_usage_records`, `lower_bound_records`, `ambiguous_usage_records` and
-`partial_usage_records`. Each is omitted when zero. `usage_bound` itself is not a
-`group_by` field or a filter. A record
+`partial_usage_records`. Each is omitted when zero. `usage_bound` is a filter and a
+`group_by` field. A record
 counts toward `unknown_usage_records` only when its `usage` is `null`. A bounded record with
-counters is therefore counted in the token totals as observed, not as unknown. Read the
-records (`GET /api/v1/usage/records`, which returns the `usage_bound` field) when a total
-must exclude lower bounds.
+counters is therefore counted in the token totals as observed, not as unknown. To exclude
+lower bounds from a total, filter with `usage_bound=none`, or group by
+`usage_bound` (CLI: `--by bound`). `GET /api/v1/usage/records` also returns the `usage_bound` field on each
+record.
 
 Cost is not estimated from a bounded record's counters unless a settlement or price
 establishes it, as described above.
@@ -204,7 +225,9 @@ The capacity rejections are status `denied`, with HTTP 429 and a `Retry-After` h
 ## Worked example
 
 ```sh
-# Save the price, then read it back
+# Set a price from the command line: dollars per million tokens (currency defaults to USD)
+aiplex usage prices set gpt-4o-mini --input-per-mtok 0.15 --output-per-mtok 0.60
+# Or save a full price specification from a file (JSON or YAML)
 aiplex usage prices set -f example-flash.json
 aiplex usage prices list
 aiplex usage prices get example-flash
@@ -219,6 +242,11 @@ aiplex usage records --access-point ide-team --caller-kind agent --since 24h
 # (--by model,status is the same as --by model_id,status)
 aiplex usage summary --by model,status --bucket day --since 7d
 
+# Model-plane totals over a period, same data as `aiplex usage summary --plane llm`.
+# A cost or token count the ledger lacks is "unknown", never $0.00, and the
+# output says how many records it leaves out. `aiplex llm usage` lists the records.
+aiplex llm costs --period week
+
 # Totals per access point and caller kind
 aiplex usage summary --by access-point,caller-kind --since 7d
 
@@ -227,11 +255,13 @@ aiplex usage get ul_<id>
 ```
 
 `--by` takes the friendly aliases the CLI help lists: `plane`, `provider`, `model`,
-`tool`, `agent`, `user`, `client` and `status`. The SDK maps `model` to `model_id`,
+`tool`, `agent`, `user`, `client`, `status`, `source`, `error-class`, `bound` and `batch`. The SDK maps `model` to `model_id`,
 `agent` or `actor` to `actor_id`, `user` or `principal` to `principal_id`, `client` to
-`client_id` and `tool` to `tool_name`, before the request is sent. The API field names
+`client_id`, `tool` to `tool_name`, `error-class` to `error_class` and `bound` to `usage_bound`
+before the request is sent. The API field names
 (`model_id`, `actor_id`, `principal_id`, `client_id`, `tool_name`, `plane`, `provider`,
-`status`, `access_point_id`, `caller_kind`) are also accepted. The CLI aliases `access-point`
+`status`, `access_point_id`, `caller_kind`, `source`, `error_class`, `usage_bound`, `batch`) are
+also accepted. The CLI aliases `access-point`
 (`access_point_id`) and `caller-kind` (`caller_kind`) are accepted too. Repeating a field is
 an error.
 Summary responses carry `truncated` and `records_scanned`. A truncated total covers only the
@@ -261,30 +291,56 @@ not change the response to the client.
 
 `aiplex usage records` and `aiplex usage summary` take the same filters: `--plane`,
 `--provider`, `--model`, `--tool`, `--agent`, `--user`, `--client`, `--access-point`,
-`--caller-kind`, `--status`, `--source`, `--since` and `--until`. `records` also takes
+`--caller-kind`, `--status`, `--source`, `--error-class`, `--bound`, `--batch`, `--since` and `--until`.
+`--error-class` and `--bound` pass through to `error_class` and `usage_bound`. `--bound` accepts
+`lower_bound`, `ambiguous`, `partial` or `none`. `--batch` takes `true` or `false`. Given alone,
+`--batch` means `--batch=true`. `--since` and `--until` also accept a duration such as `24h` or
+`7d`, measured back from now. `--until` is exclusive. `records` also takes
 `--limit`, `--cursor` and `--all`. `summary` takes `--by` and `--bucket` (`hour` or `day`).
 
-`aiplex usage records` prints one row per record with these columns:
+`aiplex usage records` prints one row per record. Tables fit the terminal width (from `$COLUMNS`, then the
+terminal size). When standard output is not a terminal, nothing is shortened. `-o wide` prints every column,
+untruncated. The default columns are:
 
 | Column | Shows |
 | --- | --- |
-| `ID`, `TIME`, `PLANE`, `MODEL/TOOL`, `AGENT`, `USER`, `CLIENT` | Identity and target. |
-| `SESSION` | `session` for a WebSocket session. |
-| `BATCH` | `batch` for a batch exchange. |
+| `TIME` | When the exchange started, relative (`just now`) in the default table. |
+| `MODEL/TOOL` | The model, or the tool name for an MCP call. |
+| `CALLER` | The readable caller: the user's display name (the verified email or subject), with the agent in front of it when the call was made by an agent for a user, as `agent (user)`. |
+| `ACCESS POINT` | The access point the call came through. |
 | `STATUS` | The status. A capacity rejection shows its reason, for example `denied (capacity_cooldown)`. |
-| `IN`, `OUT`, `CACHE-W` | `input_tokens`, `output_tokens` and `cache_write_tokens`. Unknown counters show `—`. |
-| `MODALITY` | The modality splits. `in` lists input splits and `out` lists output splits. |
-| `UNITS` | Units the record reported: `audio-in`, `voice-session`, `video-out` (milliseconds) and `images`. |
-| `COST`, `LATENCY` | Cost and duration. |
+| `IN`, `OUT` | `input_tokens` and `output_tokens`. Unknown counters show `unknown`. |
+| `COST` | The cost and its basis, `(settled)` or `(estimated)`. Unknown cost shows `unknown`. |
 
-`aiplex usage get <id>` prints every field of one record, including `http_status`,
-`error_class`, `usage_bound`, `batch`, `image_size` and `image_quality`.
+`-o wide` adds the columns the default table leaves out: `ID` (the record ID), `PLANE`, `AGENT`, `USER` (the
+readable user name), `PRINCIPAL ID` (the key the caller is recorded under), `CLIENT`, `SESSION`, `BATCH`, `CACHE-W`,
+`MODALITY`, `UNITS` and `LATENCY`. Use `-o json` for every field of each record.
 
-`aiplex usage summary` prints one row per group, with these columns after the group keys:
-`REQUESTS`, `ERRORS`, `DENIED`, `IN`, `OUT`, `CACHE-W`, `MODALITY`, `UNITS`, `BATCH`, `COST`,
-`UNKNOWN` and `BOUNDED`. `BATCH` counts batch records. `BOUNDED` counts records with
-`lower_bound`, `ambiguous` or `partial` usage. The summary prints a note when any total
-includes bounded usage.
+A record carries two readable names for the caller, set by the server from the verified identity when it
+verified it: `principal_display` for the user (or client) and `actor_display` for the agent. The CLI shows the
+display name in `CALLER`, and falls back to a shortened principal ID when none is recorded. The display name is
+for people to read and is not a key. It can be an email address, so do not publish a ledger export without
+checking it. `principal_id` and `actor_id` are the keys that `--user` and `--agent` filter on.
+
+`aiplex usage get <id>` prints every field of one record, including `principal_display`, `actor_display`,
+`http_status`, `error_class`, `usage_bound`, `batch`, `image_size` and `image_quality`.
+
+`aiplex usage summary` prints one row per group, with the group keys first. The default columns are
+`REQUESTS`, `ERRORS`, `DENIED`, `IN`, `OUT` and `COST`. `-o wide` adds `CACHE-W`, `MODALITY`, `UNITS`,
+`BATCH`, `UNKNOWN` and `BOUNDED`. `BATCH` counts batch records. `BOUNDED` counts records with `lower_bound`,
+`ambiguous` or `partial` usage. The summary prints a note when any total includes bounded usage.
+
+A group whose key is empty is labelled `(no model)` with `--by model`, and `(no tool)` with `--by tool`. A
+`tools/list` record has no model and no tool, so it appears under both labels, and a chat record appears under
+`(no tool)` in `--by tool`.
+
+```text
+$ aiplex usage summary --by model
+MODEL     REQUESTS  ERRORS  DENIED  IN  OUT  COST
+mock-gpt  1         0       0       1   9    USD 0.000006 (estimated)
+
+1 records scanned.
+```
 
 ## Limits
 
@@ -304,11 +360,10 @@ includes bounded usage.
   is `unknown`.
 - A price is not applied retroactively. Correcting a price does not correct stored
   records.
-- Summaries group only on the fields listed above. There is no free-text search
+- Summaries group only on the fields listed above, and `group_by` is not a free-text search. There is no free-text search
   and no export route.
 - Summaries count bounded records in full and report them in the `*_records` counts (see
-  [bounded usage](#bounded-usage)). The record routes can show `usage_bound`, but no route
-  filters on it.
+  [bounded usage](#bounded-usage)). Records and summaries both filter on `usage_bound`.
 - The memory store is not durable. Firestore-backed records follow the bundled
   90-day retention bound.
 - Live and asynchronous job billing is outside this ledger. A managed request that

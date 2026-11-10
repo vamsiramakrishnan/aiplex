@@ -1,7 +1,7 @@
 import * as usage from '../api/usage'
 import type { APSummaryGroup } from '../api/accessPointUsage'
 
-const muted = 'text-xs text-gray-500 dark:text-gray-400'
+const muted = 'text-xs text-gray-600 dark:text-gray-400'
 const UNKNOWN = usage.UNKNOWN
 
 function tokenCell(g: APSummaryGroup, name: usage.TokenCounter): string {
@@ -20,7 +20,7 @@ export function UsageHeadline({ groups, label }: { groups: APSummaryGroup[]; lab
   const unknownCost = usage.sumCounts(groups.map(g => g.unknown_cost_records))
   const tokenLine = (name: string, t: usage.TokenHeadline) => (
     <p>{name} <strong>{t.reported ? usage.formatCount(t.total.toString()) : UNKNOWN}</strong>
-      {t.reported && t.unknownRecords > 0n && <span className={muted}> (+{usage.formatCount(t.unknownRecords.toString())} records unreported)</span>}</p>
+      {t.reported && t.unknownRecords > 0n && <span className={muted}> (+{usage.countNoun(t.unknownRecords.toString(), 'record')} unreported)</span>}</p>
   )
   return (
     <div aria-label={label} className="grid gap-4 md:grid-cols-3">
@@ -35,7 +35,7 @@ export function UsageHeadline({ groups, label }: { groups: APSummaryGroup[]; lab
         {costs.length === 0 ? <p>{UNKNOWN}</p> : (
           <ul>{costs.map(c => <li key={`${c.currency}-${c.basis}`}><strong>{usage.formatTotal(c)}</strong> <span className={muted}>{c.basis}</span></li>)}</ul>
         )}
-        {unknownCost > 0n && <p className={muted}>{usage.formatCount(unknownCost.toString())} records have unknown cost and are not counted above.</p>}
+        {unknownCost > 0n && <p className={muted}>{usage.countNoun(unknownCost.toString(), 'record')} {usage.countVerb(unknownCost.toString())} unknown cost and are not counted above.</p>}
       </div>
     </div>
   )
@@ -44,7 +44,7 @@ export function UsageHeadline({ groups, label }: { groups: APSummaryGroup[]; lab
 /** One row per group: requests, tokens, cost (with currency and basis), unknown counts. */
 export default function UsageSummaryTable({ groups, keyField, heading }: {
   groups: APSummaryGroup[]
-  keyField: 'caller_kind' | 'model_id' | 'tool_name'
+  keyField: 'caller_kind' | 'model_id' | 'tool_name' | 'access_point_id'
   heading: string
 }) {
   const max = groups.reduce((m, g) => Math.max(m, Number(g.requests)), 0)
@@ -53,7 +53,7 @@ export default function UsageSummaryTable({ groups, keyField, heading }: {
       <table className="w-full text-left text-sm">
         <caption className="sr-only">{`Usage by ${heading}`}</caption>
         <thead>
-          <tr className="border-b border-gray-200 dark:border-gray-800 text-xs text-gray-500">
+          <tr className="border-b border-gray-200 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400">
             <th scope="col" className="py-1 pr-4">{heading}</th>
             <th scope="col" className="pr-4">Requests</th>
             <th scope="col" className="pr-4">Input tokens</th>

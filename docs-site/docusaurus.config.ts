@@ -1,29 +1,45 @@
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+import remarkRepoLinks from './plugins/remark-repo-links.mjs';
+
+const REPO = 'https://github.com/vamsiramakrishnan/aiplex';
+
+// The documentation address, in one place. The site deploys to GitHub Pages
+// (.github/workflows/deploy-docs.yml). Nothing in the repository shows that a
+// custom domain exists (no CNAME file, no DNS notes). If one is added later,
+// change these two constants (for example origin 'https://docs.example.com',
+// base '/'), add static/CNAME, and update the link block at the bottom of
+// README.md, which is the only other place that spells the address out.
+const DOCS_ORIGIN = 'https://vamsiramakrishnan.github.io';
+const DOCS_BASE_URL = '/aiplex/';
 
 const config: Config = {
   title: 'AIPlex',
-  tagline: 'One gateway. Three planes. Governed AI agents.',
-  favicon: 'img/favicon.ico',
+  tagline: 'One control plane for agent access to models, tools, skills and other agents.',
+  favicon: 'img/favicon.svg',
 
   future: {
     v4: true,
   },
 
-  // For custom domain: url: 'https://docs.aiplex.dev', baseUrl: '/'
-  // For GitHub Pages without custom domain:
-  url: 'https://vamsiramakrishnan.github.io',
-  baseUrl: '/aiplex/',
+  url: DOCS_ORIGIN,
+  baseUrl: DOCS_BASE_URL,
 
   organizationName: 'vamsiramakrishnan',
   projectName: 'aiplex',
   trailingSlash: false,
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
   markdown: {
+    // .md files are plain CommonMark, .mdx files are MDX. The verified docs synced from
+    // the repository's docs/ directory contain `<`, `{` and angle-bracket placeholders
+    // that MDX would reject, and they must not be rewritten.
+    format: 'detect',
     hooks: {
-      onBrokenMarkdownLinks: 'warn',
+      onBrokenMarkdownLinks: 'throw',
+      onBrokenMarkdownImages: 'throw',
     },
   },
 
@@ -38,8 +54,10 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/vamsiramakrishnan/aiplex/tree/main/docs-site/',
-          showLastUpdateTime: true,
+          editUrl: `${REPO}/tree/main/docs-site/`,
+          showLastUpdateTime: false,
+          // Rewrites links from the synced docs/ files to repository source files.
+          beforeDefaultRemarkPlugins: [remarkRepoLinks],
         },
         blog: false,
         theme: {
@@ -52,16 +70,15 @@ const config: Config = {
   themeConfig: {
     image: 'img/aiplex-social-card.png',
     colorMode: {
-      defaultMode: 'dark',
+      defaultMode: 'light',
       respectPrefersColorScheme: true,
     },
-    announcementBar: {
-      id: 'alpha',
-      content: 'AIPlex is in active development. <a href="/docs/contributing">Contributions welcome!</a>',
-      isCloseable: true,
-    },
     navbar: {
-      title: 'AIPlex',
+      logo: {
+        alt: 'AIPlex',
+        src: 'img/aiplex-logo.svg',
+        srcDark: 'img/aiplex-logo-dark.svg',
+      },
       items: [
         {
           type: 'docSidebar',
@@ -70,35 +87,48 @@ const config: Config = {
           label: 'Docs',
         },
         {
-          type: 'docSidebar',
-          sidebarId: 'api',
+          type: 'doc',
+          docId: 'getting-started/index',
           position: 'left',
-          label: 'API Reference',
+          label: 'Get started',
         },
         {
-          href: 'https://github.com/vamsiramakrishnan/aiplex',
+          type: 'doc',
+          docId: 'reference/cli/index',
+          position: 'left',
+          label: 'CLI',
+        },
+        {
+          type: 'doc',
+          docId: 'api/overview',
+          position: 'left',
+          label: 'API',
+        },
+        {
+          href: REPO,
           label: 'GitHub',
           position: 'right',
         },
       ],
     },
     footer: {
-      style: 'dark',
+      style: 'light',
       links: [
         {
-          title: 'Get Started',
+          title: 'Start',
           items: [
-            {label: 'Quickstart', to: '/docs/getting-started/quickstart'},
-            {label: 'Installation', to: '/docs/getting-started/installation'},
-            {label: 'Your First Deploy', to: '/docs/getting-started/first-deploy'},
+            {label: 'Overview', to: '/docs'},
+            {label: 'Getting started', to: '/docs/getting-started'},
+            {label: 'Concepts', to: '/docs/concepts'},
           ],
         },
         {
-          title: 'Planes',
+          title: 'Modules',
           items: [
-            {label: 'MCPlex (Tools)', to: '/docs/guides/mcplex'},
-            {label: 'A2APlex (Agents)', to: '/docs/guides/a2aplex'},
-            {label: 'LLMPlex (Models)', to: '/docs/guides/llmplex'},
+            {label: 'MCPlex (tools)', to: '/docs/guides/mcplex'},
+            {label: 'LLMPlex (models)', to: '/docs/guides/llmplex'},
+            {label: 'A2APlex (agents)', to: '/docs/guides/a2aplex'},
+            {label: 'QuotaPlex', to: '/docs/guides/quotaplex'},
           ],
         },
         {
@@ -106,13 +136,13 @@ const config: Config = {
           items: [
             {label: 'CLI', to: '/docs/reference/cli'},
             {label: 'API', to: '/docs/api/overview'},
-            {label: 'Configuration', to: '/docs/reference/configuration'},
+            {label: 'Usage-format coverage', to: '/docs/library/reference/usage-formats/coverage'},
           ],
         },
         {
-          title: 'Community',
+          title: 'Project',
           items: [
-            {label: 'GitHub', href: 'https://github.com/vamsiramakrishnan/aiplex'},
+            {label: 'GitHub', href: REPO},
             {label: 'Contributing', to: '/docs/contributing'},
           ],
         },

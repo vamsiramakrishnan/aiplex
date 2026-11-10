@@ -20,7 +20,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/vamsiramakrishnan/aiplex/internal/api"
 	"github.com/vamsiramakrishnan/aiplex/internal/config"
-	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modules"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
@@ -488,15 +487,11 @@ func (m *quotaRuntime) mount(r chi.Router, h *api.ConnectedHandler) {
 			api.Error(w, r, status, "QUOTA_ATTEMPT_UNAVAILABLE", "quota attempt unavailable")
 			return
 		}
-		admin := false
-		if access := api.GetWIFAccess(r.Context()); access != nil {
-			for _, role := range access.Roles {
-				if role == models.RoleAdmin {
-					admin = true
-				}
-			}
-		}
-		if !admin && (attempt.Demand.Context.PrincipalID != identity.PrincipalID || attempt.Demand.Context.ActorID != identity.ActorID) {
+		// The caller's own attempts: those it made as the principal, or as the
+		// delegated actor. Anything else needs the quota read grant, the same
+		// grant every other quota read requires; a role alone is not enough.
+		own := attempt.Demand.Context.PrincipalID == identity.PrincipalID || (identity.ActorID != "" && attempt.Demand.Context.ActorID == identity.ActorID)
+		if !own && h.AuthorizeCurrent(r, "aiplex:quota:read") != nil {
 			api.Error(w, r, 404, "NOT_FOUND", "quota attempt unavailable")
 			return
 		}

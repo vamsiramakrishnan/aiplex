@@ -40,7 +40,7 @@ function FieldInput({ field, value, error, onChange, pattern, namespace }: {
   return (
     <div className="mb-3">
       <label htmlFor={id} className="block text-sm font-medium mb-1">
-        {label}{field.required && <span aria-hidden="true" className="text-red-600"> *</span>}
+        {label}{field.required && <span aria-hidden="true" className="text-status-denied-fg"> *</span>}
         {field.required && <span className="sr-only"> (required)</span>}
       </label>
       {field.enum ? (
@@ -55,11 +55,11 @@ function FieldInput({ field, value, error, onChange, pattern, namespace }: {
           aria-describedby={`${hintId}${error ? ` ${errorId}` : ''}`}
           placeholder={isSecret ? 'Name of a stored secret, e.g. search-key' : isList ? 'Comma separated' : undefined} />
       )}
-      <p id={hintId} className="text-xs text-gray-500 mt-1">
+      <p id={hintId} className="text-xs text-gray-600 dark:text-gray-400 mt-1">
         {field.description}
         {isSecret && <> Enter a reference name, not the secret value. The value is resolved by the gateway when a tool is called and is never shown here.{namespace ? ` Secrets are looked up in ${namespace}.` : ''}{pattern ? ` Allowed: ${pattern}` : ''}</>}
       </p>
-      {error && <p id={errorId} role="alert" className="text-xs text-red-600 mt-1">{field.name}: {error}</p>}
+      {error && <p id={errorId} role="alert" className="text-xs text-status-denied-fg mt-1">{field.name}: {error}</p>}
     </div>
   )
 }
@@ -120,20 +120,20 @@ export default function ToolAuthEditor({ record, catalog, onSaved, onReload, onC
   }
 
   return (
-    <form onSubmit={save} aria-label={`Edit auth for ${record.id}`} className="bg-white rounded-lg shadow p-4 mt-4">
+    <form onSubmit={save} aria-label={`Edit auth for ${record.id}`} className="bg-white rounded-lg shadow p-4 mt-4 dark:bg-gray-900">
       <h3 className="font-semibold mb-1">Auth and tool policy: {record.id}</h3>
-      <p className="text-xs text-gray-500 mb-4">Revision {record.revision}</p>
+      <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">Revision {record.revision}</p>
 
       {conflict && (
-        <div role="alert" className="mb-4 border border-amber-400 bg-amber-50 text-amber-900 rounded p-3 text-sm">
+        <div role="alert" className="mb-4 border border-status-warning-fg bg-status-warning-bg text-status-warning-fg rounded p-3 text-sm">
           <p className="font-medium">This connection was changed by someone else.</p>
           <p className="mb-2">Your edits were not saved. Reload the latest version, then review it and make your changes again.</p>
-          <button type="button" onClick={reload} disabled={reloading} className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded disabled:opacity-50">
+          <button type="button" onClick={reload} disabled={reloading} className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded disabled:opacity-50">
             {reloading ? 'Reloading…' : 'Reload latest'}
           </button>
         </div>
       )}
-      {failure && <p role="alert" className="text-red-600 text-sm mb-3">Could not save: {failure}</p>}
+      {failure && <p role="alert" className="text-status-denied-fg text-sm mb-3">Could not save: {failure}</p>}
 
       <div className="mb-3">
         <label htmlFor={typeId} className="block text-sm font-medium mb-1">Auth type</label>
@@ -143,13 +143,13 @@ export default function ToolAuthEditor({ record, catalog, onSaved, onReload, onC
             <option key={t.type} value={t.type} disabled={!managed && t.execution_credential_mode === CONNECTION_AUTH}>{t.title} ({t.type})</option>
           ))}
         </select>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
           {selected ? selected.description : catalog.default_behaviour}
           {!managed && ' This connection has no managed execution, so only delegated user OAuth can be selected.'}
         </p>
       </div>
 
-      {selected && selected.fields.length === 0 && <p className="text-sm text-gray-500 mb-3">This auth type has no settings.</p>}
+      {selected && selected.fields.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">This auth type has no settings.</p>}
       {selected?.fields.map((field) => (
         <FieldInput key={`${selected.type}.${field.name}`} field={field} value={values[field.name] ?? ''} error={errors[field.name]}
           onChange={(v) => setValues((prev) => ({ ...prev, [field.name]: v }))}
@@ -158,31 +158,31 @@ export default function ToolAuthEditor({ record, catalog, onSaved, onReload, onC
 
       <fieldset className="border-t pt-3 mt-4" disabled={!managed || conflict}>
         <legend className="text-sm font-medium">Tool policy</legend>
-        {!managed && <p className="text-xs text-gray-500 mb-2">A tool policy needs managed execution, which this connection does not have.</p>}
+        {!managed && <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">A tool policy needs managed execution, which this connection does not have.</p>}
         <div className="mb-3">
           <label htmlFor={allowId} className="block text-sm font-medium mb-1">Allowed tools</label>
           <textarea id={allowId} value={allow} onChange={(e) => setAllow(e.target.value)} rows={3} className={inputClass} aria-describedby={`${allowId}-hint`} spellCheck={false} />
-          <p id={`${allowId}-hint`} className="text-xs text-gray-500 mt-1">One per line. Exact tool names or prefixes ending in *, such as files.*. Leave empty to allow every tool the caller is granted.</p>
+          <p id={`${allowId}-hint`} className="text-xs text-gray-600 dark:text-gray-400 mt-1">One per line. Exact tool names or prefixes ending in *, such as files.*. Leave empty to allow every tool the caller is granted.</p>
         </div>
         <div className="mb-3">
           <label htmlFor={denyId} className="block text-sm font-medium mb-1">Denied tools</label>
           <textarea id={denyId} value={deny} onChange={(e) => setDeny(e.target.value)} rows={3} className={inputClass} aria-describedby={`${denyId}-hint`} spellCheck={false} />
-          <p id={`${denyId}-hint`} className="text-xs text-gray-500 mt-1">One per line, same format. Deny always wins over allow.</p>
+          <p id={`${denyId}-hint`} className="text-xs text-gray-600 dark:text-gray-400 mt-1">One per line, same format. Deny always wins over allow.</p>
         </div>
         <div className="flex items-start gap-2">
           <input id={readOnlyId} type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} className="mt-1" aria-describedby={`${readOnlyId}-hint`} />
           <div>
             <label htmlFor={readOnlyId} className="text-sm font-medium">Read-only</label>
-            <p id={`${readOnlyId}-hint`} className="text-xs text-gray-500">Only tools the server annotates as read-only can be called. Tools with an unknown annotation are denied until tools are listed through the gateway.</p>
+            <p id={`${readOnlyId}-hint`} className="text-xs text-gray-600 dark:text-gray-400">Only tools the server annotates as read-only can be called. Tools with an unknown annotation are denied until tools are listed through the gateway.</p>
           </div>
         </div>
       </fieldset>
 
       <div className="flex gap-2 mt-4">
-        <button type="submit" disabled={saving || conflict} className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50">
+        <button type="submit" disabled={saving || conflict} className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700 disabled:opacity-50">
           {saving ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-100 text-sm rounded">Cancel</button>
+        <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-100 text-sm rounded dark:bg-gray-800">Cancel</button>
       </div>
     </form>
   )

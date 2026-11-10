@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-quotaplex-title aiplex-icon-quotaplex-desc">
+  <title id="aiplex-icon-quotaplex-title">QuotaPlex</title>
+  <desc id="aiplex-icon-quotaplex-desc">Budgets and limits: a gauge with its needle on a gate.</desc>
+  <path id="quotaplex-lines" d="M3 16A9 9 0 0 1 21 16M12 16l6-6"/>
+  <path id="quotaplex-gate" d="M10 14h4v4h-4Z" fill="currentColor" stroke="none"/>
+</svg>

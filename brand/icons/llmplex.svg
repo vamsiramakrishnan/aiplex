@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-llmplex-title aiplex-icon-llmplex-desc">
+  <title id="aiplex-icon-llmplex-title">LLMPlex</title>
+  <desc id="aiplex-icon-llmplex-desc">Models: a processor package with pins and a gate at its centre.</desc>
+  <path id="llmplex-lines" d="M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>
+  <path id="llmplex-gate" d="M10 10h4v4h-4Z" fill="currentColor" stroke="none"/>
+</svg>

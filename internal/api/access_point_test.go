@@ -247,7 +247,7 @@ func TestAccessPointValidation(t *testing.T) {
 		{"duplicate model name", mutate(func(a *AccessPoint) { a.Models = append(a.Models, a.Models[0]) }), false},
 		{"unknown surface", mutate(func(a *AccessPoint) { a.Models[0].SurfaceRef = "missing" }), false},
 		{"native model not on surface", mutate(func(a *AccessPoint) { a.Models[0].NativeModel = "unlisted" }), false},
-		{"alias on verbatim protocol", mutate(func(a *AccessPoint) { a.Models[2].Name = "alias" }), false},
+		{"alias on OpenAI chat, rewritten in place", mutate(func(a *AccessPoint) { a.Models[2].Name = "alias" }), true},
 		{"unknown connection", mutate(func(a *AccessPoint) { a.Tools[0].ConnectionRef = "missing" }), false},
 		{"ambiguous connection id", mutate(func(a *AccessPoint) { a.Tools[0].ConnectionRef = "bad__name" }), false},
 		{"trailing underscore connection", mutate(func(a *AccessPoint) { a.Tools[0].ConnectionRef = "github_" }), false},

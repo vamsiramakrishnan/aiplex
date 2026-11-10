@@ -44,7 +44,7 @@ type UserIdentityProviderHandler struct {
 func (h *UserIdentityProviderHandler) Mount(r chi.Router) {
 	readers := RequireRole(models.RoleAdmin, models.RoleDeployer)
 	r.Get("/identity/user-provider-presets", h.Presets)
-	r.With(readers).Post("/identity/user-providers/verify", h.Verify)
+	r.With(readers, RateLimit(VerifyDryRunsPerMinute)).Post("/identity/user-providers/verify", h.Verify)
 	r.With(readers).Get("/identity/user-providers", h.List)
 	r.With(readers).Get("/identity/user-providers/{id}", h.Get)
 	r.With(RequireRole(models.RoleAdmin)).Put("/identity/user-providers/{id}", h.Put)

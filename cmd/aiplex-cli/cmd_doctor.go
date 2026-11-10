@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -33,20 +36,38 @@ func doctorCmd() *cobra.Command {
 			issues := 0
 			warnings := 0
 
+			// The API this CLI talks to: --url, AIPLEX_URL, the context, then
+			// the default. A loopback API (aiplex dev, make run-local) has no
+			// cloud project, cluster, DNS or Hydra to check.
+			target := resolveAPIURL()
+			local := isLoopbackURL(target)
+			tokenSource := ""
+			switch {
+			case token != "":
+				tokenSource = "--token"
+			case os.Getenv("AIPLEX_TOKEN") != "":
+				tokenSource = "AIPLEX_TOKEN"
+			}
+
 			// 1. CLI config
 			fmt.Println("[1/7] CLI Configuration")
 			cfg, err := cliconfig.Load()
-			if err != nil {
+			switch {
+			case err != nil:
 				fmt.Println("  [FAIL] Cannot load config — run: aiplex init")
 				issues++
-			} else if cfg.CurrentContext == "" {
-				fmt.Println("  [FAIL] No active context — run: aiplex init")
+			case cfg.CurrentContext == "" && (apiURL != "" || os.Getenv("AIPLEX_URL") != ""):
+				fmt.Printf("  [pass] API URL from flag/environment: %s\n", target)
+			case cfg.CurrentContext == "" && local:
+				fmt.Printf("  [WARN] No active context; using %s. Start a local API with: aiplex dev\n", target)
+				warnings++
+			case cfg.CurrentContext == "":
+				fmt.Println("  [FAIL] No active context — run: aiplex dev (local) or aiplex init (cloud)")
 				issues++
-			} else {
+			default:
 				ctx := cfg.Contexts[cfg.CurrentContext]
 				fmt.Printf("  [pass] Context: %s → %s\n", cfg.CurrentContext, ctx.URL)
-
-				if ctx.Project == "" {
+				if ctx.Project == "" && !local {
 					fmt.Println("  [WARN] No GCP project set — run: aiplex config set-context <name> --project <id>")
 					warnings++
 				}
@@ -54,105 +75,119 @@ func doctorCmd() *cobra.Command {
 
 			// Credentials
 			creds, err := cliconfig.LoadCredentials()
-			if err != nil || cfg == nil {
+			switch {
+			case tokenSource != "":
+				fmt.Printf("  [pass] Token from %s\n", tokenSource)
+			case err != nil || cfg == nil:
 				fmt.Println("  [WARN] No credentials file")
 				warnings++
-			} else if creds.GetToken(cfg.CurrentContext) == nil {
+			case creds.GetToken(cfg.CurrentContext) == nil && local:
+				fmt.Println("  [WARN] No token for this context; `aiplex dev` stores one while it runs")
+				warnings++
+			case creds.GetToken(cfg.CurrentContext) == nil:
 				fmt.Println("  [WARN] Not authenticated — run: aiplex login")
 				warnings++
-			} else {
+			default:
 				fmt.Println("  [pass] Authenticated")
 			}
 			fmt.Println()
-
-			// 2. Tool dependencies
-			fmt.Println("[2/7] Required Tools")
-			tools := map[string]string{
-				"gcloud":    "GCP CLI",
-				"terraform": "Infrastructure",
-				"helm":      "Deployment",
-				"kubectl":   "Cluster management",
-				"docker":    "Local development",
+			if local {
+				fmt.Println("[2-4/7] Tools, GCP project, Kubernetes")
+				fmt.Println("  [SKIP] Local API: cloud tooling, project and cluster checks do not apply")
+				fmt.Println()
 			}
-			for tool, purpose := range tools {
-				if _, err := exec.LookPath(tool); err != nil {
-					fmt.Printf("  [WARN] %s (%s) — not installed\n", tool, purpose)
-					warnings++
-				} else {
-					fmt.Printf("  [pass] %s\n", tool)
+
+			if !local {
+				// 2. Tool dependencies
+				fmt.Println("[2/7] Required Tools")
+				tools := map[string]string{
+					"gcloud":    "GCP CLI",
+					"terraform": "Infrastructure",
+					"helm":      "Deployment",
+					"kubectl":   "Cluster management",
+					"docker":    "Local development",
 				}
-			}
-			fmt.Println()
-
-			// 3. GCP project
-			fmt.Println("[3/7] GCP Project")
-			if cfg != nil && cfg.CurrentContext != "" {
-				ctx := cfg.Contexts[cfg.CurrentContext]
-				if ctx.Project != "" {
-					out, err := exec.Command("gcloud", "projects", "describe", ctx.Project,
-						"--format=value(projectId)", "--quiet").Output()
-					if err != nil {
-						fmt.Printf("  [FAIL] Cannot access project %s\n", ctx.Project)
-						fmt.Println("    Fix: gcloud auth login && gcloud config set project " + ctx.Project)
-						issues++
+				for tool, purpose := range tools {
+					if _, err := exec.LookPath(tool); err != nil {
+						fmt.Printf("  [WARN] %s (%s) — not installed\n", tool, purpose)
+						warnings++
 					} else {
-						fmt.Printf("  [pass] Project: %s\n", strings.TrimSpace(string(out)))
+						fmt.Printf("  [pass] %s\n", tool)
 					}
+				}
+				fmt.Println()
 
-					// Check required APIs
-					requiredAPIs := []string{"container", "alloydb", "firestore", "secretmanager"}
-					for _, api := range requiredAPIs {
-						svc := api + ".googleapis.com"
-						err := exec.Command("gcloud", "services", "list", "--project", ctx.Project,
-							"--filter=name:"+svc, "--format=value(name)", "--quiet").Run()
+				// 3. GCP project
+				fmt.Println("[3/7] GCP Project")
+				if cfg != nil && cfg.CurrentContext != "" {
+					ctx := cfg.Contexts[cfg.CurrentContext]
+					if ctx.Project != "" {
+						out, err := exec.Command("gcloud", "projects", "describe", ctx.Project,
+							"--format=value(projectId)", "--quiet").Output()
 						if err != nil {
-							fmt.Printf("  [WARN] API %s may not be enabled\n", svc)
-							warnings++
+							fmt.Printf("  [FAIL] Cannot access project %s\n", ctx.Project)
+							fmt.Println("    Fix: gcloud auth login && gcloud config set project " + ctx.Project)
+							issues++
+						} else {
+							fmt.Printf("  [pass] Project: %s\n", strings.TrimSpace(string(out)))
 						}
+
+						// Check required APIs
+						requiredAPIs := []string{"container", "alloydb", "firestore", "secretmanager"}
+						for _, api := range requiredAPIs {
+							svc := api + ".googleapis.com"
+							err := exec.Command("gcloud", "services", "list", "--project", ctx.Project,
+								"--filter=name:"+svc, "--format=value(name)", "--quiet").Run()
+							if err != nil {
+								fmt.Printf("  [WARN] API %s may not be enabled\n", svc)
+								warnings++
+							}
+						}
+					} else {
+						fmt.Println("  [SKIP] No project configured")
 					}
-				} else {
-					fmt.Println("  [SKIP] No project configured")
 				}
-			}
-			fmt.Println()
+				fmt.Println()
 
-			// 4. Kubernetes
-			fmt.Println("[4/7] Kubernetes Cluster")
-			out, err := exec.Command("kubectl", "cluster-info", "--request-timeout=5s").Output()
-			if err != nil {
-				fmt.Println("  [FAIL] Cannot connect to cluster")
-				fmt.Println("    Fix: aiplex platform apply (or: gcloud container clusters get-credentials aiplex)")
-				issues++
-			} else {
-				firstLine := strings.Split(string(out), "\n")[0]
-				fmt.Printf("  [pass] %s\n", firstLine)
-
-				// Check aiplex namespace
-				nsOut, _ := exec.Command("kubectl", "get", "ns", "aiplex-system",
-					"--no-headers", "-o=custom-columns=:.status.phase").Output()
-				if strings.TrimSpace(string(nsOut)) == "Active" {
-					fmt.Println("  [pass] aiplex-system namespace exists")
+				// 4. Kubernetes
+				fmt.Println("[4/7] Kubernetes Cluster")
+				out, err := exec.Command("kubectl", "cluster-info", "--request-timeout=5s").Output()
+				if err != nil {
+					fmt.Println("  [FAIL] Cannot connect to cluster")
+					fmt.Println("    Fix: aiplex platform apply (or: gcloud container clusters get-credentials aiplex)")
+					issues++
 				} else {
-					fmt.Println("  [WARN] aiplex-system namespace not found — run: aiplex platform apply")
-					warnings++
+					firstLine := strings.Split(string(out), "\n")[0]
+					fmt.Printf("  [pass] %s\n", firstLine)
+
+					// Check aiplex namespace
+					nsOut, _ := exec.Command("kubectl", "get", "ns", "aiplex-system",
+						"--no-headers", "-o=custom-columns=:.status.phase").Output()
+					if strings.TrimSpace(string(nsOut)) == "Active" {
+						fmt.Println("  [pass] aiplex-system namespace exists")
+					} else {
+						fmt.Println("  [WARN] aiplex-system namespace not found — run: aiplex platform apply")
+						warnings++
+					}
 				}
+				fmt.Println()
+
 			}
-			fmt.Println()
 
 			// 5. API connectivity
 			fmt.Println("[5/7] API Server")
-			if cfg != nil && cfg.CurrentContext != "" {
-				ctx := cfg.Contexts[cfg.CurrentContext]
-				url := ctx.URL
-				if url == "" {
-					url = "http://localhost:8080"
-				}
+			{
+				url := target
 
 				client := &http.Client{Timeout: 5 * time.Second}
 				resp, err := client.Get(url + "/healthz")
 				if err != nil {
 					fmt.Printf("  [FAIL] Cannot reach %s\n", url)
-					fmt.Println("    Fix: Is the API deployed? Check: aiplex platform status")
+					if local {
+						fmt.Println("    Fix: start the local API with: aiplex dev")
+					} else {
+						fmt.Println("    Fix: Is the API deployed? Check: aiplex platform status")
+					}
 					issues++
 				} else {
 					resp.Body.Close()
@@ -163,7 +198,7 @@ func doctorCmd() *cobra.Command {
 				c := newClient()
 				_, err = c.GetDashboardStats(context.Background())
 				if err != nil {
-					fmt.Println("  [WARN] Authenticated request failed — check your token")
+					fmt.Printf("  [WARN] Authenticated request failed — check your token (%s)\n", simplifyError(err))
 					warnings++
 				} else {
 					fmt.Println("  [pass] Authenticated access working")
@@ -173,7 +208,9 @@ func doctorCmd() *cobra.Command {
 
 			// 6. Cert/DNS
 			fmt.Println("[6/7] Certificate & DNS")
-			if cfg != nil && cfg.CurrentContext != "" {
+			if local {
+				fmt.Println("  [SKIP] Local API")
+			} else if cfg != nil && cfg.CurrentContext != "" {
 				ctx := cfg.Contexts[cfg.CurrentContext]
 				if ctx.Domain != "" {
 					// Try HTTPS
@@ -208,25 +245,29 @@ func doctorCmd() *cobra.Command {
 
 			// 7. Common issues
 			fmt.Println("[7/7] Common Issues Check")
-			// Check if Hydra pods are running
-			hydraOut, _ := exec.Command("kubectl", "get", "pods", "-n", "aiplex-system",
-				"-l", "app.kubernetes.io/name=hydra", "--no-headers",
-				"-o=custom-columns=:.status.phase").Output()
-			if strings.TrimSpace(string(hydraOut)) == "Running" {
-				fmt.Println("  [pass] Hydra (OAuth) running")
-			} else if len(hydraOut) > 0 {
-				fmt.Printf("  [WARN] Hydra status: %s\n", strings.TrimSpace(string(hydraOut)))
-				warnings++
-			}
+			if local {
+				fmt.Println("  [SKIP] Local API: Hydra and Kratos are not used by aiplex dev")
+			} else {
+				// Check if Hydra pods are running
+				hydraOut, _ := exec.Command("kubectl", "get", "pods", "-n", "aiplex-system",
+					"-l", "app.kubernetes.io/name=hydra", "--no-headers",
+					"-o=custom-columns=:.status.phase").Output()
+				if strings.TrimSpace(string(hydraOut)) == "Running" {
+					fmt.Println("  [pass] Hydra (OAuth) running")
+				} else if len(hydraOut) > 0 {
+					fmt.Printf("  [WARN] Hydra status: %s\n", strings.TrimSpace(string(hydraOut)))
+					warnings++
+				}
 
-			kratosOut, _ := exec.Command("kubectl", "get", "pods", "-n", "aiplex-system",
-				"-l", "app.kubernetes.io/name=kratos", "--no-headers",
-				"-o=custom-columns=:.status.phase").Output()
-			if strings.TrimSpace(string(kratosOut)) == "Running" {
-				fmt.Println("  [pass] Kratos (Identity) running")
-			} else if len(kratosOut) > 0 {
-				fmt.Printf("  [WARN] Kratos status: %s\n", strings.TrimSpace(string(kratosOut)))
-				warnings++
+				kratosOut, _ := exec.Command("kubectl", "get", "pods", "-n", "aiplex-system",
+					"-l", "app.kubernetes.io/name=kratos", "--no-headers",
+					"-o=custom-columns=:.status.phase").Output()
+				if strings.TrimSpace(string(kratosOut)) == "Running" {
+					fmt.Println("  [pass] Kratos (Identity) running")
+				} else if len(kratosOut) > 0 {
+					fmt.Printf("  [WARN] Kratos status: %s\n", strings.TrimSpace(string(kratosOut)))
+					warnings++
+				}
 			}
 			fmt.Println()
 
@@ -239,14 +280,33 @@ func doctorCmd() *cobra.Command {
 			} else {
 				fmt.Printf("%d issue(s), %d warning(s) found.\n", issues, warnings)
 				fmt.Println()
-				fmt.Println("Common fix sequence:")
-				fmt.Println("  1. aiplex init                 # configure project")
-				fmt.Println("  2. aiplex platform apply       # deploy everything")
-				fmt.Println("  3. aiplex login                # authenticate")
-				fmt.Println("  4. aiplex health               # verify connectivity")
+				if local {
+					fmt.Println("For a local API, run: aiplex dev")
+				} else {
+					fmt.Println("Common fix sequence:")
+					fmt.Println("  1. aiplex init                 # configure project")
+					fmt.Println("  2. aiplex platform apply       # deploy everything")
+					fmt.Println("  3. aiplex login                # authenticate")
+					fmt.Println("  4. aiplex health               # verify connectivity")
+				}
+				return fmt.Errorf("%d issue(s) found", issues)
 			}
 
 			return nil
 		},
 	}
+}
+
+// isLoopbackURL reports whether raw names a loopback host (a local API).
+func isLoopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

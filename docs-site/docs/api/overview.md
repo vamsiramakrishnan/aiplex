@@ -1,114 +1,59 @@
 ---
-sidebar_position: 1
-title: API Overview
-description: AIPlex REST API overview — authentication, versioning, and conventions.
+title: API overview
+description: Base paths, authentication, errors and the route groups of the AIPlex API.
 ---
 
-# API Overview
+# API overview
 
-The AIPlex API is a REST API built with Go (chi router). All endpoints are prefixed with `/api/v1/`.
-
-## Base URL
-
-```
-https://aiplex.example.com/api/v1/
-```
+The AIPlex API is an HTTP/JSON service written in Go with the chi router. Management routes are under `/api/v1`. Client-facing routes (access-point model, MCP and skill endpoints, discovery) are at the server root.
 
 ## Authentication
 
-All requests require a Bearer token (JWT issued by Ory Hydra):
+Every `/api/v1` route requires a verified identity: a bearer token from a configured identity provider. Control-plane routes additionally require a role (for example admin for writes). In explicit development mode (`AIPLEX_DEV_MODE=true`, loopback listener only) requests proceed with development authentication.
 
 ```bash
-curl -H "Authorization: Bearer ${TOKEN}" \
-  https://aiplex.example.com/api/v1/instances
+curl -H "Authorization: Bearer $AIPLEX_TOKEN" https://aiplex.example.com/api/v1/instances
 ```
 
-## Response Format
+## Errors
 
-All responses are JSON. Successful responses:
+Errors are JSON:
 
 ```json
 {
-  "data": { ... },
-  "meta": {
-    "total": 42,
-    "page": 1,
-    "per_page": 20
-  }
+  "code": "PUBLIC_URL_REQUIRED",
+  "message": "...",
+  "request_id": "..."
 }
 ```
 
-Error responses:
+`code` and `message` are always present. `details`, `request_id` and `trace_id` appear when available. Updates to revisioned resources send the current revision (in `If-Match` for access points); a stale revision is rejected rather than overwritten.
 
-```json
-{
-  "error": "FORBIDDEN",
-  "message": "Scope mcp:tools:search not in token",
-  "hint": "Request this scope during agent registration",
-  "request_id": "req_abc123"
-}
-```
+## Route groups
 
-## Error Codes
+| Prefix | Purpose | Details |
+| --- | --- | --- |
+| `/healthz`, `/readyz` | Liveness and readiness | |
+| `/api/v1/catalog`, `/api/v1/instances`, `/healthz` and others | Template catalog, deployed instances, probes, dashboard | [Platform](./platform.md) |
+| `/api/v1/agents` | Agent registration and permissions | [Identity: agents](./identity-agents.md) |
+| `/api/v1/usage` | Usage ledger records, summary, prices | [Usage](./usage.md) |
+| `/api/v1/access-points` | Access point management | [Access points](./access-points.md) |
+| `/api/v1/overview` | Single pane: callers, access points, connect | [Overview pane](./overview-pane.md) |
+| `/api/v1/iam` | Roles, role bindings, principal validation, native governance | [IAM](./iam.md), [Identity: agents](./identity-agents.md) |
+| `/api/v1/llm` | Model surfaces, routes, providers, usage, batches | [Model surfaces](./model-surfaces.md), [Model batches](./model-batches.md), [LLM routes](./llm-routes.md) |
+| `/api/v1/mcp/connections` | Tool connections and OAuth | [MCP connections](./mcp-connections.md) |
+| `/api/v1/a2a`, `/api/v1/skills` | Agent cards, delegations, skill servers, invocations | [A2A connections](./a2a-connections.md), [Skills](./skills.md) |
+| `/api/v1/clients` | ClientPlex registrations, destinations and plans | [Clients](./clients.md) |
+| `/api/v1/network` | Deployment intents, plans and profiles | [Network](./network.md) |
+| `/api/v1/dashboard` | Stats and policy denials | |
+| `/api/v1/runs` | Tape-backed run projection and operator actions | [Runs](./runs.md), [Durable runs](../guides/runs.md) |
+| `/api/v1/modules` | Enabled modules and their contracts | |
+| `/api/v1/quota` | QuotaPlex inspection and administration (opt-in) | [Quota](./quota.md) |
+| `/auth/consent`, `/auth/token-hook` | Hydra consent and token hook webhooks | |
+| `/events/stream` | Server-sent events for the Console | |
+| `/v0.1/servers` | MCP registry listing (MCPlex) | |
+| `/a2a/{instanceId}/.well-known/agent.json` | Agent Card (A2APlex) | |
+| `/skills/{instanceId}/.well-known/skills.json` | Skills manifest (SkillsPlex) | |
+| `/ap/{id}/…` | Access-point endpoints | [Access points](../library/access-points.md#routes) |
 
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `UNAUTHORIZED` | 401 | Missing or invalid token |
-| `FORBIDDEN` | 403 | Insufficient scopes |
-| `NOT_FOUND` | 404 | Resource doesn't exist |
-| `CONFLICT` | 409 | Resource already exists |
-| `VALIDATION_ERROR` | 422 | Invalid request body |
-| `DEPLOY_FAILED` | 500 | Deployment error |
-| `RATE_LIMITED` | 429 | Too many requests |
-
-## Rate Limits
-
-| Endpoint Group | Limit |
-|---------------|-------|
-| Deploy/undeploy | 10/min |
-| Catalog | 60/min |
-| General | 200/min |
-
-Rate limit headers included in responses:
-
-```
-X-RateLimit-Limit: 200
-X-RateLimit-Remaining: 195
-X-RateLimit-Reset: 1714900860
-```
-
-## Pagination
-
-List endpoints support pagination:
-
-```
-GET /api/v1/instances?page=2&per_page=20
-```
-
-## Filtering
-
-```
-GET /api/v1/instances?plane=mcplex&status=running
-GET /api/v1/catalog/templates?plane=mcplex&search=github
-```
-
-## Timestamps
-
-All timestamps are ISO 8601 UTC:
-
-```json
-"deployed_at": "2026-04-05T10:00:00Z"
-```
-
-## Endpoints Summary
-
-| Group | Endpoints |
-|-------|-----------|
-| [Catalog](/docs/api/catalog) | `GET /catalog/templates`, `GET /catalog/templates/{id}`, `POST /catalog/templates` |
-| [Instances](/docs/api/instances) | `GET /instances`, `GET /instances/{id}`, `POST /instances`, `DELETE /instances/{id}` |
-| [Agents](/docs/api/agents) | `GET /agents`, `GET /agents/{id}`, `POST /agents`, `DELETE /agents/{id}` |
-| [Permissions](/docs/api/permissions) | `GET /users/{id}/scopes`, `PUT /users/{id}/scopes`, `GET /agents/{id}/permissions` |
-| [LLM Routes](/docs/api/llm-routes) | `GET /llm/routes`, `PUT /llm/routes/{id}`, `DELETE /llm/routes/{id}` |
-| [A2A](/docs/api/a2a) | `GET /a2a/cards`, `GET /a2a/delegations` |
-| [Dashboard](/docs/api/dashboard) | `GET /dashboard/stats`, `GET /dashboard/denials` |
-| [Auth](/docs/api/auth) | `GET /auth/consent`, `POST /auth/consent` |
+The Go [SDK](../reference/sdk.md) wraps these routes.

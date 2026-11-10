@@ -20,7 +20,7 @@ func TestUsageRecordsFilterByAccessPointAndShowBoundAndSession(t *testing.T) {
 		w.Write([]byte(cliBoundedRecords))
 	}))
 	defer server.Close()
-	out, err := runUsage(t, server, "table", "records", "--access-point", "ide", "--caller-kind", "agent")
+	out, err := runUsage(t, server, "wide", "records", "--access-point", "ide", "--caller-kind", "agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestUsageRecordsFilterByAccessPointAndShowBoundAndSession(t *testing.T) {
 
 func TestUsageGetShowsSessionAndBound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(strings.TrimSuffix(strings.TrimPrefix(strings.Split(cliBoundedRecords, "\n {\"id\":\"ul_f\"")[0], `{"records":[` + "\n"), ",")))
+		w.Write([]byte(strings.TrimSuffix(strings.TrimPrefix(strings.Split(cliBoundedRecords, "\n {\"id\":\"ul_f\"")[0], `{"records":[`+"\n"), ",")))
 	}))
 	defer server.Close()
 	out, err := runUsage(t, server, "table", "get", "ul_s")
@@ -67,7 +67,7 @@ func TestUsageSummaryByAccessPointShowsBoundedCounts(t *testing.T) {
 		w.Write([]byte(`{"group_by":["access_point_id","caller_kind"],"groups":[{"key":{"access_point_id":"ide","caller_kind":"agent"},"records":3,"requests":3,"errors":0,"denied":0,"unknown_status":0,"tokens":{"input_tokens":150},"tokens_unknown":{},"unknown_usage_records":0,"bounded_usage_records":2,"lower_bound_records":1,"ambiguous_usage_records":1,"cost":[],"unknown_cost_records":3}],"records_scanned":3,"truncated":false}`))
 	}))
 	defer server.Close()
-	out, err := runUsage(t, server, "table", "summary", "--by", "access-point,caller-kind", "--access-point", "ide")
+	out, err := runUsage(t, server, "wide", "summary", "--by", "access-point,caller-kind", "--access-point", "ide")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,5 +78,32 @@ func TestUsageSummaryByAccessPointShowsBoundedCounts(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestUsageBatchErrorClassAndBoundFlags(t *testing.T) {
+	var query map[string][]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		w.Write([]byte(`{"records":[]}`))
+	}))
+	defer server.Close()
+	if _, err := runUsage(t, server, "wide", "records", "--batch=false", "--error-class", "timeout", "--bound", "none"); err != nil {
+		t.Fatal(err)
+	}
+	if query["batch"][0] != "false" || query["error_class"][0] != "timeout" || query["usage_bound"][0] != "none" {
+		t.Fatalf("query = %v", query)
+	}
+	if _, err := runUsage(t, server, "wide", "records", "--batch"); err != nil || query["batch"][0] != "true" {
+		t.Fatalf("bare --batch means true: %v %v", err, query)
+	}
+	if _, err := runUsage(t, server, "wide", "records", "--bound", "final"); err == nil {
+		t.Fatal("unknown bound must be rejected before the request")
+	}
+	if _, err := runUsage(t, server, "wide", "summary", "--by", "error-class,bound,batch,source"); err != nil {
+		t.Fatal(err)
+	}
+	if query["group_by"][0] != "error_class,usage_bound,batch,source" {
+		t.Fatalf("query = %v", query)
 	}
 }

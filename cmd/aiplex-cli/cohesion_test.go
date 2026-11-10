@@ -46,11 +46,13 @@ func TestCLIResolvedIdentityAndUsageFilters(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/iam/whoami":
 			json.NewEncoder(w).Encode(map[string]any{"identity": map[string]any{"principal_id": "principal-" + strings.Repeat("a", 64)}, "scopes": []string{}})
-		case "/api/v1/llm/usage/summary":
-			if r.URL.Query().Get("model_id") != "model" || r.URL.Query().Get("agent_id") != "agent" {
-				t.Error("CLI filters lost")
+		case "/api/v1/usage/summary":
+			// llm costs reads the usage ledger, model plane only.
+			q := r.URL.Query()
+			if q.Get("model_id") != "model" || q.Get("actor_id") != "agent" || q.Get("plane") != "llmplex" || q.Get("since") == "" {
+				t.Error("CLI filters lost", q)
 			}
-			json.NewEncoder(w).Encode(map[string]string{"period": "week"})
+			json.NewEncoder(w).Encode(map[string]any{"groups": []any{}})
 		default:
 			t.Error("unexpected CLI request", r.URL.Path)
 		}

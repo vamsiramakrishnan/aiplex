@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Usage from '../pages/Usage'
 
-vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { sub: 'principal-a' } }) }))
+vi.mock('../hooks/useAuth', () => { const session = { user: { sub: 'principal-a', roles: ['admin'], scopes: [] } }; return { useAuth: () => session, useOptionalAuth: () => session } })
 
 const base = { tenant_id: 't', finished_at: '2026-11-09T10:00:01Z', latency_ms: 10, streaming: false, source: 'managed', requests: 1, plane: 'llmplex', status: 'ok', usage: null, cost: { basis: 'unknown' } }
 const withLimits = { ...base, id: 'ul_limits', started_at: '2026-11-09T10:00:00Z', access_point_id: 'ide-team', caller_kind: 'user', provider_limits: { provider: 'openai', classification: 'rate_limited', retry_after_ms: 1500 } }
@@ -42,6 +42,7 @@ describe('Usage page: access point and caller kind', () => {
     show()
     const form = await screen.findByRole('form', { name: 'Usage filters' })
     fireEvent.change(within(form).getByLabelText('Access point'), { target: { value: 'ide-team' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'More filters' }))
     fireEvent.change(within(form).getByLabelText('Caller kind'), { target: { value: 'user' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Apply filters' }))
     await waitFor(() => expect(last('/api/v1/usage/summary').searchParams.get('access_point_id')).toBe('ide-team'))

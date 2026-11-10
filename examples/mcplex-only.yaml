@@ -1,6 +1,11 @@
 # MCPlex Only — deploy MCP servers and grant tool access
 #
-# Simplest setup: just tools, no agents or models.
+# Simplest setup: two tools and one agent allowed to call them.
+#
+# The template IDs below must exist in your platform's catalog (`aiplex catalog
+# list --plane mcplex`). `aiplex dev` has no catalog, so this file is not run by
+# `make examples-test`.
+#
 # Usage: aiplex apply -f examples/mcplex-only.yaml
 
 version: v1
@@ -21,10 +26,13 @@ instances:
 agents:
   - client_id: coding-agent
     display_name: Coding Agent
-    description: IDE agent with GitHub and database access
-    auth_method: authorization_code  # PKCE for IDE clients
+    description: Agent with GitHub and database access
+    # `aiplex apply` cannot send redirect URIs, so it can register client-credentials
+    # agents only. An authorization-code (PKCE) client for an IDE needs redirect
+    # URIs; register it through the API or the Go SDK (`redirect_uris`).
+    auth_method: client_credentials
     grant_types:
-      - authorization_code
+      - client_credentials
     allowed_scopes:
       - mcp:tools:github_search
       - mcp:tools:github_read_file

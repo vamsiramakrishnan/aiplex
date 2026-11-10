@@ -1,188 +1,181 @@
-import type {ReactNode} from 'react';
-import clsx from 'clsx';
+import type {ReactNode, SVGProps, ComponentType} from 'react';
 import Link from '@docusaurus/Link';
-import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
+import AgentIcon from '@site/src/brand/icons/agent.svg';
+import UserIcon from '@site/src/brand/icons/user.svg';
+import ClientIcon from '@site/src/brand/icons/client.svg';
+import AccessPointIcon from '@site/src/brand/icons/access-point.svg';
+import McpIcon from '@site/src/brand/icons/mcplex.svg';
+import A2aIcon from '@site/src/brand/icons/a2aplex.svg';
+import LlmIcon from '@site/src/brand/icons/llmplex.svg';
+import QuotaIcon from '@site/src/brand/icons/quotaplex.svg';
+import ClientPlexIcon from '@site/src/brand/icons/clientplex.svg';
+import SkillsIcon from '@site/src/brand/icons/skillsplex.svg';
 
-import styles from './index.module.css';
+const entryLinks = [
+  {
+    to: '/docs/guides/clientplex',
+    title: 'Connect an IDE',
+    text: 'Point Claude, Codex or Antigravity at an access point with a reviewed configuration.',
+  },
+  {
+    to: '/docs/library/model-providers',
+    title: 'Add a model provider',
+    text: 'OpenAI, Anthropic, Azure OpenAI, Bedrock, Gemini and OpenAI-compatible endpoints.',
+  },
+  {
+    to: '/docs/library/agent-identity-federation',
+    title: 'Federate agent identity',
+    text: 'Let a workload authenticate as a registered agent with its own cloud token.',
+  },
+  {
+    to: '/docs/library/usage-ledger',
+    title: 'See who used what',
+    text: 'One record per managed exchange: caller, model or tool, tokens and cost.',
+  },
+  {
+    to: '/docs/getting-started',
+    title: 'Run it locally',
+    text: 'Build the CLI and API and start the local development stack.',
+  },
+  {
+    to: '/docs/guides/quotaplex',
+    title: 'Share a budget',
+    text: 'Opt-in allocations, admission and settlement on covered execution paths.',
+  },
+];
 
-function HeroSection() {
-  const {siteConfig} = useDocusaurusContext();
-  return (
-    <header className={clsx('hero hero--aiplex', styles.heroBanner)}>
-      <div className="container">
-        <Heading as="h1" className="hero__title">
-          {siteConfig.title}
-        </Heading>
-        <p className="hero__subtitle">
-          Unified control plane for AI agent interactions.
-          Govern tools, agents, and models through a single gateway.
-        </p>
-        <div className={styles.buttons}>
-          <Link className="button button--primary button--lg" to="/docs/getting-started/quickstart">
-            Get Started in 60 Seconds
-          </Link>
-          <Link className="button button--outline button--lg" style={{marginLeft: '1rem', color: 'inherit', borderColor: 'currentColor'}} to="/docs">
-            Read the Docs
-          </Link>
-        </div>
-      </div>
-    </header>
-  );
-}
+type IconProps = SVGProps<SVGSVGElement>;
 
-function ThreePlanes() {
-  return (
-    <section className="container" style={{padding: '4rem 0'}}>
-      <div style={{textAlign: 'center', marginBottom: '2rem'}}>
-        <Heading as="h2">Three Planes, One Gateway</Heading>
-        <p style={{maxWidth: 600, margin: '0 auto', opacity: 0.8}}>
-          AIPlex governs every AI interaction through three purpose-built planes,
-          unified by a single auth stack, policy engine, and audit trail.
-        </p>
-      </div>
-      <div className="plane-cards">
-        <Link to="/docs/guides/mcplex" className="plane-card" style={{textDecoration: 'none', color: 'inherit'}}>
-          <span className="plane-tag plane-tag--mcp">MCPlex</span>
-          <h3>Agent &#8596; Tool</h3>
-          <p>Deploy and govern MCP servers. Agents call tools like <code>search_curriculum</code> or <code>generate_quiz</code> through scoped, audited access.</p>
-          <code style={{fontSize: '0.8rem'}}>mcp:tools:search_curriculum</code>
-        </Link>
-        <Link to="/docs/guides/a2aplex" className="plane-card" style={{textDecoration: 'none', color: 'inherit'}}>
-          <span className="plane-tag plane-tag--a2a">A2APlex</span>
-          <h3>Agent &#8596; Agent</h3>
-          <p>Orchestrate agent delegation. A tutor agent delegates research to a research agent, with identity and consent at every hop.</p>
-          <code style={{fontSize: '0.8rem'}}>a2a:task:research</code>
-        </Link>
-        <Link to="/docs/guides/llmplex" className="plane-card" style={{textDecoration: 'none', color: 'inherit'}}>
-          <span className="plane-tag plane-tag--llm">LLMPlex</span>
-          <h3>Agent &#8596; Model</h3>
-          <p>Route model inference with failover, cost budgets, and per-agent access control. Gemini, Claude, GPT, Bedrock, Ollama.</p>
-          <code style={{fontSize: '0.8rem'}}>llm:model:gemini-2.5-flash</code>
-        </Link>
-      </div>
-    </section>
-  );
-}
-
-function QuickStart() {
-  return (
-    <section style={{background: 'var(--ifm-background-surface-color)', padding: '4rem 0'}}>
-      <div className="container">
-        <div style={{textAlign: 'center', marginBottom: '2rem'}}>
-          <Heading as="h2">Deploy Your First Tool in 60 Seconds</Heading>
-        </div>
-        <div className="quickstart-steps">
-          <div className="quickstart-step">
-            <div className="step-number">1</div>
-            <h4>Install</h4>
-            <code>curl -fsSL https://get.aiplex.dev | sh</code>
-          </div>
-          <div className="quickstart-step">
-            <div className="step-number">2</div>
-            <h4>Login</h4>
-            <code>aiplex login</code>
-          </div>
-          <div className="quickstart-step">
-            <div className="step-number">3</div>
-            <h4>Deploy</h4>
-            <code>aiplex deploy</code>
-          </div>
-          <div className="quickstart-step">
-            <div className="step-number">4</div>
-            <h4>Use</h4>
-            <code>aiplex status my-tool</code>
-          </div>
-        </div>
-        <div style={{textAlign: 'center', marginTop: '1.5rem'}}>
-          <Link className="button button--primary" to="/docs/getting-started/quickstart">
-            Follow the Full Quickstart
-          </Link>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function WhyAIPlex() {
-  const features = [
-    {
-      title: 'Zero Infrastructure Vocabulary',
-      description: 'You think in tools, agents, and models. Not SPIFFE, Envoy, or OPA. AIPlex hides the complexity.',
-    },
-    {
-      title: 'One Token, All Planes',
-      description: 'A single JWT carries scopes across MCPlex, A2APlex, and LLMPlex. No cross-service token exchange.',
-    },
-    {
-      title: 'Defense in Depth',
-      description: 'mTLS, per-workload SPIFFE identity, OPA policy enforcement, and three-dimensional consent (agent ceiling, user ceiling, delegation).',
-    },
-    {
-      title: 'Progressive Disclosure',
-      description: 'Start with zero-config interactive CLI. Graduate to YAML. Escape to raw K8s when you need it.',
-    },
-    {
-      title: 'Federated Catalog',
-      description: 'Browse the Official MCP Registry, MACH Alliance, Google 1P servers, and your own private templates in one place.',
-    },
-    {
-      title: 'Full Audit Trail',
-      description: 'Every tool call, agent delegation, and model request is traced with both user and agent identity.',
-    },
+function Diagram(): ReactNode {
+  const box = {fill: 'var(--aiplex-diagram-box)', stroke: 'var(--aiplex-diagram-line)'};
+  const accent = {fill: 'var(--aiplex-diagram-box)', stroke: 'var(--aiplex-diagram-accent)'};
+  const text = {fill: 'var(--aiplex-diagram-text)', fontFamily: 'var(--ifm-font-family-base)'};
+  const line = {stroke: 'var(--aiplex-diagram-line)', strokeWidth: 1.5, fill: 'none'};
+  const callers: [string, ComponentType<IconProps>][] = [
+    ['Agents', AgentIcon],
+    ['Users', UserIcon],
+    ['Clients', ClientIcon],
   ];
-
+  const resources: [string, string, string, ComponentType<IconProps>][] = [
+    ['LLMPlex', 'Models', 'var(--aiplex-module-llmplex)', LlmIcon],
+    ['MCPlex', 'MCP tools', 'var(--aiplex-module-mcplex)', McpIcon],
+    ['SkillsPlex', 'Skills', 'var(--aiplex-module-skillsplex)', SkillsIcon],
+  ];
   return (
-    <section className="container" style={{padding: '4rem 0'}}>
-      <div style={{textAlign: 'center', marginBottom: '2rem'}}>
-        <Heading as="h2">Why AIPlex</Heading>
-      </div>
-      <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem'}}>
-        {features.map((f, i) => (
-          <div key={i} style={{padding: '1rem 0'}}>
-            <h4 style={{marginBottom: '0.5rem'}}>{f.title}</h4>
-            <p style={{opacity: 0.8, margin: 0}}>{f.description}</p>
-          </div>
-        ))}
-      </div>
-    </section>
+    <svg
+      viewBox="0 0 900 300"
+      role="img"
+      aria-labelledby="aiplex-diagram-title aiplex-diagram-desc">
+      <title id="aiplex-diagram-title">Callers, access point, resources</title>
+      <desc id="aiplex-diagram-desc">
+        Agents, users and clients (including IDEs) reach an access point at /ap/id. The access point checks
+        identity, admission and quota and writes the usage ledger. It fronts models, MCP
+        tools and skills.
+      </desc>
+      <defs>
+        <marker id="aiplex-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" style={{fill: 'var(--aiplex-diagram-line)'}} />
+        </marker>
+      </defs>
+
+      <text x="95" y="28" textAnchor="middle" fontSize="14" fontWeight="700" style={text}>Callers</text>
+      {callers.map(([label, Icon], i) => (
+        <g key={label}>
+          <rect x="15" y={50 + i * 75} width="160" height="55" rx="6" strokeWidth="1.5" style={box} />
+          <Icon x="27" y={65 + i * 75} width="24" height="24" style={{color: 'var(--aiplex-diagram-text)'}} aria-hidden="true" />
+          <text x="60" y={83 + i * 75} fontSize="15" style={text}>{label}</text>
+          <path d={`M175 ${77 + i * 75} L335 150`} markerEnd="url(#aiplex-arrow)" style={line} />
+        </g>
+      ))}
+
+      <text x="450" y="28" textAnchor="middle" fontSize="14" fontWeight="700" style={text}>Access point</text>
+      <rect x="340" y="45" width="220" height="215" rx="8" strokeWidth="2" style={accent} />
+      <AccessPointIcon x="438" y="58" width="24" height="24" style={{color: 'var(--aiplex-diagram-text)'}} aria-hidden="true" />
+      <text x="450" y="106" textAnchor="middle" fontSize="15" fontWeight="700" style={text}>/ap/{'{id}'}/…</text>
+      {['Who is calling', 'Is this kind of caller allowed', 'QoS and quota controls', 'Usage ledger record'].map(
+        (label, i) => (
+          <text key={label} x="450" y={140 + i * 28} textAnchor="middle" fontSize="14" style={text}>{label}</text>
+        ),
+      )}
+
+      <text x="785" y="28" textAnchor="middle" fontSize="14" fontWeight="700" style={text}>Resources</text>
+      {resources.map(([module, what, color, Icon], i) => (
+        <g key={module}>
+          <path d={`M560 150 L725 ${77 + i * 75}`} markerEnd="url(#aiplex-arrow)" style={line} />
+          <rect x="725" y={50 + i * 75} width="160" height="55" rx="6" strokeWidth="1.5" style={box} />
+          <Icon x="737" y={65 + i * 75} width="24" height="24" style={{color}} aria-hidden="true" />
+          <text x="771" y={73 + i * 75} fontSize="15" fontWeight="700" style={text}>{module}</text>
+          <text x="771" y={93 + i * 75} fontSize="13" style={text}>{what}</text>
+        </g>
+      ))}
+    </svg>
   );
 }
 
-function CTASection() {
-  return (
-    <section style={{
-      background: 'linear-gradient(135deg, var(--ifm-color-primary-darkest), var(--ifm-color-primary-dark))',
-      padding: '4rem 0',
-      textAlign: 'center',
-      color: 'white',
-    }}>
-      <div className="container">
-        <Heading as="h2" style={{color: 'white'}}>Ready to Govern Your AI Agents?</Heading>
-        <p style={{maxWidth: 500, margin: '0 auto 1.5rem', opacity: 0.9}}>
-          From a single MCP tool to a full multi-agent orchestration platform.
-          Start where you are, grow as you need.
-        </p>
-        <Link className="button button--secondary button--lg" to="/docs/getting-started/quickstart">
-          Get Started
-        </Link>
-      </div>
-    </section>
-  );
-}
+const moduleRows: [string, string, string, ComponentType<IconProps>, string][] = [
+  ['MCPlex', '/docs/guides/mcplex', 'mcplex', McpIcon, 'Agent to tool: MCP connections, upstream auth, tool policy'],
+  ['LLMPlex', '/docs/guides/llmplex', 'llmplex', LlmIcon, 'Agent to model: providers, surfaces, metering, batches, capacity'],
+  ['A2APlex', '/docs/guides/a2aplex', 'a2aplex', A2aIcon, 'Agent to agent: native cloud agents, delegation history'],
+  ['QuotaPlex', '/docs/guides/quotaplex', 'quotaplex', QuotaIcon, 'Shared budgets and admission (opt-in)'],
+  ['ClientPlex', '/docs/guides/clientplex', 'clientplex', ClientPlexIcon, 'Developer client configuration plans'],
+  ['SkillsPlex', '/docs/guides/skillsplex', 'skillsplex', SkillsIcon, 'Skill discovery and reported invocation history'],
+];
 
 export default function Home(): ReactNode {
   return (
     <Layout
-      title="Unified AI Agent Control Plane"
-      description="AIPlex - Unified control plane for AI agent interactions. Govern tools (MCPlex), agents (A2APlex), and models (LLMPlex) through a single gateway.">
-      <HeroSection />
-      <main>
-        <ThreePlanes />
-        <QuickStart />
-        <WhyAIPlex />
-        <CTASection />
+      title="Control plane for agent access"
+      description="AIPlex puts MCP, A2A and model traffic behind one gateway, one auth stack, one policy layer and one audit trail.">
+      <main className="aiplex-home">
+        <Heading as="h1">AIPlex</Heading>
+        <p className="aiplex-lede">
+          AIPlex is a control plane for agent interactions. It puts MCP, A2A and model traffic
+          behind one gateway, one auth stack, one policy layer and one audit trail.
+        </p>
+
+        <div className="aiplex-diagram">
+          <Diagram />
+        </div>
+
+        <Heading as="h2">Start with a task</Heading>
+        <div className="aiplex-links">
+          {entryLinks.map((l) => (
+            <Link key={l.to} to={l.to} className="aiplex-link-card">
+              <strong>{l.title}</strong>
+              <span>{l.text}</span>
+            </Link>
+          ))}
+        </div>
+
+        <Heading as="h2">The modules</Heading>
+        <table className="aiplex-modules">
+          <thead>
+            <tr>
+              <th>Module</th>
+              <th>What it governs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {moduleRows.map(([name, to, key, Icon, what]) => (
+              <tr key={name}>
+                <td>
+                  <span className="aiplex-module-name">
+                    <Icon
+                      width="20"
+                      height="20"
+                      aria-hidden="true"
+                      style={{color: `var(--aiplex-module-${key})`}}
+                    />
+                    <Link to={to}>{name}</Link>
+                  </span>
+                </td>
+                <td>{what}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </main>
     </Layout>
   );

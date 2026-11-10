@@ -12,17 +12,17 @@ export default function Deploy() {
   return (
     <div className="max-w-2xl">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">Deploy</h2>
-        <div className="flex gap-1 bg-gray-100 rounded p-1">
+        <h1 className="text-2xl font-bold">Deploy</h1>
+        <div className="flex gap-1 bg-gray-100 rounded p-1 dark:bg-gray-800">
           <button
             onClick={() => setMode('wizard')}
-            className={`px-3 py-1 text-sm rounded ${mode === 'wizard' ? 'bg-white shadow' : ''}`}
+            className={`px-3 py-1 text-sm rounded ${mode === 'wizard' ? 'bg-white shadow dark:bg-gray-900' : ''}`}
           >
             Wizard
           </button>
           <button
             onClick={() => setMode('yaml')}
-            className={`px-3 py-1 text-sm rounded ${mode === 'yaml' ? 'bg-white shadow' : ''}`}
+            className={`px-3 py-1 text-sm rounded ${mode === 'yaml' ? 'bg-white shadow dark:bg-gray-900' : ''}`}
           >
             JSON manifest
           </button>
@@ -120,19 +120,19 @@ function DeployWizard() {
     <div>
       {deploy.isSuccess && deploy.data && <p role="status" className="mb-4 text-sm">Deployment request completed for <a className="underline" href={`/instances/${encodeURIComponent(deploy.data.id)}`}>{deploy.data.id}</a>. Reported status: {deploy.data.status}.</p>}
       {/* Step indicator */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {steps.map((s, i) => (
           <div key={s.key} className="flex items-center gap-2">
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium
-              ${step === s.key ? 'bg-brand-600 text-white' :
-                steps.findIndex(x => x.key === step) > i ? 'bg-green-100 text-green-700' :
-                'bg-gray-100 text-gray-400'}`}>
+              ${step === s.key ? 'bg-brand-600 text-brand-contrast' :
+                steps.findIndex(x => x.key === step) > i ? 'bg-status-ok-bg text-status-ok-fg' :
+                'bg-gray-100 text-gray-600 dark:text-gray-400 dark:bg-gray-800'}`}>
               {steps.findIndex(x => x.key === step) > i ? '\u2713' : i + 1}
             </div>
-            <span className={`text-sm ${step === s.key ? 'font-medium' : 'text-gray-400'}`}>
+            <span className={`text-sm ${step === s.key ? 'font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
               {s.label}
             </span>
-            {i < steps.length - 1 && <div className="w-8 h-px bg-gray-200" />}
+            {i < steps.length - 1 && <div className="w-8 h-px bg-gray-200 dark:bg-gray-700" />}
           </div>
         ))}
       </div>
@@ -140,19 +140,19 @@ function DeployWizard() {
       {/* Step 1: Plane */}
       {step === 'plane' && (
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">What do you want to deploy?</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">What do you want to deploy?</p>
           <div className="grid gap-3">
             {deployable.map(({ name: p, label }) => (
               <button
                 key={p}
                 onClick={() => { setPlane(p); setStep('template') }}
                 className={`text-left p-4 border-2 rounded-lg transition-colors
-                  ${plane === p ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300'}`}
+                  ${plane === p ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-gray-300 dark:border-gray-800'}`}
               >
                 <div className="font-medium">
                   {label}
                 </div>
-                <div className="text-sm text-gray-500 mt-1">{planeDescriptions[p]}</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">{planeDescriptions[p]}</div>
               </button>
             ))}
           </div>
@@ -163,7 +163,7 @@ function DeployWizard() {
       {step === 'template' && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               Choose a template from the {plane} catalog
             </p>
             <button onClick={() => setStep('plane')} className="text-sm text-brand-600 hover:underline">
@@ -172,7 +172,7 @@ function DeployWizard() {
           </div>
 
           {isLoading ? (
-            <div className="text-sm text-gray-400">Loading catalog...</div>
+            <div className="text-sm text-gray-600 dark:text-gray-400">Loading catalog...</div>
           ) : (
             <div className="grid gap-2">
               {(catalog?.templates ?? []).map(t => (
@@ -180,22 +180,22 @@ function DeployWizard() {
                   key={t.id}
                   onClick={() => { setSelectedTemplate(t); setStep('config') }}
                   className={`text-left p-3 border rounded-lg hover:border-brand-300 transition-colors
-                    ${selectedTemplate?.id === t.id ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}
+                    ${selectedTemplate?.id === t.id ? 'border-brand-500 bg-brand-50' : 'border-gray-200 dark:border-gray-800'}`}
                 >
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">{t.name}</span>
                     {t.verified && (
-                      <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">verified</span>
+                      <span className="text-xs bg-status-ok-bg text-status-ok-fg px-1.5 py-0.5 rounded">verified</span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5">{t.description}</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{t.description}</div>
                   {t.provider && (
-                    <div className="text-xs text-gray-400 mt-1">Provider: {t.provider}</div>
+                    <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">Provider: {t.provider}</div>
                   )}
                 </button>
               ))}
               {(catalog?.templates ?? []).length === 0 && (
-                <p className="text-sm text-gray-400">No templates found for {plane}.</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">No templates found for {plane}.</p>
               )}
             </div>
           )}
@@ -206,7 +206,7 @@ function DeployWizard() {
       {step === 'config' && selectedTemplate && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">Configure {selectedTemplate.name}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Configure {selectedTemplate.name}</p>
             <button onClick={() => setStep('template')} className="text-sm text-brand-600 hover:underline">
               Back
             </button>
@@ -223,9 +223,9 @@ function DeployWizard() {
           </div>
 
           {selectedTemplate.pricing && (
-            <div className="text-sm bg-blue-50 border border-blue-200 rounded p-3">
-              <div className="font-medium text-blue-800">Pricing</div>
-              <div className="text-blue-600">
+            <div className="text-sm bg-brand-50 border border-brand-200 rounded p-3">
+              <div className="font-medium text-brand-800">Pricing</div>
+              <div className="text-brand-600">
                 ${selectedTemplate.pricing.input}/M input tokens,
                 ${selectedTemplate.pricing.output}/M output tokens
               </div>
@@ -234,7 +234,7 @@ function DeployWizard() {
 
           <button
             onClick={() => setStep('review')}
-            className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+            className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
           >
             Review
           </button>
@@ -245,30 +245,30 @@ function DeployWizard() {
       {step === 'review' && selectedTemplate && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-600">Review your deployment</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Review your deployment</p>
             <button onClick={() => setStep('config')} className="text-sm text-brand-600 hover:underline">
               Back
             </button>
           </div>
 
-          <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2">
+          <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-2 dark:bg-gray-900">
             <div className="flex justify-between">
-              <span className="text-gray-500">Plane</span>
+              <span className="text-gray-600 dark:text-gray-400">Plane</span>
               <span className="font-medium">{plane}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Template</span>
+              <span className="text-gray-600 dark:text-gray-400">Template</span>
               <span className="font-medium">{selectedTemplate.name}</span>
             </div>
             {displayName && (
               <div className="flex justify-between">
-                <span className="text-gray-500">Name</span>
+                <span className="text-gray-600 dark:text-gray-400">Name</span>
                 <span className="font-medium">{displayName}</span>
               </div>
             )}
             {selectedTemplate.provider && (
               <div className="flex justify-between">
-                <span className="text-gray-500">Provider</span>
+                <span className="text-gray-600 dark:text-gray-400">Provider</span>
                 <span className="font-medium">{selectedTemplate.provider}</span>
               </div>
             )}
@@ -276,7 +276,7 @@ function DeployWizard() {
 
           {/* Show equivalent YAML */}
           <details className="text-sm">
-            <summary className="cursor-pointer text-gray-500 hover:text-gray-700">
+            <summary className="cursor-pointer text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
               View as JSON
             </summary>
             <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded text-xs overflow-x-auto">
@@ -285,7 +285,7 @@ function DeployWizard() {
           </details>
 
           {deploy.error && (
-            <p className="text-sm text-red-600">{deploy.error.message}</p>
+            <p className="text-sm text-status-denied-fg">{deploy.error.message}</p>
           )}
 
           <button
@@ -296,7 +296,7 @@ function DeployWizard() {
               config: Object.keys(config).length > 0 ? config : undefined,
             })}
             disabled={deploy.isPending}
-            className="w-full px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50"
+            className="w-full px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700 disabled:opacity-50"
           >
             {deploy.isPending ? 'Deploying...' : 'Deploy'}
           </button>
@@ -336,7 +336,7 @@ function ManifestApply() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-gray-600 dark:text-gray-400">
         Paste a JSON manifest to request deployments, register public OAuth clients, and configure routes. Resources are applied sequentially; each failure is reported.
       </p>
 
@@ -348,24 +348,24 @@ function ManifestApply() {
         value={yamlInput}
         onChange={e => setYamlInput(e.target.value)}
         rows={16}
-        className="w-full font-mono text-xs border rounded p-3 bg-gray-50"
-        placeholder="Paste a JSON manifest using template IDs and modules available on this server."
+        className="w-full font-mono text-xs border rounded p-3 bg-gray-50 dark:bg-gray-900"
+        aria-label="Deployment manifest" placeholder="Paste a JSON manifest using template IDs and modules available on this server."
       />
 
       {apply.error && (
-        <p className="text-sm text-red-600">{(apply.error as Error).message}</p>
+        <p className="text-sm text-status-denied-fg">{(apply.error as Error).message}</p>
       )}
 
       {result && (
         <div className={`text-sm rounded p-3 ${result.failed.length > 0
-          ? 'bg-yellow-50 border border-yellow-200'
-          : 'bg-green-50 border border-green-200'}`}>
-          <div className={result.failed.length > 0 ? 'text-yellow-800' : 'text-green-700'}>
+          ? 'bg-status-warning-bg border border-status-warning-fg'
+          : 'bg-status-ok-bg border border-status-ok-fg'}`}>
+          <div className={result.failed.length > 0 ? 'text-status-warning-fg' : 'text-status-ok-fg'}>
             Applied {result.applied} resource(s)
             {result.failed.length > 0 && `, ${result.failed.length} failed`}
           </div>
           {result.failed.map((f, i) => (
-            <div key={i} className="text-xs text-red-600 mt-1">{f}</div>
+            <div key={i} className="text-xs text-status-denied-fg mt-1">{f}</div>
           ))}
         </div>
       )}
@@ -373,7 +373,7 @@ function ManifestApply() {
       <button
         onClick={() => apply.mutate()}
         disabled={!yamlInput.trim() || apply.isPending}
-        className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700 disabled:opacity-50"
+        className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700 disabled:opacity-50"
       >
         {apply.isPending ? 'Applying...' : 'Apply Manifest'}
       </button>

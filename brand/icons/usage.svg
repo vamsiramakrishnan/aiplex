@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-usage-title aiplex-icon-usage-desc">
+  <title id="aiplex-icon-usage-title">Usage</title>
+  <desc id="aiplex-icon-usage-desc">Usage ledger: three measured columns on a baseline.</desc>
+  <path id="usage-lines" d="M2 21h20M6 18v-6M12 18V5M18 18v-9"/>
+</svg>

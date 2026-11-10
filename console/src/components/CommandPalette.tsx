@@ -90,7 +90,7 @@ export default function CommandPalette() {
       <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-xl shadow-2xl overflow-hidden">
         {/* Search input */}
         <div className="flex items-center border-b border-gray-200 dark:border-gray-700 px-4">
-          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
@@ -98,10 +98,10 @@ export default function CommandPalette() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a command..."
+            aria-label="Command" placeholder="Type a command..."
             className="flex-1 px-3 py-3 text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none"
           />
-          <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded">
+          <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded">
             Esc
           </kbd>
         </div>
@@ -109,13 +109,13 @@ export default function CommandPalette() {
         {/* Results */}
         <div className="max-h-72 overflow-y-auto py-2">
           {filtered.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-gray-400 text-center">No matching commands.</p>
+            <p className="px-4 py-6 text-sm text-gray-600 dark:text-gray-400 text-center">No matching commands.</p>
           ) : (
             sections.map((section) => {
               const items = filtered.filter((c) => c.section === section)
               return (
                 <div key={section}>
-                  <p className="px-4 pt-2 pb-1 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                  <p className="px-4 pt-2 pb-1 text-xs font-semibold text-gray-600 dark:text-gray-500 uppercase tracking-wider">
                     {section}
                   </p>
                   {items.map((cmd) => {
@@ -127,7 +127,7 @@ export default function CommandPalette() {
                         onMouseEnter={() => setSelected(idx)}
                         className={`w-full text-left px-4 py-2 text-sm transition-colors ${
                           idx === selected
-                            ? 'bg-brand-600 text-white'
+                            ? 'bg-brand-600 text-brand-contrast'
                             : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                         }`}
                       >

@@ -27,13 +27,13 @@ export default function SubjectTable({ rows, caption, empty, columns, actions }:
   columns?: { header: string; cell: (row: SubjectRow) => ReactNode }[]
   actions?: (row: SubjectRow) => ReactNode
 }) {
-  if (rows.length === 0) return <p className="text-sm text-gray-500">{empty}</p>
+  if (rows.length === 0) return <p className="text-sm text-gray-600 dark:text-gray-400">{empty}</p>
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="border-b border-gray-200 dark:border-gray-800 text-xs text-gray-500">
+          <tr className="border-b border-gray-200 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400">
             <th scope="col" className="py-1 pr-4">Type</th>
             <th scope="col" className="pr-4">Subject</th>
             <th scope="col" className="pr-4">Detail</th>

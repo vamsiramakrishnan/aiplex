@@ -50,6 +50,20 @@ type Error struct {
 	Code       string `json:"code"`
 	Message    string `json:"message"`
 	StatusCode int    `json:"-"`
+	// Details carries structured context, such as {"field": "models/0/surface_ref"}
+	// for a specification the server rejected.
+	Details   map[string]any `json:"details,omitempty"`
+	RequestID string         `json:"request_id,omitempty"`
+}
+
+// Field returns the specification field the server named in a validation
+// error, or "".
+func (e *Error) Field() string {
+	if e == nil || e.Details == nil {
+		return ""
+	}
+	f, _ := e.Details["field"].(string)
+	return f
 }
 
 func (e *Error) Error() string {
@@ -706,10 +720,15 @@ type DashboardStats struct {
 	A2APlexInstances    int     `json:"a2aplex_instances"`
 	SkillsPlexInstances int     `json:"skillsplex_instances"`
 	LLMPlexInstances    int     `json:"llmplex_instances"`
-	DailyCostUSD        float64 `json:"daily_cost_usd"`
-	DailyTokens         int64   `json:"daily_tokens"`
-	DailyRequests       int64   `json:"daily_requests"`
-	ToolCalls           int64   `json:"tool_calls_24h"`
+	// DailyCostUSD, DailyTokens, DailyRequests and ToolCalls are null when
+	// unknown or unavailable (see UsageSource), never zero.
+	DailyCostUSD             *float64 `json:"daily_cost_usd"`
+	DailyTokens              *int64   `json:"daily_tokens"`
+	DailyRequests            *int64   `json:"daily_requests"`
+	DailyUnknownCostRecords  int64    `json:"daily_unknown_cost_records"`
+	DailyUnknownUsageRecords int64    `json:"daily_unknown_usage_records"`
+	UsageSource              string   `json:"usage_source"`
+	ToolCalls                *int64   `json:"tool_calls_24h"`
 	A2ADelegations      int64   `json:"a2a_delegations_24h"`
 	PolicyDenials       int64   `json:"policy_denials_24h"`
 }

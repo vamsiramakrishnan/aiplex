@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/sethvargo/go-envconfig"
 )
@@ -58,9 +59,16 @@ type Config struct {
 	OTelEndpoint string `env:"OTEL_ENDPOINT,default="`
 
 	// Console SPA origins allowed by CORS. Comma-separated list of full origins
-	// (scheme + host[:port]). When empty, CORS is permissive ("*") for local dev;
-	// production should always set this.
+	// (scheme + host[:port]). When empty, CORS is permissive ("*") only in
+	// development mode (AIPLEX_DEV_MODE); otherwise no cross-origin request is
+	// allowed. Production should always set this.
 	AllowedOrigins []string `env:"CONSOLE_ORIGINS,default="`
+
+	// TrustedProxyHops is how many reverse proxies in front of the API append
+	// to X-Forwarded-For. 0 (default) ignores the header and uses the peer
+	// address; N takes the client address N entries from the right, never
+	// from the left (which the client writes).
+	TrustedProxyHops int `env:"TRUSTED_PROXY_HOPS,default=0"`
 }
 
 // Load reads Config from the environment.
@@ -69,10 +77,15 @@ func Load(ctx context.Context) (*Config, error) {
 	if err := envconfig.Process(ctx, &cfg); err != nil {
 		return nil, err
 	}
+	// Development mode binds to loopback unless HOST is set explicitly; an
+	// explicit non-loopback HOST is refused below rather than overridden.
+	if _, set := os.LookupEnv("HOST"); cfg.DevelopmentMode && !set {
+		cfg.Host = "127.0.0.1"
+	}
 	if cfg.DevelopmentMode && cfg.Host != "localhost" {
 		ip := net.ParseIP(cfg.Host)
 		if ip == nil || !ip.IsLoopback() {
-			return nil, fmt.Errorf("AIPLEX_DEV_MODE requires HOST=127.0.0.1 or ::1")
+			return nil, fmt.Errorf("AIPLEX_DEV_MODE requires a loopback HOST (127.0.0.1, ::1 or localhost), got %q: development mode is never served on a network interface", cfg.Host)
 		}
 	}
 	return &cfg, nil

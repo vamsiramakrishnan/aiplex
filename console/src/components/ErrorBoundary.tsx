@@ -19,10 +19,10 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="max-w-md p-6 bg-white rounded-lg shadow text-center">
-            <h2 className="text-lg font-bold text-red-600 mb-2">Something went wrong</h2>
-            <p className="text-sm text-gray-600 mb-4">
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+          <div className="max-w-md p-6 bg-white rounded-lg shadow text-center dark:bg-gray-900">
+            <h2 className="text-lg font-bold text-status-denied-fg mb-2">Something went wrong</h2>
+            <p className="text-sm text-gray-600 mb-4 dark:text-gray-400">
               {this.state.error?.message || 'An unexpected error occurred.'}
             </p>
             <button
@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                 this.setState({ hasError: false, error: null })
                 window.location.href = '/'
               }}
-              className="px-4 py-2 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+              className="px-4 py-2 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
             >
               Go to Dashboard
             </button>

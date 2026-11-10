@@ -4,6 +4,8 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  // Not dist/: that holds a tracked placeholder the Go embed falls back to.
+  build: { outDir: 'built' },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

@@ -155,6 +155,11 @@ func TestLLMSurfacesApplyGetListDelete(t *testing.T) {
 	if err != nil || !strings.Contains(got, `"revision": 2`) || !strings.Contains(got, "future_top_level") {
 		t.Fatal(got, err)
 	}
+	// The default view is a readable summary, not the JSON.
+	text, err := runLLMX(t, server, "table", "llm", "surfaces", "get", "bedrock-prod")
+	if err != nil || !strings.Contains(text, "Model surface bedrock-prod (revision 2)") || !strings.Contains(text, "Provider:") || strings.Contains(text, `"surface"`) || !strings.Contains(text, "-o json") {
+		t.Fatal(text, err)
+	}
 	roundTrip := filepath.Join(t.TempDir(), "record.json")
 	os.WriteFile(roundTrip, []byte(got), 0o600)
 	if out, err = runLLMX(t, server, "table", "llm", "surfaces", "apply", "-f", roundTrip); err != nil || !strings.Contains(out, "revision 3") {
@@ -164,7 +169,7 @@ func TestLLMSurfacesApplyGetListDelete(t *testing.T) {
 	if err != nil || !strings.Contains(table, "bedrock") || !strings.Contains(table, "secret-ref:bedrock-key") || !strings.Contains(table, "AUTH (reference)") {
 		t.Fatal(table, err)
 	}
-	if out, err = runLLMX(t, server, "table", "llm", "surfaces", "delete", "bedrock-prod"); err != nil || !strings.Contains(out, "Deleted") {
+	if out, err = runLLMX(t, server, "table", "llm", "surfaces", "delete", "bedrock-prod", "--yes"); err != nil || !strings.Contains(out, "Deleted") {
 		t.Fatal(out, err)
 	}
 	if _, err = runLLMX(t, server, "table", "llm", "surfaces", "apply", "-f", filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
@@ -234,7 +239,8 @@ func TestLLMBatchesListStatesPlainlyAboutExposure(t *testing.T) {
 			b2 = l
 		}
 	}
-	if !strings.HasSuffix(strings.TrimSpace(b1), "unknown    unknown") || !strings.HasSuffix(strings.TrimSpace(b2), "completed  0") {
+	f1, f2 := strings.Fields(b1), strings.Fields(b2)
+	if len(f1) < 2 || len(f2) < 2 || f1[len(f1)-2] != "unknown" || f1[len(f1)-1] != "unknown" || f2[len(f2)-2] != "completed" || f2[len(f2)-1] != "0" {
 		t.Fatalf("unknown vs zero item count:\n%s", out)
 	}
 	if !strings.Contains(out, "holds quota exposure and a concurrency slot until its results are fetched through AIPlex") {

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import EndpointList from '../components/EndpointList'
 import { ConnectDetails } from '../components/ConnectWizard'
-import { endpointGroups, endpointGroupsFromConnect, surfaceUnroutableReason, wiresForProtocol, WIRES, type AccessPointSpec } from '../api/accessPoints'
+import { endpointGroupsFromConnect, surfaceUnroutableReason, wiresForProtocol, WIRES, type AccessPointSpec } from '../api/accessPoints'
 import * as overview from '../api/overview'
 
 vi.mock('../api/overview', async (original) => ({ ...(await original<typeof import('../api/overview')>()), getConnect: vi.fn(), listClientProfiles: vi.fn() }))
@@ -44,20 +44,6 @@ describe('wire table', () => {
     expect(wiresForProtocol('openai-embeddings').map((w) => w.id)).toEqual(['openai-embeddings'])
   })
 
-  it('derives endpoint groups from the surface protocols, including the new utility wires and their further paths', () => {
-    const groups = endpointGroups(spec, 'https://aiplex.example', [surface('emb', 'openai-embeddings')])
-    expect(groups.map((g) => g.id)).toEqual(['openai-embeddings', 'models'])
-    expect(groups[0].urls).toEqual([{ label: 'Endpoint', url: 'https://aiplex.example/ap/ide/v1/embeddings' }])
-    const media = endpointGroups({ ...spec, models: [{ name: 'i', surface_ref: 'img', native_model: 'gpt-image' }] }, 'https://aiplex.example', [surface('img', 'openai-images')])
-    expect(media.find((g) => g.id === 'openai-images')!.urls.map((u) => u.url)).toEqual(['https://aiplex.example/ap/ide/v1/images/generations', 'https://aiplex.example/ap/ide/v1/images/edits'])
-    expect(media.find((g) => g.id === 'openai-audio')!.urls.map((u) => u.url)).toEqual(['https://aiplex.example/ap/ide/v1/audio/transcriptions', 'https://aiplex.example/ap/ide/v1/audio/translations', 'https://aiplex.example/ap/ide/v1/audio/speech'])
-    const anthropic = endpointGroups({ ...spec, models: [{ name: 'c', surface_ref: 'a', native_model: 'claude' }] }, 'https://aiplex.example', [surface('a', 'anthropic-messages')])
-    expect(anthropic[0].urls.map((u) => u.url)).toEqual(['https://aiplex.example/ap/ide/v1/messages', 'https://aiplex.example/ap/ide/v1/messages/count_tokens'])
-    // With unknown surfaces every wire is offered, flagged as undetermined.
-    const unknown = endpointGroups(spec, 'https://aiplex.example', undefined)
-    expect(unknown.filter((g) => g.note).map((g) => g.id)).toEqual(SERVER_WIRES.map(([id]) => id))
-  })
-
   it('builds groups from a server connect response that lists the new endpoints', () => {
     const connect: overview.ConnectInfo = {
       access_point_id: 'ide', client: 'generic', base_urls: { openai: 'https://x/ap/ide/v1' },
@@ -83,7 +69,7 @@ describe('wire table', () => {
 
   it('renders the new groups in the endpoint list', () => {
     const connect = { access_point_id: 'ide', client: 'generic', base_urls: { openai: 'https://x/ap/ide/v1' }, endpoints: [], models: [{ name: 'e', protocols: ['openai-embeddings'] }], auth: { scheme: 'bearer', header: 'Authorization', token_env: 'AIPLEX_TOKEN', caller_kinds: [], steps: [] }, snippets: [], notes: [] } as overview.ConnectInfo
-    render(<EndpointList spec={spec} surfaces={undefined} connect={connect} />)
+    render(<EndpointList spec={spec} connect={connect} />)
     expect(within(screen.getByRole('group', { name: 'OpenAI Embeddings' })).getByText('https://x/ap/ide/v1/embeddings')).toBeInTheDocument()
   })
 })

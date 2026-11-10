@@ -43,6 +43,14 @@ func accessPointFacadePath(s modelapi.Surface, wire, native, path string) (strin
 				return "/openai/v1/responses", nil
 			}
 			return "", fmt.Errorf("azure-openai surface %q installs no responses operation", s.ID)
+		case WireOpenAIEmbeddings:
+			if has("azure.v1.embeddings") {
+				return "/openai/v1/embeddings", nil
+			}
+			if has("azure.deployments.embeddings") {
+				return "/openai/deployments/" + native + "/embeddings", nil
+			}
+			return "", fmt.Errorf("azure-openai surface %q installs no embeddings operation", s.ID)
 		}
 	case modelapi.ProviderOpenAICompatible:
 		if wire == WireOpenAIChat {
@@ -72,6 +80,46 @@ func accessPointWireSample(wire, native string) string {
 	return strings.SplitN(accessPointWirePath(wire), "?", 2)[0]
 }
 
+// accessPointWireServes reports whether the surface's client facade accepts
+// the wire for the native model, i.e. the surface installs an operation the
+// wire translates to.
+func accessPointWireServes(s modelapi.Surface, wire, native string) error {
+	method := http.MethodPost
+	if accessPointWebSocket(wire) {
+		method = http.MethodGet
+	}
+	path, err := accessPointFacadePath(s, wire, native, accessPointWireSample(wire, native))
+	if err == nil {
+		probe := httptest.NewRequest(method, "/", strings.NewReader(`{"model":"probe"}`))
+		var native string
+		native, _, err = clientNativePath(s, probe, path)
+		// A provider surface serves only the operations it installs: the
+		// media client paths are well formed for an OpenAI surface that
+		// installs chat or responses alone, so check the install.
+		if err == nil && s.Provider != nil && (wire == WireOpenAIImages || wire == WireOpenAIAudio) {
+			if _, _, ok := s.OperationFor(method, strings.SplitN(native, "?", 2)[0]); !ok {
+				err = fmt.Errorf("surface %q installs no operation for %s %s", s.ID, method, native)
+			}
+		}
+	}
+	return err
+}
+
+// accessPointServedWires lists the wires that reach the surface's protocol
+// and that its installed operations can serve for the native model. A
+// protocol can reach a wire the surface does not install (for example the
+// image wire of a chat-only OpenAI-compatible surface); such wires are left
+// out, so discovery never advertises an endpoint that refuses every request.
+func accessPointServedWires(s modelapi.Surface, native string) []string {
+	out := []string{}
+	for _, wire := range accessPointWireProtocols(s.Protocol) {
+		if accessPointWireServes(s, wire, native) == nil {
+			out = append(out, wire)
+		}
+	}
+	return out
+}
+
 // accessPointSurfaceServes reports whether at least one wire that reaches the
 // surface is accepted by its client facade for the given native model. It is
 // the save-time counterpart of the translation done per request, so a model
@@ -79,15 +127,7 @@ func accessPointWireSample(wire, native string) string {
 func accessPointSurfaceServes(s modelapi.Surface, native string) error {
 	var last error
 	for _, wire := range accessPointWireProtocols(s.Protocol) {
-		method := http.MethodPost
-		if accessPointWebSocket(wire) {
-			method = http.MethodGet
-		}
-		path, err := accessPointFacadePath(s, wire, native, accessPointWireSample(wire, native))
-		if err == nil {
-			probe := httptest.NewRequest(method, "/", strings.NewReader(`{"model":"probe"}`))
-			_, _, err = clientNativePath(s, probe, path)
-		}
+		err := accessPointWireServes(s, wire, native)
 		if err == nil {
 			return nil
 		}

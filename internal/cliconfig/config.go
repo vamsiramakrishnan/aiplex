@@ -16,15 +16,31 @@ import (
 type Config struct {
 	CurrentContext string              `json:"current_context"`
 	Contexts       map[string]*Context `json:"contexts"`
+
+	// persisted is the current context stored on disk when an override is in
+	// effect, so Save never persists a one-command override.
+	persisted  string
+	overridden bool
 }
+
+// contextOverride selects the context for this process only (the --context
+// flag or AIPLEX_CONTEXT); it is never written to config.json.
+var contextOverride string
+
+// SetContextOverride makes name the current context for this process without
+// changing the stored current context. An empty name clears the override.
+func SetContextOverride(name string) { contextOverride = name }
+
+// ContextOverride returns the per-process context override, if any.
+func ContextOverride() string { return contextOverride }
 
 // Context holds connection settings for a single AIPlex environment.
 type Context struct {
-	Name   string `json:"name"`
-	URL    string `json:"url"`
-	Project string `json:"project,omitempty"`  // GCP project ID
-	Region  string `json:"region,omitempty"`   // GCP region
-	Domain  string `json:"domain,omitempty"`   // Custom domain
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Project string `json:"project,omitempty"` // GCP project ID
+	Region  string `json:"region,omitempty"`  // GCP region
+	Domain  string `json:"domain,omitempty"`  // Custom domain
 }
 
 // Credentials stores auth tokens separately from config.
@@ -41,7 +57,7 @@ type TokenEntry struct {
 }
 
 var (
-	ErrNoContext  = errors.New("no context set — run: aiplex config set-context <name>")
+	ErrNoContext = errors.New("no context set — run: aiplex config set-context <name>")
 	ErrNotFound  = errors.New("context not found")
 )
 
@@ -67,7 +83,9 @@ func Load() (*Config, error) {
 	path := filepath.Join(dir, "config.json")
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return &Config{Contexts: make(map[string]*Context)}, nil
+		cfg := &Config{Contexts: make(map[string]*Context)}
+		cfg.applyOverride()
+		return cfg, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -79,7 +97,16 @@ func Load() (*Config, error) {
 	if cfg.Contexts == nil {
 		cfg.Contexts = make(map[string]*Context)
 	}
+	cfg.applyOverride()
 	return &cfg, nil
+}
+
+func (c *Config) applyOverride() {
+	if contextOverride == "" {
+		return
+	}
+	c.persisted, c.overridden = c.CurrentContext, true
+	c.CurrentContext = contextOverride
 }
 
 // Save writes the config to ~/.aiplex/config.json.
@@ -88,7 +115,12 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(c, "", "  ")
+	stored := *c
+	if c.overridden && c.CurrentContext == contextOverride {
+		// The override applies to this process only.
+		stored.CurrentContext = c.persisted
+	}
+	data, err := json.MarshalIndent(&stored, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}

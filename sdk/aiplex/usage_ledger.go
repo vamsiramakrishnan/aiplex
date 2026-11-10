@@ -43,15 +43,23 @@ type UsageFilter struct {
 	// that entered through an access point.
 	AccessPointID, CallerKind string
 	Status, Source            string
-	Since, Until              time.Time
+	// ErrorClass selects an exact error_class. UsageBound selects
+	// lower_bound, ambiguous, partial or "none" (final or unknown usage).
+	ErrorClass, UsageBound string
+	// Batch, when non-nil, selects batch (true) or non-batch (false) records.
+	Batch        *bool
+	Since, Until time.Time
 }
 
 func (f UsageFilter) values() url.Values {
 	q := url.Values{}
-	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "status": f.Status, "source": f.Source} {
+	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound} {
 		if value != "" {
 			q.Set(name, value)
 		}
+	}
+	if f.Batch != nil {
+		q.Set("batch", strconv.FormatBool(*f.Batch))
 	}
 	if !f.Since.IsZero() {
 		q.Set("since", f.Since.UTC().Format(time.RFC3339Nano))
@@ -71,7 +79,8 @@ type UsageRecordsQuery struct {
 
 // UsageSummaryQuery groups the records selected by the filter. GroupBy takes
 // wire names (plane, provider, model_id, tool_name, actor_id, principal_id,
-// client_id, access_point_id, caller_kind, status); NormalizeUsageGroupBy accepts friendly aliases and is
+// client_id, access_point_id, caller_kind, status, source, error_class,
+// usage_bound, batch); NormalizeUsageGroupBy accepts friendly aliases and is
 // applied by SummarizeUsage.
 type UsageSummaryQuery struct {
 	UsageFilter
@@ -83,6 +92,7 @@ var usageGroupAliases = map[string]string{
 	"model": "model_id", "agent": "actor_id", "actor": "actor_id", "user": "principal_id",
 	"principal": "principal_id", "client": "client_id", "tool": "tool_name",
 	"access-point": "access_point_id", "access_point": "access_point_id", "accesspoint": "access_point_id",
+	"error-class": "error_class", "errorclass": "error_class", "bound": "usage_bound", "usage-bound": "usage_bound",
 	"caller-kind": "caller_kind", "caller_kind": "caller_kind", "callerkind": "caller_kind",
 }
 

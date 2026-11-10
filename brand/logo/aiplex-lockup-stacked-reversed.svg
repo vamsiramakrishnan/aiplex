@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 103 92" width="103" height="92" role="img" aria-labelledby="aiplex-lockup-s-reversed-title aiplex-lockup-s-reversed-desc">
+  <title id="aiplex-lockup-s-reversed-title">AIPlex</title>
+  <desc id="aiplex-lockup-s-reversed-desc">AIPlex stacked lockup for dark backgrounds: the gate mark at twice the wordmark cap height, centred above the wordmark, shifted 0.8 mark units left of geometric centre to balance the weight of the gate.</desc>
+  <g id="mark" transform="translate(17.9 -4) scale(2)">
+    <path id="lanes" d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#E8EBF2" stroke-width="4"/>
+    <rect id="gate" x="14" y="10" width="12" height="12" fill="#8DA2FF"/>
+  </g>
+  <path id="wordmark" transform="translate(2.15 64)" fill="#E8EBF2" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z"/>
+</svg>

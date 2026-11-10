@@ -12,8 +12,9 @@ import (
 )
 
 // AccessPointQuotaFragment is the reviewable QuotaPlex rendering of a QoS
-// block. Rate and concurrency controls are scoped per principal and select
-// the access point through the access_point_id match dimension.
+// block. Rate and concurrency controls are scoped per principal (or, with
+// qos.scope "access_point", shared by all callers) and select the access point
+// through the access_point_id match dimension.
 type AccessPointQuotaFragment struct {
 	Meters      map[string]quotaplex.Meter  `json:"meters,omitempty"`
 	Rates       []quotaplex.RateRule        `json:"rates,omitempty"`
@@ -100,7 +101,13 @@ func renderAccessPointQuota(tenant string, ap AccessPoint, base *quotaplex.Polic
 	}
 	fragmentMeters := map[string]quotaplex.Meter{}
 	match := quotaplex.Match{AccessPointID: ap.ID}
+	// Counters are keyed by rule id and scope value, and every rule id here
+	// is specific to this access point, so a tenant-kind scope (one value per
+	// tenant) is a single pool shared by all callers of the access point.
 	principal := quotaplex.Scope{Kind: "principal"}
+	if ap.QoS.Scope == QoSScopeAccessPoint {
+		principal = quotaplex.Scope{Kind: "tenant"}
+	}
 	var rates []quotaplex.RateRule
 	var concurrency []quotaplex.ConcurrencyRule
 	if l := ap.QoS.Limits; l != nil {
@@ -221,14 +228,14 @@ func (h *ConnectedHandler) AccessPointQuotaPlan(w http.ResponseWriter, r *http.R
 	id := idParam(r)
 	record, _, err := h.loadAccessPointRecord(r.Context(), tenant, id)
 	if err != nil {
-		if errors.Is(err, resources.ErrNotFound) {
-			Error(w, r, http.StatusNotFound, "NOT_FOUND", "access point not found")
-		} else {
-			Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", "saved access point is invalid")
-		}
+		accessPointLoadError(w, r, err, func(err error) bool { return errors.Is(err, resources.ErrNotFound) })
 		return
 	}
 	ap, err := h.validateAccessPoint(r.Context(), tenant, id, record.Spec)
+	if err != nil && errors.Is(err, errAccessPointUnavailable) {
+		Error(w, r, http.StatusServiceUnavailable, "ACCESS_POINT_UNAVAILABLE", "access point configuration is unavailable")
+		return
+	}
 	if err != nil {
 		Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", err.Error())
 		return

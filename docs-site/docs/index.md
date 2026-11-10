@@ -1,102 +1,46 @@
 ---
 slug: /
-sidebar_position: 1
-title: Welcome to AIPlex
+title: Overview
+description: What AIPlex is, what it governs, and where to find each feature in these docs.
 ---
 
-# Welcome to AIPlex
+# AIPlex documentation
 
-**AIPlex is a unified control plane for AI agent interactions.** It governs three planes through a single gateway, auth stack, policy engine, and audit trail.
+AIPlex is a control plane for agent interactions. It puts MCP, A2A and model traffic behind one gateway, one auth stack, one policy layer and one audit trail.
 
-| Plane | Protocol | What It Governs | Scope Format |
-|-------|----------|-----------------|--------------|
-| **MCPlex** | MCP (JSON-RPC) | Agent ↔ Tool | `mcp:tools:{tool_name}` |
-| **A2APlex** | A2A (HTTP/JSON) | Agent ↔ Agent | `a2a:task:{task_type}` |
-| **LLMPlex** | Provider APIs | Agent ↔ Model | `llm:model:{model_id}` |
+Three planes carry traffic:
 
-## How It Works
+| Plane | Protocol | Governs | Route resource |
+| --- | --- | --- | --- |
+| [MCPlex](./guides/mcplex.md) | MCP (JSON-RPC) | Agent to tool | `MCPRoute` |
+| [A2APlex](./guides/a2aplex.md) | A2A (HTTP/JSON) | Agent to agent | `HTTPRoute` |
+| [LLMPlex](./guides/llmplex.md) | Provider APIs | Agent to model | `LLMRoute` |
 
-Your AI agents interact with tools, other agents, and language models. AIPlex sits in the middle — a single Envoy AI Gateway that authenticates, authorizes, rate-limits, and audits every interaction.
+Four more modules share the same identity, permissions, revisioned storage and audit: [ClientPlex](./guides/clientplex.md) (developer client configuration), [SkillsPlex](./guides/skillsplex.md) (skill discovery and reported history), [QuotaPlex](./guides/quotaplex.md) (shared budgets and admission) and Networking (private connectivity plans, see [Networking and Anvil](./operations/networking.md)).
 
-A single JWT carries scopes across all three planes:
+## How to read these docs
 
-```json
-{
-  "sub": "student@school.edu",
-  "azp": "tutor-agent",
-  "scope": "mcp:tools:search_curriculum a2a:task:research llm:model:gemini-2.5-flash"
-}
-```
+1. [Getting started](./getting-started/index.md) builds the CLI and API and runs them locally with one command, `aiplex dev`, then points to the Docker stack and the platform install.
+2. [Concepts](./concepts/index.md) explains callers, resources, access points, identity, and quota and usage.
+3. [Guides](./guides/index.md) cover each module and the identity features.
+4. [Operations](./operations/index.md) covers configuration, identity configuration for Helm, networking and production qualification.
+5. [Reference](./reference/index.md) holds the generated CLI reference, the SDK, the API route map, usage formats and metering profiles.
 
-## Start Here
+## What is verified
 
-<div className="quickstart-steps">
-  <div className="quickstart-step">
-    <div className="step-number">1</div>
-    <h4>New to AIPlex?</h4>
-    <p><a href="/docs/getting-started/quickstart">Quickstart Guide</a> — deploy your first tool in 60 seconds.</p>
-  </div>
-  <div className="quickstart-step">
-    <div className="step-number">2</div>
-    <h4>Understand the Model</h4>
-    <p><a href="/docs/concepts/three-planes">Three Planes</a> — learn how MCPlex, A2APlex, and LLMPlex work together.</p>
-  </div>
-  <div className="quickstart-step">
-    <div className="step-number">3</div>
-    <h4>Go Deeper</h4>
-    <p><a href="/docs/architecture/overview">Architecture</a> — the full system design for platform engineers.</p>
-  </div>
-</div>
+The pages under Guides, Operations and Reference that link into the `docs/` directory of the repository are rendered from those files at build time. They are the code-verified descriptions of each feature, including what is not implemented. Where this site and a code-verified page differ, the code-verified page wins.
 
-## Three Ways to Use AIPlex
+AIPlex is under active development. Each feature page states its boundary; read the "Limits" section of a page before relying on a feature in production, and see [Production qualification](./library/production-qualification.md).
 
-### CLI (Fastest)
+## Components
 
-```bash
-# One command — zero to running platform
-aiplex quickstart
+| Component | Language | Purpose |
+| --- | --- | --- |
+| AIPlex API | Go | REST API, deploy engine, consent handler, managed model, tool and access-point endpoints |
+| AIPlex Console | React and TypeScript | Web UI |
+| `aiplex-authz` | Rust | Scope authorization and JWT verification for the gateway `ext_authz` hook; see [Authorization policy](./operations/authorization-policy.md) |
+| AIPlex CLI | Go | Command-line interface, see the [CLI reference](./reference/cli/index.md) |
+| Ory Hydra and Kratos | Configured | OAuth token issuance, identity and social sign-in |
+| Envoy AI Gateway | Configured | `MCPRoute`, `HTTPRoute` and `LLMRoute` routing |
 
-# Interactive — guided prompts, zero YAML
-aiplex deploy
-
-# Declarative — single file, full control
-aiplex apply -f aiplex.yaml
-```
-
-### Console (Visual)
-
-The AIPlex Console runs in your browser — either deployed in-cluster or locally via `aiplex console`. It provides catalog browsing, deployment wizards, permission management, and usage monitoring across all three planes.
-
-### TUI (Terminal)
-
-For power users who prefer staying in the terminal:
-
-```bash
-aiplex tui
-```
-
-Full-screen dashboard with tabs for instances, agents, and catalog. Keyboard-driven.
-
-### SDK (Programmatic)
-
-```go
-client := aiplex.NewClient("https://aiplex.example.com")
-client.SetToken(token)
-
-instance, err := client.Deploy(aiplex.DeployRequest{
-    TemplateID: "kb-search-server",
-    Plane:      "mcplex",
-    Config:     map[string]any{"index": "curriculum"},
-})
-```
-
-## Documentation Structure
-
-| Section | For | What You'll Learn |
-|---------|-----|-------------------|
-| [Getting Started](/docs/getting-started/quickstart) | Everyone | Install, deploy, connect in minutes |
-| [Core Concepts](/docs/concepts/three-planes) | Everyone | The mental model behind AIPlex |
-| [Guides](/docs/guides/mcplex) | Operators | Plane-specific how-tos |
-| [Reference](/docs/reference/cli) | Developers | CLI, API, SDK, config format |
-| [Architecture](/docs/architecture/overview) | Platform Engineers | System design, deep dives |
-| [API Reference](/docs/api/overview) | Integrators | Every endpoint, request/response |
+The Terraform, Helm, Kubernetes and Ory configuration is under `deploy/` in the repository.

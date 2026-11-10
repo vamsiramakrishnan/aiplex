@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -36,6 +37,8 @@ type OverviewHandler struct {
 	AgentBindings *agentfederation.Store
 	// Now is the clock; nil uses time.Now.
 	Now func() time.Time
+	// usageWithheld is set on the per-request copy served to non-admins.
+	usageWithheld bool
 }
 
 type overviewUserScopeReader interface {
@@ -60,17 +63,49 @@ func NewOverviewHandler(connected *ConnectedHandler, ledger usageledger.Store, r
 }
 
 // Mount registers the routes under /api/v1/overview. Reads require the admin
-// or deployer role.
+// or deployer role, except connect (any caller the access point admits); usage
+// roll-ups are admin-only (usageScoped).
 func (h *OverviewHandler) Mount(r chi.Router) {
 	r.Route("/overview", func(r chi.Router) {
-		r.Use(RequireRole(models.RoleAdmin, models.RoleDeployer))
-		r.Get("/subjects", h.Subjects)
-		r.Get("/subjects/{kind}/{id}", h.Subject)
-		r.Get("/subjects/{kind}", h.Subject) // ?id=… for ids that contain "/"
-		r.Get("/access-points", h.AccessPointList)
-		r.Get("/access-points/{id}", h.AccessPointOverview)
-		r.Get("/access-points/{id}/connect", h.Connect)
+		r.Group(func(r chi.Router) {
+			r.Use(RequireRole(models.RoleAdmin, models.RoleDeployer))
+			r.Get("/subjects", h.usageScoped((*OverviewHandler).Subjects))
+			r.Get("/subjects/{kind}/{id}", h.usageScoped((*OverviewHandler).Subject))
+			r.Get("/subjects/{kind}", h.usageScoped((*OverviewHandler).Subject)) // ?id=… for ids that contain "/"
+			r.Get("/access-points", h.usageScoped((*OverviewHandler).AccessPointList))
+			r.Get("/access-points/{id}", h.usageScoped((*OverviewHandler).AccessPointOverview))
+		})
+		// Client configuration is the one overview route any verified caller
+		// may read, for an access point that admits it (see ConnectForCaller).
+		r.Get("/access-points/{id}/connect", h.ConnectForCaller)
 	})
+}
+
+// usageScoped serves tenant-wide usage only to administrators, matching
+// /api/v1/usage, where every other caller reads only its own records.
+// Deployers get the same configuration view with the ledger withheld, so
+// usage, last-seen times and ledger-derived subjects are reported as
+// unavailable.
+func (h *OverviewHandler) usageScoped(serve func(*OverviewHandler, http.ResponseWriter, *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		development := h.Connected != nil && h.Connected.Development
+		if h.Ledger == nil || privilegedOrDevelopment(r, development, models.RoleAdmin) {
+			serve(h, w, r)
+			return
+		}
+		withheld := *h
+		withheld.Ledger = nil
+		withheld.usageWithheld = true
+		serve(&withheld, w, r)
+	}
+}
+
+// ledgerUnavailableNote explains why usage is missing from a response.
+func (h *OverviewHandler) ledgerUnavailableNote() string {
+	if h.usageWithheld {
+		return "Tenant-wide usage requires the admin role; usage is withheld."
+	}
+	return "The usage ledger is not configured; usage is unavailable."
 }
 
 func (h *OverviewHandler) now() time.Time {
@@ -195,6 +230,16 @@ type OverviewCost struct {
 	Basis    string `json:"basis"`
 	Amount   string `json:"amount"`
 	Scale    uint8  `json:"scale"`
+}
+
+// MarshalJSON adds amount_decimal (derived from amount and scale).
+func (c OverviewCost) MarshalJSON() ([]byte, error) {
+	type plain OverviewCost
+	decimal, _ := usageledger.DecimalString(c.Amount, c.Scale)
+	return json.Marshal(struct {
+		plain
+		AmountDecimal string `json:"amount_decimal,omitempty"`
+	}{plain(c), decimal})
 }
 
 // OverviewUsage is a ledger roll-up. Tokens lists only counters that were

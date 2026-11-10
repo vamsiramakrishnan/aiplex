@@ -2,16 +2,18 @@ package usageledger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 // GroupByFields are the record fields a summary may group by.
-var GroupByFields = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status"}
+var GroupByFields = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "error_class", "usage_bound", "batch"}
 
 const (
 	BucketHour = "hour"
@@ -44,7 +46,10 @@ type Summary struct {
 // UnknownUsageRecords counts records with no usage at all. Cost holds exact
 // per-currency, per-basis totals; UnknownCostRecords counts unpriced records.
 type SummaryGroup struct {
-	Key                 map[string]string `json:"key"`
+	Key map[string]string `json:"key"`
+	// Labels holds display labels for identity keys (principal_id,
+	// actor_id), taken from the newest record of the group that carried one.
+	Labels              map[string]string `json:"labels,omitempty"`
 	BucketStart         *time.Time        `json:"bucket_start,omitempty"`
 	Records             int64             `json:"records"`
 	Requests            int64             `json:"requests"`
@@ -83,6 +88,17 @@ type CostTotal struct {
 	Amount   string `json:"amount"`
 	Scale    uint8  `json:"scale"`
 	Records  int64  `json:"records"`
+}
+
+// MarshalJSON adds amount_decimal, the exact decimal form of amount at scale
+// (derived; amount and scale stay authoritative).
+func (c CostTotal) MarshalJSON() ([]byte, error) {
+	type plain CostTotal
+	decimal, _ := DecimalString(c.Amount, c.Scale)
+	return json.Marshal(struct {
+		plain
+		AmountDecimal string `json:"amount_decimal,omitempty"`
+	}{plain(c), decimal})
 }
 
 // ParseGroupBy validates a comma-separated group_by parameter.
@@ -141,6 +157,14 @@ func groupValue(r Record, field string) string {
 		return r.CallerKind
 	case "status":
 		return r.Status
+	case "source":
+		return r.Source
+	case "error_class":
+		return r.ErrorClass
+	case "usage_bound":
+		return r.UsageBound
+	case "batch":
+		return strconv.FormatBool(r.Batch)
 	}
 	return ""
 }
@@ -276,6 +300,16 @@ func (a *Aggregator) Add(r Record) error {
 		}
 		g = &groupAccumulator{group: SummaryGroup{Key: values, BucketStart: start, Tokens: map[string]int64{}, TokensUnknown: map[string]int64{}, Cost: []CostTotal{}}, costs: map[[2]string]*costAccumulator{}}
 		a.groups[joined] = g
+	}
+	for field, label := range map[string]string{"principal_id": r.PrincipalDisplay, "actor_id": r.ActorDisplay} {
+		if _, grouped := values[field]; grouped && label != "" {
+			if g.group.Labels == nil {
+				g.group.Labels = map[string]string{}
+			}
+			if _, set := g.group.Labels[field]; !set {
+				g.group.Labels[field] = label
+			}
+		}
 	}
 	return g.add(r)
 }

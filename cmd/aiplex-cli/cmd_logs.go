@@ -41,7 +41,6 @@ Examples:
 			}
 
 			fmt.Printf("Logs for %s (namespace: %s)\n", instanceID, ns)
-			fmt.Println("────��───────────────────────────────────")
 
 			// Build kubectl logs command
 			kubectlArgs := []string{

@@ -1,180 +1,68 @@
 ---
-sidebar_position: 3
-title: Your First Deploy
-description: Detailed walkthrough of deploying tools, agents, and models with AIPlex.
+title: Deploy a tool
+description: Sign in, deploy a catalog template, inspect the instance, or apply a declarative file.
 ---
 
-# Your First Deploy
+# Deploy a tool
 
-This guide walks through deploying across all three planes — tools (MCPlex), agents (A2APlex), and models (LLMPlex).
+This page assumes a running AIPlex platform (see [Install the platform](./install-platform.md)) or a local API from the [Docker stack](./docker-stack.md). `aiplex dev` has no template catalog, so deploying a catalog template needs one of those. Template IDs and their configuration come from your catalog, so the commands below use placeholders.
 
-## Deploy an MCP Tool (MCPlex)
-
-### Option A: Interactive CLI
+## From the catalog
 
 ```bash
-aiplex deploy
+aiplex login
+aiplex catalog list --plane mcplex
+aiplex catalog get TEMPLATE_ID
+aiplex deploy TEMPLATE_ID --plane mcplex --name my-tool
+aiplex get instance INSTANCE_ID
 ```
 
-The CLI guides you through template selection, configuration, and deployment. No YAML required.
+`aiplex login` uses the OAuth device authorization grant (RFC 8628); `aiplex login --token <token>` stores a token directly. `--plane` is one of `mcplex`, `a2aplex` or `llmplex`. Replace `INSTANCE_ID` with the ID that `deploy` returns. `aiplex list` and `aiplex status` show instances and a dashboard summary, `aiplex logs` streams an instance's logs and `aiplex undeploy` removes it.
 
-### Option B: Declarative YAML
+## Declaratively
 
-Create `aiplex.yaml`:
+Save the following as `aiplex.json`. Choose templates and their configuration from your catalog, and use model IDs and provider credentials enabled in your environment:
 
-```yaml title="aiplex.yaml"
-version: v1
-instances:
-  - name: my-github-tools
-    template: github-mcp-server
-    plane: mcplex
-    config:
-      GITHUB_TOKEN: "${GITHUB_TOKEN}"
-```
-
-Apply it:
-
-```bash
-aiplex apply -f aiplex.yaml
-```
-
-### Option C: Web Console
-
-1. Open the AIPlex Console
-2. Navigate to **MCPlex** tab
-3. Click **Browse Catalog**
-4. Search for "github", click **Deploy**
-5. Fill in configuration, click **Deploy**
-
-## Deploy an A2A Agent (A2APlex)
-
-A2A agents are other AI agents that your agents can delegate tasks to.
-
-```yaml title="aiplex.yaml"
-version: v1
-instances:
-  - name: research-agent
-    template: research-agent
-    plane: a2aplex
-    config:
-      SEARCH_API_KEY: "${SEARCH_API_KEY}"
-      MAX_RESULTS: "10"
+```json
+{
+  "version": "v1",
+  "instances": [{
+    "name": "kb-search",
+    "template": "kb-search-server",
+    "plane": "mcplex",
+    "config": { "INDEX_PATH": "/data/curriculum" }
+  }],
+  "routes": [{
+    "model_id": "gemini-2.5-flash",
+    "backends": [
+      { "provider": "google", "model_id": "gemini-2.5-flash", "weight": 80, "enabled": true },
+      { "provider": "anthropic", "model_id": "claude-sonnet-4-20250514", "weight": 20, "enabled": true }
+    ]
+  }],
+  "agents": [{
+    "client_id": "tutor-agent",
+    "display_name": "Tutor Agent",
+    "auth_method": "client_credentials",
+    "grant_types": ["client_credentials"],
+    "allowed_scopes": [
+      "mcp:tools:search_curriculum",
+      "a2a:task:research",
+      "llm:model:gemini-2.5-flash"
+    ]
+  }]
+}
 ```
 
 ```bash
-aiplex apply -f aiplex.yaml
+aiplex validate aiplex.json
+aiplex apply -f aiplex.json
 ```
 
-After deployment, the agent publishes an [A2A Agent Card](https://google.github.io/A2A/) describing its capabilities:
+YAML works as well. The repository's `examples/` directory has declarative files to start from (`quickstart.yaml`, `quickstart.json`, `mcplex-only.yaml`); their template IDs must exist in your catalog. `examples/README.md` says which examples are tested.
 
-```bash
-aiplex status research-agent
-```
+These model routes configure Envoy. A ClientPlex gateway registration references a separately saved LLMPlex model surface (see [Connected Plexes](../library/connected-plexes.md#client-compatibility)); applying a route does not create that surface. Managed tool authorization and invocation follow the [MCP runtime guide](../library/mcp-runtime-authorization.md).
 
-```
-Instance:  research-agent
-Plane:     A2APlex
-Status:    ✓ Running
-Endpoint:  https://aiplex.example.com/a2a/research-agent
-Tasks:     research, summarize, fact-check
-Scopes:    a2a:task:research a2a:task:summarize a2a:task:fact-check
-```
+## Next
 
-## Configure LLM Routing (LLMPlex)
-
-LLMPlex routes model inference requests with failover and cost control. No pods — Envoy AI Gateway handles routing directly.
-
-```yaml title="aiplex.yaml"
-version: v1
-routes:
-  llm:
-    - name: primary-models
-      backends:
-        - provider: google
-          model: gemini-2.5-flash
-          weight: 80
-        - provider: anthropic
-          model: claude-sonnet-4-20250514
-          weight: 20
-      fallback:
-        - provider: openai
-          model: gpt-4o
-      budget:
-        daily_limit_usd: 50.00
-        monthly_limit_usd: 1000.00
-```
-
-```bash
-aiplex apply -f aiplex.yaml
-```
-
-## Combine All Three Planes
-
-Here's a complete `aiplex.yaml` that deploys tools, an agent, LLM routing, and connects them:
-
-```yaml title="aiplex.yaml"
-version: v1
-
-instances:
-  # MCPlex: Tools
-  - name: kb-search
-    template: kb-search-server
-    plane: mcplex
-    config:
-      INDEX_PATH: "/data/curriculum"
-
-  # A2APlex: Agents
-  - name: research-agent
-    template: research-agent
-    plane: a2aplex
-    config:
-      SEARCH_API_KEY: "${SEARCH_API_KEY}"
-
-# LLMPlex: Model routing
-routes:
-  llm:
-    - name: default
-      backends:
-        - provider: google
-          model: gemini-2.5-flash
-          weight: 100
-      budget:
-        daily_limit_usd: 25.00
-
-# Agent registration with cross-plane access
-agents:
-  - name: tutor-agent
-    grant:
-      - mcp:tools:search_curriculum
-      - mcp:tools:get_document
-      - a2a:task:research
-      - llm:model:gemini-2.5-flash
-```
-
-```bash
-aiplex apply -f aiplex.yaml
-```
-
-One file. All three planes. Full governance.
-
-## Verify Everything Works
-
-```bash
-# List all running instances
-aiplex ls
-
-# Check a specific instance
-aiplex status kb-search
-
-# View logs
-aiplex logs kb-search --follow
-
-# Run diagnostics
-aiplex doctor
-```
-
-## Next Steps
-
-- [Connect an agent](/docs/getting-started/connect-agent) to use your deployed tools
-- [Manage permissions](/docs/guides/permissions) to control who can access what
-- [Set up observability](/docs/guides/observability) for monitoring and cost tracking
+- Give a group of callers one URL in front of models and tools: [Access points](../guides/access-points.md).
+- Connect an IDE or CLI: [Connect a client](./connect-client.md).

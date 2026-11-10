@@ -6,7 +6,7 @@ import Usage from '../pages/Usage'
 import { blankDraft, draftFromPrice, priceFromDraft } from '../pages/UsagePrices'
 import * as api from '../api/usage'
 
-vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { sub: 'principal-a' } }) }))
+vi.mock('../hooks/useAuth', () => { const session = { user: { sub: 'principal-a', roles: ['admin'], scopes: [] } }; return { useAuth: () => session, useOptionalAuth: () => session } })
 
 const base = { tenant_id: 't', finished_at: '2026-11-09T10:01:30Z', latency_ms: 90000, streaming: false, source: 'managed', requests: 1, plane: 'llmplex' }
 const nullCounters = { input_tokens: null, output_tokens: null, cache_read_tokens: null, cache_write_tokens: null, reasoning_tokens: null, total_tokens: null }
@@ -134,13 +134,26 @@ describe('Usage records with units', () => {
     expect(within(drawer).getByRole('note')).toHaveTextContent('capacity shed.')
   })
 
-  it('offers no batch filter because the usage API has none', async () => {
+  it('filters by batch, source, error class and usage bound, and passes them to the API', async () => {
     show()
     const form = await screen.findByRole('form', { name: 'Usage filters' })
-    expect(within(form).queryByLabelText(/batch/i)).not.toBeInTheDocument()
+    fireEvent.click(within(form).getByRole('button', { name: 'More filters' }))
+    fireEvent.change(within(form).getByLabelText('Batch'), { target: { value: 'true' } })
+    fireEvent.change(within(form).getByLabelText('Source'), { target: { value: 'reported' } })
+    fireEvent.change(within(form).getByLabelText('Error class'), { target: { value: 'rate_limited' } })
+    fireEvent.change(within(form).getByLabelText('Usage bound'), { target: { value: 'lower_bound' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Apply filters' }))
-    await waitFor(() => expect(calls.some((c) => c.url.pathname === '/api/v1/usage/records')).toBe(true))
-    expect(calls.every((c) => !c.url.searchParams.has('batch'))).toBe(true)
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === '/api/v1/usage/records' && c.url.searchParams.get('batch') === 'true')).toBe(true))
+    const last = [...calls].reverse().find((c) => c.url.pathname === '/api/v1/usage/records')!
+    expect(last.url.searchParams.get('source')).toBe('reported')
+    expect(last.url.searchParams.get('error_class')).toBe('rate_limited')
+    expect(last.url.searchParams.get('usage_bound')).toBe('lower_bound')
+  })
+
+  it('offers batch, source, error class and usage bound as group-by keys', async () => {
+    show()
+    const group = await screen.findByRole('group', { name: 'Group by' })
+    for (const label of ['Batch', 'Source', 'Error class', 'Usage bound']) expect(within(group).getByLabelText(label)).toBeInTheDocument()
   })
 })
 
@@ -164,7 +177,7 @@ describe('Usage summary with units', () => {
     const at = (cells: (string | null)[], header: string) => cells[heads.indexOf(header) - 1] // the group name is a row header, not a cell
     expect(at(rt, 'Cache write tokens')).toBe('0')
     expect(at(rt, 'Modality tokens (part of input / output)')).toBe('Input text: 7Input audio: 0')
-    expect(at(rt, 'Units (not tokens)')).toBe('Voice session: 2m 30s (2 records)Generated images: 0 images (1 records)')
+    expect(at(rt, 'Units (not tokens)')).toBe('Voice session: 2m 30s (2 records)Generated images: 0 images (1 record)')
     expect(at(rt, 'Batch')).toBe('1')
     expect(at(plain, 'Cache write tokens')).toBe('unknown')
     expect(at(plain, 'Modality tokens (part of input / output)')).toBe('—')

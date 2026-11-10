@@ -222,7 +222,8 @@ func logoutCmd() *cobra.Command {
 				return fmt.Errorf("load config: %w", err)
 			}
 			if cfg.CurrentContext == "" {
-				return fmt.Errorf("no active context")
+				return newCLIError(exitUsage, "no context is selected, so there is no stored token to remove",
+					"A token in AIPLEX_TOKEN is not stored by the CLI; unset it with: unset AIPLEX_TOKEN")
 			}
 			creds, err := cliconfig.LoadCredentials()
 			if err != nil {

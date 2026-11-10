@@ -24,10 +24,6 @@ instances:
   - name: Treasury Agent
     plane: a2aplex
     template: treasury-agent
-    labels:
-      aiplex.tenant: acme
-      aiplex.plane: a2a
-      aiplex.demo: treasury
     config:
       policy_version: aiplex-treasury-2026.05
       # The runtime block AIPlex's deploy engine reads. With

@@ -7,7 +7,7 @@ import { parseUsageJSON, type Count } from './usage'
 export type SubjectKind = 'agent' | 'user' | 'client'
 export const SUBJECT_KINDS: readonly SubjectKind[] = ['agent', 'user', 'client']
 
-export interface OverviewCost { currency: string; basis: 'settled' | 'estimated' | string; amount: string; scale: number }
+export interface OverviewCost { currency: string; basis: 'settled' | 'estimated' | string; amount: string; scale: number; /** The same amount as an exact decimal string (derived by the server). */ amount_decimal?: string }
 /** Absent token counters are unknown, not zero; tokens_unknown counts records lacking them. */
 export interface OverviewUsage {
   requests: Count
@@ -182,7 +182,27 @@ export function connectErrorMessage(error: unknown): string {
     case 422: return `This client cannot be connected to this access point: ${msg}`
     case 404: return `Not found: ${msg}`
     case 409: return e.code === 'PUBLIC_URL_REQUIRED' ? `The server has no public URL configured, so connection details cannot be built: ${msg}` : msg
-    case 403: return 'You do not have access to connection details (administrator or deployer role required).'
+    case 403: return 'You do not have access to connection details for this access point.'
     default: return msg
   }
+}
+
+/** Order in which the Overview looks for the first caller kind that has rows. */
+export const DEFAULT_TAB_ORDER: readonly SubjectKind[] = ['user', 'agent', 'client']
+
+/**
+ * The tab the Overview opens on: the first of Users, Agents, Clients with at
+ * least one row. `counts` holds the row count per kind, or undefined while that
+ * kind is still loading. Returns null while the answer could still change (a
+ * higher-priority kind is loading and nothing before it has rows), so the page
+ * can wait instead of flashing an empty tab. When every kind has loaded and
+ * none has rows, Users.
+ */
+export function firstTabWithRows(counts: Partial<Record<SubjectKind, number | undefined>>): SubjectKind | null {
+  for (const kind of DEFAULT_TAB_ORDER) {
+    const n = counts[kind]
+    if (n === undefined) return null
+    if (n > 0) return kind
+  }
+  return 'user'
 }
