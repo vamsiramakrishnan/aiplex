@@ -46,7 +46,9 @@ type UsageFilter struct {
 	// AccessPointID and CallerKind (agent, user or client) select exchanges
 	// that entered through an access point.
 	AccessPointID, CallerKind string
-	Status, Source            string
+	// BudgetID selects exchanges that drew from that tenant budget.
+	BudgetID       string
+	Status, Source string
 	// ErrorClass selects an exact error_class. UsageBound selects
 	// lower_bound, ambiguous, partial or "none" (final or unknown usage).
 	ErrorClass, UsageBound string
@@ -64,7 +66,7 @@ type UsageFilter struct {
 
 func (f UsageFilter) values() url.Values {
 	q := url.Values{}
-	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "harness": f.Harness, "hook_decision": f.HookDecision} {
+	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "budget_id": f.BudgetID, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "harness": f.Harness, "hook_decision": f.HookDecision} {
 		if value != "" {
 			q.Set(name, value)
 		}
@@ -116,6 +118,7 @@ var usageGroupAliases = map[string]string{
 	"access-point": "access_point_id", "access_point": "access_point_id", "accesspoint": "access_point_id",
 	"error-class": "error_class", "errorclass": "error_class", "bound": "usage_bound", "usage-bound": "usage_bound",
 	"hook": "hook_decision", "hooks": "hook_decision", "hook-decision": "hook_decision",
+	"budget": "budget", "budgets": "budget",
 	"caller-kind": "caller_kind", "caller_kind": "caller_kind", "callerkind": "caller_kind",
 }
 

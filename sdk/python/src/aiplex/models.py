@@ -205,6 +205,8 @@ class UsageFilter:
     client_id: str | None = None
     access_point_id: str | None = None
     caller_kind: str | None = None
+    #: Records that drew from this tenant budget.
+    budget_id: str | None = None
     status: str | None = None
     source: str | None = None
     error_class: str | None = None
@@ -232,6 +234,7 @@ class UsageFilter:
             ("client_id", self.client_id),
             ("access_point_id", self.access_point_id),
             ("caller_kind", self.caller_kind),
+            ("budget_id", self.budget_id),
             ("status", self.status),
             ("source", self.source),
             ("error_class", self.error_class),
@@ -723,6 +726,8 @@ class UsageRecord:
     reported_attributes: dict[str, str] = field(default_factory=dict)
     #: Experiment labels from access point labels and allowlisted headers.
     tags: dict[str, str] = field(default_factory=dict)
+    #: Tenant budgets the exchange drew from (own and ancestors).
+    budget_ids: list[str] = field(default_factory=list)
     #: Request-hook summary (decision, results); None when no hook ran.
     hooks: dict[str, Any] | None = None
     #: Latest feedback, present on a record fetched with get_usage_record.
@@ -769,6 +774,7 @@ class UsageRecord:
             caller_span_id=_opt_str(d, "caller_span_id"),
             reported_attributes=_str_map(d, "reported_attributes"),
             tags=_str_map(d, "tags"),
+            budget_ids=_str_list(d, "budget_ids"),
             hooks=_opt_dict(d, "hooks"),
             feedback=Feedback.from_wire(d["feedback"]) if d.get("feedback") is not None else None,
             raw=dict(d),
@@ -1288,5 +1294,66 @@ class OverviewSubjectDetail:
             usage=usage,
             notes=_str_list(d, "notes"),
             known_from=_str_list(d, "known_from"),
+            raw=dict(d),
+        )
+
+
+@dataclass(frozen=True)
+class BudgetStatus:
+    """A budget's counters in its current window. Amounts are exact decimal strings."""
+
+    id: str
+    unit: str
+    limit: str
+    spent: str
+    reserved: str
+    remaining: str
+    display_name: str | None = None
+    parent: str | None = None
+    currency: str | None = None
+    over_limit: bool = False
+    window_start: str | None = None
+    window_end: str | None = None
+    #: Operator-only; None for a member. Never zero when not reported.
+    unknown_cost_requests: int | None = None
+    threshold_events: list[dict[str, Any]] = field(default_factory=list)
+    children: list[dict[str, Any]] = field(default_factory=list)
+    top_spenders: list[dict[str, Any]] = field(default_factory=list)
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> BudgetStatus:
+        d = _expect_dict(data, "budget_status")
+        window = _opt_dict(d, "window") or {}
+
+        def req(key: str) -> str:
+            value = d.get(key)
+            if not isinstance(value, str):
+                raise AiplexError(
+                    f"budget_status.{key} must be a string", code="decode_error", status_code=None
+                )
+            return value
+
+        def dicts(key: str) -> list[dict[str, Any]]:
+            value = d.get(key)
+            return [dict(x) for x in value if isinstance(x, dict)] if isinstance(value, list) else []
+
+        return cls(
+            id=req("id"),
+            unit=req("unit"),
+            limit=req("limit"),
+            spent=req("spent"),
+            reserved=req("reserved"),
+            remaining=req("remaining"),
+            display_name=_opt_str(d, "display_name"),
+            parent=_opt_str(d, "parent"),
+            currency=_opt_str(d, "currency"),
+            over_limit=bool(_opt_bool(d, "over_limit")),
+            window_start=_opt_str(window, "start"),
+            window_end=_opt_str(window, "end"),
+            unknown_cost_requests=_opt_int(d, "unknown_cost_requests"),
+            threshold_events=dicts("threshold_events"),
+            children=dicts("children"),
+            top_spenders=dicts("top_spenders"),
             raw=dict(d),
         )

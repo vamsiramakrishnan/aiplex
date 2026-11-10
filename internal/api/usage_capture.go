@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -492,6 +493,7 @@ func (c *usageCapture) finish() {
 		// the exchange's own finish time.
 		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
 		if attemptID != "" && h.Quota != nil {
+			record.BudgetIDs = h.Quota.budgetsDrawn(ctx, record.TenantID, attemptID)
 			if cost, ok := h.Quota.settledCost(ctx, record.TenantID, attemptID); ok {
 				record.Cost = cost
 				return record, nil
@@ -627,6 +629,33 @@ func modelPricesFrom(ctx context.Context, store resources.Store, tenant string) 
 // settledCost reads the money a quota settlement charged for the attempt. It
 // is a read of durable state: it never settles, retries or changes the quota
 // outcome. More than one distinct monetary meter is ambiguous and ignored.
+// budgetsDrawn lists the tenant budgets a dispatched attempt drew from. An
+// attempt that was denied or released before dispatch (hook denial, cache
+// hit, grant denial) drew nothing and reports none.
+func (h *QuotaHost) budgetsDrawn(ctx context.Context, tenant, attempt string) []string {
+	value, ok := h.tenants[tenant]
+	if !ok || value.engine == nil {
+		return nil
+	}
+	info, err := value.engine.GetAttempt(ctx, tenant, attempt)
+	if err != nil {
+		return nil
+	}
+	switch info.Decision.State {
+	case "settled", "dispatching", "unknown":
+	default:
+		return nil
+	}
+	var ids []string
+	for _, b := range info.Plan.Budgets {
+		if b.BudgetID != "" {
+			ids = append(ids, b.BudgetID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 func (h *QuotaHost) settledCost(ctx context.Context, tenant, attempt string) (usageledger.Cost, bool) {
 	value, ok := h.tenants[tenant]
 	if !ok || value.engine == nil {

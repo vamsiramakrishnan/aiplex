@@ -134,6 +134,8 @@ func (ap AccessPoint) admits(identity *models.WIFIdentity, caller accessPointCal
 // accessPointCall travels in the request context from the access-point gate
 // to the managed handlers, quota host and usage ledger.
 type accessPointCall struct {
+	// Project is the access point's administrator-set project label.
+	Project    string
 	ID         string
 	CallerKind string
 	ClientID   string
@@ -245,7 +247,7 @@ func (h *ConnectedHandler) accessPointGate(w http.ResponseWriter, r *http.Reques
 		return "", AccessPoint{}, nil, false
 	}
 	revision := record.Revision
-	call := &accessPointCall{ID: id, CallerKind: caller.Kind, ClientID: caller.ClientID, Revision: revision, QoS: ap.QoS != nil}
+	call := &accessPointCall{ID: id, CallerKind: caller.Kind, ClientID: caller.ClientID, Revision: revision, QoS: ap.QoS != nil, Project: ap.Project}
 	for _, t := range ap.Tools {
 		if len(t.Rules) > 0 {
 			if call.toolRules == nil {

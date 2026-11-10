@@ -453,6 +453,14 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 	if err := accessPoint.applyQuotaTarget(tenant.policy.Policy(), &target); err != nil {
 		return nil, err
 	}
+	project := ""
+	if accessPoint != nil {
+		project = accessPoint.Project
+	}
+	budgetSet, err := h.resolveBudgets(ctx, in.Context.TenantID, tenant, budgetFacts(principal, actor, identity, target, project), in.Plane)
+	if err != nil {
+		return nil, err
+	}
 	configuration := struct {
 		Binding       QuotaBinding
 		Configuration any
@@ -492,7 +500,7 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 	if err != nil {
 		return nil, err
 	}
-	demand := quotaplex.Demand{Version: quotaplex.Version, Context: request, Principal: principal, Actor: actor, LogicalOperationID: logical, AttemptID: attempt, PayloadDigest: payloadDigest, Target: target, FundingAccountID: requestedFunding, Bounds: bounds, RequireModelVersion: quotaStrictProfile(binding.Profile)}
+	demand := quotaplex.Demand{Version: quotaplex.Version, Context: request, Principal: principal, Actor: actor, LogicalOperationID: logical, AttemptID: attempt, PayloadDigest: payloadDigest, Target: target, FundingAccountID: requestedFunding, Bounds: bounds, RequireModelVersion: quotaStrictProfile(binding.Profile), Budgets: budgetSet.Draws}
 	authorize := func(callCtx context.Context, pinned quotaplex.Demand) error {
 		if err := h.assertBindingActive(callCtx, request.TenantID, binding.ID); err != nil {
 			return quotaStatus(503, "QUOTA_CONFIGURATION_INACTIVE", "quota host configuration changed")
@@ -538,17 +546,24 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 			return h.admission.Admit(callCtx, tenant.engine, admitted)
 		}
 	}
+	denial := func(err error) error {
+		var denied *quotaplex.AdmissionDenied
+		if errors.As(err, &denied) {
+			return h.budgetAdmissionError(ctx, tenant, in.Context.TenantID, denied, budgetSet)
+		}
+		return quotaAdmissionError(err)
+	}
 	bound, err := tenant.engine.BindWithAdmission(demand, authorize, admit)
 	if err != nil {
-		return nil, quotaAdmissionError(err)
+		return nil, denial(err)
 	}
 	pipeline, err := enforcement.New([]string{"quota"}, map[string]enforcement.Provider{"quota": bound})
 	if err != nil {
-		return nil, quotaAdmissionError(err)
+		return nil, denial(err)
 	}
 	ticket, err := pipeline.Admit(ctx, demand.Context)
 	if err != nil {
-		return nil, quotaAdmissionError(err)
+		return nil, denial(err)
 	}
 	return newQuotaHostLease(h, tenant.engine, bound, ticket, demand, binding, proof), nil
 }

@@ -124,6 +124,15 @@ var intendedRoutePolicy = map[string]string{
 	"DELETE /api/v1/access-points/{id}":          "admin/t",
 	"POST /api/v1/access-points/{id}/quota-plan": "admin/t",
 
+	// Budgets: operators read, admins write and preview, a verified member
+	// reads the status of its own budget (handler-scoped).
+	"GET /api/v1/budgets":             "op/t",
+	"GET /api/v1/budgets/{id}":        "op/t",
+	"PUT /api/v1/budgets/{id}":        "admin/t",
+	"DELETE /api/v1/budgets/{id}":     "admin/t",
+	"POST /api/v1/budgets/preview":    "admin/t",
+	"GET /api/v1/budgets/{id}/status": "auth/t",
+
 	// Usage ledger.
 	"GET /api/v1/usage/records":                "auth/t",
 	"GET /api/v1/usage/records/{id}":           "auth/t",

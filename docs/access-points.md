@@ -84,6 +84,7 @@ not flags: use `aiplex access-points apply -f <file>` for them, and the [specifi
 | `models[]` | `name` is the client-facing name, `surface_ref` a saved model surface, `native_model` the model the surface lists. Names are unique. |
 | `tools[]` | `connection_ref` names a saved tool connection. `expose` is an optional list of tool names or prefixes ending in `*`. Omitted means every tool the connection permits. `rules` is an optional list of [policy rules](tool-policy-rules.md) for calls through this access point; they run in addition to the connection's own rules, so an access point can only add restrictions. Rules are compiled when the access point is saved. |
 | `skills[]` | `instance_ref` names a deployed skill instance. Requires the `skillsplex` module. |
+| `project` | Optional label, `[A-Za-z0-9._-]` up to 128 characters, set by an administrator. A [tenant budget](budgets.md) may select it in `members.projects`. It is trusted because only an administrator can set it; it is never read from a request. |
 | `qos` | `class` (lower-case, up to 63 characters), `weight`, `limits` (`requests_per_minute`, `tokens_per_minute`, `concurrency`) and `budget_refs`. Rendered into QuotaPlex controls. See [QoS and quota](#qos-and-quota). |
 | `labels` | Up to 8 trusted experiment tags (`key: value`), stored as `tags` on every usage record of an exchange through this access point. Keys are `[a-z][a-z0-9_.-]{0,31}`; values up to 64 characters of `[A-Za-z0-9_.:/@+() -]`, not `(other)`. A caller can add tags only with the `X-AIPlex-Tags` header for keys the operator allowed (`AIPLEX_TAG_KEYS_ALLOWED`), and cannot override a label. Filter and group usage by tag: see the [usage ledger](usage-ledger.md#tags). Invalid labels are refused on save as `labels`. |
 
@@ -477,7 +478,10 @@ Notes from the rendering code:
   binding without that meter is denied.
 - A QoS block with no limits and no matching quota control fails closed for requests.
 - Re-rendering replaces this access point's earlier rate and concurrency rules.
-- `budget_refs` select budgets that already exist in the active quota policy.
+- `budget_refs` select budgets that already exist in the active quota policy. They are the operator's
+  QuotaPlex budget rules. [Tenant budgets](budgets.md) (team and project limits saved with
+  `aiplex budgets`) are separate: they select an access point through their `members.access_points`
+  or its `project`, need no `budget_refs`, and are enforced by QuotaPlex in the same admission.
 
 **Fail-closed rule.** A request through an access point with a `qos` block is refused
 when no active quota control matches the access point and the target:

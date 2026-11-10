@@ -15,6 +15,7 @@ from .errors import AiplexError, redact_value
 from .models import (
     AccessPointRecord,
     AccessPointSpec,
+    BudgetStatus,
     ConnectConfig,
     Feedback,
     ModelPrice,
@@ -49,6 +50,7 @@ _VALID_GROUP_BY = frozenset(
         "client_id",
         "access_point_id",
         "caller_kind",
+        "budget",
         "status",
         "source",
         "error_class",
@@ -252,6 +254,15 @@ class Client:
             code="unknown",
             status_code=status,
         )
+
+    def get_budget_status(self, id: str) -> BudgetStatus:
+        """Counters of a budget in its current window.
+
+        Members of the budget see spent, reserved and remaining; operators see
+        more. A caller who is not a direct member gets a not-found error.
+        """
+        quoted = _quote_segment(id, "id")
+        return BudgetStatus.from_wire(self._request("GET", f"/api/v1/budgets/{quoted}/status"))
 
     def whoami(self) -> Whoami:
         """Return the authenticated caller's identity, roles, and scopes."""

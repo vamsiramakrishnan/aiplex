@@ -35,6 +35,8 @@ import {
   parseWhoami,
   toWireAccessPointSpec,
   toWireModelPrice,
+  parseBudgetStatus,
+  type BudgetStatus,
 } from "./models.js";
 
 const USER_AGENT = "aiplex-sdk-ts/0.1.0";
@@ -52,6 +54,7 @@ const VALID_GROUP_BY = new Set<string>([
   "client_id",
   "access_point_id",
   "caller_kind",
+  "budget",
   "status",
   "source",
   "error_class",
@@ -83,6 +86,8 @@ export interface UsageFilter {
   clientId?: string;
   accessPointId?: string;
   callerKind?: string;
+  /** Records that drew from this tenant budget. */
+  budgetId?: string;
   status?: string;
   source?: string;
   errorClass?: string;
@@ -171,6 +176,7 @@ function applyUsageFilter(
     ["client_id", filter.clientId],
     ["access_point_id", filter.accessPointId],
     ["caller_kind", filter.callerKind],
+    ["budget_id", filter.budgetId],
     ["status", filter.status],
     ["source", filter.source],
     ["error_class", filter.errorClass],
@@ -435,6 +441,16 @@ export class AiplexClient {
   /**
    * Gets a single access point by ID.
    */
+  /**
+   * Counters of a budget in its current window. Members see spent, reserved
+   * and remaining; operators see more. A non-member gets a not-found error.
+   */
+  public async getBudgetStatus(id: string): Promise<BudgetStatus> {
+    validateId(id, "id");
+    const data = await this.#request("GET", `/api/v1/budgets/${encodeURIComponent(id)}/status`);
+    return parseBudgetStatus(data);
+  }
+
   public async getAccessPoint(id: string): Promise<AccessPointRecord> {
     validateId(id, "id");
     const data = await this.#request(

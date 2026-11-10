@@ -60,6 +60,7 @@ func devCmd() *cobra.Command {
 		contextName       string
 		noConsole, open   bool
 		noTools, detach   bool
+		quota             bool
 		allowOrigins      []string
 		otelEndpoint      string
 	)
@@ -112,6 +113,7 @@ A real provider key is read from the environment variable you name with
 --api-key-env. It is passed only to the local API process's environment; it
 is never printed, accepted as a flag value, or written to disk.`,
 		Example: `  aiplex dev
+  aiplex dev --quota    # QuotaPlex on, so budgets that count requests work
   aiplex dev --detach && aiplex dev status
   aiplex dev --provider openai --api-key-env OPENAI_API_KEY
   aiplex dev --provider anthropic --api-key-env ANTHROPIC_API_KEY --model claude-haiku-4-5
@@ -119,7 +121,7 @@ is never printed, accepted as a flag value, or written to disk.`,
   eval "$(aiplex dev env)"    # in another terminal: AIPLEX_URL, AIPLEX_TOKEN, OPENAI_BASE_URL, ...`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			o := devOptions{port: port, consolePort: consolePort, provider: provider, keyEnv: keyEnv, model: model, apiBin: apiBin, contextName: contextName, noConsole: noConsole, open: open, noTools: noTools, allowOrigins: allowOrigins, otel: otelEndpoint}
+			o := devOptions{port: port, consolePort: consolePort, provider: provider, keyEnv: keyEnv, model: model, apiBin: apiBin, contextName: contextName, noConsole: noConsole, open: open, noTools: noTools, allowOrigins: allowOrigins, otel: otelEndpoint, quota: quota}
 			if err := refuseIfDevRunning(); err != nil {
 				return err
 			}
@@ -138,6 +140,7 @@ is never printed, accepted as a flag value, or written to disk.`,
 	cmd.Flags().StringVar(&contextName, "context", "local", "CLI context to create for the local API")
 	cmd.Flags().BoolVar(&noConsole, "no-console", false, "Do not serve the Console")
 	cmd.Flags().BoolVar(&open, "open", false, "Open the Console in a browser")
+	cmd.Flags().BoolVar(&quota, "quota", false, "Turn QuotaPlex on for the mock surfaces and tools so budgets that count requests work (mock provider only; counters reset when the API restarts)")
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Do not start the built-in MCP server's tool connection")
 	cmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in the background; stop with: aiplex dev stop")
 	cmd.Flags().StringSliceVar(&allowOrigins, "allow-origin", nil, "Extra upstream origin the local API may call, e.g. https://mcp.example.com (repeatable)")
@@ -153,6 +156,7 @@ type devOptions struct {
 	contextName       string
 	noConsole, open   bool
 	noTools           bool
+	quota             bool
 	allowOrigins      []string
 	otel              string
 }
@@ -199,7 +203,7 @@ func runDev(parent context.Context, o devOptions) error {
 	if err != nil {
 		return err
 	}
-	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins, ExtraOrigins: extra, Env: apiEnv})
+	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins, ExtraOrigins: extra, Env: apiEnv, Quota: o.quota, QuotaNoTools: o.noTools})
 	if err != nil {
 		return fmt.Errorf("%w\n  API log: %s", err, logPath)
 	}
@@ -470,7 +474,11 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 			row("", hint)
 		}
 	}
-	row("Quota", "off (optional: QuotaPlex reads an operator policy file named by AIPLEX_QUOTA_FILE)")
+	if o.quota {
+		row("Quota", "on for the mock surfaces and tools (request counts); try: aiplex budgets create team --unit requests --amount 100 --window day --user alice@localhost")
+	} else {
+		row("Quota", "off (aiplex dev --quota turns it on for budgets that count requests; QuotaPlex otherwise reads an operator policy file named by AIPLEX_QUOTA_FILE)")
+	}
 	ctxNote := "\"" + o.contextName + "\" (current"
 	if previous != "" {
 		ctxNote += "; \"" + previous + "\" is restored when you stop"
