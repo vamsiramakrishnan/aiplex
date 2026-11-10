@@ -316,6 +316,26 @@ type toolAnnotations struct {
 	// ObservedBy is when each tool's own listing entry was last seen.
 	ObservedBy map[string]time.Time `json:"observed_at_by_tool,omitempty"`
 	ReadOnly   map[string]bool      `json:"read_only_hints"`
+	// The other MCP annotation hints, consulted by policy rules (pkg/
+	// toolpolicy). They share ReadOnly's observation times and expiry.
+	Destructive map[string]bool `json:"destructive_hints,omitempty"`
+	Idempotent  map[string]bool `json:"idempotent_hints,omitempty"`
+	OpenWorld   map[string]bool `json:"open_world_hints,omitempty"`
+}
+
+// hintMaps are the per-tool hint maps of a record, by name.
+func (a *toolAnnotations) hintMaps() []*map[string]bool {
+	return []*map[string]bool{&a.ReadOnly, &a.Destructive, &a.Idempotent, &a.OpenWorld}
+}
+
+func (a toolAnnotations) names() map[string]bool {
+	names := map[string]bool{}
+	for _, m := range a.hintMaps() {
+		for name := range *m {
+			names[name] = true
+		}
+	}
+	return names
 }
 
 // toolAnnotationClock is the clock for annotation ages; tests replace it.
@@ -354,7 +374,7 @@ func (h *ConnectedHandler) readOnlyHint(ctx context.Context, tenant string, reco
 // Writes are best effort: a lost write leaves the hint unknown (fail closed).
 func (h *ConnectedHandler) observeAnnotations(ctx context.Context, tenant string, record resources.Record, allowed map[string]bool, tools []toolexec.ListedTool) {
 	now := toolAnnotationClock().UTC()
-	next := toolAnnotations{ConnectionID: record.ID, Revision: record.Revision, ObservedAt: now, ObservedBy: map[string]time.Time{}, ReadOnly: map[string]bool{}}
+	next := toolAnnotations{ConnectionID: record.ID, Revision: record.Revision, ObservedAt: now, ObservedBy: map[string]time.Time{}, ReadOnly: map[string]bool{}, Destructive: map[string]bool{}, Idempotent: map[string]bool{}, OpenWorld: map[string]bool{}}
 	expected := uint64(0)
 	if saved, err := h.Store.Get(ctx, tenant, toolAnnotationsKind, record.ID); err == nil {
 		expected = saved.Revision
@@ -362,9 +382,14 @@ func (h *ConnectedHandler) observeAnnotations(ctx context.Context, tenant string
 		if json.Unmarshal(saved.Spec, &previous) == nil && previous.ConnectionID == record.ID && previous.Revision == record.Revision {
 			// Other tools keep the time they were actually observed; expired
 			// ones are dropped rather than refreshed by this listing.
-			for name, value := range previous.ReadOnly {
+			for name := range previous.names() {
 				if at, ok := previous.observedAt(name); ok && previous.fresh(name, now) {
-					next.ReadOnly[name], next.ObservedBy[name] = value, at
+					next.ObservedBy[name] = at
+					for i, m := range previous.hintMaps() {
+						if value, had := (*m)[name]; had {
+							(*next.hintMaps()[i])[name] = value
+						}
+					}
 				}
 			}
 		}
@@ -376,15 +401,29 @@ func (h *ConnectedHandler) observeAnnotations(ctx context.Context, tenant string
 		if !allowed[tool.Name] {
 			continue
 		}
-		if tool.ReadOnlyHint == nil {
-			if _, had := next.ReadOnly[tool.Name]; had {
-				delete(next.ReadOnly, tool.Name)
+		hints := []*bool{tool.ReadOnlyHint, tool.DestructiveHint, tool.IdempotentHint, tool.OpenWorldHint}
+		known := false
+		for _, hint := range hints {
+			known = known || hint != nil
+		}
+		if !known {
+			if next.names()[tool.Name] {
+				for _, m := range next.hintMaps() {
+					delete(*m, tool.Name)
+				}
 				delete(next.ObservedBy, tool.Name)
 				changed = true
 			}
 			continue
 		}
-		next.ReadOnly[tool.Name], next.ObservedBy[tool.Name] = *tool.ReadOnlyHint, now
+		for i, m := range next.hintMaps() {
+			if hints[i] != nil {
+				(*m)[tool.Name] = *hints[i]
+			} else {
+				delete(*m, tool.Name)
+			}
+		}
+		next.ObservedBy[tool.Name] = now
 		changed = true
 	}
 	if !changed && expected != 0 {

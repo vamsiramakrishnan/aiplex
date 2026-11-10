@@ -29,6 +29,7 @@ type Instruments struct {
 	quotaDenials        metric.Int64Counter
 	upstreamErrors      metric.Int64Counter
 	hooks               hookInstruments
+	toolPolicy          toolPolicyInstruments
 }
 
 func newInstruments(m metric.Meter) *Instruments {
@@ -68,6 +69,7 @@ func newInstruments(m metric.Meter) *Instruments {
 		quotaDenials:        counter(MetricQuotaDenials, "{exchange}", "Managed exchanges refused by quota admission."),
 		upstreamErrors:      counter(MetricUpstreamErrors, "{exchange}", "Managed exchanges that ended in an error or incomplete (upstream errors passed through included), by error.type."),
 		hooks:               newHookInstruments(histogram, counter),
+		toolPolicy:          newToolPolicyInstruments(counter),
 	}
 }
 

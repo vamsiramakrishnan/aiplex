@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolpolicy"
 )
 
 // ConnectionAuth selects a credential described by the connection's explicit
@@ -21,6 +23,9 @@ type ToolPolicy struct {
 	Allow    []string `json:"allow,omitempty"`
 	Deny     []string `json:"deny,omitempty"`
 	ReadOnly bool     `json:"read_only,omitempty"`
+	// Rules are policy expressions evaluated after the lists, the caller's
+	// scope and read_only (see pkg/toolpolicy for the evaluation order).
+	Rules []toolpolicy.Rule `json:"rules,omitempty"`
 }
 
 func (p ToolPolicy) Validate() error {
@@ -37,6 +42,14 @@ func (p ToolPolicy) Validate() error {
 				return fmt.Errorf("%s entries must be unique tool names or prefixes ending in '*'", field)
 			}
 			seen[pattern] = true
+		}
+	}
+	if p.Rules != nil && len(p.Rules) == 0 {
+		return fmt.Errorf("tools.rules must be omitted or non-empty")
+	}
+	if len(p.Rules) > 0 {
+		if _, err := toolpolicy.CompileCached(p.Rules); err != nil {
+			return fmt.Errorf("tools.rules: %w", err)
 		}
 	}
 	return nil
@@ -75,6 +88,8 @@ type Denial struct {
 	Code    int
 	Reason  string
 	Message string
+	// Rule is the identifier of the policy rule that decided, when one did.
+	Rule string
 }
 
 func (d *Denial) Error() string { return d.Message }

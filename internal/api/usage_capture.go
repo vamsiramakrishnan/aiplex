@@ -541,6 +541,7 @@ func endExchangeSpan(ctx context.Context, span trace.Span, record usageledger.Re
 	span.SetName(e.SpanName())
 	span.SetAttributes(e.Attributes()...)
 	span.SetAttributes(hookSpanAttributes(record)...)
+	span.SetAttributes(toolPolicySpanAttributes(record)...)
 	if record.Status != usageledger.StatusOK {
 		span.SetStatus(codes.Error, "")
 	}

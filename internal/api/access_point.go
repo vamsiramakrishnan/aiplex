@@ -18,6 +18,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolpolicy"
 )
 
 // AccessPointKind is the tenant resource kind of an access point: one stable
@@ -73,9 +74,14 @@ type AccessPointModel struct {
 // AccessPointTool exposes one saved tool connection. Expose is an optional
 // list of tool names or prefixes ending in '*'; omitted exposes every tool
 // the connection itself permits.
+//
+// Rules are policy rules (pkg/toolpolicy) evaluated in addition to the
+// connection's own tools.rules: a call must pass both, so an access point can
+// only add restrictions.
 type AccessPointTool struct {
-	ConnectionRef string   `json:"connection_ref"`
-	Expose        []string `json:"expose,omitempty"`
+	ConnectionRef string            `json:"connection_ref"`
+	Expose        []string          `json:"expose,omitempty"`
+	Rules         []toolpolicy.Rule `json:"rules,omitempty"`
 }
 
 type AccessPointSkill struct {
@@ -362,6 +368,11 @@ func (h *ConnectedHandler) validateAccessPointTools(ctx context.Context, tenant 
 		if t.Expose != nil {
 			if err := (toolexec.ToolPolicy{Allow: t.Expose}).Validate(); err != nil {
 				return withField(at("expose"), fmt.Errorf("tools[%s].expose: %v", t.ConnectionRef, strings.TrimPrefix(err.Error(), "tools.allow ")))
+			}
+		}
+		if len(t.Rules) > 0 {
+			if _, err := toolpolicy.CompileCached(t.Rules); err != nil {
+				return withField(at("rules"), fmt.Errorf("tools[%s].rules: %v", t.ConnectionRef, err))
 			}
 		}
 		if _, err := h.accessPointToolConnection(ctx, tenant, t.ConnectionRef); err != nil {
