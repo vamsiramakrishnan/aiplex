@@ -29,6 +29,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
@@ -566,7 +567,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
-	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneLLM, id)
+	w, r, usage := h.beginUsage(w, r, tenant, usageledger.PlaneLLM, id)
 	defer usage.finish()
 	record, e := h.Store.Get(r.Context(), tenant, "model-surface", id)
 	if e != nil {
@@ -600,7 +601,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	if connection.BillingProject != "" {
 		headers.Set("X-Goog-User-Project", connection.BillingProject)
 	}
-	opts := modelapi.Options{UpstreamHeaders: headers, HTTPClient: h.Runtime.Streaming, TokenSource: modelapi.TokenSourceFunc(func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, connection.IdentityRef) }), Context: func(req *http.Request) (contracts.RequestContext, error) { return h.trusted(req, id) }, Authorize: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
+	opts := modelapi.Options{UpstreamHeaders: headers, HTTPClient: telemetry.Client(h.Runtime.Streaming), TokenSource: modelapi.TokenSourceFunc(func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, connection.IdentityRef) }), Context: func(req *http.Request) (contracts.RequestContext, error) { return h.trusted(req, id) }, Authorize: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
 		// Every required grant is checked (not just the first) so a refusal
 		// through an access point can name all that are missing.
 		required := []string{"llm:surface:" + id + ":" + op.ID}
@@ -633,7 +634,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		return fmt.Errorf("action grant required")
 	}, AllowShared: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation) bool {
 		return h.authorize(r, "llm:surface:"+id+":shared-admin") == nil
-	}, Ownership: resourceOwnership{store: h.Store, namespace: strconv.FormatUint(record.Revision, 10)}, LiveDialer: liveDialer, AllowHTTPForTests: h.Development}
+	}, Ownership: resourceOwnership{store: h.Store, namespace: strconv.FormatUint(record.Revision, 10)}, LiveDialer: tracingLiveDialer{liveDialer}, AllowHTTPForTests: h.Development}
 	if h.Quota != nil {
 		opts.Execution = h.ModelExecutionPreparer(r, record, connection)
 	}
@@ -661,7 +662,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
-	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneA2A, id)
+	w, r, usage := h.beginUsage(w, r, tenant, usageledger.PlaneA2A, id)
 	defer usage.finish()
 	record, e := h.Store.Get(r.Context(), tenant, "agent-connection", id)
 	if e != nil {
@@ -735,7 +736,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 			return quotaStatus(403, "ACTION_DENIED", "current native agent action grant required")
 		}
 		return nil
-	}), h.Runtime.Streaming, credential, options...)
+	}), telemetry.Client(h.Runtime.Streaming), credential, options...)
 	if e != nil {
 		Error(w, r, 503, "AGENT_UNAVAILABLE", e.Error())
 		return

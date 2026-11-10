@@ -16,6 +16,9 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/pkg/cloudagents"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
@@ -23,6 +26,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
@@ -51,17 +55,27 @@ type usageCapture struct {
 	// usage is final only with a terminal observation.
 	terminalSeen bool
 	bound        string
+	// span is the exchange's CLIENT span; its identifiers are the record's
+	// trace_id and span_id. genAIProvider is gen_ai.provider.name.
+	span          trace.Span
+	genAIProvider string
 }
 
 // beginUsage starts capturing an exchange for a verified tenant. The returned
-// writer must be used for the rest of the handler; finish must be deferred.
-func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, tenant, plane, resourceID string) (http.ResponseWriter, *usageCapture) {
+// writer and request must be used for the rest of the handler (the request
+// carries the exchange's CLIENT span, whose context upstream requests
+// propagate); finish must be deferred.
+func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, tenant, plane, resourceID string) (http.ResponseWriter, *http.Request, *usageCapture) {
 	if h == nil || h.Ledger == nil || tenant == "" {
-		return w, nil
+		return w, r, nil
 	}
-	c := &usageCapture{h: h, r: r, started: time.Now().UTC()}
+	// The span is named when the exchange finishes (operation and model are
+	// known only then). Its identifiers exist whether or not export is on.
+	ctx, span := telemetry.Tracer().Start(r.Context(), plane, trace.WithSpanKind(trace.SpanKindClient))
+	r = r.WithContext(ctx)
+	c := &usageCapture{h: h, r: r, started: time.Now().UTC(), span: span}
 	c.writer = &usageWriter{ResponseWriter: w}
-	c.record = usageledger.Record{TenantID: tenant, Plane: plane, ResourceID: resourceID, Source: usageledger.SourceManaged, Requests: 1, RequestID: GetRequestID(r.Context()), TraceID: traceIDFromHeader(r.Header.Get("traceparent"))}
+	c.record = usageledger.Record{TenantID: tenant, Plane: plane, ResourceID: resourceID, Source: usageledger.SourceManaged, Requests: 1, RequestID: GetRequestID(r.Context()), TraceID: telemetry.TraceID(ctx), SpanID: telemetry.SpanID(ctx)}
 	if identity := GetWIFIdentity(r.Context()); identity != nil {
 		c.record.PrincipalID = identity.PrincipalID
 		c.record.PrincipalDisplay = principalDisplay(identity)
@@ -73,16 +87,7 @@ func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, te
 		c.record.AccessPointID = call.ID
 		c.record.CallerKind = call.CallerKind
 	}
-	return c.writer, c
-}
-
-// traceIDFromHeader extracts a W3C trace ID for correlation only.
-func traceIDFromHeader(value string) string {
-	parts := strings.Split(strings.TrimSpace(value), "-")
-	if len(parts) < 4 || len(parts[1]) != 32 || !traceHex(parts[1], 32) || parts[1] == strings.Repeat("0", 32) {
-		return ""
-	}
-	return parts[1]
+	return c.writer, r, c
 }
 
 func (c *usageCapture) set(fn func(*usageledger.Record)) {
@@ -98,6 +103,7 @@ func (c *usageCapture) set(fn func(*usageledger.Record)) {
 func (c *usageCapture) agent(provider cloudagents.Provider, operation string) {
 	c.set(func(r *usageledger.Record) {
 		r.Provider = string(provider)
+		c.genAIProvider = telemetry.AgentProviderName(string(provider))
 		r.Operation = operation
 		if strings.Contains(strings.ToLower(operation), "stream") {
 			c.streaming = true
@@ -154,9 +160,11 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 	// forwards the native counters unnormalized).
 	c.mu.Lock()
 	c.anthropicRaw = connection.Surface.Publisher == "anthropic"
+	c.genAIProvider = telemetry.ModelProviderName("", true)
 	if connection.Surface.Provider != nil {
 		c.record.Provider = connection.Surface.Provider.ID
 		c.anthropicRaw = connection.Surface.Provider.ID == modelapi.ProviderAnthropic || connection.Surface.Provider.ID == modelapi.ProviderBedrock
+		c.genAIProvider = telemetry.ModelProviderName(connection.Surface.Provider.ID, false)
 	}
 	c.mu.Unlock()
 	authorize := opts.Authorize
@@ -463,7 +471,12 @@ func (c *usageCapture) finish() {
 	}
 	record.Cost = usageledger.UnknownCost()
 	h := c.h
-	h.Ledger.Submit(c.r.Context(), func(ctx context.Context) (usageledger.Record, error) {
+	span, genAIProvider := c.span, c.genAIProvider
+	firstWrite := c.writer.firstWriteAt()
+	h.Ledger.Submit(c.r.Context(), func(ctx context.Context) (out usageledger.Record, err error) {
+		// The span ends once the cost is resolved (settlement or price), at
+		// the exchange's own finish time.
+		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
 		if attemptID != "" && h.Quota != nil {
 			if cost, ok := h.Quota.settledCost(ctx, record.TenantID, attemptID); ok {
 				record.Cost = cost
@@ -478,6 +491,52 @@ func (c *usageCapture) finish() {
 		}
 		return record, nil
 	})
+}
+
+// endExchangeSpan names and ends the exchange's CLIENT span and records its
+// metrics. Attributes come from the finished ledger record only: identifiers,
+// counts and classifications, never payloads or credentials.
+func endExchangeSpan(ctx context.Context, span trace.Span, record usageledger.Record, genAIProvider string, firstWrite time.Time) {
+	e := telemetry.Exchange{
+		Plane: record.Plane, Operation: record.Operation, Provider: record.Provider, ProviderName: genAIProvider,
+		RequestModel: record.ModelID, ResponseModel: record.ModelVersion, ToolName: record.ToolName,
+		ResourceID: record.ResourceID, AccessPointID: record.AccessPointID, CallerKind: record.CallerKind,
+		PrincipalID: record.PrincipalID, ActorID: record.ActorID, ClientID: record.ClientID, RequestID: record.RequestID, RecordID: record.ID,
+		Status: record.Status, HTTPStatus: record.HTTPStatus, Streaming: record.Streaming, Session: record.Session,
+		Duration: record.FinishedAt.Sub(record.StartedAt), Usage: record.Usage, UsageBound: record.UsageBound, Cost: record.Cost,
+		QuotaAttemptID: record.QuotaAttemptID, QuotaDenied: telemetry.IsQuotaDenial(record.Status, record.ErrorClass),
+	}
+	if record.Status != usageledger.StatusOK {
+		e.ErrorType = record.ErrorClass
+		if e.ErrorType == "" {
+			e.ErrorType = record.Status
+		}
+	}
+	switch record.Plane {
+	case usageledger.PlaneLLM:
+		e.OperationName = telemetry.ModelOperationName(record.Operation)
+	case usageledger.PlaneMCP:
+		e.MCPMethod = record.Operation
+		if record.Operation == "tools/call" {
+			e.OperationName = telemetry.OpExecuteTool
+		}
+		e.Provider = ""
+	case usageledger.PlaneA2A:
+		e.OperationName = telemetry.OpInvokeAgent
+	}
+	if !firstWrite.IsZero() && firstWrite.After(record.StartedAt) {
+		e.TimeToFirstChunk = firstWrite.Sub(record.StartedAt)
+	}
+	telemetry.Metrics().RecordExchange(ctx, e)
+	if span == nil {
+		return
+	}
+	span.SetName(e.SpanName())
+	span.SetAttributes(e.Attributes()...)
+	if record.Status != usageledger.StatusOK {
+		span.SetStatus(codes.Error, "")
+	}
+	span.End(trace.WithTimestamp(record.FinishedAt))
 }
 
 // nonTokenUsage reports observed meters the record cannot represent: units
@@ -588,6 +647,15 @@ type usageWriter struct {
 	wrote       bool
 	writeFailed bool
 	hijacked    bool
+	// firstWrite is when the first response bytes were written (time to
+	// first chunk for a streamed exchange).
+	firstWrite time.Time
+}
+
+func (w *usageWriter) firstWriteAt() time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.firstWrite
 }
 
 func (w *usageWriter) WriteHeader(status int) {
@@ -605,6 +673,9 @@ func (w *usageWriter) Write(p []byte) (int, error) {
 		w.status = http.StatusOK
 	}
 	w.wrote = true
+	if w.firstWrite.IsZero() && len(p) > 0 {
+		w.firstWrite = time.Now().UTC()
+	}
 	w.mu.Unlock()
 	n, err := w.ResponseWriter.Write(p)
 	if err != nil {

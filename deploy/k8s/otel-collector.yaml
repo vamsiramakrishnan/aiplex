@@ -1,3 +1,10 @@
+# Raw manifest; the Helm chart renders the same collector with the project
+# filled in from global.projectId. Replace PROJECT_ID before applying, e.g.
+#   sed "s/PROJECT_ID/$(gcloud config get-value project)/g" deploy/k8s/otel-collector.yaml | kubectl apply -f -
+# Applied unchanged it exports to a project named "PROJECT_ID" and fails.
+# aiplex-api sends OTLP here (http://otel-collector.aiplex-system:4318, see
+# deploy/k8s/aiplex-api.yaml). The aiplex-api Google service account needs
+# roles/cloudtrace.agent and roles/monitoring.metricWriter.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -84,7 +91,7 @@ spec:
       serviceAccountName: aiplex-api
       containers:
       - name: otel-collector
-        image: otel/opentelemetry-collector-contrib:latest
+        image: otel/opentelemetry-collector-contrib:0.164.0  # pinned; update deliberately
         args: ["--config=/etc/otel/config.yaml"]
         ports:
         - containerPort: 4317

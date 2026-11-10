@@ -227,10 +227,16 @@ type Record struct {
 	ClientID string `json:"client_id,omitempty"`
 	// AccessPointID and CallerKind are set only for exchanges that entered
 	// through an access point; CallerKind is agent, user or client.
-	AccessPointID  string `json:"access_point_id,omitempty"`
-	CallerKind     string `json:"caller_kind,omitempty"`
-	RequestID      string `json:"request_id,omitempty"`
+	AccessPointID string `json:"access_point_id,omitempty"`
+	CallerKind    string `json:"caller_kind,omitempty"`
+	RequestID     string `json:"request_id,omitempty"`
+	// TraceID and SpanID are the W3C identifiers of the exchange's span (the
+	// CLIENT span of a managed exchange, the SERVER span of the request that
+	// reported a reported record). The trace continues the caller's
+	// traceparent when it sent a valid one. They are generated whether or not
+	// telemetry export is on, so logs, traces and records correlate.
 	TraceID        string `json:"trace_id,omitempty"`
+	SpanID         string `json:"span_id,omitempty"`
 	QuotaAttemptID string `json:"quota_attempt_id,omitempty"`
 	Streaming      bool   `json:"streaming"`
 	// Session is true for a WebSocket session exchange: one record covers the
@@ -312,7 +318,7 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "span_id": r.SpanID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}

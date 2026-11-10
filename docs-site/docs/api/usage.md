@@ -85,7 +85,8 @@ The response is a page object.
 | `access_point_id` | string | Omitted unless the exchange entered through an access point |
 | `caller_kind` | string | `agent`, `user` or `client`. Omitted unless entered through an access point. |
 | `request_id` | string | Omitted when empty |
-| `trace_id` | string | Omitted when empty. W3C trace identifier, for correlation only. |
+| `trace_id` | string | W3C trace identifier (32 hex), for correlation only. Set on every record AIPlex writes; continues the caller's `traceparent` when it was valid. Omitted on older records. |
+| `span_id` | string | W3C span identifier (16 hex) of the exchange's span: the CLIENT span of a managed exchange, or the SERVER span of a reporting request. Omitted on older records. |
 | `quota_attempt_id` | string | Omitted when empty. Links the record to its quota attempt. |
 | `streaming` | boolean | `true` for streamed responses |
 | `session` | boolean | Omitted unless `true`. `true` for a WebSocket session covering the whole session. |

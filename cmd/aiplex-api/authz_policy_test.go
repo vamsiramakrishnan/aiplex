@@ -44,6 +44,7 @@ var intendedRoutePolicy = map[string]string{
 	"POST /auth/token-hook":                       "internal/t",
 	"POST /internal/tape/events":                  "internal/t",
 	"POST /internal/projections/rebuild/{run_id}": "internal/t",
+	"GET /metrics":                                "internal/t",
 
 	// Hydra consent and admin user scopes.
 	"GET /auth/consent":               "auth/t",

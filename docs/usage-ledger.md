@@ -84,7 +84,8 @@ unknown. Any other value is matched exactly.
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
 | `session` | `true` for a WebSocket session. One record covers the whole session, and its usage is final only with a terminal observation. Omitted otherwise. |
-| `request_id`, `trace_id` | Correlation identifiers. |
+| `request_id` | The request's correlation identifier (`X-Request-Id`). |
+| `trace_id`, `span_id` | W3C trace and span identifiers of the exchange's span: for a managed record, the CLIENT span that covers the exchange (see [observability](observability.md)); for a `reported` record, the SERVER span of the request that reported it. `trace_id` continues the caller's `traceparent` when it sent a valid one; otherwise AIPlex starts a trace. Both are set on every record whether or not telemetry export is configured, so request logs (`trace_id`), traces and records correlate. Records written before this field existed have no `span_id`. |
 
 ## Unknown is not zero
 
