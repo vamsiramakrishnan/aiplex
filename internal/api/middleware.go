@@ -481,13 +481,15 @@ func Idempotency(actionFromPath func(*http.Request) string) func(http.Handler) h
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 
-			key := r.Header.Get("Idempotency-Key")
-			if key == "" {
-				action := actionFromPath(r)
-				runID := chi.URLParam(r, "run_id")
+			// A cached reply is replayed only to the same caller for the same
+			// run and action: a client key never crosses callers or targets.
+			request := r.Header.Get("Idempotency-Key")
+			if request == "" {
 				h := sha256.Sum256(body)
-				key = fmt.Sprintf("%s|%s|%s", runID, action, hex.EncodeToString(h[:]))
+				request = hex.EncodeToString(h[:])
 			}
+			keyed := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s", extractOwner(r), chi.URLParam(r, "run_id"), actionFromPath(r), request)))
+			key := hex.EncodeToString(keyed[:])
 
 			if v, ok := cache.Load(key); ok {
 				c := v.(*cached)

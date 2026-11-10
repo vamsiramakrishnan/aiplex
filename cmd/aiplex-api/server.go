@@ -347,29 +347,31 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		// claim or aiplex:runs:read:cross_tenant before any /runs route.
 		// Opt-in via AIPLEX_REQUIRE_TENANT=1 so existing dev paths
 		// don't break overnight.
+		// Reads need aiplex:runs:read and each action aiplex:runs:{action},
+		// enforced here as well as at the gateway; a run outside the caller's
+		// tenant claim answers as missing (RunVisible).
 		r.Route("/runs", func(r chi.Router) {
 			r.Use(api.RequireTenant)
-			r.Get("/", runsH.List)
-			r.Get("/_health", runsH.Health)
-			r.Get("/{run_id}", runsH.Get)
-			r.Get("/{run_id}/events", runsH.Events)
-			r.Get("/{run_id}/effects", runsH.Effects)
-			r.Get("/{run_id}/obligations", runsH.Obligations)
-			r.Get("/{run_id}/budgets", runsH.Budgets)
-			r.Get("/{run_id}/operator-audit", runsH.ListOperatorAudit)
-			// Operator actions (PR 10 + PR 11 item 7 idempotency wrap).
-			// Each requires an aiplex:runs:{action} scope at the gateway
-			// authz layer; the Idempotency middleware dedupes
-			// double-clicks for 5 minutes.
+			read := api.RequireRunsScope("read")
+			r.With(read).Get("/", runsH.List)
+			r.With(read).Get("/_health", runsH.Health)
 			r.Group(func(r chi.Router) {
-				r.Use(api.Idempotency(runsActionFromPath))
-				r.Post("/{run_id}/redrive", runsH.Redrive)
-				r.Post("/{run_id}/reconcile", runsH.Reconcile)
-				r.Post("/{run_id}/cancel", runsH.Cancel)
-				r.Post("/{run_id}/signal", runsH.Signal)
-				r.Post("/{run_id}/compensate", runsH.Compensate)
-				r.Post("/{run_id}/compact", runsH.Compact)
+				r.Use(read, runsH.RunVisible)
+				r.Get("/{run_id}", runsH.Get)
+				r.Get("/{run_id}/events", runsH.Events)
+				r.Get("/{run_id}/effects", runsH.Effects)
+				r.Get("/{run_id}/obligations", runsH.Obligations)
+				r.Get("/{run_id}/budgets", runsH.Budgets)
+				r.Get("/{run_id}/operator-audit", runsH.ListOperatorAudit)
 			})
+			// Operator actions (PR 10 + PR 11 item 7 idempotency wrap). The
+			// Idempotency middleware dedupes double-clicks for 5 minutes; it
+			// runs after the grant and visibility checks so a cached reply is
+			// never served to a caller who may not act on the run.
+			idempotent := api.Idempotency(runsActionFromPath)
+			for action, handler := range map[string]http.HandlerFunc{"redrive": runsH.Redrive, "reconcile": runsH.Reconcile, "cancel": runsH.Cancel, "signal": runsH.Signal, "compensate": runsH.Compensate, "compact": runsH.Compact} {
+				r.With(api.RequireRunsScope(action), runsH.RunVisible, idempotent).Post("/{run_id}/"+action, handler)
+			}
 		})
 
 		// IAM — role bindings, WIF identity resolution
@@ -397,7 +399,16 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	})
 
 	// Server-Sent Events for live dashboard
-	r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/events/stream", sseH.Stream)
+	// Per-run mode (?run_id=) streams a run's journal: the same grant and
+	// tenant visibility as GET /api/v1/runs/{run_id}/events.
+	runStream := api.RequireRunsScope("read")(runsH.RunVisible(http.HandlerFunc(sseH.Stream)))
+	r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/events/stream", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("run_id") {
+			runStream.ServeHTTP(w, r)
+			return
+		}
+		sseH.Stream(w, r)
+	})
 
 	// AIPlex ↔ Tape audit ingestion. Tape's outbox relay POSTs
 	// here; AIPlex dedupes on (run_id, seq), quarantines unknown

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
+	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 )
 
@@ -162,5 +163,65 @@ func TestAccessPointLoadFailuresMapConsistently(t *testing.T) {
 		if rec.Code != test.corrupt {
 			t.Errorf("%s corrupt: %d %s", test.path, rec.Code, rec.Body)
 		}
+	}
+}
+
+// Runs: reads need aiplex:runs:read and actions aiplex:runs:<action> (the
+// same scopes the gateway policy requires), and a run of another tenant is
+// indistinguishable from a missing one.
+func TestRunsRequireScopesAndHideOtherTenants(t *testing.T) {
+	s := newAuthzServer(t)
+	ctx := context.Background()
+	for _, run := range []models.ExecutionRun{{RunID: "mine", TenantID: authzHomeTenant, Status: models.ExecutionRunRunnable}, {RunID: "theirs", TenantID: "another-tape-tenant", Status: models.ExecutionRunRunnable}} {
+		run := run
+		if err := s.store.UpsertExecutionRun(ctx, &run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		method, path, token string
+		want                int
+	}{
+		{"GET", "/api/v1/runs/mine", "runs-operator", 200},
+		{"GET", "/api/v1/runs/mine/events", "runs-operator", 200},
+		{"GET", "/api/v1/runs/theirs", "runs-operator", 404},
+		{"GET", "/api/v1/runs/theirs/events", "runs-operator", 404},
+		{"GET", "/api/v1/runs/theirs/effects", "runs-operator", 404},
+		{"GET", "/api/v1/runs/theirs/obligations", "runs-operator", 404},
+		{"GET", "/api/v1/runs/theirs/budgets", "runs-operator", 404},
+		{"GET", "/api/v1/runs/theirs/operator-audit", "runs-operator", 404},
+		{"POST", "/api/v1/runs/theirs/cancel", "runs-operator", 404},
+		{"GET", "/api/v1/runs/never", "runs-operator", 404},
+		{"POST", "/api/v1/runs/mine/cancel", "runs-operator", 202},
+		{"POST", "/api/v1/runs/mine/redrive", "runs-operator", 403},
+		{"GET", "/api/v1/runs/mine", string(callerAdmin), 403},
+		{"GET", "/api/v1/runs", string(callerAdmin), 403},
+		{"POST", "/api/v1/runs/mine/cancel", string(callerAdmin), 403},
+	} {
+		body := ""
+		if test.method == "POST" {
+			body = `{"reason":"test"}`
+		}
+		rec := s.do(t, test.method, test.path, test.token, body)
+		if rec.Code != test.want {
+			t.Errorf("%s %s as %s: got %d want %d %s", test.method, test.path, test.token, rec.Code, test.want, rec.Body)
+		}
+	}
+	for _, test := range []struct {
+		token, run string
+		want       int
+	}{{"runs-operator", "theirs", 404}, {"runs-operator", "never", 404}, {string(callerAdmin), "mine", 403}} {
+		if rec := s.do(t, "GET", "/events/stream?run_id="+test.run, test.token, ""); rec.Code != test.want {
+			t.Errorf("event stream for run %s as %s: got %d want %d", test.run, test.token, rec.Code, test.want)
+		}
+	}
+	rec := s.do(t, "GET", "/api/v1/runs", "runs-operator", "")
+	if rec.Code != 200 || strings.Contains(rec.Body.String(), "theirs") || !strings.Contains(rec.Body.String(), "mine") {
+		t.Fatalf("run list for a tenant-bound caller: %d %s", rec.Code, rec.Body)
+	}
+	missing := s.do(t, "GET", "/api/v1/runs/never", "runs-operator", "")
+	other := s.do(t, "GET", "/api/v1/runs/theirs", "runs-operator", "")
+	if authzErrorCode(missing.Body.Bytes()) != authzErrorCode(other.Body.Bytes()) || missing.Code != other.Code || len(missing.Body.String()) != len(other.Body.String()) {
+		t.Fatalf("other-tenant run differs from a missing run: %s vs %s", other.Body, missing.Body)
 	}
 }

@@ -78,6 +78,8 @@ func (authzVerifier) Verify(_ context.Context, token string) (map[string]any, er
 		claims["groups"] = []any{"agents"}
 	case "quota-reader":
 		claims["groups"] = []any{"quota-readers"}
+	case "runs-operator":
+		claims["groups"] = []any{"runs-operators"}
 	default:
 		return nil, errUnknownTestToken
 	}
@@ -116,6 +118,7 @@ func authzRoleBindings(t *testing.T, store *registry.MemoryStore) {
 		{ID: "agents", Group: "agents", Role: models.RoleAgent},
 		{ID: "foreign-admins", Group: "foreign-admins", Role: models.RoleAdmin, Scopes: append([]string{"aiplex:tenant:" + authzForeign}, models.DefaultRoleScopes[models.RoleAdmin]...)},
 		{ID: "quota-readers", Group: "quota-readers", Role: models.RoleViewer, Scopes: []string{"aiplex:quota:read"}},
+		{ID: "runs-operators", Group: "runs-operators", Role: models.RoleDeployer, Scopes: []string{"aiplex:tenant:" + authzHomeTenant, "aiplex:runs:read", "aiplex:runs:cancel"}},
 	} {
 		if err := store.PutRoleBinding(context.Background(), b); err != nil {
 			t.Fatal(err)

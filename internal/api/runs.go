@@ -36,11 +36,12 @@ func writeJSON(w http.ResponseWriter, code int, body any) {
 }
 
 func writeStoreError(w http.ResponseWriter, err error) {
+	// Store errors are not echoed to callers.
 	if errors.Is(err, registry.ErrNotFound) {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		JSON(w, http.StatusNotFound, models.APIError{Code: "NOT_FOUND", Message: "run not found"})
 		return
 	}
-	http.Error(w, err.Error(), http.StatusInternalServerError)
+	JSON(w, http.StatusInternalServerError, models.APIError{Code: "RUN_STORE_UNAVAILABLE", Message: "run store unavailable"})
 }
 
 // RunsHandler serves the AIPlex ↔ Tape audit ingestion endpoint,
@@ -283,7 +284,7 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	runs, err := h.store.ListExecutionRuns(ctx, tenantFilter, q.Get("agent_id"), limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		runStoreError(w, r, err)
 		return
 	}
 	// Optional client-side filters that don't need a separate query
@@ -326,7 +327,7 @@ func (h *RunsHandler) Events(w http.ResponseWriter, r *http.Request) {
 	limit := parseIntDefault(q.Get("limit"), 1000)
 	events, err := h.store.ListExecutionEvents(ctx, runID, fromSeq, limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		runStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": events})
@@ -358,7 +359,7 @@ func (h *RunsHandler) filteredEvents(w http.ResponseWriter, r *http.Request,
 	runID := pathParam(r, "run_id")
 	all, err := h.store.ListExecutionEvents(ctx, runID, 0, 10000)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		runStoreError(w, r, err)
 		return
 	}
 	out := make([]models.ExecutionEvent, 0, len(all))
@@ -655,7 +656,7 @@ func (h *RunsHandler) ListOperatorAudit(w http.ResponseWriter, r *http.Request) 
 	runID := pathParam(r, "run_id")
 	rows, err := h.store.ListOperatorAudit(ctx, runID, parseIntDefault(r.URL.Query().Get("limit"), 100))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		runStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"audit": rows})
@@ -671,15 +672,15 @@ func (h *RunsHandler) RebuildProjection(w http.ResponseWriter, r *http.Request) 
 	runID := pathParam(r, "run_id")
 	events, err := h.store.ListExecutionEvents(ctx, runID, 0, 100000)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		runStoreError(w, r, err)
 		return
 	}
 	if len(events) == 0 {
 		writeStoreError(w, registry.ErrNotFound)
 		return
 	}
-	// Throw away the existing projection and recompute from scratch.
-	_ = h.store.DeleteExecutionRun(ctx, runID)
+	// Recompute from scratch. The upsert replaces the cached projection, so
+	// the old one is kept if the write fails.
 	first := events[0]
 	run := &models.ExecutionRun{
 		RunID:            runID,
@@ -696,7 +697,7 @@ func (h *RunsHandler) RebuildProjection(w http.ResponseWriter, r *http.Request) 
 		applyEventToRun(run, &events[i])
 	}
 	if err := h.store.UpsertExecutionRun(ctx, run); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		runStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
