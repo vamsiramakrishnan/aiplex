@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
@@ -276,4 +277,65 @@ func applyToolConnectionChange(raw json.RawMessage, change ToolConnectionChange)
 		}
 	}
 	return json.Marshal(spec)
+}
+
+// ConnectionTool is one tool a connection's server listed through the gateway.
+type ConnectionTool struct {
+	Name        string `json:"name"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Annotations *struct {
+		ReadOnlyHint *bool `json:"readOnlyHint,omitempty"`
+	} `json:"annotations,omitempty"`
+}
+
+// ToolListError is a JSON-RPC error the tool server (or the gateway on its
+// behalf) answered a tools/list with.
+type ToolListError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *ToolListError) Error() string {
+	return fmt.Sprintf("tools/list failed (%d): %s", e.Code, e.Message)
+}
+
+// ListConnectionTools performs a real tools/list against the connection's
+// server through the gateway (POST /api/v1/mcp/connections/{id}/invoke), with
+// the connection's configured credential and tools policy applied. Only the
+// tools the policy lets callers see are returned.
+func (c *Client) ListConnectionTools(ctx context.Context, id string) ([]ConnectionTool, error) {
+	if err := validateResourceID(id); err != nil {
+		return nil, err
+	}
+	var all []ConnectionTool
+	cursor := ""
+	for page := 0; page < 20; page++ {
+		request := map[string]any{"jsonrpc": "2.0", "id": page + 1, "method": "tools/list"}
+		if cursor != "" {
+			request["params"] = map[string]any{"cursor": cursor}
+		}
+		var out struct {
+			Result *struct {
+				Tools      []ConnectionTool `json:"tools"`
+				NextCursor string           `json:"nextCursor"`
+			} `json:"result"`
+			Error *ToolListError `json:"error"`
+		}
+		if err := c.do(ctx, http.MethodPost, "/api/v1/mcp/connections/"+url.PathEscape(id)+"/invoke", request, &out); err != nil {
+			return nil, err
+		}
+		if out.Error != nil {
+			return nil, out.Error
+		}
+		if out.Result == nil {
+			return nil, fmt.Errorf("aiplex: tools/list returned no result")
+		}
+		all = append(all, out.Result.Tools...)
+		if out.Result.NextCursor == "" {
+			break
+		}
+		cursor = out.Result.NextCursor
+	}
+	return all, nil
 }

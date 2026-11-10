@@ -6,14 +6,11 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/vamsiramakrishnan/aiplex/console"
-	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
 )
 
 func consoleCmd() *cobra.Command {
@@ -111,56 +108,4 @@ func spaFileServer(root http.FileSystem) http.Handler {
 		f.Close()
 		fileServer.ServeHTTP(w, r)
 	})
-}
-
-// resolveAPIURL returns the API URL from flags, env, or config.
-func resolveAPIURL() string {
-	if apiURL != "" {
-		return apiURL
-	}
-	if u := os.Getenv("AIPLEX_URL"); u != "" {
-		return u
-	}
-	cfg, err := cliconfig.Load()
-	if err == nil {
-		if ctx, err := cfg.Current(); err == nil && ctx.URL != "" {
-			return ctx.URL
-		}
-	}
-	return "http://localhost:8080"
-}
-
-// resolveToken returns the auth token from flags, env, or config.
-func resolveToken() string {
-	if token != "" {
-		return token
-	}
-	if t := os.Getenv("AIPLEX_TOKEN"); t != "" {
-		return t
-	}
-	cfg, err := cliconfig.Load()
-	if err == nil {
-		creds, err := cliconfig.LoadCredentials()
-		if err == nil {
-			if tok := creds.GetToken(cfg.CurrentContext); tok != nil {
-				// Auto-refresh expired tokens
-				if tok.AccessToken != "" && tok.RefreshToken != "" && tok.ExpiresAt != "" {
-					if expiry, err := time.Parse(time.RFC3339, tok.ExpiresAt); err == nil {
-						if time.Now().After(expiry.Add(-5 * time.Minute)) {
-							// Token expired or expiring soon — try refresh
-							if ctx, err := cfg.Current(); err == nil && ctx.URL != "" {
-								tr, err := refreshToken(ctx.URL, tok.RefreshToken)
-								if err == nil && tr.AccessToken != "" {
-									storeToken(cfg.CurrentContext, tr.AccessToken, tr.RefreshToken)
-									return tr.AccessToken
-								}
-							}
-						}
-					}
-				}
-				return tok.AccessToken
-			}
-		}
-	}
-	return ""
 }
