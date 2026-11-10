@@ -104,7 +104,11 @@ func extendedUsageRoutes() []fixtureRoute {
 		}
 		return aggregateBatchLines(lines)
 	}
+	const liveNote = "WebSocket session: one request-count admission and one settlement per session (token-metered leases refused before the dial); voice seconds are the primary meter, observed as voice_session_milliseconds from cumulative session.usage.updated snapshots (never summed) and final only with session.closed; nested Responses/decision token usage is advisory, counted once per response"
+	callLive := &fixtureCall{surface: providerSurfaceFor(openAIMediaProvider, ProtocolOpenAILive, []string{"fixture-model-live"}, openAILiveOperation), path: "/v1/live/sessions?model=fixture-model-live", body: `{"type":"session.start","session":{"model":"fixture-model-live"}}`, ws: "openai-live"}
 	return []fixtureRoute{
+		{provider: "openai", file: "live.ws.jsonl", surface: "live-voice-sessions", transport: "websocket", status: statusAdvisory, reason: liveNote, call: callLive, conv: convOpenAI, native: natOpenAI, final: true},
+		{provider: "openai", file: "live.interrupted.ws.jsonl", surface: "live-voice-sessions", transport: "websocket", status: statusAdvisory, reason: liveNote, call: callLive, conv: convOpenAI, native: natOpenAI, final: false},
 		media("transcription.json", "audio-transcriptions", "json", callTranscription, true, unitNote),
 		media("transcription.duration.json", "audio-transcriptions", "json", callTranscription, true, unitNote+"; duration-billed responses report seconds, observed as audio_input_milliseconds and never as tokens"),
 		media("transcription.sse", "audio-transcriptions", "sse", callTranscriptionS, true, unitNote+"; usage only on transcript.text.done, whose frame is held until acknowledged"),

@@ -126,3 +126,27 @@ func TestSpeechAudioIsStreamedThrough(t *testing.T) {
 		t.Fatalf("speech exchange: %+v", lease.results)
 	}
 }
+
+func TestLiveVoiceSecondsAreSnapshotsRecordedOnce(t *testing.T) {
+	a := newLiveVoiceAdapter(&Gateway{surface: Surface{ID: "s"}}, "fixture-model-live")
+	if a.clientMessage(context.Background(), []byte(`{"type":"session.start","session":{"model":"other"}}`), 1) == nil {
+		t.Fatal("session.start with another model accepted")
+	}
+	if err := a.clientMessage(context.Background(), []byte(`{"type":"session.start","session":{"model":"fixture-model-live"}}`), 1); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range bytes.Split(readFixture(t, "openai", "live.ws.jsonl"), []byte("\n")) {
+		if len(bytes.TrimSpace(line)) > 0 {
+			if _, err := a.serverMessage(context.Background(), line); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	final, bound := a.end(true)
+	if bound != "" || final.Counters[CounterVoiceSessionMilliseconds] != 45800 || final.Counters["input_tokens"] != 132 || final.Counters["output_tokens"] != 44 {
+		t.Fatalf("final: %+v %q", final, bound)
+	}
+	if final, bound := a.end(false); final != nil || bound != execution.BoundLowerBound {
+		t.Fatal("unclean close was final")
+	}
+}

@@ -53,7 +53,7 @@ and must settle only when complete.
 | --- | --- | --- | --- |
 | anthropic | 5 | 4 | 4 |
 | google | 8 | 4 | 12 |
-| openai | 10 | 2 | 5 |
+| openai | 10 | 3 | 4 |
 
 ## Matrix
 
@@ -105,7 +105,7 @@ and must settle only when complete.
 | openai | embeddings | json | unsupported | `embeddings.json` | no /v1/embeddings operation on the OpenAI provider surface |
 | openai | images | json | exact | `images.json` | unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile); images without a usage object (non-GPT image models) still report generated_images |
 | openai | images | sse | exact | `images.interrupted.sse`<br>`images.sse` | unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile); partial_image events carry no usage; the n-th completed event is terminal<br>unit-aware: a media-units binding settles generated_images / audio_input_milliseconds; token counters are observed exactly (ledger telemetry, no token profile) |
-| openai | live-voice-sessions | websocket | unsupported | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens |
+| openai | live-voice-sessions | websocket | advisory | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session (token-metered leases refused before the dial); voice seconds are the primary meter, observed as voice_session_milliseconds from cumulative session.usage.updated snapshots (never summed) and final only with session.closed; nested Responses/decision token usage is advisory, counted once per response |
 | openai | moderations | json | unsupported | `moderation.json` | no /v1/moderations operation (no usage documented) |
 | openai | realtime | websocket | advisory | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous; input-transcription usage is a separate transcription_* meter (ASR model) not merged into the session tokens; duration-billed transcription seconds are not captured by the token ledger (session labelled partial)<br>WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
 | openai | responses | json | exact | `responses.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |

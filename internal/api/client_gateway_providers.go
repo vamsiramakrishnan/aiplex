@@ -36,6 +36,8 @@ func providerClientNativePath(s modelapi.Surface, r *http.Request, path string) 
 		switch strings.TrimPrefix(path, "/v1") {
 		case "/realtime":
 			return "/v1/realtime", nil, nil
+		case "/live/sessions":
+			return "/v1/live/sessions", nil, nil
 		case "/responses":
 			return "/v1/responses", nil, nil
 		}

@@ -113,6 +113,7 @@ func withExtendedOperations(catalog map[string][]providerOp) map[string][]provid
 		op("openai.v1.batches-get", "GET", "/v1/batches/{id}", HTTP, Read, providerBatchResource, true, ref+"/batches/methods/retrieve", FormatOpenAIBatch, ProtocolOpenAIBatches),
 		op("openai.v1.batches-cancel", "POST", "/v1/batches/{id}/cancel", HTTP, Cancel, providerBatchResource, true, ref+"/batches/methods/cancel", FormatOpenAIBatch, ProtocolOpenAIBatches),
 		op("openai.v1.batches-list", "GET", "/v1/batches", HTTP, List, providerBatchResource, true, ref+"/batches/methods/list", FormatOpenAIBatch, ProtocolOpenAIBatches),
+		liveVoiceCatalog(),
 	)
 	catalog[ProviderAnthropic] = append(catalog[ProviderAnthropic],
 		op("anthropic.message-batches-create", "POST", "/v1/messages/batches", HTTP, Create, providerBatchResource, true, anthropicRef, FormatAnthropicBatch, ProtocolAnthropicBatches),
@@ -129,6 +130,10 @@ func withExtendedOperations(catalog map[string][]providerOp) map[string][]provid
 // profile may also meter their units); batch operations are asynchronous:
 // HTTP completion of create never settles the job's work.
 func extendedCoverage(op Operation) ExecutionCoverage {
+	if op.ID == openAILiveOperation {
+		// One admitted request per session, like the other WebSocket relays.
+		return ExecutionCoverage{RequestCount: true}
+	}
 	spec, ok := extendedSpecs[op.ID]
 	if !ok {
 		return ExecutionCoverage{}

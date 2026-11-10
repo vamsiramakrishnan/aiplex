@@ -342,8 +342,6 @@ func usageRoutes() []fixtureRoute {
 		exact("openai", "responses.error.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		formatOnly(exact("openai", "responses.background.queued.json", "responses-retrieve", "json", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""), statusUnsupported, "GET /v1/responses/{id} (background poll) is not an OpenAI provider operation; response body checked through the Responses observer"),
 		formatOnly(exact("openai", "responses.background.cancelled.json", "responses-cancel", "json", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""), statusUnsupported, "POST /v1/responses/{id}/cancel is not an OpenAI provider operation; response body checked through the Responses observer"),
-		unsupported("openai", "live.ws.jsonl", "live-voice-sessions", "websocket", "OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens"),
-		unsupported("openai", "live.interrupted.ws.jsonl", "live-voice-sessions", "websocket", "OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens"),
 		unsupported("openai", "embeddings.json", "embeddings", "json", "no /v1/embeddings operation on the OpenAI provider surface"),
 		unsupported("openai", "moderation.json", "moderations", "json", "no /v1/moderations operation (no usage documented)"),
 
