@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -19,6 +20,8 @@ type UsageHandler struct {
 	Ledger      usageledger.Store
 	Tenant      TenantResolver
 	Development bool
+	// Prices reads the tenant's model prices for back-estimation.
+	Prices func(ctx context.Context, tenant string) ([]usageledger.Price, error)
 }
 
 func NewUsageHandler(ledger usageledger.Store, tenant TenantResolver, development bool) *UsageHandler {
@@ -26,7 +29,7 @@ func NewUsageHandler(ledger usageledger.Store, tenant TenantResolver, developmen
 }
 
 var (
-	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "error_class", "usage_bound", "batch", "hook_decision", "since", "until"}
+	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "error_class", "usage_bound", "batch", "hook_decision", "cost_basis", "since", "until"}
 	usageListParams    = append(append([]string{}, usageFilterParams...), "limit", "cursor")
 	usageSummaryParams = append(append([]string{}, usageFilterParams...), "group_by", "bucket")
 )
@@ -87,7 +90,7 @@ func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, er
 			return usageledger.Filter{}, errors.New("query parameter " + strconv.Quote(name) + " is too long")
 		}
 	}
-	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), AccessPointID: values.Get("access_point_id"), CallerKind: values.Get("caller_kind"), Status: values.Get("status"), Source: values.Get("source"), ErrorClass: values.Get("error_class"), UsageBound: values.Get("usage_bound"), HookDecision: values.Get("hook_decision")}
+	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), AccessPointID: values.Get("access_point_id"), CallerKind: values.Get("caller_kind"), Status: values.Get("status"), Source: values.Get("source"), ErrorClass: values.Get("error_class"), UsageBound: values.Get("usage_bound"), HookDecision: values.Get("hook_decision"), CostBasis: values.Get("cost_basis")}
 	switch f.Plane {
 	case "", usageledger.PlaneLLM, usageledger.PlaneMCP, usageledger.PlaneA2A:
 	default:
@@ -107,6 +110,11 @@ func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, er
 	case "", usageledger.SourceManaged, usageledger.SourceReported:
 	default:
 		return f, errors.New("source must be managed or reported")
+	}
+	switch f.CostBasis {
+	case "", usageledger.BasisSettled, usageledger.BasisEstimated, usageledger.BasisUnknown:
+	default:
+		return f, errors.New("cost_basis must be settled, estimated or unknown")
 	}
 	if f.HookDecision != "" && !usageledger.ValidHookDecision(f.HookDecision) {
 		return f, errors.New("hook_decision must be allow, deny, transform, error, skipped or none")

@@ -88,6 +88,10 @@ type CostTotal struct {
 	Amount   string `json:"amount"`
 	Scale    uint8  `json:"scale"`
 	Records  int64  `json:"records"`
+	// Exact is the unrounded total in minor units as a fraction, set by
+	// back-estimation results when Amount was rounded up, so totals of several
+	// pages can be added before rounding (see SumCostTotals).
+	Exact string `json:"exact,omitempty"`
 }
 
 // MarshalJSON adds amount_decimal, the exact decimal form of amount at scale

@@ -28,7 +28,7 @@ type usageFilterFlags struct {
 	accessPoint, callerKind                                           string
 	since, until                                                      string
 	errorClass, bound, batch                                          string
-	hookDecision                                                      string
+	hookDecision, costBasis                                           string
 }
 
 func (f *usageFilterFlags) bind(cmd *cobra.Command) {
@@ -47,6 +47,7 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.errorClass, "error-class", "", "Error class (error_class)")
 	fl.StringVar(&f.bound, "bound", "", "Usage bound: lower_bound, ambiguous, partial or none (usage_bound)")
 	fl.StringVar(&f.hookDecision, "hook-decision", "", "Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)")
+	fl.StringVar(&f.costBasis, "cost-basis", "", "Cost basis: settled, estimated or unknown (cost_basis)")
 	fl.StringVar(&f.batch, "batch", "", "Provider batch records only (true) or excluding them (false)")
 	fl.Lookup("batch").NoOptDefVal = "true"
 	fl.StringVar(&f.since, "since", "", "Start of window: duration like 24h, 7d, or an RFC3339 time")
@@ -55,7 +56,12 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 
 func (f *usageFilterFlags) filter(now time.Time) (aiplex.UsageFilter, error) {
 	out := aiplex.UsageFilter{Plane: f.plane, Provider: f.provider, ModelID: f.model, ToolName: f.tool, ActorID: f.agent, PrincipalID: f.user, ClientID: f.client, AccessPointID: f.accessPoint, CallerKind: f.callerKind, Status: f.status, Source: f.source}
-	out.ErrorClass, out.UsageBound, out.HookDecision = f.errorClass, f.bound, f.hookDecision
+	out.ErrorClass, out.UsageBound, out.HookDecision, out.CostBasis = f.errorClass, f.bound, f.hookDecision, f.costBasis
+	switch f.costBasis {
+	case "", usageledger.BasisSettled, usageledger.BasisEstimated, usageledger.BasisUnknown:
+	default:
+		return out, fmt.Errorf("--cost-basis must be settled, estimated or unknown")
+	}
 	if f.hookDecision != "" && !usageledger.ValidHookDecision(f.hookDecision) {
 		return out, fmt.Errorf("--hook-decision must be allow, deny, transform, error, skipped or none")
 	}
@@ -575,12 +581,13 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		{"status", r.Status}, {"http_status", httpStatus}, {"error_class", usageDash(r.ErrorClass)}, {"source", r.Source},
 		{"requests", strconv.FormatInt(r.Requests, 10)},
 	}
-	rows = append(rows, [2]string{"batch", strconv.FormatBool(r.Batch)}, [2]string{"image_size", usageDash(r.ImageSize)}, [2]string{"image_quality", usageDash(r.ImageQuality)})
+	rows = append(rows, [2]string{"batch", strconv.FormatBool(r.Batch)}, [2]string{"image_size", usageDash(r.ImageSize)}, [2]string{"image_quality", usageDash(r.ImageQuality)}, [2]string{"service_tier", usageDash(r.ServiceTier)}, [2]string{"server_tools", usageServerTools(r.ServerTools)})
 	for _, name := range usageledger.TokenCounters {
 		rows = append(rows, [2]string{name, usageRecordCounter(r, name)})
 	}
-	// Modality splits are subsets of input_tokens / output_tokens.
-	for _, name := range usageledger.ModalityCounters {
+	// Modality splits are subsets of input_tokens / output_tokens, and the
+	// one-hour cache writes a subset of cache_write_tokens.
+	for _, name := range append(append([]string{}, usageledger.ModalityCounters...), usageledger.CacheSubsetCounters...) {
 		rows = append(rows, [2]string{name + " (subset)", usageUnitCounter(r, name)})
 	}
 	// Units are other quantities and are never added to tokens.
@@ -588,6 +595,12 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		rows = append(rows, [2]string{name + " (unit)", usageUnitCounter(r, name)})
 	}
 	rows = append(rows, [2]string{"cost", usageCost(r.Cost)})
+	if r.Cost.PriceID != "" {
+		rows = append(rows, [2]string{"  price_id", r.Cost.PriceID})
+	}
+	if r.Cost.BackfilledAt != nil {
+		rows = append(rows, [2]string{"  backfilled_at", r.Cost.BackfilledAt.UTC().Format(time.RFC3339) + " (cost was unknown when the record was written)"})
+	}
 	rows = append(rows, usageHookRows(r.Hooks)...)
 	return append(rows, usageLimitRows(r.ProviderLimits)...)
 }
@@ -836,7 +849,7 @@ func usagePricesCmd() *cobra.Command {
 Prices are revisioned resources: replacing or deleting one needs its current
 revision, so concurrent edits are never silently overwritten.`,
 	}
-	cmd.AddCommand(usagePricesListCmd(), usagePricesGetCmd(), usagePricesSetCmd(), usagePricesDeleteCmd(), usagePricesCatalogCmd())
+	cmd.AddCommand(usagePricesListCmd(), usagePricesGetCmd(), usagePricesSetCmd(), usagePricesDeleteCmd(), usagePricesCatalogCmd(), usagePricesBackfillCmd())
 	return cmd
 }
 
@@ -865,6 +878,12 @@ func usagePriceSelectors(p usageledger.Price) string {
 	}
 	if p.ImageQuality != "" {
 		parts = append(parts, "image_quality="+p.ImageQuality)
+	}
+	if p.ServiceTier != "" {
+		parts = append(parts, "service_tier="+p.ServiceTier)
+	}
+	for _, tier := range p.Tiers {
+		parts = append(parts, fmt.Sprintf("tier>%d", tier.AboveInputTokens))
 	}
 	if len(parts) == 0 {
 		return "—"

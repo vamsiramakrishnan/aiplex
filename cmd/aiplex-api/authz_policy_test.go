@@ -128,6 +128,7 @@ var intendedRoutePolicy = map[string]string{
 	"GET /api/v1/usage/records":        "auth/t",
 	"GET /api/v1/usage/records/{id}":   "auth/t",
 	"GET /api/v1/usage/summary":        "auth/t",
+	"POST /api/v1/usage/backfill":      "admin/t",
 	"GET /api/v1/usage/prices":         "op/t",
 	"GET /api/v1/usage/prices/{id}":    "op/t",
 	"PUT /api/v1/usage/prices/{id}":    "admin/t",

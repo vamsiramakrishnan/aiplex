@@ -79,6 +79,8 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(get, "/api/v1/usage/records", api.RouteAuthenticated),
 		tenantRule(get, "/api/v1/usage/records/{id}", api.RouteAuthenticated),
 		tenantRule(get, "/api/v1/usage/summary", api.RouteAuthenticated),
+		// Back-estimation rewrites unknown costs in the ledger: admins only.
+		tenantRule(post, "/api/v1/usage/backfill", api.RouteAdmin),
 		tenantPrefix(writes, "/api/v1/usage/", api.RouteAdmin),
 		// Quota attempts: the caller's own, or the aiplex:quota:read grant.
 		tenantRule(get, "/api/v1/quota/attempts/{id}", api.RouteAuthenticated),
