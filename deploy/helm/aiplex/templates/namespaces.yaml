@@ -32,3 +32,14 @@ metadata:
     {{- include "aiplex.labels" . | nindent 4 }}
     istio.io/rev: asm-managed-rapid
     aiplex.io/plane: llmplex
+---
+# The deploy engine places skillsplex instances in this namespace
+# (internal/deploy uses the plane name as the namespace).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: skillsplex
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+    istio.io/rev: asm-managed-rapid
+    aiplex.io/plane: skillsplex

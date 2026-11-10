@@ -10,6 +10,12 @@ import (
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 )
 
+// IDPrefix starts every Secret Manager secret ID the API reads or writes.
+// Terraform grants the API's secret roles only on secrets with this prefix
+// (variable api_secret_prefix, an IAM condition), so a secret named
+// otherwise cannot be read by a deployed API.
+const IDPrefix = "aiplex-"
+
 // Manager wraps GCP Secret Manager for validating and reading secrets.
 type Manager struct {
 	client    *secretmanager.Client

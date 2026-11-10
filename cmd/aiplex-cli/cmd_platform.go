@@ -513,21 +513,30 @@ func stateBucketName(project string) string {
 	return fmt.Sprintf("%s-aiplex-tfstate", project)
 }
 
+// stateBucketCommands returns the gcloud invocations that make the state
+// bucket exist with object versioning on (so an overwritten or corrupted state
+// can be recovered). Terraform does not manage this bucket: it holds
+// Terraform's own state.
+func stateBucketCommands(project string, exists bool) [][]string {
+	gs := fmt.Sprintf("gs://%s", stateBucketName(project))
+	var cmds [][]string
+	if !exists {
+		cmds = append(cmds, []string{"storage", "buckets", "create", gs,
+			"--project", project, "--location", "US", "--uniform-bucket-level-access", "--quiet"})
+	}
+	return append(cmds, []string{"storage", "buckets", "update", gs, "--versioning", "--project", project, "--quiet"})
+}
+
 func ensureStateBucket(project string) error {
 	bucket := stateBucketName(project)
-	// Check if bucket exists
-	err := exec.Command("gcloud", "storage", "buckets", "describe",
-		fmt.Sprintf("gs://%s", bucket), "--project", project, "--quiet").Run()
-	if err == nil {
-		return nil // exists
+	exists := exec.Command("gcloud", "storage", "buckets", "describe",
+		fmt.Sprintf("gs://%s", bucket), "--project", project, "--quiet").Run() == nil
+	for _, args := range stateBucketCommands(project, exists) {
+		if err := exec.Command("gcloud", args...).Run(); err != nil {
+			return fmt.Errorf("gcloud %s: %w", strings.Join(args[:3], " "), err)
+		}
 	}
-	// Create it
-	return exec.Command("gcloud", "storage", "buckets", "create",
-		fmt.Sprintf("gs://%s", bucket),
-		"--project", project,
-		"--location", "US",
-		"--uniform-bucket-level-access",
-		"--quiet").Run()
+	return nil
 }
 
 func waitForCert(tfDir string, maxChecks int) {

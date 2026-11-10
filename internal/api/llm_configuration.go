@@ -18,6 +18,9 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
+	"github.com/vamsiramakrishnan/aiplex/internal/secrets"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func llmReadJSON(r *http.Request, out any) error {
@@ -61,7 +64,16 @@ func (h *LLMHandler) validateProvider(ctx context.Context, p models.ProviderConf
 		return fmt.Errorf("invalid provider metadata")
 	}
 	if h.secrets != nil && p.SecretRef != "" {
+		// Deployments let the API read only Secret Manager secrets whose ID
+		// starts with secrets.IDPrefix (an IAM condition), so any other name
+		// would fail as a bare permission error. Refuse it up front instead.
+		if !strings.HasPrefix(p.SecretRef, secrets.IDPrefix) {
+			return fmt.Errorf("credential reference %q must start with %q: the API may only read Secret Manager secrets with that prefix (Terraform variable api_secret_prefix)", p.SecretRef, secrets.IDPrefix)
+		}
 		exists, err := h.secrets.Exists(ctx, p.SecretRef)
+		if status.Code(err) == codes.PermissionDenied {
+			return fmt.Errorf("credential reference %q cannot be checked: the API is not permitted to read it; secrets it reads must start with %q", p.SecretRef, secrets.IDPrefix)
+		}
 		if err != nil {
 			return fmt.Errorf("credential reference validation is unavailable")
 		}

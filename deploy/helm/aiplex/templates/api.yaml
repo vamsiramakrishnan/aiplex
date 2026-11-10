@@ -52,9 +52,8 @@ spec:
     spec:
       serviceAccountName: aiplex-api
       # The API keeps the Kubernetes service account token: the deploy engine
-      # (internal/deploy) talks to the Kubernetes API in-cluster. The chart
-      # grants it no RBAC role; operators who enable in-cluster deploys bind a
-      # namespaced Role themselves.
+      # (internal/deploy) talks to the Kubernetes API in-cluster, with the
+      # namespaced Roles in api-rbac.yaml.
       automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true

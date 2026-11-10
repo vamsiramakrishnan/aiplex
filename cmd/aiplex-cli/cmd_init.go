@@ -549,8 +549,9 @@ project_id = "{{.Project}}"
 region     = "{{.Region}}"
 domain     = "{{.Domain}}"
 
-# Admin
-admin_email = "{{.AdminEmail}}"
+# Alert e-mail (optional). Uncomment to create a Cloud Monitoring e-mail
+# notification channel for the platform's alert policies.
+# alert_email = "{{.AdminEmail}}"
 
 # Organization (optional — for workforce identity)
 organization_id = "{{.OrgID}}"
@@ -564,12 +565,9 @@ alloydb_cpu_count = {{.AlloyDBCPU}}
 # DNS (set to false if you manage DNS externally)
 manage_dns = true
 
-# GKE Autopilot — no node sizing needed
-# Artifact Registry
-registry_name = "aiplex"
-
-# Ory (auto-configured by Helm)
-hydra_admin_url = "http://hydra-admin.aiplex-system.svc.cluster.local:4445"
+# Every name set here must be a variable declared in deploy/terraform
+# (TestInitTFVarsAreDeclared). GKE Autopilot needs no node sizing; the
+# Artifact Registry repository is always "aiplex"; Hydra's URL comes from Helm.
 `
 
 func renderTFVars(project, region, domain, adminEmail, orgID, workspaceDomain, workspaceClient, alloydbCPU string) string {

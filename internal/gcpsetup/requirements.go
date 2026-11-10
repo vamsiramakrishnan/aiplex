@@ -166,14 +166,14 @@ const (
 	whyAttestor     = "attestor creation references a Container Analysis note; the permission checked on the note is not stated"
 	whyFirestoreTTL = "TTL is configured through the fields API; the role reference names index (schema) permissions, the exact check for fields.patch is not stated"
 	whyStateObject  = "Terraform's GCS backend reads, writes, lists and deletes state and lock objects; not stated as a permission list in Google docs"
-	whyNamespace    = "kubernetes_deployment and kubernetes_service target namespace aiplex-system, which Helm creates later; not validated against a live cluster"
+	whyKubernetes   = "GKE authorizes Kubernetes API calls through RBAC and container.* IAM permissions; the mapping for these objects was not validated against a live cluster"
 )
 
 // Requirements is the table. One entry per (resource type, feature).
 var Requirements = []Requirement{
 	// ── Terraform state bucket (cmd/aiplex-cli ensureStateBucket and the GCS backend)
 	{Resource: "cli:state-bucket", Feature: FeatureState, Source: refBase + "storage",
-		Permissions: join(p("storage.buckets.create", "storage.buckets.get"),
+		Permissions: join(p("storage.buckets.create", "storage.buckets.get", "storage.buckets.update"),
 			[]Permission{
 				{Name: "storage.objects.create", Level: LevelStateBucket, Unverified: whyStateObject},
 				{Name: "storage.objects.delete", Level: LevelStateBucket, Unverified: whyStateObject},
@@ -255,9 +255,16 @@ var Requirements = []Requirement{
 		Note:        "aiplexFirestoreExporter: the export service account's narrowed role",
 		Permissions: p(crud("iam.roles", "create", "delete", "get", "update")...)},
 	{Resource: "kubernetes_deployment", Feature: FeatureCore, Source: refBase + "container",
-		Permissions: join(p("container.clusters.get"), unverified(whyNamespace, crud("container.deployments", "create", "delete", "get", "update")...))},
+		Permissions: join(p("container.clusters.get"), unverified(whyKubernetes, crud("container.deployments", "create", "delete", "get", "update")...))},
+	{Resource: "kubernetes_namespace", Feature: FeatureCore, Source: refBase + "container",
+		Permissions: unverified(whyKubernetes, crud("container.namespaces", "create", "delete", "get", "update")...)},
+	{Resource: "kubernetes_service_account", Feature: FeatureCore, Source: refBase + "container",
+		Permissions: unverified(whyKubernetes, crud("container.serviceAccounts", "create", "delete", "get", "update")...)},
+	{Resource: "google_project_iam_custom_role", Feature: FeatureCore, Source: refBase + "iam",
+		Note:        "aiplexApiSecrets: the API's secret write and metadata role",
+		Permissions: p(crud("iam.roles", "create", "delete", "get", "update")...)},
 	{Resource: "kubernetes_service", Feature: FeatureCore, Source: refBase + "container",
-		Permissions: unverified(whyNamespace, crud("container.services", "create", "delete", "get", "update")...)},
+		Permissions: unverified(whyKubernetes, crud("container.services", "create", "delete", "get", "update")...)},
 	{Resource: "helm_release", Feature: FeatureCore, Source: refBase + "container",
 		Permissions: unverified(whyHelm,
 			"container.configMaps.create", "container.configMaps.delete", "container.configMaps.get", "container.configMaps.update",

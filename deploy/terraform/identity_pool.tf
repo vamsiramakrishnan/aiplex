@@ -132,6 +132,77 @@ resource "google_project_iam_member" "aiplex_api_secrets" {
   }
 }
 
+# Secret writes and metadata for AIPlex API: sealing tool sessions and storing
+# OAuth client registrations create secrets, add versions and destroy old
+# ones (internal/secrets, internal/connections); the model-provider reference
+# check reads secret metadata. A custom role holds exactly those permissions.
+#
+# The condition follows Google's resource-based access pattern
+# (https://docs.cloud.google.com/iam/docs/configuring-resource-based-access):
+# secrets and secret versions must carry the prefix. Google does not document
+# whether secretmanager.secrets.create is evaluated against the project (the
+# parent) or the new secret's name, so the condition also admits a check on
+# the project resource itself. In the first case the API can create a secret
+# of any name in the project but can never read, add to or destroy one
+# outside the prefix; in the second, creation is prefix-limited too.
+# Not validated against a live project.
+resource "google_project_iam_custom_role" "api_secrets" {
+  project     = var.project_id
+  role_id     = "aiplexApiSecrets"
+  title       = "AIPlex API secret writer"
+  description = "Create AIPlex secrets, add and destroy their versions, read their metadata. No payload access (that is the secretAccessor binding)."
+  permissions = [
+    "secretmanager.secrets.create",
+    "secretmanager.secrets.get",
+    "secretmanager.versions.add",
+    "secretmanager.versions.destroy",
+    "secretmanager.versions.get",
+  ]
+}
+
+resource "google_project_iam_member" "aiplex_api_secret_writer" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.api_secrets.id
+  member  = "serviceAccount:${google_service_account.aiplex_api.email}"
+
+  condition {
+    title       = "aiplex-api-secret-writes"
+    description = "Secrets named ${var.api_secret_prefix}*, or creation checked on the project"
+    expression  = "resource.name.startsWith(\"projects/${data.google_project.current.number}/secrets/${var.api_secret_prefix}\") || resource.type == \"cloudresourcemanager.googleapis.com/Project\""
+  }
+}
+
+# AlloyDB Auth Proxy (deployed by ory.tf as the aiplex-alloydb-proxy
+# Kubernetes service account) connects with roles/alloydb.client; Google's
+# Auth Proxy guide also lists roles/serviceusage.serviceUsageConsumer for the
+# principal that calls the AlloyDB Admin API
+# (https://docs.cloud.google.com/alloydb/docs/auth-proxy/connect).
+# The proxy gets its own Google service account so the API does not hold
+# database connect rights it never uses.
+resource "google_service_account" "alloydb_proxy" {
+  account_id   = "aiplex-alloydb-proxy"
+  display_name = "AIPlex AlloyDB Auth Proxy"
+  project      = var.project_id
+}
+
+resource "google_service_account_iam_member" "alloydb_proxy_workload_identity" {
+  service_account_id = google_service_account.alloydb_proxy.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[aiplex-system/aiplex-alloydb-proxy]"
+}
+
+resource "google_project_iam_member" "alloydb_proxy_client" {
+  project = var.project_id
+  role    = "roles/alloydb.client"
+  member  = "serviceAccount:${google_service_account.alloydb_proxy.email}"
+}
+
+resource "google_project_iam_member" "alloydb_proxy_service_usage" {
+  project = var.project_id
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${google_service_account.alloydb_proxy.email}"
+}
+
 # ── External Agent WIF → GCP Service Account Bindings ──
 #
 # External agents (AWS, Azure) authenticate via WIF and impersonate a
@@ -181,12 +252,11 @@ resource "google_project_iam_member" "external_agent_iap" {
   member  = "serviceAccount:${google_service_account.external_agent.email}"
 }
 
-# Allow external agent SA to create tokens for Hydra client_credentials flow
-resource "google_service_account_iam_member" "external_agent_token_creator" {
-  service_account_id = google_service_account.external_agent.name
-  role               = "roles/iam.serviceAccountTokenCreator"
-  member             = "serviceAccount:${google_service_account.external_agent.email}"
-}
+# No roles/iam.serviceAccountTokenCreator on itself: the federated AWS and
+# Azure principals already get access and ID tokens for this account through
+# roles/iam.workloadIdentityUser above (getAccessToken, getOpenIdToken), and
+# nothing in AIPlex signs blobs or JWTs with it. The self-grant added only
+# signBlob, signJwt and implicit delegation.
 
 # ── Outputs ──
 

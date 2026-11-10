@@ -1,4 +1,8 @@
 # Cloud Armor — WAF and DDoS protection for the Global HTTPS LB.
+# The load balancer is created by the GKE Gateway in deploy/k8s/gateway.yaml,
+# not by Terraform; that file attaches this policy to the backend Services
+# with GCPBackendPolicy resources. Until those are applied the policy filters
+# nothing.
 
 resource "google_compute_security_policy" "aiplex" {
   name    = "aiplex-waf"
@@ -146,7 +150,16 @@ resource "google_compute_firewall" "deny_all_ingress" {
   description   = "Deny all ingress not matching higher-priority rules"
 }
 
-# Restrict egress to Google APIs only (prevent data exfiltration)
+# Allow HTTPS to the private and restricted Google API ranges.
+#
+# This does NOT restrict egress: VPC firewalls allow all egress by default and
+# there is no lower-priority deny. A deny-all egress rule is deliberately not
+# added: the API forwards to model providers, MCP servers, agents and identity
+# providers on the internet, whose addresses are operator-chosen and not
+# enumerable here, so a blanket deny would break the product. To restrict
+# egress, add a deny rule (priority above 1000) together with allow rules for
+# your providers' ranges, or route egress through a proxy; the API's own
+# outbound endpoint policy (allowed origins) is the control that exists today.
 resource "google_compute_firewall" "allow_google_apis_egress" {
   name      = "aiplex-allow-google-apis"
   network   = google_compute_network.aiplex.name

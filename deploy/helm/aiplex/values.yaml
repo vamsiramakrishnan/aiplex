@@ -27,6 +27,12 @@ api:
   # to ConfigMap/Secret references; the chart never embeds their contents.
   extraVolumes: []
   extraVolumeMounts: []  # name, mountPath, optional subPath; always read-only
+  # Namespaced RBAC for the API's in-cluster deploy engine (internal/deploy):
+  # one Role + RoleBinding per namespace it deploys into, with exactly the
+  # kinds it renders and the verbs kubectl server-side apply and delete use.
+  rbac:
+    create: true
+    namespaces: [aiplex-system, mcplex, a2aplex, llmplex, skillsplex]
   # JWT_ISSUER: https://your-issuer.example
   # JWT_AUDIENCE: aiplex-api
   # JWT_JWKS_URL: https://your-issuer.example/.well-known/jwks.json

@@ -30,6 +30,12 @@ resource "google_alloydb_cluster" "aiplex" {
   ]
 }
 
+variable "alloydb_cpu_count" {
+  description = "vCPUs for the AlloyDB primary instance (aiplex init offers 2, 4 or 8)"
+  type        = number
+  default     = 2
+}
+
 # Primary instance
 resource "google_alloydb_instance" "primary" {
   cluster       = google_alloydb_cluster.aiplex.name
@@ -37,7 +43,7 @@ resource "google_alloydb_instance" "primary" {
   instance_type = "PRIMARY"
 
   machine_config {
-    cpu_count = 2
+    cpu_count = var.alloydb_cpu_count
   }
 
   depends_on = [google_alloydb_cluster.aiplex]

@@ -7,23 +7,21 @@ resource "google_compute_global_address" "aiplex" {
 
 # ─── Certificate Manager (auto-provisioned, auto-renewed) ─
 
-# Certificate Manager DNS authorization — proves domain ownership
+# Certificate Manager DNS authorization — proves domain ownership. One
+# authorization for the domain covers both the domain and *.domain: Google's
+# guide says to authorize the parent domain for a wildcard
+# (https://docs.cloud.google.com/certificate-manager/docs/dns-authorizations).
+# A second authorization for the same domain asked for a second CNAME at the
+# same _acme-challenge name, which a zone cannot hold.
 resource "google_certificate_manager_dns_authorization" "aiplex" {
   name    = "aiplex-dns-auth"
   project = var.project_id
   domain  = var.domain
 }
 
-# Wildcard DNS authorization for *.domain
-resource "google_certificate_manager_dns_authorization" "aiplex_wildcard" {
-  name    = "aiplex-dns-auth-wildcard"
-  project = var.project_id
-  domain  = var.domain
-}
-
-# DNS records for certificate validation (auto-created in Cloud DNS when
-# manage_dns is true; with external DNS, create them from the
-# dns_authorization outputs yourself). The zone has a count, so these need one
+# DNS record for certificate validation (auto-created in Cloud DNS when
+# manage_dns is true; with external DNS, create it from the
+# dns_authorization output yourself). The zone has a count, so this needs one
 # too: referencing google_dns_managed_zone.aiplex without an index is a
 # Terraform error.
 resource "google_dns_record_set" "cert_validation" {
@@ -36,24 +34,9 @@ resource "google_dns_record_set" "cert_validation" {
   project      = var.project_id
 }
 
-resource "google_dns_record_set" "cert_validation_wildcard" {
-  count        = var.manage_dns ? 1 : 0
-  name         = google_certificate_manager_dns_authorization.aiplex_wildcard.dns_resource_record[0].name
-  managed_zone = google_dns_managed_zone.aiplex[0].name
-  type         = google_certificate_manager_dns_authorization.aiplex_wildcard.dns_resource_record[0].type
-  ttl          = 300
-  rrdatas      = [google_certificate_manager_dns_authorization.aiplex_wildcard.dns_resource_record[0].data]
-  project      = var.project_id
-}
-
 moved {
   from = google_dns_record_set.cert_validation
   to   = google_dns_record_set.cert_validation[0]
-}
-
-moved {
-  from = google_dns_record_set.cert_validation_wildcard
-  to   = google_dns_record_set.cert_validation_wildcard[0]
 }
 
 # Certificate — auto-provisioned via DNS authorization, auto-renewed
@@ -65,7 +48,6 @@ resource "google_certificate_manager_certificate" "aiplex" {
     domains = [var.domain, "*.${var.domain}"]
     dns_authorizations = [
       google_certificate_manager_dns_authorization.aiplex.id,
-      google_certificate_manager_dns_authorization.aiplex_wildcard.id,
     ]
   }
 }

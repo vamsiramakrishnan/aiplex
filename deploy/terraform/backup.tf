@@ -96,28 +96,21 @@ resource "google_cloud_scheduler_job" "firestore_export" {
   depends_on = [google_project_service.apis]
 }
 
-# ── Terraform State Bucket Versioning ──
-# Ensure the state bucket has versioning enabled for recovery.
-# (The bucket itself is created by `aiplex init` / platform apply)
+# ── Terraform state bucket ──
+# `aiplex platform apply` creates and versions the state bucket
+# PROJECT_ID-aiplex-tfstate before `terraform init` (the GCS backend needs it
+# to exist), so Terraform does not manage the bucket that holds its own state.
+#
+# This file used to declare a second bucket with the fixed global name
+# "aiplex-terraform-state", which collides across projects and is not where
+# the CLI keeps state. The removed block drops it from Terraform state without
+# deleting it. Older CLI versions kept state there and `aiplex platform apply`
+# migrates it; delete that bucket by hand once you have checked it holds
+# nothing you need.
+removed {
+  from = google_storage_bucket.terraform_state
 
-resource "google_storage_bucket" "terraform_state" {
-  name          = "aiplex-terraform-state"
-  project       = var.project_id
-  location      = var.region
-  force_destroy = false
-
-  versioning {
-    enabled = true
+  lifecycle {
+    destroy = false
   }
-
-  lifecycle_rule {
-    condition {
-      num_newer_versions = 10 # Keep last 10 state versions
-    }
-    action {
-      type = "Delete"
-    }
-  }
-
-  uniform_bucket_level_access = true
 }
