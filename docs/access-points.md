@@ -80,6 +80,10 @@ caller's own bearer token. A request without a verified identity is refused.
 | `POST /v1/responses` | OpenAI Responses | The model name is in the body. |
 | `POST /v1/messages` | Anthropic Messages | The model name is in the body. |
 | `POST /v1beta/models/{model}:{method}` | Google GenAI | The model name is in the path. |
+| `POST /model/{model}/converse` and `POST /model/{model}/converse-stream` | Bedrock Converse | The model name is in the path. Model IDs may contain `:`. |
+| `POST /model/{model}/invoke` and `POST /model/{model}/invoke-with-response-stream` | Bedrock InvokeModel | The model name is in the path. Model IDs may contain `:`. |
+| `GET /v1/realtime?model={model}` (WebSocket upgrade) | OpenAI Realtime | The model is selected by the query parameter. See [WebSocket sessions](#websocket-sessions). |
+| `GET /ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent?model={model}` (WebSocket upgrade) | Gemini Live (Vertex Live) | The model is selected by the query parameter. See [WebSocket sessions](#websocket-sessions). |
 | `GET /v1/models` | OpenAI-shaped list | Anthropic-shaped when the request carries `anthropic-version`. Only models the caller may use. |
 | `GET /v1beta/models` | Google GenAI list | Only models reachable through that protocol. |
 | `POST /mcp` | MCP Streamable HTTP | Aggregates every exposed tool as `{connection}__{tool}`. |
@@ -146,14 +150,27 @@ Other model errors:
 | `413 REQUEST_TOO_LARGE` | The body exceeds 8 MiB. |
 
 Model aliasing is limited. The client name may differ from `native_model` only when the
-client facade rewrites the name: always for the GenAI path, and for Anthropic Messages
-only when the surface is not a ready canonical operation. For OpenAI surfaces the body is
-relayed verbatim, so the client name must equal `native_model`. The configuration check
-rejects an alias that the surface cannot rewrite.
+access point can rewrite it without touching a body the surface relays verbatim:
+
+| Wire | Alias allowed | How the name is rewritten |
+| --- | --- | --- |
+| GenAI | Yes | The path. |
+| Bedrock Converse and InvokeModel | Yes | The path segment. |
+| OpenAI Realtime | Yes | The `model` query parameter. |
+| Gemini Live | Yes | The `model` query parameter, rewritten to the native name. |
+| Anthropic Messages | Only when the surface is not a ready canonical operation | The body. |
+| OpenAI Chat Completions and Responses | No | The body is relayed verbatim, so the client name must equal `native_model`. |
+
+The configuration check rejects an alias that the surface cannot rewrite.
 
 Model surface protocols map to wire protocols as follows: `openai-chat` to Chat
-Completions, `openai-responses` to Responses, `anthropic-messages` to Messages and
-`google-genai` to GenAI.
+Completions, `openai-responses` to Responses, `anthropic-messages` to Messages,
+`google-genai` to GenAI, `bedrock-converse` to Bedrock Converse, `bedrock-invoke` to
+Bedrock InvokeModel and `openai-realtime` to OpenAI Realtime. Gemini Live is served from
+`google-genai` surfaces.
+
+Model names may contain letters, digits, `.`, `_`, `@`, `/`, `:` and `-`. The colon is
+allowed because Bedrock model IDs use it.
 
 ## Tool requests
 
@@ -183,6 +200,36 @@ Protocol versions implemented:
 
 Tool endpoints return `404` when the `mcplex` module is off. A connection that the access
 point does not expose returns a JSON-RPC error.
+
+## WebSocket sessions
+
+Two session endpoints are mounted under `/ap/{id}`. Both are GET upgrades:
+
+- OpenAI Realtime: `GET /ap/{id}/v1/realtime?model={model}`.
+- Gemini Live: `GET /ap/{id}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent?model={model}`.
+
+Rules that the code enforces:
+
+- The query must carry exactly one `model` parameter, and the upgrade must have an empty
+  body. Otherwise the request fails before the upgrade with `400 INVALID_REQUEST`.
+- Refusals before the upgrade (unknown model, protocol mismatch, missing quota controls) are
+  ordinary HTTP errors in the endpoint's own error shape.
+- The access point rewrites the query to the surface's native model name before the native
+  gateway dials. For Gemini Live the native gateway requires the `setup` message's model to
+  name the same model as the query, after model normalization. When `name` differs from
+  `native_model`, `setup.model` must therefore be the native name.
+- Metering is the session model in [model providers](model-providers.md#websocket-sessions):
+  one request-count admission and one concurrency permit per session. Token usage is
+  advisory and is not limited by quota.
+
+**Responses WebSocket mode is not routed through access points.** The `openai-responses`
+wire has only `POST /v1/responses`, and no access-point route is registered for the
+Responses WebSocket upgrade. The source comments give no reason. One likely reason, which is
+an inference rather than a stated reason: access points select the model from the upgrade
+request's `?model=`, while Responses WebSocket mode selects it per `response.create` event,
+so an access point cannot pin the model at connect time. The native gateway still serves the
+operation at `GET /api/v1/llm/gateway/{id}/v1/responses` for a surface, under the same
+admission rules.
 
 ## QoS and quota
 
@@ -277,3 +324,10 @@ access point admits.
   as complete as the ledger's records.
 - Google Agent Registry import, publish and Agent Gateway push-down are not part of this
   increment.
+- Responses WebSocket mode is not reachable through an access point (see
+  [WebSocket sessions](#websocket-sessions)).
+- Bedrock and WebSocket usage through an access point is advisory, the same as on the
+  direct routes. Quota bounds the request count and rates, not tokens, for those paths.
+- Bedrock InvokeModel bodies that are not Messages-shaped are not observed for usage. See
+  [model providers](model-providers.md) and the
+  [usage-format coverage matrix](reference/usage-formats/coverage.md).

@@ -104,6 +104,15 @@ export AIPLEX_TENANT_ID=example-tenant   # required unless AIPLEX_DEV_MODE is on
 export AIPLEX_AGENT_FEDERATION_AUDIENCE=https://aiplex.example.com   # optional default audience
 ```
 
+`AIPLEX_AGENT_FEDERATION_AUDIENCE` sets the default audience that presets suggest. It is
+read in `cmd/aiplex-api/agent_federation.go`. When it is unset, the default is the
+server's `PUBLIC_URL` with any trailing slash removed. The default fills the `audience`
+input of a new binding when the request leaves it empty, and the catalog returns it as the
+input's default. It is not a live check: the binding stores the audience it derived, and
+verification compares tokens with that stored value. Changing the variable does not change
+existing bindings. The `azure-managed-identity` preset never uses this default, because its
+audience must be set explicitly.
+
 Any value other than `enabled` or `disabled` (or unset) stops startup. With
 `enabled`, bindings act as a fallback identity source behind the statically
 configured sources. A token claimed by both an agent binding and a user identity

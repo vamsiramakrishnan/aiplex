@@ -8,63 +8,128 @@ Callers reach the provider through AIPlex's native route, or through a client fa
 that accepts the provider's own SDK paths. Requests are checked against the operation
 catalog, so an operation that is not in the catalog fails closed.
 
-This page lists the operations that are implemented, how each one streams and how each one
-is metered. Wire formats and usage fields are in the reference pages linked below. The
-surface model is in [model surfaces](model-surfaces.md), and the metering contracts are in
+The authority on what is metered exactly, advisory, or not observed at all is the
+generated [usage-format coverage matrix](reference/usage-formats/coverage.md). This page
+lists the operations and their metering class. Where the two differ, the matrix wins.
+Wire formats and usage fields are in the reference pages linked below. The surface model
+is in [model surfaces](model-surfaces.md). The metering contracts are in
 [model metering profiles](model-metering-profiles.md).
 
 ## Operations
 
-Metering is one of two kinds. **Request count** counts managed exchanges. A **token
-profile** additionally observes provider usage with an exact, tested mapping for that
-operation's native format. A profile is assigned per operation in `pkg/modelapi/coverage.go`.
-An operation without a profile is metered by request count only, and its tokens are
-unknown to the ledger.
+Metering has two parts. **Quota metering** is either request count (one admitted exchange
+per request) or a token profile (quota is charged on token exposure, with exact settlement
+where the matrix says so). **Usage observation** is what the ledger records. It is either
+`exact`, `advisory` (ledger telemetry only, never settled), or none. A profile is assigned
+per operation in `pkg/modelapi/coverage.go`. An operation without a token profile is
+request-count metered for quota.
 
-| Provider (`provider.id`) | Operation ID | Native method and path | Client protocol | Streaming transport | Metering |
-| --- | --- | --- | --- | --- | --- |
-| `openai` | `openai.v1.chat-completions` | `POST /v1/chat/completions` | `openai-chat` | SSE | Request count, `openai-text` token profile |
-| `openai` | `openai.v1.responses` | `POST /v1/responses` | `openai-responses` | HTTP. SSE when the body sets `stream: true`. | Request count, `openai-text` token profile |
-| `azure-openai` | `azure.v1.chat-completions` | `POST /openai/v1/chat/completions` | `openai-chat` | SSE | Request count, `openai-text` token profile |
-| `azure-openai` | `azure.v1.responses` | `POST /openai/v1/responses` | `openai-responses` | HTTP. SSE when the body sets `stream: true`. | Request count, `openai-text` token profile |
-| `azure-openai` | `azure.deployments.chat-completions` | `POST /openai/deployments/{model}/chat/completions` | `openai-chat` | SSE | Request count, `openai-text` token profile |
-| `anthropic` | `anthropic.messages` | `POST /v1/messages` | `anthropic-messages` | SSE | Request count, `anthropic-text` token profile |
-| `bedrock` | `bedrock.converse` | `POST /model/{model}/converse` | `bedrock-converse` | HTTP | Request count only |
-| `bedrock` | `bedrock.converse-stream` | `POST /model/{model}/converse-stream` | `bedrock-converse` | AWS event stream | Request count only |
-| `bedrock` | `bedrock.invoke` | `POST /model/{model}/invoke` | `bedrock-invoke` | HTTP | Request count only. The body is model-specific, so usage is unknown. |
-| `bedrock` | `bedrock.invoke-stream` | `POST /model/{model}/invoke-with-response-stream` | `bedrock-invoke` | AWS event stream | Request count only. Usage is unknown. |
-| `openai-compatible` | `compat.chat-completions` | `POST {base}/chat/completions`, `base` defaults to `/v1` | `openai-chat` | SSE | Request count only |
+| Provider (`provider.id`) | Operation ID | Native method and path | Client protocol | Streaming transport | Quota metering | Usage observation |
+| --- | --- | --- | --- | --- | --- | --- |
+| `openai` | `openai.v1.chat-completions` | `POST /v1/chat/completions` | `openai-chat` | SSE | Request count, `openai-text` token profile | exact |
+| `openai` | `openai.v1.responses` | `POST /v1/responses` | `openai-responses` | HTTP. SSE when the body sets `stream: true`. | Request count, `openai-text` token profile | exact |
+| `azure-openai` | `azure.v1.chat-completions` | `POST /openai/v1/chat/completions` | `openai-chat` | SSE | Request count, `openai-text` token profile | not listed in the matrix |
+| `azure-openai` | `azure.v1.responses` | `POST /openai/v1/responses` | `openai-responses` | HTTP. SSE when the body sets `stream: true`. | Request count, `openai-text` token profile | not listed in the matrix |
+| `azure-openai` | `azure.deployments.chat-completions` | `POST /openai/deployments/{model}/chat/completions` | `openai-chat` | SSE | Request count, `openai-text` token profile | not listed in the matrix |
+| `anthropic` | `anthropic.messages` | `POST /v1/messages` | `anthropic-messages` | SSE | Request count, `anthropic-text` token profile | exact |
+| `bedrock` | `bedrock.converse` | `POST /model/{model}/converse` | `bedrock-converse` | HTTP | Request count only | advisory |
+| `bedrock` | `bedrock.converse-stream` | `POST /model/{model}/converse-stream` | `bedrock-converse` | AWS event stream | Request count only | advisory |
+| `bedrock` | `bedrock.invoke` | `POST /model/{model}/invoke` | `bedrock-invoke` | HTTP | Request count only | advisory when the body is Messages-shaped; otherwise not observed |
+| `bedrock` | `bedrock.invoke-stream` | `POST /model/{model}/invoke-with-response-stream` | `bedrock-invoke` | AWS event stream | Request count only | advisory when the chunks are Messages-shaped; otherwise not observed |
+| `openai-compatible` | `compat.chat-completions` | `POST {base}/chat/completions`, `base` defaults to `/v1` | `openai-chat` | SSE | Request count only | not in the matrix; the operation has no token profile |
 
-Google Cloud surfaces (no `provider` block) use the same metering model:
+The matrix has no rows for Azure OpenAI or OpenAI-compatible surfaces, so their usage
+observation is not stated here. The matrix marks the Bedrock rows as advisory and notes
+that AWS has not confirmed the Anthropic-shaped InvokeModel body or the decoded chunk
+shape. Treat those counts as telemetry.
 
-| Operation ID | Native method and path | Streaming transport | Metering |
-| --- | --- | --- | --- |
-| `models.generateContent` | `POST …:generateContent` | HTTP | Request count, `gemini-text` token profile |
-| `models.streamGenerateContent` | `POST …:streamGenerateContent` | SSE | Request count, `gemini-text` token profile |
-| `interaction.create` | `POST …/interactions` | HTTP (catalog default) | Request count, `gemini-interaction-text` token profile |
-| `models.rawPredict` | `POST …:rawPredict` (Vertex Anthropic) | HTTP | Request count, `anthropic-text` token profile |
-| `models.streamRawPredict` | `POST …:streamRawPredict` (Vertex Anthropic) | SSE | Request count, `anthropic-text` token profile |
+Google Cloud surfaces (no `provider` block) use the same two-part model:
+
+| Operation ID | Native method and path | Streaming transport | Quota metering | Usage observation |
+| --- | --- | --- | --- | --- |
+| `models.generateContent` | `POST …:generateContent` | HTTP | Request count, `gemini-text` token profile | exact (Vertex) |
+| `models.streamGenerateContent` | `POST …:streamGenerateContent` | SSE | Request count, `gemini-text` token profile | exact with `alt=sse` (Vertex) |
+| `interaction.create` | `POST …/interactions` | HTTP (catalog default) | Request count, `gemini-interaction-text` token profile | exact (Vertex) |
+| `models.rawPredict` | `POST …:rawPredict` (Vertex Anthropic) | HTTP | Request count, `anthropic-text` token profile | exact (Vertex) |
+| `models.streamRawPredict` | `POST …:streamRawPredict` (Vertex Anthropic) | SSE | Request count, `anthropic-text` token profile | exact (Vertex) |
 
 Operations that the catalog lists without a token profile, such as `endpoints.rawPredict`,
-`embedContent` and `countTokens`, are metered by request count only. Asynchronous
-operations (batch, tuning, cache creation and long-running prediction) are request-count
-only, and their later work is not metered. The full list is in `pkg/modelapi/coverage.go`.
+`embedContent` and `countTokens`, are request-count metered only. Asynchronous operations
+(batch, tuning, cache creation and long-running prediction) are request-count only, and
+their later work is not metered. The full list is in `pkg/modelapi/coverage.go`. The
+matrix lists each row's status and the reason for any gap.
 
 Token profiles accept only complete, supported text usage. For output-inclusive providers,
 an observation that has cache writes or server-tool calls fails closed for token metering.
 For the OpenAI and Anthropic token profiles, reasoning tokens are diagnostic and already
 included in `output_tokens`, so they are not added again.
 
+## WebSocket sessions
+
+Three session operations are implemented as WebSocket relays:
+
+| Operation ID | Native path | Provider | Client protocol | Notes |
+| --- | --- | --- | --- | --- |
+| `openai.v1.realtime` | `GET /v1/realtime?model=…` | `openai` | `openai-realtime` | The model is chosen at connect time by the `model` query parameter. |
+| `openai.v1.responses-websocket` | `GET /v1/responses` | `openai` | `openai-responses` | The model is chosen per `response.create` event. The connect request must not carry `model`. |
+| `live.connect` | `GET /ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent` | Google Cloud (Vertex Live) | `google-genai` surface | The model is named in the `setup` message. |
+
+The coverage matrix lists each session as `advisory`. How a session is metered:
+
+- **Admission.** One request-count lease per session, prepared before the upstream dial.
+  Only the request-count profile is accepted. A token-profile lease is aborted and the
+  session is refused with `UNSUPPORTED_EXECUTION_TRANSPORT`.
+- **Permit.** One concurrency permit for the session's lifetime.
+- **Quota.** The session counts as one request against request budgets and rates. Tokens
+  are not bounded by quota on these paths. Only the provider's own session limits and the
+  duration bound limit them.
+- **Duration.** The session is bounded by `MaxStreamDuration`. It is a Go option on
+  `modelapi.Options` with no environment variable or surface field. Its default is 30
+  minutes, and the accepted range is 1 second to 24 hours. Reaching the bound closes both
+  sockets and labels the usage as a lower bound. The bound is applied as a context deadline
+  to every gateway request, not only to sessions.
+- **Usage.** Server usage events are forwarded to the ledger as advisory observations while
+  the session runs. Live reports cumulative snapshots. Realtime and Responses report
+  per-response usage, which the adapter sums over distinct response IDs.
+  Input-transcription usage is a separate `transcription_*` meter and is not merged into
+  the session's tokens.
+- **Settlement.** Exactly one settlement at session end. The request is settled and the
+  permit is released. A closed socket never retains exposure.
+
+How an interrupted or uncertain session is recorded:
+
+- With final evidence (a clean close, every started response finished with usage, and no
+  activity after the last snapshot), the session records final usage.
+- Without final evidence, the usage is labelled by `usage_bound` in the ledger:
+  `lower_bound` for a session that ended without it, `ambiguous` for a resumed Live
+  session, and `partial` when non-token units (for example transcription seconds) were
+  reported. The record's status is `unknown`, and its `error_class` is
+  `session_usage_<bound>`. See [usage ledger](usage-ledger.md#bounded-usage).
+- The lease finishes with an error, and its one request is still counted.
+
+Responses WebSocket mode has one session admission. Each `response.create` is re-authorized
+for its model and for ownership of any `previous_response_id`, but it is not separately
+admitted. Provider conversations are refused.
+
+The session rules are documented in more detail in
+[model metering profiles](model-metering-profiles.md#websocket-sessions). The execution
+coverage matrix is in [QuotaPlex execution coverage](quotaplex-execution-coverage.md).
+
+WebSocket sessions through an access point are described in
+[access points](access-points.md#websocket-sessions). Responses WebSocket mode is not routed there.
+
 ## Reference pages
 
 Wire-format and usage-field details are in these pages. They are not repeated here.
 
+- [Usage-format coverage matrix](reference/usage-formats/coverage.md), the authority on
+  exact, advisory and unsupported observation
 - [OpenAI](reference/usage-formats/openai.md)
 - [Anthropic](reference/usage-formats/anthropic.md)
 - [Google](reference/usage-formats/google.md)
 
-No reference page exists for Bedrock. Bedrock operations have no token profile in
-`pkg/modelapi/coverage.go`, so they are metered by request count only.
+There is no separate reference page for Bedrock. Its formats are described in the matrix
+rows above.
 
 ## Surface configuration
 
@@ -120,7 +185,7 @@ Client facade base URLs, relative to `/api/v1/llm/gateway/{id}`:
 
 | Provider | SDK base setting | Paths the facade maps |
 | --- | --- | --- |
-| `openai` | `base_url` `…/gateway/{id}/v1` | `/v1/chat/completions`, `/v1/responses` |
+| `openai` | `base_url` `…/gateway/{id}/v1` | `/v1/chat/completions`, `/v1/responses` (POST), `/v1/realtime` and `/v1/responses` (GET upgrade, for the WebSocket operations) |
 | `anthropic` | `base_url` `…/gateway/{id}` | `/v1/messages` |
 | `azure-openai` (v1) | `base_url` `…/gateway/{id}/openai/v1` | `/openai/v1/chat/completions`, `/openai/v1/responses` |
 | `azure-openai` (deployments) | `azure_endpoint` `…/gateway/{id}` | `/openai/deployments/{deployment}/chat/completions` |
@@ -155,9 +220,14 @@ windows the provider reported. The store is in memory, bounded, and kept per pro
 - Only the operations in the table are installed. Other provider operations fail closed.
 - Request-count metering counts managed exchanges. It does not measure asynchronous job
   work, cached-content retention or internal tool or agent work.
-- Token metering is limited to the operations with a token profile. Bedrock operations
-  have none, and `bedrock.invoke` bodies are model-specific, so their usage is unknown.
+- Token quota applies only to operations with a token profile. Advisory usage from Bedrock
+  and from WebSocket sessions is recorded but does not bound or settle quota.
+- Bedrock InvokeModel usage is observed only when the body has the Messages shape. Other
+  InvokeModel bodies are model-specific and are not observed. AWS has not confirmed the
+  Messages shape for InvokeModel, so treat those counts as advisory.
 - Anthropic token metering fails closed when the observation includes cache writes or
   server-tool calls.
+- WebSocket sessions are bounded by time, not by tokens. A session can run until
+  `MaxStreamDuration` even when quota has no token headroom left.
 - Provider credentials are references. Values are resolved at dispatch and are not
   returned by any route.

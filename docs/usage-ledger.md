@@ -10,6 +10,9 @@ tool arguments, results or credentials.
 
 The design is in [usage ledger, agent identity and tool auth](design/2026-11-09-usage-ledger-agent-identity-tool-auth.md).
 Quota admission and settlement are documented in [managed QuotaPlex execution](quotaplex-integration.md).
+Which provider usage is exact, advisory or not observed is stated in the generated
+[usage-format coverage matrix](reference/usage-formats/coverage.md). That matrix is the
+authority. This page describes the ledger's fields and routes, not what each provider reports.
 
 ## Routes
 
@@ -49,6 +52,7 @@ Unknown query parameters and unknown `group_by` fields are rejected with
 | `source` | `managed` for records captured on AIPlex paths, `reported` for `POST /api/v1/llm/usage`. |
 | `requests` | Requests counted for the record. |
 | `usage` | Provider-normalized counters, each nullable: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `total_tokens`. The whole object is `null` when no counter is known. |
+| `usage_bound` | Present only when `usage` is not final. One of `lower_bound`, `ambiguous` or `partial`. See [bounded usage](#bounded-usage). |
 | `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`) and `scale`. |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
@@ -75,6 +79,32 @@ A record gets `unknown` cost when:
 - more than one price matches the model and provider.
 
 Prices are never invented. The bundled stores contain no built-in price list.
+
+## Bounded usage
+
+`usage_bound` qualifies `usage` for an exchange that ended without final usage evidence.
+It is set in two places:
+
+| Value | Meaning | Where it is set |
+| --- | --- | --- |
+| `lower_bound` | The counters are what was observed before the exchange ended. The real total may be higher. | A WebSocket session ended without final evidence: the socket dropped without a clean close, a started response had no usage, activity followed the last snapshot, or `MaxStreamDuration` was reached. |
+| `ambiguous` | The counters come from a resumed Gemini Live session, whose counter composition across resumption is not established. | A resumed Live session. |
+| `partial` | Non-token units were reported (for example audio or transcription seconds, or image counts). The ledger has no field for them, so the token counters do not describe the whole exchange. | A session that ended with non-token units. Also any exchange whose counters include a `*_milliseconds` or `*_images` counter, or a `transcription_*` counter. |
+
+A bounded record's `status` is `unknown`, and its `error_class` is `session_usage_<bound>`
+when the cause is a session. A record with no `usage_bound` has final counters, or `usage`
+is `null` when nothing was observed.
+
+**Summaries add bounded records into totals.** `GET /api/v1/usage/summary` sums every
+record's counters, including records with a `usage_bound`. The summary has no separate
+count of bounded records, and `usage_bound` is not a `group_by` field or a filter. A record
+counts toward `unknown_usage_records` only when its `usage` is `null`. A bounded record with
+counters is therefore counted in the token totals as observed, not as unknown. Read the
+records (`GET /api/v1/usage/records`, which returns the `usage_bound` field) when a total
+must exclude lower bounds.
+
+Cost is not estimated from a bounded record's counters unless a settlement or price
+establishes it, as described above.
 
 ## Prices
 
@@ -121,15 +151,21 @@ aiplex usage prices get example-flash
 aiplex usage records --agent tutor-agent --since 24h --status error
 
 # Daily totals by model and status for the last week
-aiplex usage summary --by model_id,status --bucket day --since 7d
+# (--by model,status is the same as --by model_id,status)
+aiplex usage summary --by model,status --bucket day --since 7d
 
 # One record in full
 aiplex usage get ul_<id>
 ```
 
-`--by` is passed to `group_by` unchanged. It takes the API field names listed
-above (`model_id`, `actor_id`, `principal_id`, `client_id` and so on), not the
-shorter names in the CLI help text.
+`--by` takes the friendly aliases the CLI help lists: `plane`, `provider`, `model`,
+`tool`, `agent`, `user`, `client` and `status`. The SDK maps `model` to `model_id`,
+`agent` or `actor` to `actor_id`, `user` or `principal` to `principal_id`, `client` to
+`client_id` and `tool` to `tool_name`, before the request is sent. The API field names
+(`model_id`, `actor_id`, `principal_id`, `client_id`, `tool_name`, `plane`, `provider`,
+`status`, `access_point_id`, `caller_kind`) are also accepted. Repeating a field is an error.
+Summary responses carry `truncated` and `records_scanned`. A truncated total covers only the
+records scanned.
 
 ## Capture and enablement
 
@@ -166,6 +202,8 @@ not change the response to the client.
   records.
 - Summaries group only on the fields listed above. There is no free-text search
   and no export route.
+- Summaries count bounded records in full (see [bounded usage](#bounded-usage)). The
+  record routes can show `usage_bound`, but no route filters on it.
 - The memory store is not durable. Firestore-backed records follow the bundled
   90-day retention bound.
 - Live and asynchronous job billing is outside this ledger. A managed request that

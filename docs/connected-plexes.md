@@ -22,6 +22,10 @@ they retain ownership of their own domain objects.
 | Missing-construct deployment intent | Networking | `/api/v1/network/deployment-intents/{id}` |
 | Approved Anvil operation bindings | Networking | `/api/v1/network/deployment-providers/{provider}/bindings` |
 | Saved intent → Anvil dry-run plan | Networking | `/api/v1/network/deployment-intents/{id}/plan` |
+| Access point and its QoS quota plan | Access points | `/api/v1/access-points/{id}`, `/api/v1/access-points/{id}/quota-plan` |
+| Model price used for estimated cost | Usage ledger | `/api/v1/usage/prices/{id}` |
+| User identity provider | Identity | `/api/v1/identity/user-providers/{id}` |
+| Agent identity binding | Identity | `/api/v1/agents/{clientId}/identities/{id}` |
 
 Resource PUT bodies are the module specification, not a caller-supplied tenant
 wrapper. Create uses `If-Match: 0`; updates/deletes use the current revision.
