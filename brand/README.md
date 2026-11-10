@@ -1,6 +1,9 @@
 # AIPlex brand
 
-![AIPlex brand sheet](brand-sheet.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand-sheet-dark.svg">
+  <img alt="AIPlex brand sheet" src="brand-sheet.svg">
+</picture>
 
 ## The mark
 
@@ -13,7 +16,7 @@ Three lanes converge into one square gate and leave as one lane. The lanes are c
 - Lane centres at y = 6, 16, 26 (pitch 10). The outer lanes run 4 units horizontally from x = 2, then turn 45° and meet the gate.
 - Gate: 12 × 12 units (three lane widths) at x 14–26, y 10–22. Exit lane: x 26–30.
 - Every edge sits on a whole unit, so at 16 px (1 unit = 0.5 px) the horizontal edges land on whole pixels and the lanes are 2 px wide. `aiplex-favicon.svg` is the same drawing on a 16-unit grid with explicit 2 px strokes.
-- Optical corrections: the app icon shifts the mark 8 px (0.8 units) left of centre to offset the weight of the gate. Lockups use geometric centring.
+- Optical corrections: wherever the mark is centred on its own axis (app icon, stacked lockup) it sits 0.8 mark units left of geometric centre. The gate is the heaviest element and lies right of the mark's centre, so a geometrically centred mark looks pushed right. The horizontal lockup needs no correction.
 
 ### Wordmark
 
@@ -26,7 +29,7 @@ Three lanes converge into one square gate and leave as one lane. The lanes are c
 ### Lockups
 
 - Horizontal: the mark at 1:1 next to the wordmark. The mark's outer lanes align with the cap height and the baseline. The gap is 10 units.
-- Stacked: the mark at 2× is centred above the wordmark with a 12-unit gap.
+- Stacked: the mark at 2× sits above the wordmark with a 12-unit gap, optically centred: it is 1.6 lockup units (0.8 mark units) left of the geometric centre (`translate(17.9 -4)`). The first version centred it geometrically (`translate(19.5 -4)`), and at display sizes the mark looked right-heavy over the wordmark. The correction matches the app icon, so the geometric version was replaced, not kept as a second variant. It remains in git history.
 - Clear space: **G** = the gate width (12 units at the scale of the mark in use). Keep G clear on every side.
 
 ### Minimum sizes
@@ -35,7 +38,7 @@ Three lanes converge into one square gate and leave as one lane. The lanes are c
 |---|---|---|
 | Mark | 16 px | Use `aiplex-favicon.svg` from 16 to 23 px and the full mark from 24 px. |
 | Horizontal lockup | 20 px high (88 px wide) | Below this, use the mark alone. |
-| Stacked lockup | 40 px high | Unreadable at 16–24 px (see the render check below). |
+| Stacked lockup | 40 px high | The wordmark is half the mark's height, so below 40 px it is under 10 px tall and unreadable. Use the horizontal lockup or the mark alone below 40 px. |
 | Module icons | 16 px | Drawn for 24 px. They stay legible at 16 px but are not pixel-snapped at that size. |
 
 ## Colour
@@ -93,12 +96,59 @@ Module colours meet 3:1 for graphics. Several are below 4.5:1, so module labels 
 
 **How the colour-vision check works.** Each colour is simulated for protanopia, deuteranopia and tritanopia with the Machado, Oliveira and Fernandes (2009) matrices at full severity, applied in linear sRGB. The script then measures the OKLab distance between neighbours. The script fails below 0.10, about five times a just-noticeable difference. The smallest adjacent distance is 0.136 (QuotaPlex/ClientPlex under deuteranopia, both modes). Some pairs that are not adjacent come closer: MCPlex/LLMPlex under deuteranopia is 0.018 in light mode. Do not rely on module colour alone: always show the module icon and name.
 
+### Primary tonal scale and aliases
+
+`palette.py` computes a primary scale (50–950) in OKLCH around the Gate Blue hue. Step 600 is the primary in each mode.
+
+- **Light:** 50 is the palest tint and 950 the deepest shade.
+- **Dark:** the ladder is reversed. 50 is the most subtle tint against neutral-950 and 950 is nearly white. The same step therefore plays the same role in both modes. For example, `--aiplex-primary-100` is a selected-row background and `--aiplex-primary-600` is the accent.
+
+| Step | Light | Text on it | Ratio | Dark | Text on it | Ratio |
+|---|---|---|---|---|---|---|
+| 50 | `#F3F7FF` | neutral-950 | 18.09 | `#0F1321` | white | 18.50 |
+| 100 | `#E5EDFE` | neutral-950 | 16.53 | `#171C2F` | white | 16.89 |
+| 200 | `#CBDAFF` | neutral-950 | 13.88 | `#232946` | white | 14.22 |
+| 300 | `#A2BCFF` | neutral-950 | 10.33 | `#333C67` | white | 10.59 |
+| 400 | `#7699FA` | neutral-950 | 7.13 | `#455291` | white | 7.32 |
+| 500 | `#5176EA` | neutral-950 | 4.74 | `#6B7DCC` | neutral-950 | 5.02 |
+| 600 | `#2F4FD8` | white | 6.50 | `#8DA2FF` | neutral-950 | 8.09 |
+| 700 | `#2541BB` | white | 8.23 | `#A8BAFE` | neutral-950 | 10.28 |
+| 800 | `#1A2F98` | white | 11.03 | `#C2CFFE` | neutral-950 | 12.62 |
+| 900 | `#0F1E77` | white | 14.26 | `#DCE4FF` | neutral-950 | 15.34 |
+| 950 | `#07105C` | white | 16.97 | `#EEF1FE` | neutral-950 | 17.25 |
+
+"Text on it" is the better of white and neutral-950 (`#0B0D13`). `tokens.json` → `checks.primary_steps` also lists each step's contrast as text on the page.
+
+**CSS variables:**
+- `--aiplex-primary-{step}` follows the theme.
+- `--aiplex-primary-light-{step}` and `--aiplex-primary-dark-{step}` are fixed.
+
+**Semantic aliases.** A product can theme itself from these alone. Each switches with `prefers-color-scheme` and with `data-theme="light|dark"`.
+
+| Alias | Light | Dark |
+|---|---|---|
+| `--aiplex-color-bg` | `#FFFFFF` | `#0B0D13` |
+| `--aiplex-color-surface` | `#F6F7F9` | `#12151D` |
+| `--aiplex-color-surface-raised` | `#FFFFFF` | `#191C26` |
+| `--aiplex-color-border` | `#D8DCE4` | `#343947` |
+| `--aiplex-color-text` | `#141A2E` | `#E8EBF2` |
+| `--aiplex-color-text-muted` | `#4A5163` | `#8890A3` |
+| `--aiplex-color-primary` | `#2F4FD8` | `#8DA2FF` |
+| `--aiplex-color-primary-hover` | `#2541BB` | `#A8BAFE` |
+| `--aiplex-color-primary-contrast` (text on primary) | `#FFFFFF` (6.50; 8.23 on hover) | `#0B0D13` (8.09; 10.28 on hover) |
+| `--aiplex-color-primary-subtle` | `#E5EDFE` | `#171C2F` |
+| `--aiplex-color-focus-ring` | `#2F4FD8` | `#8DA2FF` |
+| `--aiplex-color-status-{ok,warning,denied,unknown}-{fg,bg}` | as in the status table | as in the status table |
+
+The earlier names still work: `--aiplex-gate`, `--aiplex-text`, `--aiplex-status-ok`, `--aiplex-module-*`, `--aiplex-brand-*` and the rest.
+
 ## Typography
 
-- Wordmark: custom outlines (above). It has no font dependency.
-- Interface and documentation: **Inter**, SIL Open Font License 1.1. It has a large x-height, tabular figures (`font-variant-numeric: tabular-nums` for usage tables) and a slashed-zero option.
-- Code, scopes, IDs and hex values: **JetBrains Mono**, SIL Open Font License 1.1.
-- Font stacks are in `tokens.css` (`--aiplex-font-sans`, `--aiplex-font-mono`). The tokens contain no type, spacing or radius scale. The Console and docs site already have scales, and these brand assets give no basis for choosing new values.
+- **Wordmark:** custom outlines (above). It has no font dependency.
+- **Interface and documentation:** **Inter**, SIL Open Font License 1.1. It has a large x-height, tabular figures (`font-variant-numeric: tabular-nums` for usage tables) and a slashed-zero option. **Inter Display** (same family, same licence) is used for headlines of 30 px and larger in the composed graphics.
+- **Code, scopes, IDs, hex values and commands:** **JetBrains Mono**, SIL Open Font License 1.1.
+- **Font stacks** are in `tokens.css` (`--aiplex-font-sans`, `--aiplex-font-mono`). The tokens contain no type, spacing or radius scale. The Console and docs site already have scales, and these brand assets give no basis for choosing new values.
+- **Outlined text:** no file under `brand/` contains `<text>`. Text in the brand sheets, social card, banner, launch graphics and architecture diagrams is drawn as glyph outlines from Inter and JetBrains Mono by `scripts/outline_text.py`, with pair kerning, so it renders the same with no fonts installed. This includes GitHub's sandboxed rendering of README images. The OFL permits outlines in artwork.
 
 ## Icons
 
@@ -129,7 +179,7 @@ Do:
 - Use the `-reversed` files on dark surfaces.
 - Use the `-mono` files where only one colour is available.
 - Keep clear space G.
-- Pair module colours with the module's icon and name.
+- Pair a module colour with the module's icon and name, everywhere: navigation, diagrams, banners, launch graphics.
 
 Don't:
 - Put the colour files on dark backgrounds (the Ink lanes disappear).
@@ -138,6 +188,7 @@ Don't:
 - Round the gate.
 - Add shadows, gradients or glows.
 - Retype "AIPlex" in a font, or write it as "AiPlex" or "AI Plex".
+- Hard-code a documentation domain in an image; it may change.
 
 ## Integration notes
 
@@ -147,35 +198,66 @@ Don't:
 | Docs navbar logo, dark theme | `logo/aiplex-lockup-horizontal-reversed.svg` |
 | Favicon (docs and Console) | `logo/aiplex-favicon.svg`. It switches with `prefers-color-scheme`; add an `.ico`/PNG fallback if needed. |
 | Console header | `logo/aiplex-lockup-horizontal-mono.svg` inlined so it takes the header's text colour, or the light/reversed pair |
-| Social card (`og:image`) | `social/aiplex-social-card.svg`. Platforms need a raster image: `node brand/scripts/render.js social` writes `brand/.renders/social-card.png` (1200 × 630). |
+| Social card (`og:image`) | `social/aiplex-social-card.svg`. Platforms need a raster: use `.renders/export/aiplex-social-card.png` (1200 × 630). |
 | README banner | `social/aiplex-readme-banner.svg`. It has its own Ink panel, so it reads on light and dark pages. |
+| Brand sheet | `brand-sheet.svg` on light pages, `brand-sheet-dark.svg` on dark pages (same content). |
+| Architecture diagram (README, docs) | `launch/architecture.svg` and `launch/architecture-dark.svg`. In Markdown, use `<picture>` with `prefers-color-scheme` sources to swap them. |
 | App or PWA icon | `logo/aiplex-app-icon.svg` (512 base) |
 
-The social card and banner use live text in Inter with fallbacks to Helvetica Neue and Arial. They were checked with Inter. The layout leaves room for the wider fallbacks.
+## Launch graphics
+
+All files are in `launch/`. Upload the PNGs, which `node brand/scripts/render.js export` writes to `brand/.renders/export/`.
+
+| File | Size | Use |
+|---|---|---|
+| `aiplex-linkedin-light.svg`, `aiplex-linkedin-dark.svg` | 1200 × 627 | Link preview or single-image post |
+| `aiplex-square-light.svg`, `aiplex-square-dark.svg` | 1080 × 1080 | Square post |
+| `aiplex-carousel-1.svg` … `aiplex-carousel-5.svg` | 1080 × 1080 each | Carousel: the problem, one URL per audience, who used what, one identity across clouds, try it |
+| `architecture.svg`, `architecture-dark.svg` | 1200 × 660 | README and docs diagram |
+
+- **Claims:** the text follows the documentation (access points, usage ledger, agent identity federation). It contains no performance numbers or customer names. The usage-ledger frame shows bars, not invented figures.
+- **Legibility:** every image was read at 400 px wide (`.renders/preview-400.png`). The smallest text there is about 10 px.
+- **The command in frame 5:** this is one self-contained `<path id="launch-command">` in `aiplex-carousel-5.svg`; the placeholder is `aiplex init`. To change it, regenerate the line and replace that element, or change the string in `f_try` in `build_sheets.py` and rebuild:
+
+  ```bash
+  python3 brand/scripts/outline_text.py --font mono-500 --size 48 --x 176 --y 602 \
+      --fill "#E8EBF2" --id launch-command "<new command>"
+  ```
+
+  The terminal panel is 920 px wide. At 48 px JetBrains Mono, a command of up to 27 characters fits on one line (28.8 px per character, 784 px available).
 
 ## Scripts
 
-All scripts use only the standard library or the Playwright copy that is already installed.
+All scripts use only the standard library or the Playwright copy that is already installed. Inter and JetBrains Mono must be installed only to regenerate outlined text.
 
 ```bash
-python3 brand/scripts/validate.py          # XML well-formedness and SVG hygiene for every file
-python3 brand/scripts/palette.py           # contrast and colour-vision checks (exit 1 on failure)
+python3 brand/scripts/validate.py          # XML, SVG hygiene and no <text>, for every file under brand/
+python3 brand/scripts/palette.py           # contrast, colour-vision and tonal-scale checks (exit 1 on failure)
 python3 brand/scripts/palette.py --write   # regenerate tokens/tokens.css and tokens/tokens.json
-node brand/scripts/render.js [filter]      # PNG renders to brand/.renders/ (git-ignored) + text overflow check
+python3 brand/scripts/build_sheets.py      # rebuild brand sheets, social, launch, explorations (checks text contrast)
+python3 brand/scripts/outline_text.py ...  # one line of text as a self-contained outlined <path>
+node brand/scripts/render.js               # renders to brand/.renders/ + layout and font-independence checks
+node brand/scripts/render.js export        # upload-ready PNGs to brand/.renders/export/ + 400 px previews
 ```
 
-`render.js` renders each logo at 16, 24, 32, 64 and 256 px. It does this on light and dark backgrounds, under both `prefers-color-scheme` values, and also writes an 8× nearest-neighbour enlargement of the real 16 and 24 px rasters. It renders the icon family together at 16, 24 and 48 px. It also checks that every text element in the brand sheet, social card and banner sits inside the viewBox and does not overlap another text element.
+- **What `render.js` renders:** each logo at 16, 24, 32, 64 and 256 px, on light and dark backgrounds, under both `prefers-color-scheme` values, with an 8× nearest-neighbour enlargement of the real 16 and 24 px rasters. The icon family together at 16, 24 and 48 px. Every composed file at 1:1.
+- **What `render.js` checks:** that each outlined text run sits inside the viewBox and does not overlap another run. It then renders every composed file, logo and icon again in a Chromium with an empty fontconfig, with no fonts at all, and requires pixel-identical output. A live-text control has to come out different, which proves the fonts were really absent.
+- **What is hand-drawn:** the mark, wordmark and icons. `build_sheets.py` only arranges those drawings with outlined text.
 
 ## Files
 
 ```
 brand/
   README.md                 this guide
-  brand-sheet.svg           one-page overview
+  brand-sheet.svg           one-page overview (light)
+  brand-sheet-dark.svg      the same on the dark palette
   logo/                     mark, wordmark, lockups (colour, -mono, -reversed), favicon, app icon
   icons/                    12 module and caller glyphs, 24 × 24, currentColor
   tokens/tokens.css         CSS custom properties, light + dark (prefers-color-scheme and data-theme)
-  tokens/tokens.json        same values, plus the computed contrast and colour-vision results
+  tokens/tokens.json        same values, plus contrast, tonal-scale and colour-vision results
   social/                   social card 1200 × 630, README banner 1280 × 320
-  scripts/                  validate.py, palette.py, render.js
+  launch/                   LinkedIn 1200 × 627 and square 1080 × 1080 (light, dark), carousel 1–5,
+                            architecture diagram (light, dark)
+  explorations/             two alternative marks and a comparison sheet; not in use (see its README)
+  scripts/                  validate.py, palette.py, build_sheets.py, outline_text.py, render.js
 ```

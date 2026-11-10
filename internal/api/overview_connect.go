@@ -121,11 +121,7 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	_, ap, err := h.Connected.loadAccessPointRecord(r.Context(), tenant, id)
 	if err != nil {
-		if errorsIsNotFound(err) {
-			Error(w, r, http.StatusNotFound, "NOT_FOUND", "access point not found")
-		} else {
-			Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", "saved access point is invalid")
-		}
+		accessPointLoadError(w, r, err, errorsIsNotFound)
 		return
 	}
 	ap = overviewNormalizeAccessPoint(ap)

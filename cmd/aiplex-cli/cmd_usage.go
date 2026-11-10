@@ -27,6 +27,7 @@ type usageFilterFlags struct {
 	plane, provider, model, tool, agent, user, client, status, source string
 	accessPoint, callerKind                                           string
 	since, until                                                      string
+	errorClass, bound, batch                                          string
 }
 
 func (f *usageFilterFlags) bind(cmd *cobra.Command) {
@@ -42,12 +43,30 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.callerKind, "caller-kind", "", "Caller kind: agent, user or client (caller_kind)")
 	fl.StringVar(&f.status, "status", "", "Status: ok, error, denied or unknown")
 	fl.StringVar(&f.source, "source", "", "Source: managed or reported")
+	fl.StringVar(&f.errorClass, "error-class", "", "Error class (error_class)")
+	fl.StringVar(&f.bound, "bound", "", "Usage bound: lower_bound, ambiguous, partial or none (usage_bound)")
+	fl.StringVar(&f.batch, "batch", "", "Provider batch records only (true) or excluding them (false)")
+	fl.Lookup("batch").NoOptDefVal = "true"
 	fl.StringVar(&f.since, "since", "", "Start of window: duration like 24h, 7d, or an RFC3339 time")
 	fl.StringVar(&f.until, "until", "", "End of window (exclusive): duration ago like 1h, or an RFC3339 time")
 }
 
 func (f *usageFilterFlags) filter(now time.Time) (aiplex.UsageFilter, error) {
 	out := aiplex.UsageFilter{Plane: f.plane, Provider: f.provider, ModelID: f.model, ToolName: f.tool, ActorID: f.agent, PrincipalID: f.user, ClientID: f.client, AccessPointID: f.accessPoint, CallerKind: f.callerKind, Status: f.status, Source: f.source}
+	out.ErrorClass, out.UsageBound = f.errorClass, f.bound
+	switch f.bound {
+	case "", usageledger.UsageLowerBound, usageledger.UsageAmbiguous, usageledger.UsagePartial, usageledger.UsageBoundNone:
+	default:
+		return out, fmt.Errorf("--bound must be lower_bound, ambiguous, partial or none")
+	}
+	switch f.batch {
+	case "":
+	case "true", "false":
+		b := f.batch == "true"
+		out.Batch = &b
+	default:
+		return out, fmt.Errorf("--batch must be true or false (use --batch=false to exclude batch records)")
+	}
 	var err error
 	if out.Since, err = parseUsageTime(f.since, now); err != nil {
 		return out, fmt.Errorf("--since: %w", err)
@@ -216,7 +235,8 @@ func usageSummaryCmd() *cobra.Command {
 		Use:   "summary",
 		Short: "Totals of requests, tokens and cost, optionally grouped",
 		Long: `Aggregate usage. --by takes plane, provider, model, tool, agent, user, client,
-access-point, caller-kind or status (aliases: model=model_id, agent=actor_id,
+access-point, caller-kind, status, source, error-class, bound (usage_bound)
+or batch (aliases: model=model_id, agent=actor_id,
 user=principal_id, client=client_id, tool=tool_name, access-point=access_point_id,
 caller-kind=caller_kind). Records whose usage is bounded (lower_bound, ambiguous
 or partial) are included in the sums and counted in the BOUNDED column; their
@@ -260,7 +280,7 @@ records and the command says so.`,
 		},
 	}
 	flags.bind(cmd)
-	cmd.Flags().StringSliceVar(&by, "by", nil, "Group by (comma separated): plane,provider,model,tool,agent,user,client,status")
+	cmd.Flags().StringSliceVar(&by, "by", nil, "Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,status,source,error-class,bound,batch")
 	cmd.Flags().StringVar(&bucket, "bucket", "", "Time bucket: hour or day")
 	return cmd
 }
@@ -532,6 +552,7 @@ func usageLimitRows(l *providerlimits.Limits) [][2]string {
 var usageGroupHeader = map[string]string{
 	"plane": "PLANE", "provider": "PROVIDER", "model_id": "MODEL", "tool_name": "TOOL", "actor_id": "AGENT",
 	"principal_id": "USER", "client_id": "CLIENT", "access_point_id": "ACCESS POINT", "caller_kind": "CALLER KIND", "status": "STATUS",
+	"source": "SOURCE", "error_class": "ERROR CLASS", "usage_bound": "BOUND", "batch": "BATCH",
 }
 
 // usageTokens renders one summed token counter. A counter no record reported

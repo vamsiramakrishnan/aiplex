@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
@@ -408,6 +409,10 @@ type ModelBatch struct {
 	Ended           bool   `json:"ended"`
 	// Expected is the provider's item count; nil is unknown, never zero.
 	Expected *int64 `json:"expected"`
+	// CreatedAt and SettledAt are nil for batches recorded before timestamps
+	// existed (unknown).
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	SettledAt *time.Time `json:"settled_at,omitempty"`
 }
 
 // ModelBatchPage is one page of batches; NextCursor is empty on the last page.
@@ -420,6 +425,11 @@ type ModelBatchPage struct {
 type ModelBatchQuery struct {
 	State, SurfaceID, Cursor string
 	Limit                    int // 0 selects the server default
+	// Order is "" or "id" (by id) or "newest" (created_at descending).
+	Order string
+	// OlderThan, when set, keeps only batches created before it; batches with
+	// no recorded created_at are excluded.
+	OlderThan time.Time
 }
 
 // ListModelBatches returns one page of the tenant's batches. Administrator only.
@@ -428,10 +438,13 @@ func (c *Client) ListModelBatches(ctx context.Context, q ModelBatchQuery) (*Mode
 		return nil, fmt.Errorf("aiplex: batch state must be open or settled")
 	}
 	values := url.Values{}
-	for k, v := range map[string]string{"state": q.State, "surface_id": q.SurfaceID, "cursor": q.Cursor} {
+	for k, v := range map[string]string{"state": q.State, "surface_id": q.SurfaceID, "cursor": q.Cursor, "order": q.Order} {
 		if v != "" {
 			values.Set(k, v)
 		}
+	}
+	if !q.OlderThan.IsZero() {
+		values.Set("older_than", q.OlderThan.UTC().Format(time.RFC3339Nano))
 	}
 	if q.Limit < 0 {
 		return nil, fmt.Errorf("aiplex: batch limit must be positive")

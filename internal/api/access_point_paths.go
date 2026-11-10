@@ -43,6 +43,14 @@ func accessPointFacadePath(s modelapi.Surface, wire, native, path string) (strin
 				return "/openai/v1/responses", nil
 			}
 			return "", fmt.Errorf("azure-openai surface %q installs no responses operation", s.ID)
+		case WireOpenAIEmbeddings:
+			if has("azure.v1.embeddings") {
+				return "/openai/v1/embeddings", nil
+			}
+			if has("azure.deployments.embeddings") {
+				return "/openai/deployments/" + native + "/embeddings", nil
+			}
+			return "", fmt.Errorf("azure-openai surface %q installs no embeddings operation", s.ID)
 		}
 	case modelapi.ProviderOpenAICompatible:
 		if wire == WireOpenAIChat {

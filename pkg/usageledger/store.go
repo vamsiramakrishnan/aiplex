@@ -31,17 +31,40 @@ type Filter struct {
 	CallerKind    string
 	Status        string
 	Source        string
-	Since         time.Time
-	Until         time.Time
-	Visibility    []string
+	// ErrorClass selects records with exactly that error_class.
+	ErrorClass string
+	// UsageBound selects records by usage_bound: lower_bound, ambiguous or
+	// partial, or UsageBoundNone for records whose counters are final (or
+	// unknown). Empty matches everything.
+	UsageBound string
+	// Batch, when non-nil, selects records that are (true) or are not (false)
+	// part of a provider batch job. Nil matches everything.
+	Batch      *bool
+	Since      time.Time
+	Until      time.Time
+	Visibility []string
 }
 
 // Matches applies every filter field, including visibility and the window.
 func (f Filter) Matches(r Record) bool {
-	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}} {
+	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}, {f.ErrorClass, r.ErrorClass}} {
 		if c[0] != "" && c[0] != c[1] {
 			return false
 		}
+	}
+	switch f.UsageBound {
+	case "":
+	case UsageBoundNone:
+		if r.UsageBound != "" {
+			return false
+		}
+	default:
+		if r.UsageBound != f.UsageBound {
+			return false
+		}
+	}
+	if f.Batch != nil && *f.Batch != r.Batch {
+		return false
 	}
 	if !f.Since.IsZero() && r.StartedAt.Before(f.Since) {
 		return false

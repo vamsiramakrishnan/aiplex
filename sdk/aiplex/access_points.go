@@ -62,8 +62,11 @@ type AccessPointSkill struct {
 
 // AccessPointQoS is the quality-of-service class and limits of an access point.
 type AccessPointQoS struct {
-	Class      string            `json:"class"`
-	Weight     uint32            `json:"weight,omitempty"`
+	Class  string `json:"class"`
+	Weight uint32 `json:"weight,omitempty"`
+	// Scope is "principal" (default: one allowance per caller principal) or
+	// "access_point" (one pool shared by all callers).
+	Scope      string            `json:"scope,omitempty"`
 	Limits     *AccessPointLimit `json:"limits,omitempty"`
 	BudgetRefs []string          `json:"budget_refs,omitempty"`
 }
