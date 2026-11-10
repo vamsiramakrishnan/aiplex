@@ -5,7 +5,6 @@
 //   real source file). The body is copied byte for byte.
 // - Links into repository source files are rewritten at build time by
 //   plugins/remark-repo-links.mjs, not here.
-// - docs/superpowers, docs/integration and docs/launch are working notes (launch copy, checklists) and are not published.
 //
 // Run automatically by `npm run build` / `npm start` (pre-hooks).
 import {promises as fs} from 'node:fs';
@@ -16,13 +15,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(here, '..');
 const srcRoot = path.resolve(siteRoot, '..', 'docs');
 const dstRoot = path.join(siteRoot, 'docs', 'library');
-const EXCLUDE = new Set(['superpowers', 'integration', 'launch']);
 const REPO_EDIT = 'https://github.com/vamsiramakrishnan/aiplex/edit/main/docs';
 
 async function walk(dir, rel = '') {
   const out = [];
   for (const e of await fs.readdir(dir, {withFileTypes: true})) {
-    if (rel === '' && EXCLUDE.has(e.name)) continue;
     const r = rel ? `${rel}/${e.name}` : e.name;
     if (e.isDirectory()) out.push(...(await walk(path.join(dir, e.name), r)));
     else if (e.name.endsWith('.md')) out.push(r);

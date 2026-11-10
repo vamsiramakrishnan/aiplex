@@ -20,29 +20,29 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
-// TestE2E_AIPlexTape_TreasuryStory wires the full PR 4–8 pipeline in
+// TestE2E_AIPlexTape_TreasuryDeployAndRun wires the full Tape integration pipeline in
 // one in-process test so a regression in any layer surfaces here
-// before it reaches a real Tape server. The story:
+// before it reaches a real Tape server. The flow:
 //
-//   1. AIPlex deploys a Tape-backed treasury agent (PR 4 model +
-//      PR 5 manifest generation).
+//   1. AIPlex deploys a Tape-backed treasury agent (runtime model +
+//      manifest generation).
 //   2. Tape (simulated here) journals: run.started, a decision, an
 //      effect.begin against the bank, and then crashes — leaving the
 //      effect in UNKNOWN state.
 //   3. The reconciler resolves UNKNOWN by asking the bank; the effect
 //      transitions to CONFIRMED. The reconciler's outbox relay then
 //      POSTs the new events to AIPlex's /internal/tape/events
-//      endpoint (PR 6).
-//   4. A Console request to GET /api/v1/runs/{run_id} (PR 7) returns
+//      endpoint.
+//   4. A Console request to GET /api/v1/runs/{run_id} returns
 //      the projected timeline; the test asserts: one effect.begin,
 //      one effect.unknown, one effect.confirmed — NO second
-//      effect.begin and NO duplicate wire. That is the integration's
-//      headline claim.
+//      effect.begin and NO duplicate wire. That is what the
+//      integration guarantees.
 //
 // Self-contained: no Tape server, no Pub/Sub, no Console — just the
 // AIPlex API surface driven the way each side of the integration
 // would drive it in production.
-func TestE2E_AIPlexTape_TreasuryStory(t *testing.T) {
+func TestE2E_AIPlexTape_TreasuryDeployAndRun(t *testing.T) {
 	srv := setupE2EServer(t)
 	defer srv.Close()
 	ctx := context.Background()
@@ -128,7 +128,7 @@ func TestE2E_AIPlexTape_TreasuryStory(t *testing.T) {
 			final.UnknownEffects)
 	}
 
-	// Verify the per-run timeline endpoint reflects the same story
+	// Verify the per-run timeline endpoint reflects the same flow
 	// (this is what the Console renders).
 	tl := getTimeline(t, srv, runID)
 	kinds := make([]models.ExecutionEventKind, len(tl))

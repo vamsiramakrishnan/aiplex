@@ -158,7 +158,7 @@ See [Google contracts](google-agent-governance.md).
 Native network attachment, management boundaries, gateway deployment, production
 consent callbacks and fleet-wide scheduling remain deployment concerns. Anvil's
 pinned provisioning plans can supply missing constructs through the existing
-deployment interface. No live cloud apply or enterprise sign-in occurred during
-these local protocol tests. QuotaPlex allocation/accounting remains separate.
-See [QuotaPlex prerequisites](quotaplex-prerequisites.md) for the accounting,
-metering and integration work required before enabling token or monetary limits.
+deployment interface. No live cloud apply or enterprise sign-in has been exercised;
+the protocol tests are local. QuotaPlex allocation/accounting remains separate;
+see [QuotaPlex requirements and limits](quotaplex-prerequisites.md) for what token or
+monetary limits require.

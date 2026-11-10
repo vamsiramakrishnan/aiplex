@@ -239,8 +239,7 @@ key, OpenAI built-in tool calls in Responses `output` (`web_search_call`,
 `total_tool_use_tokens`. The counts are carried as `server_tool_<kind>_requests`
 counters on the usage observation, and the usage ledger keeps them in a
 record's `server_tools` map (kind to request count), with the Gemini tool-use
-prompt tokens as the unit `tool_use_prompt_tokens`. Earlier versions did not
-keep them in the ledger. A count appears only when the provider reports it; a
+prompt tokens as the unit `tool_use_prompt_tokens`. A count appears only when the provider reports it; a
 price rates one with a per-call `server_tool.<kind>` meter, and a record with a
 positive count and no rate for it has an unknown cost (see
 [server tools](usage-ledger.md#server-tools)). The strict profiles also refuse

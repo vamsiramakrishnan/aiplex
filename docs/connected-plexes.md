@@ -1,6 +1,5 @@
 # Connected Plexes
 
-The reviewed design is [Connected Plexes](design/2026-11-09-connected-plexes.md).
 Native identity directories, registry APIs, delegation brokers and reviewed
 policy apply are documented in [Native agent governance](native-agent-governance.md).
 Modules share trusted identity, revisioned resource storage and endpoint policy;
@@ -125,7 +124,7 @@ advertises an authorization-server registration endpoint it cannot actually issu
 Production DCR secrets go to Secret Manager as tenant/issuer/profile-bound
 version-specific references. Only NotFound permits new registration; permission
 or network failures fail closed. Concurrent calls coalesce within a host, while
-immutable secret versions prevent cross-host client/secret confusion. Owner-bound PKCE callbacks, code exchange, refresh rotation and revocation now
+immutable secret versions prevent cross-host client/secret confusion. Owner-bound PKCE callbacks, code exchange, refresh rotation and revocation
 feed managed execution through the optional runtime. See
 [MCP runtime authorization](mcp-runtime-authorization.md).
 
@@ -146,7 +145,7 @@ intent/network revisions, bundle snapshot, executable, Anvil build and expiry.
 Public previews omit credentials and raw business payloads.
 
 Anvil's own deploy/publish commands prepare connector artifacts; they do not prove
-cloud apply or readiness. The HTTP integration now exposes operator-enabled approved execution and separately
+cloud apply or readiness. The HTTP integration exposes operator-enabled approved execution and separately
 configured native health observations. Durable approval and invocation records
 preserve ambiguous effects as `unknown`; none are automatically retried. See [Anvil provider](anvil-deployment-provider.md).
 
@@ -157,9 +156,8 @@ OAuth discovery/registration, client wire compatibility, tenant/owner/revision
 isolation, network artifacts, and real local Anvil CLI dry-run/hash compatibility.
 Target cloud IAM, private connectivity, model billing/availability, production
 IdP sign-in and licensed Claude gateway deployment require live environment
-validation. No live cloud infrastructure was applied during implementation.
-QuotaPlex allocation and accounting remain a separate module.
-Its [prerequisite checklist](quotaplex-prerequisites.md) distinguishes reusable
-foundations, pending host integrations and production enforcement gates.
+validation. No live cloud infrastructure has been applied.
+QuotaPlex allocation and accounting remain a separate module; see
+[QuotaPlex requirements and limits](quotaplex-prerequisites.md).
 
 See [configuration consistency](configuration-consistency.md), [membership authority](membership-authority.md), [quota administration](quotaplex-administration.md) and [model metering profiles](model-metering-profiles.md) for the completed shared mechanisms and their boundaries.

@@ -5,8 +5,8 @@
 AIPlex is a gateway that sits between the people, agents and developer tools that call AI models and MCP tools, and those models and tools, so that access, identity and usage are decided and recorded in one place.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="brand/launch/architecture-dark.svg">
-  <img alt="Callers (agents, users, clients) reach one access point, which checks identity and policy and writes a usage record before forwarding to models, tools and skills." src="brand/launch/architecture.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="brand/diagrams/architecture-dark.svg">
+  <img alt="Callers (agents, users, clients) reach one access point, which checks identity and policy and writes a usage record before forwarding to models, tools and skills." src="brand/diagrams/architecture.svg">
 </picture>
 
 ## Install
@@ -54,7 +54,7 @@ aiplex dev
   CLI context    "local" (current)
   Console        not in this binary (a source build without Node). Release binaries include it;
                  from source: make console && make build (Node 22), then restart aiplex dev
-  API log        /root/.aiplex/dev-api.log
+  API log        ~/.aiplex/dev-api.log
 
   WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy 127.0.0.1:8080.
 
@@ -299,7 +299,7 @@ Existing Envoy routes and direct provider calls do not automatically pass throug
 
 ### Usage coverage
 
-The [usage-format coverage matrix](docs/reference/usage-formats/coverage.md) lists, per provider, surface and transport, whether usage is `exact`, `advisory` or `unsupported`. At this commit it has 47 exact rows, 9 advisory and 5 unsupported. "Exact" means the gateway reproduces the recorded fixture; the fixtures are recorded or documented provider responses, not live calls.
+The [usage-format coverage matrix](docs/reference/usage-formats/coverage.md) lists, per provider, surface and transport, whether usage is `exact`, `advisory` or `unsupported`. It has 47 exact rows, 9 advisory and 5 unsupported. "Exact" means the gateway reproduces the recorded fixture; the fixtures are recorded or documented provider responses, not live calls.
 
 ## Try a real provider
 
@@ -318,7 +318,7 @@ Deploying to a cluster is a multi-step operation, not a single command: Terrafor
 
 ## Project status
 
-AIPlex is **pre-1.0**. Interfaces, flags and output formats can change between releases, and the CLI's output is being reworked.
+AIPlex is **pre-1.0**. Interfaces, flags and output formats can change between releases.
 
 What has been validated, from the repository's own tests and CI:
 
@@ -328,20 +328,20 @@ What has been validated, from the repository's own tests and CI:
 - Console tests and build, Helm lint, Rust tests, and JSON schema checks.
 - Config merge, diff, backup and undo for the three client files, the stdio MCP server, OpenTelemetry export to an in-process OTLP receiver, the Google Cloud preflight against a fake Google API, and the price catalogue import. Each uses isolated homes, fixtures or fakes.
 
-Run live on Linux, 2026-11-10, a few dozen requests each ([details](docs/model-providers.md#what-was-run-against-live-providers), [harness onboarding](docs/harness-onboarding.md#what-has-and-has-not-been-validated)):
+Exercised against live services ([details](docs/model-providers.md#exercised-against-live-providers), [harness onboarding](docs/harness-onboarding.md#validation-status)):
 
 - The Gemini Developer API and z.ai (as `openai-compatible` and through the `anthropic` provider). Ledger usage matched the provider's responses.
 - Claude Code, Gemini CLI and Codex loading the files `aiplex connect --write` writes. Codex was run against the mock model only. Antigravity CLI loaded its MCP server entry; a model turn was not observed.
 - Claude Code telemetry sent to the OTLP receiver and recorded as reported usage.
 
-What has not been validated, and is not recorded anywhere in this repository:
+Not validated:
 
-- Any run against live OpenAI or Anthropic first-party endpoints (the OpenAI key had no credit), or against Azure, Bedrock or Vertex.
+- Any run against live OpenAI or Anthropic first-party endpoints , or against Azure, Bedrock or Vertex.
 - Any comparison of AIPlex's usage or cost figures against a provider invoice, and the Presidio and LLM Guard adapters against the real services.
 - A deployment to a live cloud project, and load, availability or backup-restore behaviour. The Google Cloud permissions table, the preflight, the custom deployer role and the narrowed runtime grants have not been run against a live project.
 - macOS and Windows; the container image build and push; the Homebrew cask; Firestore-backed budgets.
 - OpenTelemetry export to a real collector, Jaeger, Cloud Trace or Cloud Monitoring. The telemetry overhead has not been measured.
-- The price catalogue is a third-party snapshot (LiteLLM, retrieved 2026-11-10). Its prices have not been checked against provider price pages, and discounts and commitments are not reflected.
+- The price catalogue is a third-party snapshot (LiteLLM, retrieved 2026-11-10; see `THIRD_PARTY_NOTICES.md`). Its prices have not been checked against provider price pages, and discounts and commitments are not reflected.
 - Cost shown by `aiplex dev` is from placeholder prices. The local development server is unauthenticated and must stay on loopback.
 
 See [SECURITY.md](SECURITY.md) for the security model's current limits.
@@ -358,7 +358,6 @@ See [SECURITY.md](SECURITY.md) for the security model's current limits.
 
 Apache License 2.0. See [LICENSE](LICENSE). The price catalogue snapshot under `pkg/pricecatalog/` is third-party data under the MIT licence; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-<!-- The documentation address. This block is the only place the README spells it out. -->
 [docs]: https://vamsiramakrishnan.github.io/aiplex/
 [docs-local]: https://vamsiramakrishnan.github.io/aiplex/docs/getting-started/local-development
 [docs-concepts]: https://vamsiramakrishnan.github.io/aiplex/docs/concepts

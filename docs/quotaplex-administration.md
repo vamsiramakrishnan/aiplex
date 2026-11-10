@@ -126,7 +126,7 @@ settlement invalidates approval.
 
 Original terminal evidence and its canonical producer index are never rewritten.
 Its acknowledgement gains `resolution_id` linking the approved plan/receipt;
-recovery no longer retries superseded work. An existing settlement cannot be
+recovery does not retry superseded work. An existing settlement cannot be
 repriced or refunded through this operation. A binding quarantine is not cleared
 by correcting one attempt: establish a new verified binding/policy generation
 through deployment. Arbitrary balance edits, active-work cancellation, provider

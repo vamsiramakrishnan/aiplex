@@ -9,8 +9,8 @@ arbitrary upstream URL or override the configured project/location.
 The catalog is intentionally separate from availability: selecting an operation
 asserts that the deployment operator has validated that model, region and account.
 It is not evidence that every Model Garden model supports every operation. A new
-model can be configured without changes to the transport, but no unpublished
-November 17 product availability or API method is presumed.
+model can be configured without changes to the transport, but no
+undocumented product availability or API method is presumed.
 
 ## Native operations
 

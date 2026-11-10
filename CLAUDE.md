@@ -6,7 +6,7 @@ Orientation for contributors and coding assistants. The README is the entry poin
 
 AIPlex is a control plane for agent access to models, tools, skills and other agents. Callers (agents, users, clients) reach resources through one access point per audience (`/ap/{id}/...`). The API verifies the caller, applies admission and optional quota, forwards in the provider's native protocol, and writes a usage ledger record.
 
-The code is the source of truth. `design/` holds early design notes that are **superseded**; do not build from them.
+The code is the source of truth.
 
 ## What is in the repository
 
@@ -24,7 +24,7 @@ The code is the source of truth. `design/` holds early design notes that are **s
 | `schemas/` | Public JSON contract schemas, checked by `schemas/check.py` | JSON, Python |
 | `docs/` | Code-verified guides (the verified docs live here; see below) | Markdown |
 | `docs-site/` | Docusaurus site; renders `docs/` at build time | TypeScript |
-| `brand/` | Logo, tokens, icons, launch graphics and their scripts. Edit only through the scripts in `brand/README.md` | SVG, Python, JS |
+| `brand/` | Logo, tokens, icons, architecture diagrams and their scripts. Edit only through the scripts in `brand/README.md` | SVG, Python, JS |
 | `examples/` | Runnable examples; `make examples-test` runs them against `aiplex dev` | mixed |
 | `tests/` | Cross-package tests; `tests/e2e` runs the real binaries (`-tags e2e`) | Go |
 | `tools/` | `demo.sh` and qualification helpers | Bash, Python |

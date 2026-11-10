@@ -23,7 +23,6 @@ sdk/           Go SDK
 deploy/        Terraform, Helm, Kubernetes manifests, Ory config
 policies/      Rego authorization policy
 examples/      Runnable examples (make examples-test)
-design/        Architecture documents
 docs/          Code-verified feature docs (rendered on this site)
 docs-site/     This documentation site (Docusaurus)
 ```

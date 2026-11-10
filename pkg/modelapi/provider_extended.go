@@ -24,7 +24,7 @@ import (
 // the text path: units are observed as first-class counters (units.go) and
 // batch usage settles once from complete results (batch.go).
 //
-// Request paths and auth were read in the vendors' references on 2026-11-10:
+// Request paths and auth follow the vendors' references (retrieved 2026-11-10):
 //
 //	OpenAI   https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create
 //	         https://developers.openai.com/api/reference/resources/audio/subresources/translations/methods/create

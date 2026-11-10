@@ -28,7 +28,7 @@ func NewSSEHandler(store registry.Store) *SSEHandler {
 // Clients connect to GET /events/stream and receive JSON payloads every
 // 5 seconds. This replaces polling for the Console dashboard.
 //
-// PR 11 item 11: when `?run_id=<id>` is supplied, the stream switches
+// when `?run_id=<id>` is supplied, the stream switches
 // to per-run mode — it tails execution_events from from_seq=N and emits
 // one SSE event per new row (kind="run_event") plus periodic
 // "run_summary" snapshots. The Console's RunDetail panel uses this

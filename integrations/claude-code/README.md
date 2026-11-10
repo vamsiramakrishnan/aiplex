@@ -26,4 +26,4 @@ Plugin settings only carry `agent` and `subagentStatusLine`, not `env`, so a plu
 
 The MCP server uses the CLI's current context and token (`AIPLEX_TOKEN`, `--token`, or `aiplex login`). It is read-only: nothing it exposes changes AIPlex. Tool errors carry the API's message and never the token.
 
-The manifest follows the Claude Code plugin reference (code.claude.com/docs/en/plugins-reference), read on 2026-11-10. `claude plugin validate` has not been run against this directory in this repository's tests; the repository tests check that the manifests parse and that every `aiplex` command in the skills exists. Loading the plugin in Claude Code has not been tested.
+The manifest follows the Claude Code plugin reference (code.claude.com/docs/en/plugins-reference). The repository tests check that the manifests parse and that every `aiplex` command in the skills exists; they do not run `claude plugin validate` or load the plugin in Claude Code.

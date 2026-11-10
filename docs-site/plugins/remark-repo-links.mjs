@@ -1,6 +1,6 @@
 // Remark plugin: in the synced copies of docs/*.md, rewrite links that leave the
 // docs/ tree (../internal/api/x.go, ../pkg/quotaplex, ../examples/...) and links to
-// docs that are not published (e.g. docs/superpowers) to the GitHub repository.
+// docs that are not published to the GitHub repository.
 // Links between published docs are left alone for Docusaurus to resolve.
 import fs from 'node:fs';
 import path from 'node:path';

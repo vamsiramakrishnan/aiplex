@@ -313,7 +313,7 @@ function OperatorAuditRow({ a }: { a: OperatorAudit }) {
   )
 }
 
-// Operator action toolbar (PR 11 item 10). Destructive actions
+// Operator action toolbar. Destructive actions
 // (cancel, compensate) gated behind a confirm dialog.
 function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTaken: () => void }) {
   const [pending, setPending] = useState<string | null>(null)
@@ -411,7 +411,7 @@ function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTake
   )
 }
 
-// EmptyRunsChecklist (PR 11 item 13) — diagnostic checklist explaining
+// EmptyRunsChecklist — diagnostic checklist explaining
 // what's missing for runs to appear. Each row links to the doc that
 // fixes it.
 function EmptyRunsChecklist() {

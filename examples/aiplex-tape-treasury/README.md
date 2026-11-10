@@ -1,18 +1,25 @@
 # AIPlex + Tape — Treasury Agent (end-to-end)
 
-The worked end-to-end story for the integration documented in
-[`docs-site/docs/guides/runs.md`](../../docs-site/docs/guides/runs.md).
+## What this example does
+
 A treasury agent runs on Tape's durable runtime, AIPlex governs its
-scope grants and surfaces its journal in the Console.
+scope grants and surfaces its journal in the Console (see
+[`docs-site/docs/guides/runs.md`](../../docs-site/docs/guides/runs.md)).
 
 This directory contains the **AIPlex side** — the deployment manifest
 that wires the agent into AIPlex's deploy engine + auth + audit. The
 **agent code itself** lives in the `durable-agents` repo at
 [`tape/examples/standalone/aiplex-integration/`](https://github.com/vamsiramakrishnan/durable-agents/tree/main/tape/examples/standalone/aiplex-integration).
-Together they cover the full story: AIPlex deploys, Tape executes,
-AIPlex observes.
+Together they cover the flow: AIPlex deploys, Tape executes, AIPlex
+observes.
 
-## The story
+**Requirements.** Everything except the in-process smoke test needs the
+separate `durable-agents` (Tape) repository checked out next to this one
+(`make dev-tape` expects `../durable-agents` and stops with an error if it is
+missing). Without it, only `make e2e-aiplex-tape` runs; it simulates Tape in
+process.
+
+## Flow
 
 ```
 ┌──────────────────┐
@@ -59,8 +66,7 @@ AIPlex observes.
 ### 1. The smoke test (no external infra)
 
 In-process E2E test that exercises every layer of the pipeline. Runs
-in under a second. Asserts the headline claim: a crash mid-wire does
-not produce a duplicate wire.
+in under a second. Asserts that a crash mid-wire does not produce a duplicate wire.
 
 ```bash
 make e2e-aiplex-tape
@@ -94,20 +100,22 @@ python run.py
 
 ### 3. Production deploy
 
-When AIPlex's deploy engine is wired against a real GKE cluster, the
-same `treasury.yaml` deploys the full topology — tape-server pods in
-`aiplex-system`, the agent pod in `a2aplex`, env-var injection,
-NetworkPolicy isolation, the works:
+With the deploy engine wired against a cluster, `treasury.yaml` generates
+the tape-server Deployment, Service and reactors Deployment in `aiplex-system`
+(image `ghcr.io/vamsiramakrishnan/tape-server:latest`), the agent's
+ServiceAccount, Deployment, Service and NetworkPolicy, and the `AIPLEX_*` and
+`TAPE_URL` environment variables on the agent pod. Applying them to a live
+cluster has not been exercised in this repository:
 
 ```bash
 aiplex apply -f examples/aiplex-tape-treasury/treasury.yaml
 ```
 
-## What this demo proves
+## What it shows
 
 | Claim | Evidence |
 | --- | --- |
-| AIPlex deploys generate the Tape runtime topology | `tests/aiplex_tape_e2e_test.go::TestE2E_AIPlexTape_TreasuryStory` — asserts `Instance.Runtime.Engine == tape` on the deployed instance + the engine emits tape-server + reactors |
+| Manifest generation includes the Tape runtime resources | `tests/aiplex_tape_e2e_test.go::TestE2E_AIPlexTape_TreasuryDeployAndRun` — asserts `Instance.Runtime.Engine == tape` on the deployed instance + the engine emits tape-server + reactors |
 | Identity (tenant/actor/subject/agent_id/scopes) is threaded onto every run | Same test seeds events with the deployed instance's ID; the run projection surfaces them via `GET /api/v1/runs/{id}` |
 | A crash mid-effect doesn't duplicate the side effect | `EffectsCount == 3` (begin + unknown + confirmed) — NOT 4 (no second begin), `UnknownEffects == 1` (transitioned, not duplicated) |
 | Scope denials are auditable | `TestE2E_AIPlexTape_PolicyDenialFlow` — `PolicyViolations == 1`, `EffectsCount == 0` (no fake effect from a denied attempt), and the run shows up in the timeline |

@@ -892,7 +892,7 @@ func (f *FirestoreStore) DeleteRoleBinding(ctx context.Context, id string) error
 	return DeleteLegacyConfiguration(ctx, f, ConfigRoleBinding, id)
 }
 
-// ── Execution audit (AIPlex ↔ Tape integration PR 6) ──────────────────────
+// ── Execution audit ──────────────────────
 //
 // Tape's outbox relay POSTs events to /internal/tape/events; AIPlex
 // dedupes on (RunID, Seq), quarantines unknown agents, and updates the
@@ -1008,7 +1008,7 @@ func (f *FirestoreStore) ListExecutionEvents(ctx context.Context, runID string, 
 	return out, nil
 }
 
-// ── PR 11 extensions ──────────────────────────────────────────────────────
+// ── Runs extensions ──────────────────────────────────────────────────────
 
 func (f *FirestoreStore) DeleteExecutionRun(ctx context.Context, runID string) error {
 	_, err := f.client.Collection("execution_runs").Doc(runID).Delete(ctx)

@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-There has been no tagged release yet. This section summarises what exists in the repository, grouped by area. Live runs so far are the Gemini Developer API and z.ai (see [model providers](docs/model-providers.md#what-was-run-against-live-providers)). OpenAI and Anthropic first-party endpoints, provider invoices and a live cloud project have not been validated; see the README's project status.
+Not yet released. This section lists the 0.1.0 contents by area. Exercised against the Gemini Developer API and z.ai (see [model providers](docs/model-providers.md#exercised-against-live-providers)). Not exercised against OpenAI or Anthropic first-party endpoints, provider invoices or a live cloud project; see the README's project status.
 
 ### Reliability and routing
 
@@ -12,14 +12,14 @@ There has been no tagged release yet. This section summarises what exists in the
 - An exact-match response cache per access-point model, off unless configured, scoped to the principal by default, in memory per process; a hit is recorded with cost basis `cached` and the original usage in `cached_response_usage`.
 - Ledger records of routed exchanges carry `attempts`, `backend`, `routing_strategy` and `cache`; `aiplex access-points routing` shows live breaker state and `aiplex usage records -o wide` the attempts. A provably unsent attempt now settles its quota lease at zero.
 - Tool calls: one retry after a transport failure for `tools/list` and for tools annotated `readOnlyHint: true`.
-- Not measured for performance and not run against real providers' failures.
+- Not measured for performance and not exercised against real providers' failures.
 
 ### Tool policy rules and the MCP Registry
 
 - Policy rules on tool calls: `tools.rules` on a tool connection (and `tools[].rules` on an access point's tool entry, which can only add restrictions) are CEL expressions over `tool` (name, connection, MCP annotations), `args`, `caller` (kind, principal, groups with `groups_known`, agent, client), `access_point` and `request.time`, with `effect` `deny` or `allow`. They run after the name lists, the `mcp:tools` scope and `read_only`: the first matching deny refuses, and once a set has an allow rule a call matching none is refused. Expressions are type-checked when saved (unknown fields, non-boolean results and oversize expressions are rejected) and limited in size, cost and arguments (64 KiB); a rule that cannot be evaluated refuses the call (`tool_policy_error`), as do unknown group membership read without a guard, an absent annotation and damaged saved rules. Helpers: `path_under`, `url_host`, `any_in`, `lower` and RE2 `matches` with a literal pattern. `tools/list` hides a tool only when every call would be refused without arguments or time. Refusals are JSON-RPC `-32001` with `data.reason` and `data.rule`, and record `error_class` `tool_policy_denied` or `tool_policy_error` with `tool_policy_rule` in the ledger, the span attributes `aiplex.tool_policy.*` and the `aiplex.tool_policy.decisions` metric; arguments are never recorded. `POST /api/v1/mcp/connections/{id}/rules/test` is an operator-only dry run with a per-rule trace. `aiplex mcp connections rules list|add|remove|set|test`; `get` shows the rules. The engine adds about 6.2 MB (19%) to `aiplex-api`. See `docs/tool-policy-rules.md`.
 - MCP Registry import: `aiplex mcp registry search|show|import` read the official registry (or `--registry` / `AIPLEX_MCP_REGISTRY`) from the CLI and import a `streamable-http` remote as an ordinary tool connection with a proposed auth block (secret headers become secret references you create; the command prints which), a `provenance` block (registry, name, version, retrieval time, SHA-256 of the server.json) and a read-only default. Local packages and legacy SSE remotes are listed as not importable. Registry content is validated strictly, redirects are not followed, and import never approves the server's origin. Tools come from `--allow-tools` or an explicit `--probe`. See `docs/mcp-registry-import.md`.
 - `GET /ap/{id}/v0.1/servers` also answers in the MCP Registry response shape (`servers[]` of `{server, _meta}`, server.json schema 2025-12-11) next to the existing catalog members.
-- Deployment notes: how to build and push the `aiplex-authz` image (the release pipeline does not build it), the dashboard denials route documented as `admin`-only, and the health-check firewall rule documented as inert (it targets a node tag GKE never assigns; GKE manages those rules itself).
+- Deployment notes: how to build and push the `aiplex-authz` image (the release pipeline does not build it), and the dashboard denials route documented as `admin`-only.
 
 ### SDKs and Console
 
@@ -30,9 +30,8 @@ There has been no tagged release yet. This section summarises what exists in the
 ### Packaging and install
 
 - The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew cask for macOS (a cask, not a formula; Linux uses the install script or the archive) to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`, built with GoReleaser `dockers_v2`. GoReleaser is pinned to v2.20.0. The images are distroless, run as a non-root user and carry OCI labels.
-- The release also produces an SBOM and signs `checksums.txt` and the images keyless with the workflow's GitHub identity. The signing and the SBOM have not been run against a real release.
+- The release also produces an SBOM and signs `checksums.txt` and the images keyless with the workflow's GitHub identity. The signing and the SBOM have not been exercised against a real release.
 - `install.sh` refuses an archive when `checksums.txt` cannot be downloaded or does not list it, rejects a malformed `--version`, and names the missing platform asset when a release has no build for it.
-- None of this has been published yet: no release is tagged, and the tap, the images and the signatures have not been produced.
 
 ### Local development
 
@@ -93,7 +92,7 @@ There has been no tagged release yet. This section summarises what exists in the
 
 ### Metering
 
-- Prices can carry context-length `tiers` (the whole request is priced at the tier once the total input, cache included, exceeds a threshold), a `service_tier` selector, per-modality token rates (`input_audio_tokens` and the other splits), a one-hour cache-write rate (`cache_write_1h_tokens`) and per-call `server_tool.<kind>` meters. A price that rates one non-text modality of a direction must rate the others the record reports; positive one-hour writes, server-tool counts and Gemini tool-use prompt tokens without a rate leave the cost unknown. Tier rules are imported only where the provider's rule was confirmed (Anthropic over 100K input tokens, OpenAI over 272K); Gemini, xAI, Azure OpenAI, Bedrock and Vertex Claude tiers still need `--accept-partial`. 148 of 780 catalogue entries need it now, down from 212.
+- Prices can carry context-length `tiers` (the whole request is priced at the tier once the total input, cache included, exceeds a threshold), a `service_tier` selector, per-modality token rates (`input_audio_tokens` and the other splits), a one-hour cache-write rate (`cache_write_1h_tokens`) and per-call `server_tool.<kind>` meters. A price that rates one non-text modality of a direction must rate the others the record reports; positive one-hour writes, server-tool counts and Gemini tool-use prompt tokens without a rate leave the cost unknown. Tier rules are imported only where the provider's rule was confirmed (Anthropic over 100K input tokens, OpenAI over 272K); Gemini, xAI, Azure OpenAI, Bedrock and Vertex Claude tiers still need `--accept-partial`. 148 of 780 catalogue entries need it.
 - Records carry `service_tier` (OpenAI `service_tier`, Anthropic `usage.service_tier`, Gemini `usageMetadata.serviceTier`) and `server_tools` (Anthropic `server_tool_use`, OpenAI built-in tool call items in Responses output, Gemini `billedToolCalls`), and usage carries `cache_write_1h_tokens` and `tool_use_prompt_tokens`. A Gemini modality list that adds up to the prompt count makes the unlisted modalities reported zeros.
 - Estimated costs keep their unrounded amount in `cost.exact` and name the price in `cost.price_id`; summaries add exact values and round up once instead of adding rounded amounts. The rounding rule (up, at the price's scale) is documented.
 - models.dev is a second pinned catalogue snapshot (MIT, `THIRD_PARTY_NOTICES.md`). `catalog search` and `show` display both sources and flag meters they disagree on; `catalog import --source litellm|models.dev` chooses, and an import of a model the sources disagree on is refused until `--source` is given. `make update-price-catalog` refreshes both. The import dry run no longer says "needs --accept-partial" when the flag was given.
@@ -129,7 +128,7 @@ There has been no tagged release yet. This section summarises what exists in the
 - Networking plans with optional reviewed Anvil execution.
 - Least-privilege Google Cloud setup. `aiplex platform preflight` tests, with `testIamPermissions`, the permissions the Terraform needs for the features `terraform.tfvars` enables, checks the APIs and billing, and names the narrowest predefined role for each gap. `aiplex platform apply` runs it first and refuses on failure. `aiplex init` no longer asks for Owner or Editor. An optional custom deployer role is in `deploy/iam/aiplex-deployer-role.yaml`. See `docs/gcp-permissions.md`. Not run against a live project.
 - Runtime grants narrowed: the API reads only secrets named with the `aiplex-` prefix (IAM condition) and has a custom role for writing them; Firestore access is limited to the default database where IAM allows; the API has namespaced Kubernetes RBAC with no ClusterRole; the AlloyDB proxy, the OpenTelemetry collector and the Firestore exporter have their own service accounts; the external agent service account no longer holds token creator on itself. A test fails the build if `deploy/` grants `roles/owner`, `roles/editor` or a project-level admin role outside an allowlist.
-- Deployment fixes from a first-deploy review: runtime grants, namespaces (Terraform creates `aiplex-system` with Helm adoption metadata), DNS and certificate authorization, the Terraform state bucket (a `PROJECT_ID-aiplex-tfstate` bucket with versioning), and a per-client-IP Cloud Armor throttle.
+- Deployment hardening: runtime grants, namespaces (Terraform creates `aiplex-system` with Helm adoption metadata), DNS and certificate authorization, the Terraform state bucket (a `PROJECT_ID-aiplex-tfstate` bucket with versioning), and a per-client-IP Cloud Armor throttle.
 
 ### Behaviour changes
 
@@ -153,11 +152,11 @@ There has been no tagged release yet. This section summarises what exists in the
 
 ### Upgrading an existing deployment
 
-An existing deployment needs steps before the Helm upgrade: the secret, Firestore, backup, DNS, namespace and collector identity changes, among others. Read `docs/gcp-permissions.md`, [Upgrading an existing deployment](docs/gcp-permissions.md#upgrading-an-existing-deployment), and run `terraform plan` (or `aiplex platform apply` without `--yes`) before approving. None of these steps has been run against a live project.
+An existing deployment needs steps before the Helm upgrade: the secret, Firestore, backup, DNS, namespace and collector identity changes, among others. Read `docs/gcp-permissions.md`, [Upgrading an existing deployment](docs/gcp-permissions.md#upgrading-an-existing-deployment), and run `terraform plan` (or `aiplex platform apply` without `--yes`) before approving. None of these steps has been exercised against a live project.
 
 ### Documentation, brand and project files
 
-- Code-verified guides under `docs/` (including the observability, harness onboarding and Google Cloud permissions guides, and the plan in `docs/design/2026-11-10-onboarding-telemetry-least-privilege.md`), a Docusaurus site that renders them with broken links as errors, a generated CLI reference, API reference pages, the brand system (logo, tokens, icons, launch graphics, architecture diagram), and `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` and issue and pull request templates.
+- Code-verified guides under `docs/` (including the observability, harness onboarding and Google Cloud permissions guides), a Docusaurus site that renders them with broken links as errors, a generated CLI reference, API reference pages, the brand system (logo, tokens, icons, architecture diagram), and `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` and issue and pull request templates.
 - Examples under `examples/`, run by `make examples-test` against `aiplex dev`.
 - Release mechanics: GoReleaser builds `aiplex` and `aiplex-api` archives with checksums and a changelog; `install.sh` installs both.
 

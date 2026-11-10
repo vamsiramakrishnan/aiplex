@@ -12,7 +12,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 )
 
-func FuzzBugbashVertexMessagesTranslation(f *testing.F) {
+func FuzzVertexMessagesTranslation(f *testing.F) {
 	for _, body := range []string{
 		`{"model":"model","messages":[{"role":"user","content":"hello"}],"max_tokens":3}`,
 		`{"model":"model","messages":[],"stream":true,"max_tokens":3,"native_extension":{"value":1}}`,

@@ -108,7 +108,7 @@ func TestOperator_Redrive_CallsTapeAndAudits(t *testing.T) {
 	if len(admin.redriveCalls) != 1 || admin.redriveCalls[0] != "run-x" {
 		t.Errorf("Tape admin not called: %+v", admin.redriveCalls)
 	}
-	// PR 11 item 8: operator action lands in operator_audit, NOT in
+	// Operator action lands in operator_audit, NOT in
 	// execution_events. The Tape journal stays clean of synthetic rows.
 	events, _ := store.ListExecutionEvents(context.Background(), "run-x", 0, 100)
 	if len(events) != 0 {
@@ -203,7 +203,7 @@ func TestOperator_Compact_CallsTapeAndStampsProjection(t *testing.T) {
 	if got.CompactedAt == nil {
 		t.Errorf("expected projection to carry CompactedAt timestamp")
 	}
-	// PR 13: the manual compact lands in operator_audit, not events.
+	// The manual compact lands in operator_audit, not events.
 	events, _ := store.ListExecutionEvents(context.Background(), "run-x", 0, 100)
 	if len(events) != 0 {
 		t.Errorf("compact leaked into execution_events: %+v", events)
@@ -241,7 +241,7 @@ func TestOperator_AuditCarriesActor(t *testing.T) {
 	admin := &fakeTapeAdmin{}
 	r, store := opSetup(t, admin)
 	opPost(t, r, "/api/v1/runs/run-x/redrive", nil)
-	// PR 11: action lands in operator_audit, not execution_events.
+	// Action lands in operator_audit, not execution_events.
 	audit, _ := store.ListOperatorAudit(context.Background(), "run-x", 100)
 	if len(audit) != 1 {
 		t.Fatalf("expected 1 operator audit row, got %d", len(audit))

@@ -1,7 +1,7 @@
 # AIPlex + Tape — Treasury Agent (end-to-end demo)
 #
-# This is the worked manifest for the integration story. AIPlex's deploy
-# engine (PR 5) reads `runtime: { engine: tape }` and generates the
+# This is the worked manifest for the integration. AIPlex's deploy
+# engine reads `runtime: { engine: tape }` and generates the
 # tape-server + reactor pods alongside this agent, then injects
 # AIPLEX_* + TAPE_URL env vars onto the agent's container so the
 # Python SDK's `tape.adk.identity.RunIdentity.from_env()` picks them
@@ -15,8 +15,8 @@
 # Usage:
 #   aiplex apply -f examples/aiplex-tape-treasury/treasury.yaml
 #   make e2e-aiplex-tape       # in-process smoke test of the full pipeline
-#   aiplex runs list           # see the runs flowing through (PR 7 API)
-#   open https://console/runs  # the Console "Runs" tab (PR 8)
+#   aiplex runs list           # see the runs flowing through
+#   open https://console/runs  # the Console "Runs" tab
 
 version: v1
 

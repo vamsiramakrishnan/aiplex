@@ -293,7 +293,7 @@ export type WhoamiResponse = ResolvedAccess
 
 // ── Runs (AIPlex ↔ Tape audit; mirrors models.ExecutionRun + ExecutionEvent) ──
 //
-// The Console reads from these endpoints (PR 7). Identity columns and
+// The Console reads from these endpoints. Identity columns and
 // counters drive the run-list view; per-run /events feeds the timeline
 // panel. Effect / obligation / budget routes are convenience filters
 // over /events for the dedicated tabs in the run detail.
@@ -384,7 +384,7 @@ export const listRunObligations = (runID: string) =>
 export const listRunBudgets = (runID: string) =>
   request<{ budgets: ExecutionEvent[] }>(`/runs/${encodeURIComponent(runID)}/budgets`)
 
-// ── Operator audit + actions (PR 11 items 8, 10) ──────────────────────────
+// ── Operator audit + actions ──────────────────────────
 
 export interface OperatorAudit {
   id: string
@@ -445,7 +445,7 @@ export const runCompensate = (runID: string) =>
     withIdempotencyKey(runID, 'compensate'),
   )
 
-// Runs health — drives the empty-state checklist (PR 11 item 13).
+// Runs health — drives the empty-state checklist.
 
 export interface RunsHealth {
   last_ingest_at: string

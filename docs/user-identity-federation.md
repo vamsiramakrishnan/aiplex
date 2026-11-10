@@ -7,8 +7,7 @@ pins the issuer, audience, subject claim and group source. A verified user gets 
 canonical principal ID and, when groups are verified, a group view that role
 bindings and quota eligibility can use.
 
-The design is in [access points and the single pane](design/2026-11-09-access-points-single-pane.md),
-section 2. Membership sources for quota are described in [membership authority](membership-authority.md).
+Membership sources for quota are described in [membership authority](membership-authority.md).
 Agent workloads use the parallel mechanism in [agent identity federation](agent-identity-federation.md).
 A provider grants no scopes by itself. Access comes from the normal role bindings
 and grants.

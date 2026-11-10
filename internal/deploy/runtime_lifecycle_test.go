@@ -10,7 +10,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 )
 
-// PR 11 item 16: refuse runtime mutation in place.
+// Refuse runtime mutation in place.
 
 func deployTreasuryConfig(extra map[string]any) map[string]any {
 	cfg := map[string]any{
@@ -120,7 +120,7 @@ func TestRefuseRuntimeMutation_ForceBypasses(t *testing.T) {
 	}
 }
 
-// PR 11 item 17: tape-server lifecycle status counters.
+// Tape-server lifecycle status counters.
 
 func TestCountInstancesWithRuntime(t *testing.T) {
 	store := registry.NewMemoryStore()
