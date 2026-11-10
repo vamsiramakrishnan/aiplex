@@ -25,6 +25,21 @@ builds:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.ShortCommit}}
+  # The API ships beside the CLI so `aiplex dev` (local mode) finds it.
+  - id: aiplex-api
+    main: ./cmd/aiplex-api
+    binary: aiplex-api
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
 
 archives:
   - id: default
@@ -54,6 +69,7 @@ brews:
     description: "AIPlex CLI — unified control plane for AI agent interactions"
     install: |
       bin.install "aiplex"
+      bin.install "aiplex-api"
     test: |
       system "#{bin}/aiplex", "version"
 
@@ -66,11 +82,14 @@ release:
 
     ```bash
     # macOS / Linux
-    curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash
 
     # macOS (Homebrew)
     brew install vamsiramakrishnan/tap/aiplex
 
-    # From source
-    go install github.com/vamsiramakrishnan/aiplex/cmd/aiplex-cli@latest
+    # From source (Go 1.25+): builds bin/aiplex and bin/aiplex-api
+    git clone https://github.com/vamsiramakrishnan/aiplex.git && cd aiplex && make build
+
+    # Then, locally with no cloud account:
+    aiplex dev
     ```

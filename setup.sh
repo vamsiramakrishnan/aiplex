@@ -5,8 +5,12 @@
 # Everything after this is managed by the CLI itself.
 #
 # Usage:
-#   ./setup.sh                                    # interactive
-#   ./setup.sh --project vital-octagon-19612      # non-interactive
+#   ./setup.sh --local                            # local only: Go, then `aiplex dev`
+#   ./setup.sh                                    # interactive cloud setup
+#   ./setup.sh --project vital-octagon-19612      # non-interactive cloud setup
+#
+# --local needs only Go 1.25+ (from your PATH or mise) and installs no cloud
+# tools; it builds aiplex and aiplex-api and tells you to run `aiplex dev`.
 #
 # What it does:
 #   1. Installs mise (tool version manager) if missing
@@ -49,8 +53,10 @@ install_mise() {
     # Add to shell rc if not present
     local shell_rc="$HOME/.bashrc"
     [[ "$SHELL" == */zsh ]] && shell_rc="$HOME/.zshrc"
+    local shell_name=bash
+    [[ "$SHELL" == */zsh ]] && shell_name=zsh
     if ! grep -q 'mise activate' "$shell_rc" 2>/dev/null; then
-        echo 'eval "$(~/.local/bin/mise activate bash)"' >> "$shell_rc"
+        echo "eval \"\$(~/.local/bin/mise activate ${shell_name})\"" >> "$shell_rc"
     fi
 }
 
@@ -74,21 +80,38 @@ install_tools() {
 
 # ─── Step 3: Build + install aiplex CLI ────────────────────
 install_cli() {
-    if ! command -v go &>/dev/null; then
+    if ! command -v go &>/dev/null && command -v mise &>/dev/null; then
         # Use mise-managed go
         eval "$(mise activate bash)" 2>/dev/null || true
     fi
+    if ! command -v go &>/dev/null; then
+        err "Go is not installed. Install Go $(sed -n 's/^go //p' "$SCRIPT_DIR/go.mod")+ from https://go.dev/dl (or run ./setup.sh without --local to install it with mise)"
+        exit 1
+    fi
+    local need have
+    need="$(sed -n 's/^go //p' "$SCRIPT_DIR/go.mod")"
+    have="$(go env GOVERSION | sed 's/^go//')"
+    if [[ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]]; then
+        err "Go $have is older than $need (required by go.mod). Install a newer Go from https://go.dev/dl"
+        exit 1
+    fi
 
-    info "Building aiplex CLI..."
-    (cd "$SCRIPT_DIR" && go build -trimpath -ldflags "-s -w" -o bin/aiplex ./cmd/aiplex-cli)
+    info "Building aiplex and aiplex-api..."
+    (cd "$SCRIPT_DIR" && go build -trimpath -ldflags "-s -w" -o bin/aiplex ./cmd/aiplex-cli && go build -trimpath -ldflags "-s -w" -o bin/aiplex-api ./cmd/aiplex-api)
 
-    # Install to a location on PATH
+    # Install to a location on PATH; aiplex-api sits beside aiplex for `aiplex dev`.
     local install_dir="$HOME/.local/bin"
     mkdir -p "$install_dir"
     cp "$SCRIPT_DIR/bin/aiplex" "$install_dir/aiplex"
-    chmod +x "$install_dir/aiplex"
+    cp "$SCRIPT_DIR/bin/aiplex-api" "$install_dir/aiplex-api"
+    chmod +x "$install_dir/aiplex" "$install_dir/aiplex-api"
+    local on_path=1
+    [[ ":$PATH:" == *":$install_dir:"* ]] || on_path=0
     export PATH="$install_dir:$PATH"
-    ok "aiplex CLI installed → $(which aiplex)"
+    ok "aiplex CLI installed → $install_dir/aiplex (with aiplex-api)"
+    if [[ $on_path == 0 ]]; then
+        info "Add it to your PATH: export PATH=\"$install_dir:\$PATH\""
+    fi
 }
 
 # ─── Step 4: Run aiplex init ──────────────────────────────
@@ -106,6 +129,14 @@ main() {
     echo "  ║         AIPlex Setup                  ║"
     echo "  ╚══════════════════════════════════════╝"
     echo ""
+
+    if [[ "${1:-}" == "--local" ]]; then
+        install_cli
+        echo ""
+        ok "Ready. Run AIPlex locally (mock model, tools, usage, Console when built):"
+        echo "    aiplex dev"
+        return
+    fi
 
     install_mise
     install_tools
