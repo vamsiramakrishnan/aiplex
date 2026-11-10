@@ -185,6 +185,10 @@ func (h *ConnectedHandler) Resources(kind string) http.HandlerFunc {
 				return
 			}
 			if e = h.validate(r.Context(), tenant, kind, id, payload); e != nil {
+				if errors.Is(e, errAccessPointUnavailable) {
+					Error(w, r, 503, "RESOURCE_STORE_UNAVAILABLE", "a referenced resource could not be read")
+					return
+				}
 				if field, ok := specErrorField(e); ok {
 					JSON(w, 400, models.APIError{Code: "INVALID_SPEC", Message: e.Error(), Details: map[string]any{"field": field}, RequestID: GetRequestID(r.Context())})
 					return
@@ -516,6 +520,11 @@ func (h *ConnectedHandler) authorize(r *http.Request, required string) error {
 	return nil
 }
 
+// AuthorizeCurrent re-resolves the caller's grants and requires scope.
+func (h *ConnectedHandler) AuthorizeCurrent(r *http.Request, scope string) error {
+	return h.authorizeCurrent(r.Context(), r, scope)
+}
+
 // authorizeCurrent re-resolves grants at the dispatch boundary. Quota-protected
 // hosts must supply their authoritative resolver rather than reuse ingress grants.
 func (h *ConnectedHandler) authorizeCurrent(ctx context.Context, r *http.Request, required string) error {
@@ -658,6 +667,12 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	var in cloudagents.Invocation
 	if e = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); e != nil {
 		Error(w, r, 400, "INVALID_INVOCATION", "invalid native invocation")
+		return
+	}
+	if strings.TrimSpace(in.Operation) == "" || in.Operation != strings.TrimSpace(in.Operation) {
+		// An empty operation would be checked as "a2a:agent:{id}:", which
+		// wildcard grants match.
+		Error(w, r, 400, "INVALID_INVOCATION", "operation required")
 		return
 	}
 	usage.agent(c.Provider, in.Operation)

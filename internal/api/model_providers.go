@@ -221,14 +221,7 @@ func (h *ConnectedHandler) SurfaceCapacity(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	access := GetWIFAccess(r.Context())
-	admin := false
-	if access != nil {
-		for _, role := range access.Roles {
-			admin = admin || role == models.RoleAdmin
-		}
-	}
-	if !admin {
+	if !privilegedOrDevelopment(r, h.Development, models.RoleAdmin) {
 		Error(w, r, 403, "ADMIN_REQUIRED", "surface capacity requires an administrative role")
 		return
 	}

@@ -258,6 +258,9 @@ func (h *ConnectedHandler) validateAccessPointSubjects(ctx context.Context, tena
 	}
 	for i, ref := range s.ClientRegistrations {
 		record, err := h.Store.Get(ctx, tenant, clientplex.Kind, ref)
+		if err != nil && !errors.Is(err, resources.ErrNotFound) {
+			return referenceUnavailable(err)
+		}
 		if err != nil {
 			return withField(fmt.Sprintf("subjects/client_registrations/%d", i), fmt.Errorf("client registration %q does not resolve in this tenant", ref))
 		}
@@ -273,6 +276,9 @@ func (h *ConnectedHandler) validateAccessPointSubjects(ctx context.Context, tena
 func (h *ConnectedHandler) accessPointSurface(ctx context.Context, tenant, ref string) (ModelConnection, error) {
 	var connection ModelConnection
 	record, err := h.Store.Get(ctx, tenant, "model-surface", ref)
+	if err != nil && !errors.Is(err, resources.ErrNotFound) {
+		return connection, referenceUnavailable(err)
+	}
 	if err != nil {
 		return connection, fmt.Errorf("model surface %q does not resolve in this tenant", ref)
 	}
@@ -327,6 +333,9 @@ func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant
 func (h *ConnectedHandler) accessPointToolConnection(ctx context.Context, tenant, ref string) (ToolConnection, error) {
 	var connection ToolConnection
 	record, err := h.Store.Get(ctx, tenant, "tool-connection", ref)
+	if err != nil && !errors.Is(err, resources.ErrNotFound) {
+		return connection, referenceUnavailable(err)
+	}
 	if err != nil {
 		return connection, fmt.Errorf("tool connection %q does not resolve in this tenant", ref)
 	}
@@ -472,7 +481,8 @@ func (h *ConnectedHandler) requireAdministrator(w http.ResponseWriter, r *http.R
 }
 
 // MountAccessPoints mounts the access-point resource API under /api/v1.
-// Reads follow resource revision semantics; writes are admin-only.
+// Operators read the revisioned resource; other callers read only the access
+// points that admit them (accessPointReads). Writes are admin-only.
 func (h *ConnectedHandler) MountAccessPoints(r chi.Router) {
 	resource := h.Resources(AccessPointKind)
 	write := func(w http.ResponseWriter, r *http.Request) {
@@ -480,9 +490,10 @@ func (h *ConnectedHandler) MountAccessPoints(r chi.Router) {
 			resource(w, r)
 		}
 	}
+	read := h.accessPointReads(resource)
 	r.Route("/access-points", func(r chi.Router) {
-		r.Get("/", resource)
-		r.Get("/{id}", resource)
+		r.Get("/", read)
+		r.Get("/{id}", read)
 		r.Put("/{id}", write)
 		r.Delete("/{id}", write)
 		r.Post("/{id}/quota-plan", h.AccessPointQuotaPlan)
@@ -524,3 +535,9 @@ func accessPointLoadError(w http.ResponseWriter, r *http.Request, err error, not
 }
 
 var errAccessPointUnavailable = errors.New("access point unavailable")
+
+// referenceUnavailable marks a reference lookup that failed in the store, so
+// an outage is reported as unavailable rather than as an invalid reference.
+func referenceUnavailable(err error) error {
+	return fmt.Errorf("%w: referenced resource lookup failed", errAccessPointUnavailable)
+}

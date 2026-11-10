@@ -252,7 +252,7 @@ func (h *OverviewHandler) AccessPointOverview(w http.ResponseWriter, r *http.Req
 	out.Callers = callers
 	out.Usage = OverviewAccessPointUsage{Available: h.Ledger != nil, ByCallerKind: []OverviewUsageGroup{}, ByModel: []OverviewUsageGroup{}, ByTool: []OverviewUsageGroup{}}
 	if h.Ledger == nil {
-		out.Notes = append(out.Notes, "The usage ledger is not configured; usage is unavailable.")
+		out.Notes = append(out.Notes, h.ledgerUnavailableNote())
 	} else {
 		filter := usageledger.Filter{Since: since, AccessPointID: id}
 		total, err := h.scan(r.Context(), tenant, filter, []string{}, nil)

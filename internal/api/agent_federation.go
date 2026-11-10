@@ -58,7 +58,7 @@ func AgentLookup(store registry.AgentStore) agentfederation.AgentLookup {
 func (h *AgentFederationHandler) Mount(r chi.Router) {
 	readers := RequireRole(models.RoleAdmin, models.RoleDeployer)
 	r.Get("/agents/identity-presets", h.Presets)
-	r.With(readers).Post("/agents/identities/verify", h.Verify)
+	r.With(readers, RateLimit(VerifyDryRunsPerMinute)).Post("/agents/identities/verify", h.Verify)
 	r.With(readers).Get("/agents/{clientId}/identities", h.List)
 	r.With(readers).Get("/agents/{clientId}/identities/{id}", h.Get)
 	r.With(RequireRole(models.RoleAdmin)).Put("/agents/{clientId}/identities/{id}", h.Put)
