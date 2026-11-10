@@ -1,6 +1,26 @@
+@import './brand/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * The Console's `brand` colour scale, from the brand tokens (brand/tokens, copied to
+ * src/brand/tokens.css by `npm run sync:brand`). The scale is static because
+ * components pair bg-brand-600 with text-white, which needs the light Gate Blue in
+ * both themes. Text links (text-brand-600) switch to the dark-mode Gate Blue below.
+ */
+:root {
+  --console-brand-50: var(--aiplex-brand-mist-light);
+  --console-brand-300: color-mix(in srgb, var(--aiplex-brand-gate-light), white 55%);
+  --console-brand-500: color-mix(in srgb, var(--aiplex-brand-gate-light), white 12%);
+  --console-brand-600: var(--aiplex-brand-gate-light);
+  --console-brand-700: color-mix(in srgb, var(--aiplex-brand-gate-light), black 22%);
+}
+
+.dark .text-brand-600 {
+  color: var(--aiplex-brand-gate-dark);
+}
 
 body {
   @apply bg-gray-50 text-gray-900 antialiased;

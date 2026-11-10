@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useModules } from '../hooks/useModules'
+import logoReversed from '../brand/aiplex-lockup-horizontal-reversed.svg'
 
 const navItems = [
   { to: '/overview', label: 'Overview' },
@@ -108,7 +109,10 @@ export default function Layout() {
       {/* Sidebar */}
       <nav className="w-56 bg-gray-900 text-white flex flex-col shrink-0">
         <div className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold">AIPlex</h1>
+          <h1 className="text-xl font-bold">
+            {/* The sidebar is always dark, so it uses the reversed lockup in both themes. */}
+            <img src={logoReversed} alt="AIPlex" className="h-8 w-auto" />
+          </h1>
           <p className="text-xs text-gray-400 mt-1">Unified AI Control Plane</p>
         </div>
         <div className="flex-1 py-4">
