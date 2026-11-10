@@ -27,7 +27,7 @@ spec:
       - name: nginx
         image: REGISTRY/aiplex-console:latest
         ports:
-        - containerPort: 80
+        - containerPort: 8080
           name: http
         resources:
           requests:

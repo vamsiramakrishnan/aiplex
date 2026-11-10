@@ -16,6 +16,8 @@ import (
 type apCreateFlags struct {
 	name                   string
 	models, tools, callers []string
+	backends, strategies   []string
+	retries, caches        []string
 	users, groups, agents  []string
 	clients                []string
 	update                 bool
@@ -44,12 +46,23 @@ must match one of:
   --allow-agents  an agent ID (see: aiplex agents identity list <agent>)
 --allow-clients additionally requires a registered client ID.
 
+Routing (see docs/reliability-and-routing.md): --backend name=surface[:native]
+adds a backend to model <name>; repeat it to list backends in priority order
+(the first is tried first; the others are fallbacks). --strategy
+name=priority|weighted|lowest_cost picks the order, --retry name turns on
+retries on the same backend with the defaults, and --cache name=ttl[:scope]
+turns on the exact-match response cache (scope principal by default;
+access_point shares cached answers between callers: only for prompts that
+hold no personal data).
+
 The access point is created new; --update replaces an existing one (its
-revision is read for you). For QoS classes and expose lists use apply -f.`,
+revision is read for you). For QoS classes, expose lists, weights and the
+other routing settings use apply -f.`,
 		Example: `  aiplex access-points create team --model mock-gpt=local-models --tool local-tools
   aiplex access-points create ide --model gpt-4o-mini=openai --model claude=claude:claude-sonnet-4-5 --allow-groups eng
   aiplex access-points create ci --model gpt-4o-mini=openai --callers agent --allow-agents ci-bot
-  aiplex access-points create bob-only --model mock-gpt=local-models --allow-users bob --update`,
+  aiplex access-points create bob-only --model mock-gpt=local-models --allow-users bob --update
+  aiplex access-points create ha --backend gpt=openai:gpt-4o-mini --backend gpt=azure:gpt-4o-mini --retry gpt --cache gpt=10m`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAPCreate(cmd, args[0], f)
@@ -64,6 +77,10 @@ revision is read for you). For QoS classes and expose lists use apply -f.`,
 	fl.StringSliceVar(&f.groups, "allow-groups", nil, "Groups admitted (comma separated)")
 	fl.StringSliceVar(&f.agents, "allow-agents", nil, "Agent IDs admitted (comma separated)")
 	fl.StringSliceVar(&f.clients, "allow-clients", nil, "Registered client IDs required (comma separated)")
+	fl.StringArrayVar(&f.backends, "backend", nil, "Backend of a routed model: name=surface[:native-model] (repeatable, in priority order)")
+	fl.StringArrayVar(&f.strategies, "strategy", nil, "Routing strategy of a model: name=priority|weighted|lowest_cost (repeatable)")
+	fl.StringArrayVar(&f.retries, "retry", nil, "Turn on same-backend retries (defaults) for a model name (repeatable)")
+	fl.StringArrayVar(&f.caches, "cache", nil, "Exact-match response cache for a model: name=ttl[:principal|access_point] (repeatable)")
 	fl.BoolVar(&f.update, "update", false, "Replace the access point if it exists")
 	return cmd
 }
@@ -85,6 +102,9 @@ func runAPCreate(cmd *cobra.Command, id string, f apCreateFlags) error {
 			native = name
 		}
 		spec.Models = append(spec.Models, aiplex.AccessPointModel{Name: name, SurfaceRef: surface, NativeModel: native})
+	}
+	if err := applyRoutingFlags(&spec, f); err != nil {
+		return err
 	}
 	for _, t := range f.tools {
 		if t = strings.TrimSpace(t); t != "" {
@@ -196,4 +216,76 @@ func resolveUserPrincipal(ctx context.Context, c *aiplex.Client, value, provider
 		return "", usageError(fmt.Sprintf("--allow-users %q: sign in first so the subject can be resolved at your identity provider, or pass a principal-... ID", value))
 	}
 	return auth.CanonicalPrincipalID(provider, pool, value), nil
+}
+
+// applyRoutingFlags turns --backend, --strategy, --retry and --cache into
+// model entries.
+func applyRoutingFlags(spec *aiplex.AccessPoint, f apCreateFlags) error {
+	find := func(name string) *aiplex.AccessPointModel {
+		for i := range spec.Models {
+			if spec.Models[i].Name == name {
+				return &spec.Models[i]
+			}
+		}
+		return nil
+	}
+	for _, b := range f.backends {
+		name, rest, ok := strings.Cut(b, "=")
+		if !ok || name == "" || rest == "" {
+			return usageError(fmt.Sprintf("--backend %q: write name=surface or name=surface:native-model", b), "Example: --backend gpt=openai:gpt-4o-mini --backend gpt=azure:gpt-4o-mini")
+		}
+		surface, native, _ := strings.Cut(rest, ":")
+		if native == "" {
+			native = name
+		}
+		m := find(name)
+		if m == nil {
+			spec.Models = append(spec.Models, aiplex.AccessPointModel{Name: name})
+			m = &spec.Models[len(spec.Models)-1]
+		} else if m.SurfaceRef != "" {
+			return usageError(fmt.Sprintf("model %q is given with both --model and --backend", name), "List every backend with --backend name=surface[:native]")
+		}
+		m.Backends = append(m.Backends, aiplex.RoutingBackend{SurfaceRef: surface, NativeModel: native})
+	}
+	routingOf := func(flag, name string) (*aiplex.AccessPointModel, error) {
+		m := find(name)
+		if m == nil {
+			return nil, usageError(fmt.Sprintf("%s %q: no model named %q (add it with --model or --backend)", flag, name, name))
+		}
+		if m.Routing == nil {
+			m.Routing = &aiplex.RoutingPolicy{}
+		}
+		return m, nil
+	}
+	for _, v := range f.strategies {
+		name, strategy, ok := strings.Cut(v, "=")
+		if !ok || (strategy != "priority" && strategy != "weighted" && strategy != "lowest_cost") {
+			return usageError(fmt.Sprintf("--strategy %q: write name=priority, name=weighted or name=lowest_cost", v))
+		}
+		m, err := routingOf("--strategy", name)
+		if err != nil {
+			return err
+		}
+		m.Routing.Strategy = strategy
+	}
+	for _, name := range f.retries {
+		m, err := routingOf("--retry", name)
+		if err != nil {
+			return err
+		}
+		m.Routing.Retry = &aiplex.RoutingRetry{}
+	}
+	for _, v := range f.caches {
+		name, rest, ok := strings.Cut(v, "=")
+		ttl, scope, _ := strings.Cut(rest, ":")
+		if !ok || ttl == "" || (scope != "" && scope != "principal" && scope != "access_point") {
+			return usageError(fmt.Sprintf("--cache %q: write name=ttl or name=ttl:principal or name=ttl:access_point", v), "Example: --cache gpt=10m")
+		}
+		m := find(name)
+		if m == nil {
+			return usageError(fmt.Sprintf("--cache %q: no model named %q (add it with --model or --backend)", v, name))
+		}
+		m.Cache = &aiplex.ResponseCacheSet{TTL: ttl, Scope: scope}
+	}
+	return nil
 }

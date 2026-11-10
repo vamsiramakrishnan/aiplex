@@ -49,7 +49,7 @@ Record IDs and every counter: -o wide. One record in full: aiplex usage get <id>
 ## How to read it
 
 - **User.** The caller is shown by name. Each record carries `principal_display`, a readable label that the server takes from the verified identity: a verified email, display name or subject. It can be an email address, so do not publish these outputs without checking them. The key the ledger filters on is `principal_id`, shown as `USER` in `aiplex usage records -o wide`. In `aiplex dev` there is one caller, you, so there is one row. On a platform with several users, agents and clients, `--by user`, `--by agent`, `--by client` and `--by caller-kind` split the same totals.
-- **Estimated cost.** The mock model has a placeholder price, so cost is labelled `(estimated)`. A real deployment needs prices you have verified.
+- **Estimated cost.** The mock model has a placeholder price, so cost is labelled `(estimated)`. A real deployment needs prices you have verified: set them with `aiplex usage prices set`, or import an entry from the third-party list-price catalogue with `aiplex usage prices catalog import` (a dated snapshot, not a feed; see [the usage ledger](../../docs/usage-ledger.md#price-catalogue)).
 - **Unknown stays unknown.** The tool call has no token or cost figures, so those columns say `unknown` rather than zero. `aiplex usage summary -o wide` adds an `UNKNOWN` column that counts the records whose usage or cost is unknown.
 - Other filters and groupings: `aiplex usage summary --help`. Column layouts, and what `-o wide` adds, are in [the CLI section of the usage ledger](../../docs/usage-ledger.md#cli). The ledger itself is specified in [usage-ledger](../../docs/usage-ledger.md).
 

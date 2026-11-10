@@ -4,7 +4,35 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
-There has been no tagged release yet. This section summarises what exists in the repository, grouped by area. Nothing here has been validated against live model providers, provider invoices or a live cloud project; see the README's project status.
+There has been no tagged release yet. This section summarises what exists in the repository, grouped by area. Live runs so far are the Gemini Developer API and z.ai (see [model providers](docs/model-providers.md#what-was-run-against-live-providers)). OpenAI and Anthropic first-party endpoints, provider invoices and a live cloud project have not been validated; see the README's project status.
+
+### Reliability and routing
+
+- An access-point model can list several `backends` with a `routing` block: `priority`, `weighted` or `lowest_cost` order (an unknown price is never assumed cheap), same-backend retries (opt-in; by default only for connection failures and 429/503/529), fallback to the next backend, and a per-backend circuit breaker (in memory, per API process). Nothing is retried or failed over after a byte was sent to the caller, and stateful requests never fall over. Each attempt takes its own grants check, capacity admission, quota lease and credential; request hooks run once. See `docs/reliability-and-routing.md`.
+- An exact-match response cache per access-point model, off unless configured, scoped to the principal by default, in memory per process; a hit is recorded with cost basis `cached` and the original usage in `cached_response_usage`.
+- Ledger records of routed exchanges carry `attempts`, `backend`, `routing_strategy` and `cache`; `aiplex access-points routing` shows live breaker state and `aiplex usage records -o wide` the attempts. A provably unsent attempt now settles its quota lease at zero.
+- Tool calls: one retry after a transport failure for `tools/list` and for tools annotated `readOnlyHint: true`.
+- Not measured for performance and not run against real providers' failures.
+
+### Tool policy rules and the MCP Registry
+
+- Policy rules on tool calls: `tools.rules` on a tool connection (and `tools[].rules` on an access point's tool entry, which can only add restrictions) are CEL expressions over `tool` (name, connection, MCP annotations), `args`, `caller` (kind, principal, groups with `groups_known`, agent, client), `access_point` and `request.time`, with `effect` `deny` or `allow`. They run after the name lists, the `mcp:tools` scope and `read_only`: the first matching deny refuses, and once a set has an allow rule a call matching none is refused. Expressions are type-checked when saved (unknown fields, non-boolean results and oversize expressions are rejected) and limited in size, cost and arguments (64 KiB); a rule that cannot be evaluated refuses the call (`tool_policy_error`), as do unknown group membership read without a guard, an absent annotation and damaged saved rules. Helpers: `path_under`, `url_host`, `any_in`, `lower` and RE2 `matches` with a literal pattern. `tools/list` hides a tool only when every call would be refused without arguments or time. Refusals are JSON-RPC `-32001` with `data.reason` and `data.rule`, and record `error_class` `tool_policy_denied` or `tool_policy_error` with `tool_policy_rule` in the ledger, the span attributes `aiplex.tool_policy.*` and the `aiplex.tool_policy.decisions` metric; arguments are never recorded. `POST /api/v1/mcp/connections/{id}/rules/test` is an operator-only dry run with a per-rule trace. `aiplex mcp connections rules list|add|remove|set|test`; `get` shows the rules. The engine adds about 6.2 MB (19%) to `aiplex-api`. See `docs/tool-policy-rules.md`.
+- MCP Registry import: `aiplex mcp registry search|show|import` read the official registry (or `--registry` / `AIPLEX_MCP_REGISTRY`) from the CLI and import a `streamable-http` remote as an ordinary tool connection with a proposed auth block (secret headers become secret references you create; the command prints which), a `provenance` block (registry, name, version, retrieval time, SHA-256 of the server.json) and a read-only default. Local packages and legacy SSE remotes are listed as not importable. Registry content is validated strictly, redirects are not followed, and import never approves the server's origin. Tools come from `--allow-tools` or an explicit `--probe`. See `docs/mcp-registry-import.md`.
+- `GET /ap/{id}/v0.1/servers` also answers in the MCP Registry response shape (`servers[]` of `{server, _meta}`, server.json schema 2025-12-11) next to the existing catalog members.
+- Deployment notes: how to build and push the `aiplex-authz` image (the release pipeline does not build it), the dashboard denials route documented as `admin`-only, and the health-check firewall rule documented as inert (it targets a node tag GKE never assigns; GKE manages those rules itself).
+
+### SDKs and Console
+
+- Go SDK (`sdk/`) for the API. The Go client's `Error` carries `TraceID`, and the CLI prints it beside the request ID.
+- Unpublished Python (`sdk/python`, package `aiplex`) and TypeScript (`sdk/typescript`, `@aiplex/sdk`) clients for the HTTP API, mirroring the Go SDK's covered routes; tested with `make sdk-test`, against `aiplex dev`.
+- React Console covering the above, embedded in the CLI when built first; role-aware, so each view shows what the signed-in roles may do; brand identity and design tokens applied.
+
+### Packaging and install
+
+- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew cask for macOS (a cask, not a formula; Linux uses the install script or the archive) to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`, built with GoReleaser `dockers_v2`. GoReleaser is pinned to v2.20.0. The images are distroless, run as a non-root user and carry OCI labels.
+- The release also produces an SBOM and signs `checksums.txt` and the images keyless with the workflow's GitHub identity. The signing and the SBOM have not been run against a real release.
+- `install.sh` refuses an archive when `checksums.txt` cannot be downloaded or does not list it, rejects a malformed `--version`, and names the missing platform asset when a release has no build for it.
+- None of this has been published yet: no release is tagged, and the tap, the images and the signatures have not been produced.
 
 ### Local development
 
@@ -17,20 +45,59 @@ There has been no tagged release yet. This section summarises what exists in the
 - The `aiplex dev` summary ends with numbered "Try next" steps, and says plainly when the Console is not built into the binary.
 - Release binaries embed the built Console; a source build says how to build it (`make console && make build`).
 
+### Harness onboarding
+
+- `aiplex connect <access-point> --client claude-code|codex|gemini-cli --write` merges the connection settings into the client's own config file after showing a diff, with a timestamped backup under `~/.aiplex/connect-backups`, `--dry-run`, `--yes` for scripts and `aiplex connect --undo`. It refuses files that are not valid JSON or TOML and never writes a token value (`--token-helper` uses `aiplex auth print-token`). `--with-telemetry <otlp-endpoint>` sets the client's own OpenTelemetry export, never prompt logging. See `docs/harness-onboarding.md`.
+- `aiplex mcp serve`: a stdio MCP server with read-only tools (`whoami`, `list_access_points`, `get_connect_config`, `list_models`, `usage_summary`, `usage_records`) using your own token.
+- `aiplex auth print-token` for client credential helpers.
+- `integrations/claude-code` (plugin with three skills), `integrations/gemini-cli` (extension) and a root `AGENTS.md`; a test checks that every `aiplex` command in them exists.
+- Gemini CLI's base URL and Antigravity's configuration are printed as remaining steps, not written: Gemini CLI has no settings key for the base URL, and Antigravity's config location is not documented.
+
+### Harness telemetry, tags and feedback
+
+- An OTLP/HTTP receiver (`POST /otlp/v1/logs`, `/metrics`, `/traces`; protobuf or JSON, gzip, bounded) records a coding harness's usage events as `source=reported` ledger records under the sender's verified identity: Claude Code `api_request` and `api_error`, Codex `response.completed`, Gemini CLI `api_response` and `api_error`. Metrics and traces are accepted and not recorded, so a request is not counted twice. Retries are idempotent; unmapped signals can be forwarded to your collector (`AIPLEX_OTLP_FORWARD`). `aiplex connect --write --with-telemetry aiplex` points a client at it without writing the token to a file. Mappings come from the harnesses' documentation; only Claude Code was run against a real client.
+- Cost basis `reported` for a cost a harness reported. Summaries keep managed and reported records in separate groups, leave out reported records that share an explicit key with a managed record, and say so (`source_split`, `excluded_correlated_reported`, `notes`); `merge_sources=true` adds them together. The dashboard and overview roll-ups count managed records only.
+- Record `tags` from access point `labels` and an operator-allowlisted `X-AIPlex-Tags` header (`tag.<key>` filter, `tag:<key>` grouping, a per-key cap with an `(other)` bucket). Append-only record feedback (`POST /api/v1/usage/records/{id}/feedback`, `aiplex usage feedback`), shown in the record and in summaries (`feedback=true`, `-o wide`) with "without feedback" counted apart.
+- The Console shows trace and span ids with copy buttons, a trace viewer link (`AIPLEX_TRACE_URL_TEMPLATE`), a source badge and the harness.
+- Managed `tools/call` requests carry the exchange's trace context in `params._meta` as well as the HTTP headers; the rest of the request is relayed byte for byte. Agent exchanges with known final usage are counted in the GenAI token counters.
+
+### Request hooks
+
+- Hook policies (`/api/v1/hooks/policies`, `aiplex hooks policies list|get|set|delete|test`, operators only) bind ordered hooks to the tenant, an access point, a model surface or a tool connection; narrower scopes add hooks and cannot remove a broader one. Hooks run on model requests and responses (OpenAI Chat, OpenAI Responses, Anthropic Messages, Gemini, Bedrock Converse, embeddings) and MCP `tools/call` arguments and results, after admission and before the quota lease, and can allow, deny with a safe message (HTTP 403 `hook_denied` in the caller's protocol) or mask text. Built-in `redact` (pattern rules, not a guarantee of PII removal) and `size_limit`, and an `http` sidecar hook with the AIPlex contract and Presidio and LLM Guard adapters (written from their documentation; not run against the services). Fail closed: a sidecar that cannot decide refuses the request unless `fail_open` is set. Streams under a response hook are refused by default, or buffered and re-emitted for OpenAI Chat and Anthropic. WebSocket sessions are refused on a hooked scope. Decisions are in the usage ledger (`hooks`, filter `hook_decision`), spans and metrics, without content. See `docs/request-hooks.md`.
+
+### Observability
+
+- OpenTelemetry in `aiplex-api`: a SERVER span per HTTP request and a CLIENT span per managed model, tool and agent exchange, named and attributed per the GenAI and MCP semantic conventions. Those conventions are in Development status; the revision AIPlex follows and every name are in `pkg/telemetry/semconv.go`. See `docs/observability.md`.
+- OTLP export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` (or a per-signal endpoint) is set. `aiplex dev --otel <url>` sets it for a local run. `GET /metrics` is served either way.
+- W3C trace context is continued from a valid inbound `traceparent` and sent upstream to model, tool and agent endpoints by default (`AIPLEX_TRACE_PROPAGATE_UPSTREAM=false` strips it). Every usage record carries `trace_id` and `span_id`, so a record can be found in a trace.
+- Metrics cover request and exchange duration, token counters for the model plane (known and final values only), known cost, unknown cost and usage, quota denials and upstream errors. No principal, request, record or trace ID is a metric attribute.
+- Prompts, completions, tool arguments and results, and credentials are not recorded. Tests plant secrets in the prompt, the caller token, the query string and a provider key header and fail if one reaches a span.
+- `GET /metrics` needs `AIPLEX_METRICS_TOKEN` (see the behaviour changes below).
+- The Helm chart's `otel.enabled` wires the endpoint, and its collector (pinned image) runs under its own identity and exports to Cloud Trace and Cloud Monitoring. The export path has been tested only against an in-process OTLP/HTTP receiver, not a real collector.
+
 ### Access points and usage
 
 - Access points: one stable URL per audience (`/ap/{id}/...`) in front of models, MCP tools and skills, with caller-kind admission, model aliases, optional QoS scope, native error shapes, and wires for OpenAI (chat, responses, embeddings, images, audio), Anthropic Messages, Gemini, Azure OpenAI (including `api-key` header and path shapes), Bedrock and WebSocket sessions.
 - A single-pane overview of callers and what each can reach (`aiplex who`, `aiplex access-points`, `aiplex connect`).
 - A tenant-scoped usage ledger for managed and reported exchanges, with filters and grouping (by model, user, source, error class, usage bound and batch), explicit usage bounds, and non-token units and modality splits. Unknown values stay unknown.
+- A price catalogue: a pinned, trimmed snapshot of LiteLLM's public list prices (MIT, third-party data, see `THIRD_PARTY_NOTICES.md`) embedded in the CLI. `aiplex usage prices catalog search|show|import` creates ordinary price resources, with an optional `source` label, from the models you choose. Nothing is priced automatically; imported cost is `estimated`, a snapshot that can be stale, and pricing a price cannot express (context-length tiers, audio or image token rates) needs `--accept-partial`. `make update-price-catalog` refreshes the pin.
 - Guided creation from flags: `aiplex access-points create`, `aiplex mcp connections create|list|get|test|delete`, `aiplex llm surfaces create`, and `aiplex usage prices set <model> --input-per-mtok ... --output-per-mtok ...`. The file forms (`apply -f`, `prices set -f`) remain for full specifications.
 - Usage tables fit the terminal width, and show the caller by a readable name (`principal_display`, `actor_display`) instead of a principal hash. `aiplex usage records -o wide` adds a `PRINCIPAL ID` column, and `summary -o wide` adds the columns the default tables leave out. Summaries label empty groups `(no model)` and `(no tool)`.
-- Cost objects carry `amount_decimal`, the exact decimal form of `amount`. `tools/list` exchanges are recorded with operation `tools/list`.
+- Cost objects carry `amount_decimal`, the exact decimal form of `amount`.
 - `GET /api/v1/dashboard/stats` totals the last 24 hours from the usage ledger. Cost and tokens are `null` when unknown, with `daily_unknown_cost_records`, `daily_unknown_usage_records` and `usage_source` alongside.
 - `aiplex connect <access-point>` works for any caller the access point admits. Callers without an operator role get a reduced response. `--client claude-desktop` is refused with a reason, because that client needs a Claude apps gateway server.
 - `aiplex validate` runs the same checks as `aiplex apply`, and `apply` validates first. Under `aiplex dev`, instances in a manifest are skipped with a message.
 - `aiplex llm surfaces get` and `aiplex clients get` print a readable summary by default. Use `-o json` or `-o yaml` for the full specification.
 - Destructive commands (`delete`, `undeploy`, `delete-context`) refuse to run without a terminal unless `--yes` is given.
 - CLI errors name the cause and give hints, such as `Did you mean` for a mistyped ID. Every command uses fixed exit codes (0 to 6, listed in `aiplex --help`), `--debug` shows the raw API error, and destructive commands ask on a terminal unless `--yes` is given.
+
+### Metering
+
+- Prices can carry context-length `tiers` (the whole request is priced at the tier once the total input, cache included, exceeds a threshold), a `service_tier` selector, per-modality token rates (`input_audio_tokens` and the other splits), a one-hour cache-write rate (`cache_write_1h_tokens`) and per-call `server_tool.<kind>` meters. A price that rates one non-text modality of a direction must rate the others the record reports; positive one-hour writes, server-tool counts and Gemini tool-use prompt tokens without a rate leave the cost unknown. Tier rules are imported only where the provider's rule was confirmed (Anthropic over 100K input tokens, OpenAI over 272K); Gemini, xAI, Azure OpenAI, Bedrock and Vertex Claude tiers still need `--accept-partial`. 148 of 780 catalogue entries need it now, down from 212.
+- Records carry `service_tier` (OpenAI `service_tier`, Anthropic `usage.service_tier`, Gemini `usageMetadata.serviceTier`) and `server_tools` (Anthropic `server_tool_use`, OpenAI built-in tool call items in Responses output, Gemini `billedToolCalls`), and usage carries `cache_write_1h_tokens` and `tool_use_prompt_tokens`. A Gemini modality list that adds up to the prompt count makes the unlisted modalities reported zeros.
+- Estimated costs keep their unrounded amount in `cost.exact` and name the price in `cost.price_id`; summaries add exact values and round up once instead of adding rounded amounts. The rounding rule (up, at the price's scale) is documented.
+- models.dev is a second pinned catalogue snapshot (MIT, `THIRD_PARTY_NOTICES.md`). `catalog search` and `show` display both sources and flag meters they disagree on; `catalog import --source litellm|models.dev` chooses, and an import of a model the sources disagree on is refused until `--source` is given. `make update-price-catalog` refreshes both. The import dry run no longer says "needs --accept-partial" when the flag was given.
+- `aiplex usage prices backfill` and `POST /api/v1/usage/backfill` (admin) price records written before a price existed, using the price effective at each record's time. The cost becomes `estimated` with `backfilled_at` and `price_id`; settled and estimated costs are never changed, runs are idempotent and bounded (cursor), and Firestore updates only while the cost is still unknown. Records and summaries filter on `cost_basis`.
 
 ### Models (LLMPlex)
 
@@ -60,15 +127,37 @@ There has been no tagged release yet. This section summarises what exists in the
 
 - Deploy engine and catalog federation, declarative `aiplex apply`, Helm chart, Terraform modules, Kubernetes manifests and Ory configuration under `deploy/`. A Firestore emulator lane in CI covers registry and quota storage.
 - Networking plans with optional reviewed Anvil execution.
+- Least-privilege Google Cloud setup. `aiplex platform preflight` tests, with `testIamPermissions`, the permissions the Terraform needs for the features `terraform.tfvars` enables, checks the APIs and billing, and names the narrowest predefined role for each gap. `aiplex platform apply` runs it first and refuses on failure. `aiplex init` no longer asks for Owner or Editor. An optional custom deployer role is in `deploy/iam/aiplex-deployer-role.yaml`. See `docs/gcp-permissions.md`. Not run against a live project.
+- Runtime grants narrowed: the API reads only secrets named with the `aiplex-` prefix (IAM condition) and has a custom role for writing them; Firestore access is limited to the default database where IAM allows; the API has namespaced Kubernetes RBAC with no ClusterRole; the AlloyDB proxy, the OpenTelemetry collector and the Firestore exporter have their own service accounts; the external agent service account no longer holds token creator on itself. A test fails the build if `deploy/` grants `roles/owner`, `roles/editor` or a project-level admin role outside an allowlist.
+- Deployment fixes from a first-deploy review: runtime grants, namespaces (Terraform creates `aiplex-system` with Helm adoption metadata), DNS and certificate authorization, the Terraform state bucket (a `PROJECT_ID-aiplex-tfstate` bucket with versioning), and a per-client-IP Cloud Armor throttle.
 
-### Console and SDK
+### Behaviour changes
 
-- React Console covering the above, embedded in the CLI when built first; role-aware, so each view shows what the signed-in roles may do; brand identity and design tokens applied.
-- Go SDK for the API.
+- A provider's `401` or `403` (and the Gemini Developer API's `400 API_KEY_INVALID`) is the gateway's own credential being refused. It is now a `502` in the provider's error shape with the code `upstream_credential_rejected` and ledger `error_class` `upstream_auth`, not a relayed `401`. Operators see the surface id in the error details. An OpenAI-family `429 insufficient_quota` and a Bedrock `ServiceQuotaExceededException` are classed `upstream_quota_exhausted`; their responses are unchanged.
+- A caller the access point admitted that names an unknown model gets a ledger record (`error_class` `model_not_found`, bounded `model_id`) as well as the 404. A price without a `service_tier` selector no longer matches a record served on `flex` or `priority`, and a positive one-hour cache write needs a one-hour rate: both are `unknown` cost instead of the standard or five-minute rate.
+- The `anthropic` provider takes an optional `base_path` for an Anthropic-compatible endpoint served under a path prefix.
+- A request carrying the AIPlex token in `Authorization` and a different provider key in `x-api-key` (Claude Code with `ANTHROPIC_API_KEY` set) is still refused, with a message that names the header to remove and says the key reached the gateway in transit; the key value is not logged, stored or put in spans.
+- The Go SDK's `Error` carries `TraceID`, and the CLI prints it beside the request ID.
+- Usage summaries split managed and reported records by default (`--source`, `source_split`); the dashboard and the `/api/v1/overview` roll-ups count managed records only. `usage summary --by budget` and `--budget` count managed records only, because reported records never draw from a budget.
+- Tool `tools/list` exchanges are recorded in the ledger with operation `tools/list` (and no tool name).
+- A cache hit on a model with `cache` takes the request-count budget only: request-count budgets draw one, cost and token budgets draw nothing.
+- `aiplex apply` converges: each resource is reported as created, updated or unchanged, and `--dry-run` reports the same without writing.
+- In-cluster deploys use the Kubernetes API from a small built-in client instead of `kubectl`, and the API's namespaced Role grants only create, patch and delete on the kinds it renders (no reads). Existing deployments need the Helm upgrade in [Upgrading an existing deployment](#upgrading-an-existing-deployment). Objects `kubectl` created keep its field manager until the API takes them over.
+- The Helm chart now renders the Gateway (`deploy/helm/aiplex/templates/gateway.yaml`).
+- Homebrew distribution is a macOS cask, not a formula. GoReleaser is pinned to v2.20.0.
+- A provider's `secret_ref` must start with `aiplex-` when Secret Manager is configured. A reference without the prefix is refused when the provider is saved, with a message that names the rule. Name those secrets `aiplex-...`.
+- `GET /metrics` needs `AIPLEX_METRICS_TOKEN` as a bearer token. Without the variable it answers 503, except in development mode on loopback. The public gateway does not route `/metrics`; scrape the `aiplex-api` service inside the cluster.
+- `aiplex platform apply` refuses to run when the preflight fails. `--skip-preflight` overrides the check with a warning.
+- The console image is unprivileged nginx (`nginxinc/nginx-unprivileged`) that listens on 8080 as uid 101. Rebuild it from `console/Dockerfile` before upgrading the chart; the old `nginx:alpine` image will not start with the new security settings.
+- `OTEL_ENDPOINT` is deprecated in favour of `OTEL_EXPORTER_OTLP_ENDPOINT`. It is used only when the standard variable is unset, and a warning is logged.
+
+### Upgrading an existing deployment
+
+An existing deployment needs steps before the Helm upgrade: the secret, Firestore, backup, DNS, namespace and collector identity changes, among others. Read `docs/gcp-permissions.md`, [Upgrading an existing deployment](docs/gcp-permissions.md#upgrading-an-existing-deployment), and run `terraform plan` (or `aiplex platform apply` without `--yes`) before approving. None of these steps has been run against a live project.
 
 ### Documentation, brand and project files
 
-- Code-verified guides under `docs/`, a Docusaurus site that renders them with broken links as errors, a generated CLI reference, API reference pages, the brand system (logo, tokens, icons, launch graphics, architecture diagram), and `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` and issue and pull request templates.
+- Code-verified guides under `docs/` (including the observability, harness onboarding and Google Cloud permissions guides, and the plan in `docs/design/2026-11-10-onboarding-telemetry-least-privilege.md`), a Docusaurus site that renders them with broken links as errors, a generated CLI reference, API reference pages, the brand system (logo, tokens, icons, launch graphics, architecture diagram), and `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` and issue and pull request templates.
 - Examples under `examples/`, run by `make examples-test` against `aiplex dev`.
 - Release mechanics: GoReleaser builds `aiplex` and `aiplex-api` archives with checksums and a changelog; `install.sh` installs both.
 

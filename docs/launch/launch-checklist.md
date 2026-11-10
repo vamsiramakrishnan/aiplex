@@ -21,6 +21,14 @@ Work through this in order before posting. Items marked **owner** need your GitH
 - [ ] On a clean machine: `curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash`, then `aiplex version` and `aiplex dev`. The installer resolves the latest release through the GitHub API, which only works once a release exists.
 - [ ] Add the install one-liner to the README quickstart if you want it there; until a release has been installed this way on a real machine, the README only lists the source build.
 
+### Owner actions from the gateway work
+
+- [ ] **owner** Create the `vamsiramakrishnan/homebrew-tap` repository (with a `Casks` directory) and add the `HOMEBREW_TAP_TOKEN` secret. Until both exist, the release workflow skips the cask. Check the cask on a Mac after the first tag.
+- [ ] **owner** After the first image push, make the GHCR packages `aiplex-api` and `aiplex` public, then pull them anonymously to check.
+- [ ] **owner** Decide on the macOS quarantine hook. Nothing in `install.sh` clears `com.apple.quarantine`; the cask's caveats in `.goreleaser.yaml` tell users to remove it by hand. Choose between that, a `postflight` step in the cask, or a note in the install section.
+- [ ] **owner** Replace the OpenAI key that has no credit, then run the OpenAI and Anthropic first-party validation (send a chat, a streamed chat, a Responses call and an Anthropic Messages call through `aiplex dev --provider`, and compare the ledger with the provider's usage fields). Record the result in [model providers](../model-providers.md#what-was-run-against-live-providers).
+- [ ] **owner** First GCP install: run `aiplex platform preflight` against the target project and fix each missing role it names before `aiplex platform apply`. Nothing in this repository has been applied to a live project.
+
 ### Documentation site
 
 - [ ] **owner** Enable GitHub Pages: Settings, Pages, Source "GitHub Actions". Run the "Deploy Docs to GitHub Pages" workflow (it also runs on pushes that change `docs-site/`, `docs/` or `brand/`).
@@ -51,6 +59,7 @@ Do this on a machine that has never built the project, with no `bin/` directory 
 
 - [ ] If the CLI's output changed since the README was written (the CLI is being reworked), re-run the quickstart and update the quoted output in `README.md`, `docs-site/docs/getting-started/local-development.md` and the `examples/*/README.md` files.
 - [ ] Search the repository for claims you cannot back: performance numbers, customer names, "production-ready", "enterprise". There should be none.
+- [ ] If the post mentions OpenTelemetry, `aiplex connect --write`, `aiplex platform preflight` or the price catalogue, check that line against the "Limits" or "not validated" section of its guide ([observability](../observability.md), [harness onboarding](../harness-onboarding.md), [Google Cloud permissions](../gcp-permissions.md), [usage ledger](../usage-ledger.md#price-catalogue)) on the day you post.
 - [ ] Have someone who has not seen the project try the quickstart while you watch, saying nothing.
 
 ## What to watch after posting

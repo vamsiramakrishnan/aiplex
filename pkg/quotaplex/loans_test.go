@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -82,7 +83,7 @@ func TestLoanGrantConservesUnequalWindowsAndReplaysExactlyOnce(t *testing.T) {
 	if err != nil || closed.Outstanding != 0 || closed.Returned != 80 || closed.State != "closed" {
 		t.Fatal(closed, err)
 	}
-	if again, err := engine.ReturnUnusedLoan(context.Background(), "tenant", "loan"); err != nil || again != closed {
+	if again, err := engine.ReturnUnusedLoan(context.Background(), "tenant", "loan"); err != nil || !reflect.DeepEqual(again, closed) {
 		t.Fatal("closed return was not idempotent", again, err)
 	}
 	if lender, borrower := loanBalance(t, engine, info.Lender.Key), loanBalance(t, engine, info.Borrower.Key); lender.Available != 100 || borrower.Available != 10 || lender.Debited != 0 || borrower.Credited != 0 {

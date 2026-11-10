@@ -29,6 +29,26 @@ type MockMCP struct {
 	calls atomic.Int64
 	mu    sync.Mutex
 	seen  []string // methods, in order
+	// traces holds the traceparent header of each request, in order.
+	traces []string
+	// calledBodies holds the raw body of each tools/call, in order.
+	calledBodies []string
+}
+
+// CallBodies returns the raw JSON-RPC body of each tools/call received, in
+// order, so tests can prove what reached the tool server.
+func (m *MockMCP) CallBodies() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.calledBodies...)
+}
+
+// Traceparents returns the W3C traceparent header of each request received,
+// in order ("" when a request carried none).
+func (m *MockMCP) Traceparents() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.traces...)
 }
 
 // SupportedProtocolVersions are the MCP revisions this mock speaks.
@@ -70,6 +90,9 @@ func (m *MockMCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 401, rpcError(nil, -32001, "missing or invalid API key"))
 		return
 	}
+	m.mu.Lock()
+	m.traces = append(m.traces, r.Header.Get("Traceparent"))
+	m.mu.Unlock()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	if err != nil {
 		http.Error(w, "read error", 400)
@@ -86,6 +109,9 @@ func (m *MockMCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	m.mu.Lock()
 	m.seen = append(m.seen, msg.Method)
+	if msg.Method == "tools/call" {
+		m.calledBodies = append(m.calledBodies, string(body))
+	}
 	m.mu.Unlock()
 	if len(msg.ID) == 0 || string(msg.ID) == "null" {
 		// Notifications (for example notifications/initialized) get 202.

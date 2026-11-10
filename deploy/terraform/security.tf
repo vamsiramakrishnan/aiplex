@@ -1,10 +1,16 @@
 # Cloud Armor — WAF and DDoS protection for the Global HTTPS LB.
+# The load balancer is created by the GKE Gateway rendered by the Helm chart
+# (deploy/helm/aiplex/templates/gateway.yaml), not by Terraform; the chart
+# attaches this policy to the backend Services with GCPBackendPolicy resources
+# (gateway.cloudArmorPolicy). Until the chart is installed the policy filters
+# nothing.
 
 resource "google_compute_security_policy" "aiplex" {
   name    = "aiplex-waf"
   project = var.project_id
 
-  # Default: allow all (DDoS protection is always-on for Global LB)
+  # Default: allow all (DDoS protection is always-on for Global LB). The
+  # default rule (priority 2147483647) matches every source, hence "*".
   rule {
     action   = "allow"
     priority = 2147483647
@@ -64,6 +70,9 @@ resource "google_compute_security_policy" "aiplex" {
     rate_limit_options {
       conform_action = "allow"
       exceed_action  = "deny(429)"
+      # Without a key Cloud Armor counts all clients together (enforceOnKey
+      # defaults to ALL), which made this a 500 req/min limit for everyone.
+      enforce_on_key = "IP"
       rate_limit_threshold {
         count        = 500
         interval_sec = 60
@@ -82,7 +91,26 @@ resource "google_compute_security_policy" "aiplex" {
 
 # ── VPC Firewall Rules ──
 
-# Allow health checks from Google's health check ranges
+# INERT: this rule matches no node and changes nothing. It targets the network
+# tag "gke-aiplex", which GKE never assigns: it names node tags itself
+# (gke-<cluster>-<hash>-node), and on an Autopilot cluster (gke.tf) the node
+# tags cannot be set, so Terraform cannot know them. It is kept, not fixed,
+# because the load balancer's health checks do not depend on it: for a
+# cluster in the project that owns the network, GKE creates and maintains the
+# firewall rules that admit Google's health check probers (35.191.0.0/16 and
+# 130.211.0.0/22) itself. Google documents manual rules, with the node tag as
+# the target, only for when automatic firewall rule creation is disabled or
+# restricted, such as a Shared VPC service project:
+# https://cloud.google.com/kubernetes-engine/docs/how-to/deploying-gateways
+# (section "Configure IPv6 firewall rules for Shared VPC or manual firewall
+# management"), and for the Ingress controller:
+# https://cloud.google.com/kubernetes-engine/docs/how-to/container-native-load-balancing
+# The probe source ranges are listed in
+# https://cloud.google.com/load-balancing/docs/health-check-concepts#ip-ranges
+# If you disable automatic rules, replace target_tags with the real node tag
+# (gcloud compute instances list --format='value(tags.items)'), or drop it to
+# apply the rule to every instance in the network. Not applied or tested
+# against a live cluster. See docs/gcp-permissions.md.
 resource "google_compute_firewall" "allow_health_checks" {
   name    = "aiplex-allow-health-checks"
   network = google_compute_network.aiplex.name
@@ -98,8 +126,8 @@ resource "google_compute_firewall" "allow_health_checks" {
     "130.211.0.0/22",   # Google health check
   ]
 
-  target_tags = ["gke-aiplex"]
-  description = "Allow Google health check probes"
+  target_tags = ["gke-aiplex"] # matches no node; see the comment above
+  description = "Allow Google health check probes (inert: targets a tag GKE does not assign)"
 }
 
 # Allow internal cluster communication
@@ -142,7 +170,16 @@ resource "google_compute_firewall" "deny_all_ingress" {
   description   = "Deny all ingress not matching higher-priority rules"
 }
 
-# Restrict egress to Google APIs only (prevent data exfiltration)
+# Allow HTTPS to the private and restricted Google API ranges.
+#
+# This does NOT restrict egress: VPC firewalls allow all egress by default and
+# there is no lower-priority deny. A deny-all egress rule is deliberately not
+# added: the API forwards to model providers, MCP servers, agents and identity
+# providers on the internet, whose addresses are operator-chosen and not
+# enumerable here, so a blanket deny would break the product. To restrict
+# egress, add a deny rule (priority above 1000) together with allow rules for
+# your providers' ranges, or route egress through a proxy; the API's own
+# outbound endpoint policy (allowed origins) is the control that exists today.
 resource "google_compute_firewall" "allow_google_apis_egress" {
   name      = "aiplex-allow-google-apis"
   network   = google_compute_network.aiplex.name

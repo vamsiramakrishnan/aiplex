@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -25,10 +26,13 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/endpointpolicy"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/governance"
+	"github.com/vamsiramakrishnan/aiplex/pkg/mcpregistry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
@@ -50,6 +54,9 @@ type ToolConnection struct {
 	// credential mode's existing behaviour. Tools is connection-level policy.
 	Auth  *toolcredential.Auth `json:"auth,omitempty"`
 	Tools *toolexec.ToolPolicy `json:"tools,omitempty"`
+	// Provenance records the MCP Registry entry the connection was imported
+	// from. It is informational and never read by authorization or dispatch.
+	Provenance *mcpregistry.Provenance `json:"provenance,omitempty"`
 }
 type ConnectedHandler struct {
 	ToolSessions    *toolauth.Runtime
@@ -72,6 +79,17 @@ type ConnectedHandler struct {
 	Capacity *providerlimits.Store
 	// CapacityGate acts on Capacity for surfaces with a capacity_policy.
 	CapacityGate *providerlimits.Gate
+	// Breakers are the circuit breakers of routed access-point models, and
+	// ResponseCache their exact-match response cache. Both are per process
+	// (created on first use); nothing is shared between replicas.
+	Breakers      *routing.Breakers
+	ResponseCache routing.CacheStore
+
+	budgetMu  sync.Mutex
+	budgetSrc *BudgetCache
+	// Tags resolves record tags (access point labels and the allowlisted
+	// X-AIPlex-Tags header). Nil allows no caller-supplied tags.
+	Tags *TagPolicy
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
@@ -233,6 +251,9 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 	if kind == AccessPointKind {
 		_, e := h.validateAccessPoint(ctx, tenant, id, raw)
 		return e
+	}
+	if kind == HookPolicyKind {
+		return h.validateHookPolicy(ctx, tenant, id, raw)
 	}
 	validateNetworkRef := func(ref string) error {
 		if ref == "" {
@@ -566,7 +587,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
-	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneLLM, id)
+	w, r, usage := h.beginUsage(w, r, tenant, usageledger.PlaneLLM, id)
 	defer usage.finish()
 	record, e := h.Store.Get(r.Context(), tenant, "model-surface", id)
 	if e != nil {
@@ -600,7 +621,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	if connection.BillingProject != "" {
 		headers.Set("X-Goog-User-Project", connection.BillingProject)
 	}
-	opts := modelapi.Options{UpstreamHeaders: headers, HTTPClient: h.Runtime.Streaming, TokenSource: modelapi.TokenSourceFunc(func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, connection.IdentityRef) }), Context: func(req *http.Request) (contracts.RequestContext, error) { return h.trusted(req, id) }, Authorize: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
+	opts := modelapi.Options{UpstreamHeaders: headers, HTTPClient: telemetry.Client(h.Runtime.Streaming), TokenSource: modelapi.TokenSourceFunc(func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, connection.IdentityRef) }), Context: func(req *http.Request) (contracts.RequestContext, error) { return h.trusted(req, id) }, Authorize: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
 		// Every required grant is checked (not just the first) so a refusal
 		// through an access point can name all that are missing.
 		required := []string{"llm:surface:" + id + ":" + op.ID}
@@ -633,7 +654,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		return fmt.Errorf("action grant required")
 	}, AllowShared: func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation) bool {
 		return h.authorize(r, "llm:surface:"+id+":shared-admin") == nil
-	}, Ownership: resourceOwnership{store: h.Store, namespace: strconv.FormatUint(record.Revision, 10)}, LiveDialer: liveDialer, AllowHTTPForTests: h.Development}
+	}, Ownership: resourceOwnership{store: h.Store, namespace: strconv.FormatUint(record.Revision, 10)}, LiveDialer: tracingLiveDialer{liveDialer}, AllowHTTPForTests: h.Development}
 	if h.Quota != nil {
 		opts.Execution = h.ModelExecutionPreparer(r, record, connection)
 	}
@@ -646,7 +667,12 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	opts.Batches = resourceBatchStore{store: h.Store}
 	opts.BatchSettler = batchSettler{quota: h.Quota, capture: usage, tenant: tenant}
 	usage.instrumentModel(&opts, connection)
+	h.installModelHooks(r, tenant, id, &opts, usage)
 	defer h.installCapacityGate(r, tenant, id, connection, &opts, usage)()
+	if attempt := routeAttemptFrom(r.Context()); attempt != nil {
+		// One attempt of a routed access-point model (access_point_routing.go).
+		attempt.instrument(r, &opts, usage)
+	}
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)
 	if e != nil {
 		Error(w, r, 503, "SURFACE_UNAVAILABLE", e.Error())
@@ -661,7 +687,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
-	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneA2A, id)
+	w, r, usage := h.beginUsage(w, r, tenant, usageledger.PlaneA2A, id)
 	defer usage.finish()
 	record, e := h.Store.Get(r.Context(), tenant, "agent-connection", id)
 	if e != nil {
@@ -735,7 +761,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 			return quotaStatus(403, "ACTION_DENIED", "current native agent action grant required")
 		}
 		return nil
-	}), h.Runtime.Streaming, credential, options...)
+	}), telemetry.Client(h.Runtime.Streaming), credential, options...)
 	if e != nil {
 		Error(w, r, 503, "AGENT_UNAVAILABLE", e.Error())
 		return

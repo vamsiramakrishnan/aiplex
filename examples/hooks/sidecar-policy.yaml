@@ -1,0 +1,25 @@
+# Calls the reference sidecar (examples/hooks/sidecar) on prompts and
+# responses of the "local" access point. The sidecar origin must be approved
+# by the outbound endpoint policy:
+#
+#   go run ./examples/hooks/sidecar -addr 127.0.0.1:5005 &
+#   aiplex dev --allow-origin http://127.0.0.1:5005
+#   aiplex hooks policies set -f examples/hooks/sidecar-policy.yaml
+#
+# A sidecar that is down, slow or answers badly refuses the request
+# (fail closed); fail_open: true would let it through and mark the ledger.
+id: employee-ids
+scope:
+  kind: access_point
+  id: local
+# Streamed responses on the two wires that support it are buffered, inspected
+# and re-emitted; other streams are refused.
+streaming: buffer
+hooks:
+  - id: sidecar
+    type: http
+    phases: [request, response]
+    timeout_ms: 1000
+    http:
+      endpoint: http://127.0.0.1:5005/
+      format: aiplex

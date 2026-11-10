@@ -1,5 +1,10 @@
 # GoReleaser: builds and publishes the aiplex CLI and the aiplex-api server.
 #
+# GoReleaser is pinned to one exact version (v2.20.0) in .github/workflows/ci.yml,
+# .github/workflows/release.yml, tools/release-smoke.sh and the Makefile
+# (GORELEASER_VERSION). Bump all four together, deliberately, after checking
+# `goreleaser check` on the new version for deprecations.
+#
 # Each release archive holds both binaries (aiplex and aiplex-api, plus
 # LICENSE, README.md and CHANGELOG.md), because `aiplex dev` starts the API
 # that sits next to the CLI. install.sh depends on the archive name and on the
@@ -7,12 +12,20 @@
 #
 # Usage:
 #   goreleaser check                       # validate this file
-#   goreleaser release --snapshot --clean --skip=publish   # local dry run (make release-dry)
+#   goreleaser release --snapshot --clean --skip=publish,docker,sign,sbom   # snapshot dry run (local + CI)
 #   git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0  # real release, by CI
 #
 # The release workflow (.github/workflows/release.yml) runs on a v* tag, builds the
 # Console first (it is embedded in the CLI), and uses the matching section of
 # CHANGELOG.md as the release notes.
+#
+# On a version tag the release also publishes:
+#   - container images to ghcr.io/vamsiramakrishnan/{aiplex,aiplex-api}, built in
+#     the publish phase by dockers_v2 (linux/amd64 and linux/arm64 in one entry each)
+#   - a Homebrew cask to vamsiramakrishnan/homebrew-tap for macOS only (Homebrew
+#     casks do not install on Linux); skipped when HOMEBREW_TAP_TOKEN is unset
+#   - SBOMs (syft) over the release archives
+#   - keyless cosign signatures of checksums.txt and of the container images
 
 version: 2
 
@@ -82,6 +95,107 @@ archives:
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
+
+sboms:
+  - id: archives
+    artifacts: archive
+    cmd: syft
+
+# Keyless signing of checksums.txt with the GitHub OIDC token; the cosign
+# certificate (.pem) and signature (.sig) are attached to the release.
+signs:
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    output: true
+    args:
+      - sign-blob
+      - --output-certificate=${certificate}
+      - --output-signature=${signature}
+      - --yes
+      - "${artifact}"
+
+# Container images. One dockers_v2 entry per image builds both platforms; the
+# Dockerfile finds each binary at $TARGETPLATFORM/<binary> in the build context.
+# Images are built in the publish phase (so --skip=publish or --skip=docker skips them).
+# The version tag is always pushed; `latest` only for a release without a prerelease
+# part (a version containing "-", such as v0.2.0-rc.1, does not move latest).
+dockers_v2:
+  - id: aiplex-api
+    ids:
+      - aiplex-api
+    images:
+      - ghcr.io/vamsiramakrishnan/aiplex-api
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not (contains \"-\" .Version) }}latest{{ end }}"
+    dockerfile: Dockerfile.release-api
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.source: "https://github.com/vamsiramakrishnan/aiplex"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+  - id: aiplex
+    ids:
+      - aiplex
+    images:
+      - ghcr.io/vamsiramakrishnan/aiplex
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not (contains \"-\" .Version) }}latest{{ end }}"
+    dockerfile: Dockerfile.release-cli
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.source: "https://github.com/vamsiramakrishnan/aiplex"
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+
+# Keyless signing of the pushed container images (by digest).
+docker_signs:
+  - id: images
+    cmd: cosign
+    artifacts: all
+    args:
+      - sign
+      - --yes
+      - "${artifact}@${digest}"
+
+# Homebrew cask for macOS. Homebrew casks are macOS-only, so Linux users install
+# from the install script or the archive. The tap directory is Casks (the default).
+# The post-install step runs `aiplex version` from the staged binary so that a
+# broken install fails here rather than on first use.
+homebrew_casks:
+  - name: aiplex
+    binaries:
+      - aiplex
+      - aiplex-api
+    repository:
+      owner: vamsiramakrishnan
+      name: homebrew-tap
+      # `index` rather than .Env.X: a missing variable must read as empty, not fail the template.
+      token: '{{ index .Env "HOMEBREW_TAP_TOKEN" }}'
+    directory: Casks
+    # Skip the tap upload when HOMEBREW_TAP_TOKEN is empty or absent so the
+    # release still succeeds without it.
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    homepage: "https://github.com/vamsiramakrishnan/aiplex"
+    description: "CLI and API server for aiplex (aiplex, aiplex-api)."
+    caveats: |
+      aiplex-api is installed next to aiplex, which `aiplex dev` needs.
+      Release binaries are not notarised by Apple. If macOS blocks the first run,
+      allow it under System Settings > Privacy & Security, or remove the quarantine
+      attribute yourself after checking the checksum:
+        xattr -dr com.apple.quarantine "$(brew --prefix)/bin/aiplex"
+    hooks:
+      post:
+        install_steps: |
+          run "{{ .StagedPath }}/aiplex", args: ["version"]
 
 # Used when no --release-notes file is given (for example `make release-dry`).
 # The release workflow passes the CHANGELOG.md section instead.

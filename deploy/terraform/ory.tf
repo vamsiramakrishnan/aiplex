@@ -25,11 +25,50 @@ resource "null_resource" "kratos_db" {
   depends_on = [google_alloydb_instance.primary]
 }
 
+# The aiplex-system namespace. Terraform deploys the AlloyDB proxy and the Ory
+# charts into it before `aiplex platform apply` runs the AIPlex Helm chart, so
+# Terraform creates it. The AIPlex chart also renders this Namespace; the
+# Helm ownership label and annotations let that release adopt it instead of
+# failing with "exists and cannot be imported into the current release".
+# Helm adds its own labels on adoption, hence ignore_changes.
+resource "kubernetes_namespace" "aiplex_system" {
+  metadata {
+    name = "aiplex-system"
+    labels = {
+      "istio.io/rev"                 = "asm-managed-rapid"
+      "app.kubernetes.io/managed-by" = "Helm"
+    }
+    annotations = {
+      "meta.helm.sh/release-name"      = "aiplex"
+      "meta.helm.sh/release-namespace" = "aiplex-system"
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].labels, metadata[0].annotations]
+  }
+
+  depends_on = [google_container_cluster.aiplex]
+}
+
+# Kubernetes service account for the AlloyDB Auth Proxy, mapped by Workload
+# Identity to the aiplex-alloydb-proxy Google service account
+# (identity_pool.tf), which holds roles/alloydb.client.
+resource "kubernetes_service_account" "alloydb_proxy" {
+  metadata {
+    name      = "aiplex-alloydb-proxy"
+    namespace = kubernetes_namespace.aiplex_system.metadata[0].name
+    annotations = {
+      "iam.gke.io/gcp-service-account" = google_service_account.alloydb_proxy.email
+    }
+  }
+}
+
 # AlloyDB Auth Proxy deployment (for in-cluster connectivity)
 resource "kubernetes_deployment" "alloydb_proxy" {
   metadata {
     name      = "alloydb-proxy"
-    namespace = "aiplex-system"
+    namespace = kubernetes_namespace.aiplex_system.metadata[0].name
     labels = {
       app = "alloydb-proxy"
     }
@@ -67,7 +106,7 @@ resource "kubernetes_deployment" "alloydb_proxy" {
             }
           }
         }
-        service_account_name = "aiplex-api"
+        service_account_name = kubernetes_service_account.alloydb_proxy.metadata[0].name
       }
     }
   }
@@ -78,7 +117,7 @@ resource "kubernetes_deployment" "alloydb_proxy" {
 resource "kubernetes_service" "alloydb_proxy" {
   metadata {
     name      = "alloydb-proxy"
-    namespace = "aiplex-system"
+    namespace = kubernetes_namespace.aiplex_system.metadata[0].name
   }
   spec {
     selector = {
@@ -167,7 +206,7 @@ resource "random_password" "kratos_cipher" {
 # Ory Hydra Helm release
 resource "helm_release" "hydra" {
   name       = "hydra"
-  namespace  = "aiplex-system"
+  namespace  = kubernetes_namespace.aiplex_system.metadata[0].name
   repository = "https://k8s.ory.sh/helm/charts"
   chart      = "hydra"
   version    = "0.46.0"
@@ -222,7 +261,7 @@ resource "helm_release" "hydra" {
 # Ory Kratos Helm release
 resource "helm_release" "kratos" {
   name       = "kratos"
-  namespace  = "aiplex-system"
+  namespace  = kubernetes_namespace.aiplex_system.metadata[0].name
   repository = "https://k8s.ory.sh/helm/charts"
   chart      = "kratos"
   version    = "0.46.0"

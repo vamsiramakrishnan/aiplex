@@ -8,12 +8,14 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
+	"github.com/vamsiramakrishnan/aiplex/internal/gcpsetup"
 )
 
 func doctorCmd() *cobra.Command {
@@ -22,7 +24,8 @@ func doctorCmd() *cobra.Command {
 		Short: "Diagnose common issues and suggest fixes",
 		Long: `Runs a comprehensive diagnostic of your AIPlex setup:
   - CLI configuration and credentials
-  - GCP project access and permissions
+  - GCP project access, and the deployer permissions, APIs and billing
+    the Terraform needs (same check as aiplex platform preflight)
   - Kubernetes cluster connectivity
   - API server health
   - Auth services (Hydra/Kratos)
@@ -132,16 +135,26 @@ func doctorCmd() *cobra.Command {
 							fmt.Printf("  [pass] Project: %s\n", strings.TrimSpace(string(out)))
 						}
 
-						// Check required APIs
-						requiredAPIs := []string{"container", "alloydb", "firestore", "secretmanager"}
-						for _, api := range requiredAPIs {
-							svc := api + ".googleapis.com"
-							err := exec.Command("gcloud", "services", "list", "--project", ctx.Project,
-								"--filter=name:"+svc, "--format=value(name)", "--quiet").Run()
-							if err != nil {
-								fmt.Printf("  [WARN] API %s may not be enabled\n", svc)
-								warnings++
+						// Deployer permissions, APIs and billing: the same table and
+						// check as aiplex platform preflight. Advisory here: the
+						// platform may have been deployed by someone else.
+						toggles, terr := gcpsetup.ReadToggles(filepath.Join(findTerraformDir(), "terraform.tfvars"))
+						if terr != nil {
+							toggles = gcpsetup.DefaultToggles()
+						}
+						report, _, perr := runGCPPreflight(cmd.Context(), preflightInput{project: ctx.Project, toggles: toggles})
+						switch {
+						case perr != nil:
+							fmt.Printf("  [WARN] Permission preflight could not run: %v\n", perr)
+							warnings++
+						case report.OK:
+							fmt.Println("  [pass] Deployer permissions, APIs and billing")
+						default:
+							for _, f := range report.Failures {
+								fmt.Printf("  [WARN] %s\n", f)
 							}
+							fmt.Println("    Details and the roles to grant: aiplex platform preflight")
+							warnings++
 						}
 					} else {
 						fmt.Println("  [SKIP] No project configured")

@@ -184,7 +184,7 @@ func TestUsageGetShowsEveryFieldAndUnknown(t *testing.T) {
 		if r.URL.Path != "/api/v1/usage/records/ul_b" {
 			t.Errorf("path %s", r.URL.Path)
 		}
-		w.Write([]byte(`{"id":"ul_b","tenant_id":"t","started_at":"2026-11-09T09:00:00Z","finished_at":"2026-11-09T09:00:01Z","latency_ms":5,"plane":"mcplex","tool_name":"search","trace_id":"tr","streaming":true,"status":"denied","source":"managed","requests":1,"usage":null,"cost":{"basis":"unknown"}}`))
+		w.Write([]byte(`{"id":"ul_b","tenant_id":"t","started_at":"2026-11-09T09:00:00Z","finished_at":"2026-11-09T09:00:01Z","latency_ms":5,"plane":"mcplex","tool_name":"search","trace_id":"tr","span_id":"sp","streaming":true,"status":"denied","source":"managed","requests":1,"usage":null,"cost":{"basis":"unknown"}}`))
 	}))
 	defer server.Close()
 	out, err := runUsage(t, server, "table", "get", "ul_b")
@@ -192,7 +192,7 @@ func TestUsageGetShowsEveryFieldAndUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	flat := strings.Join(strings.Fields(strings.ReplaceAll(out, "\n", " | ")), " ")
-	for _, want := range []string{"trace_id: tr", "quota_attempt_id: —", "streaming: true", "input_tokens: unknown", "total_tokens: unknown", "cost: unknown", "http_status: —"} {
+	for _, want := range []string{"trace_id: tr", "span_id: sp", "quota_attempt_id: —", "streaming: true", "input_tokens: unknown", "total_tokens: unknown", "cost: unknown", "http_status: —"} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("detail missing %q in:\n%s", want, out)
 		}

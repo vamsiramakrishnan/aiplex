@@ -33,7 +33,7 @@ func TestBugbashManifestCannotOverrideOwnershipOrSmuggleDocuments(t *testing.T) 
 				t.Fatalf("unsafe payload rendered successfully: %s", rendered)
 			}
 			// Dry-run takes the same validation path as real application and
-			// performs no kubectl call for either accepted or rejected inputs.
+			// performs no API call for either accepted or rejected inputs.
 			if err := NewLiveK8sClientConfigured(WithDryRun(true)).Apply(context.Background(), manifest); err == nil {
 				t.Fatal("live client accepted unsafe payload")
 			}

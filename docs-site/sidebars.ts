@@ -47,6 +47,8 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'guides/mcplex'},
           items: [
             L('tool-connection-auth', 'Tool connection auth'),
+            L('tool-policy-rules', 'Policy rules on tool calls'),
+            L('mcp-registry-import', 'Import from the MCP Registry'),
             L('mcp-runtime-authorization', 'Owned MCP OAuth execution'),
           ],
         },
@@ -78,6 +80,7 @@ const sidebars: SidebarsConfig = {
             L('quotaplex-execution-coverage', 'Execution coverage'),
             L('quotaplex-prerequisites', 'Prerequisites and readiness'),
             L('quotaplex-foundation-design', 'Foundation design'),
+            L('budgets', 'Budgets'),
             L('usage-ledger', 'Usage ledger'),
           ],
         },
@@ -85,7 +88,7 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'ClientPlex',
           link: {type: 'doc', id: 'guides/clientplex'},
-          items: [L('clientplex', 'Client contracts')],
+          items: [L('clientplex', 'Client contracts'), L('harness-onboarding', 'Harness onboarding')],
         },
         'guides/skillsplex',
         {
@@ -94,6 +97,9 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'guides/access-points'},
           items: [L('access-points', 'Specification and routes')],
         },
+        L('request-lifecycle', 'Request lifecycle (order of checks)'),
+        L('request-hooks', 'Request hooks'),
+        L('reliability-and-routing', 'Reliability and routing'),
         {
           type: 'category',
           label: 'Identity',
@@ -118,7 +124,10 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'operations/index'},
       items: [
         'operations/configuration',
+        L('gcp-permissions', 'Google Cloud permissions'),
         L('helm-identity-config', 'Identity configuration (Helm)'),
+        L('observability', 'Observability (OpenTelemetry)'),
+        L('policy-denials', 'Policy denials'),
         'operations/authorization-policy',
         L('modules', 'Independent modules'),
         'operations/networking',
@@ -145,6 +154,9 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'api/overview'},
           items: [
             'api/usage',
+            'api/otlp',
+            'api/hooks',
+            'api/budgets',
             'api/access-points',
             'api/overview-pane',
             'api/identity-agents',

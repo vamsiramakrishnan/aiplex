@@ -31,14 +31,21 @@ func (s SecretToolSessions) Seal(ctx context.Context, binding string, value tool
 	if _, e := rand.Read(nonce[:]); e != nil {
 		return "", e
 	}
-	hash := sha256.Sum256(append([]byte(binding), nonce[:]...))
-	name := "aiplex-tool-session-" + hex.EncodeToString(hash[:])
+	name := toolSessionSecretID(binding, nonce[:])
 	data, e := json.Marshal(toolSecretEnvelope{binding, value.Verifier, value.AccessToken, value.RefreshToken})
 	if e != nil {
 		return "", e
 	}
 	return s.Manager.PutVersion(ctx, name, data)
 }
+// toolSessionSecretID names the Secret Manager secret for one sealed session.
+// Like every secret ID the API uses it starts with SecretIDPrefix, which the
+// Terraform IAM condition on the API's secretAccessor binding relies on.
+func toolSessionSecretID(binding string, nonce []byte) string {
+	hash := sha256.Sum256(append([]byte(binding), nonce...))
+	return SecretIDPrefix + "tool-session-" + hex.EncodeToString(hash[:])
+}
+
 func (s SecretToolSessions) Open(ctx context.Context, binding, ref string) (toolauth.SessionSecrets, error) {
 	if s.Manager == nil || !strings.Contains(ref, "/secrets/aiplex-tool-session-") {
 		return toolauth.SessionSecrets{}, fmt.Errorf("session secret reference denied")

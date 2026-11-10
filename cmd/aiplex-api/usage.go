@@ -25,7 +25,18 @@ func configureUsageLedger(store registry.Store, cfg *config.Config, connected *a
 	}))
 	connected.Ledger = recorder
 	llm.WithUsageLedger(recorder, connected.Tenant, connected.ModelPrices)
-	return api.NewUsageHandler(ledger, connected.Tenant, cfg.DevelopmentMode)
+	handler := api.NewUsageHandler(ledger, connected.Tenant, cfg.DevelopmentMode)
+	handler.Prices = connected.ModelPrices
+	return handler
+}
+
+// mountHookPolicies serves /api/v1/hooks/policies: hook-policy tenant
+// resources on the shared revisioned resource handler, plus a dry run.
+func mountHookPolicies(r chi.Router, connected *api.ConnectedHandler) {
+	r.Route("/hooks/policies", func(r chi.Router) {
+		resourceRoutes(r, connected, api.HookPolicyKind)
+		r.Post("/{id}/test", connected.TestHookPolicy)
+	})
 }
 
 // mountUsageLedger serves /api/v1/usage. Prices are tenant resources of kind
@@ -34,7 +45,11 @@ func mountUsageLedger(r chi.Router, usage *api.UsageHandler, connected *api.Conn
 	r.Route("/usage", func(r chi.Router) {
 		r.Get("/records", usage.ListRecords)
 		r.Get("/records/{id}", usage.GetRecord)
+		r.Get("/records/{id}/feedback", usage.ListFeedback)
+		r.Post("/records/{id}/feedback", usage.PostFeedback)
 		r.Get("/summary", usage.Summary)
+		r.Post("/backfill", usage.Backfill)
+		r.Get("/config", usage.Config)
 		r.Route("/prices", func(r chi.Router) { resourceRoutes(r, connected, usageledger.PriceKind) })
 	})
 }

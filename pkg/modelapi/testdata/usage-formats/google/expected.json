@@ -11,7 +11,7 @@
   "gemini-generate-tooluse.json": {
     "input_tokens": 800,
     "output_tokens": 60,
-    "cache_read_tokens": null,
+    "cache_read_tokens": 0,
     "cache_write_tokens": null,
     "reasoning_tokens": 100,
     "total_tokens": 1410,
@@ -29,18 +29,18 @@
   "gemini-generate.stream.json": {
     "input_tokens": 900,
     "output_tokens": 120,
-    "cache_read_tokens": null,
+    "cache_read_tokens": 0,
     "cache_write_tokens": null,
-    "reasoning_tokens": null,
+    "reasoning_tokens": 0,
     "total_tokens": 1020,
-    "notes": "POST /v1beta/models/{model}:streamGenerateContent without alt=sse: body is one JSON array of GenerateContentResponse (this array framing is UNCONFIRMED in the Developer API docs). Take usage from the LAST element (cumulative). cachedContentTokenCount and thoughtsTokenCount are absent (null); whether absence means zero is UNCONFIRMED (proto3 JSON omits zeros but the docs do not say so)."
+    "notes": "POST /v1beta/models/{model}:streamGenerateContent without alt=sse: body is one JSON array of GenerateContentResponse (this array framing is UNCONFIRMED in the Developer API docs). Take usage from the LAST element (cumulative). cachedContentTokenCount and thoughtsTokenCount are absent; the Developer API omits them when zero (observed live 2026-11-10, no cache hit and thinking off), so the ledger records 0 when prompt, candidates and total are all reported."
   },
   "gemini-generate-interrupted.sse": {
     "input_tokens": 700,
     "output_tokens": 19,
-    "cache_read_tokens": null,
+    "cache_read_tokens": 0,
     "cache_write_tokens": null,
-    "reasoning_tokens": null,
+    "reasoning_tokens": 0,
     "total_tokens": 719,
     "notes": "INTERRUPTED: stream cut after chunk 2; no finishReason, no final chunk. Values are the last cumulative snapshot and are a LOWER BOUND for output. Prompt is known. Whether Google bills or reports full generation for a client-aborted stream is UNCONFIRMED. If no chunk before the cut had carried usageMetadata, every counter would be null."
   },
@@ -358,5 +358,14 @@
     "reasoning_tokens": null,
     "total_tokens": null,
     "notes": "HTTP 429. Documented messages: pay-as-you-go 'Resource exhausted, please try again later.'; Provisioned Throughput 'Too many requests. Exceeded the Provisioned Throughput.'. Body details[] (QuotaFailure/RetryInfo), Retry-After and rate-limit headers are NOT documented (UNCONFIRMED); the code/status/message envelope is the standard Google error envelope (UNCONFIRMED for Vertex pages). Error entries carry no trafficType/usageMetadata. Under Standard PayGo a 429 means shared-pool contention, not a fixed-quota breach."
+  },
+  "gemini-generate-grounded.json": {
+    "input_tokens": 500,
+    "output_tokens": 60,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 40,
+    "total_tokens": 900,
+    "notes": "Grounded generation: usageMetadata.billedToolCalls (shape observed live on the Gemini Developer API, 2026-11-10; searchQueryCount 3, successfulToolCallCount 2) is the per-query server-tool count, with groundingMetadata.webSearchQueries as a fallback, toolUsePromptTokenCount (300) is NOT inside promptTokenCount but is inside totalTokenCount, and usageMetadata.serviceTier names the tier. Fixture is synthetic, shaped after the GenerateContentResponse."
   }
 }

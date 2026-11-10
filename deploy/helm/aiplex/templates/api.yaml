@@ -2,6 +2,7 @@
 {{- range .Values.api.extraVolumes }}
 {{- $name := required "api.extraVolumes entries require a name" .name -}}
 {{- if hasKey $apiVolumeNames $name }}{{ fail "duplicate api.extraVolumes name" }}{{ end -}}
+{{- if eq $name "tmp" }}{{ fail "api.extraVolumes name tmp is reserved for the API's scratch directory" }}{{ end -}}
 {{- $_ := set $apiVolumeNames $name true -}}
 {{- if eq (hasKey . "secret") (hasKey . "configMap") }}{{ fail "api.extraVolumes must select exactly one Secret or ConfigMap" }}{{ end -}}
 {{- range $key, $value := . }}
@@ -50,9 +51,25 @@ spec:
         app.kubernetes.io/name: aiplex-api
     spec:
       serviceAccountName: aiplex-api
+      # The API keeps the Kubernetes service account token: the deploy engine
+      # (internal/deploy) talks to the Kubernetes API in-cluster, with the
+      # namespaced Roles in api-rbac.yaml.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        # distroless/static:nonroot
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: aiplex-api
         image: {{ include "aiplex.api.image" . }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
         ports:
         - containerPort: 8080
           name: http
@@ -75,12 +92,79 @@ spec:
           value: "info"
         - name: GATEWAY_NAME
           value: "aiplex-gateway"
+        {{- if .Values.otel.enabled }}
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: {{ .Values.otel.endpoint | default (printf "http://otel-collector.%s:4318" (include "aiplex.namespace" .)) | quote }}
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: {{ .Values.otel.protocol | default "http/protobuf" | quote }}
+        - name: OTEL_SERVICE_NAME
+          value: "aiplex-api"
+        {{- end }}
+        - name: AIPLEX_TRACE_PROPAGATE_UPSTREAM
+          value: {{ ternary "true" "false" (ne .Values.otel.propagateUpstream false) | quote }}
+        {{- with .Values.api.metricsTokenSecret }}
+        {{- if .name }}
+        - name: AIPLEX_METRICS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .name | quote }}
+              key: {{ .key | default "token" | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.denialIngest.tokenSecret }}
+        {{- if .name }}
+        - name: AIPLEX_DENIAL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .name | quote }}
+              key: {{ .key | default "token" | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.usage }}
+        {{- with .traceUrlTemplate }}
+        - name: AIPLEX_TRACE_URL_TEMPLATE
+          value: {{ . | quote }}
+        {{- end }}
+        - name: AIPLEX_FEEDBACK_COMMENTS
+          value: {{ ternary "true" "false" (eq .feedbackComments true) | quote }}
+        {{- with .tagKeysAllowed }}
+        - name: AIPLEX_TAG_KEYS_ALLOWED
+          value: {{ join "," . | quote }}
+        {{- end }}
+        {{- with .tagMaxValues }}
+        - name: AIPLEX_TAG_MAX_VALUES
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .otlp }}
+        {{- with .maxRecordsPerRequest }}
+        - name: AIPLEX_OTLP_MAX_RECORDS_PER_REQUEST
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .maxBodyBytes }}
+        - name: AIPLEX_OTLP_MAX_BODY_BYTES
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .requestsPerSecond }}
+        - name: AIPLEX_OTLP_REQUESTS_PER_SECOND
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .recordsPerSecond }}
+        - name: AIPLEX_OTLP_RECORDS_PER_SECOND
+          value: {{ . | quote }}
+        {{- end }}
+        - name: AIPLEX_OTLP_FORWARD
+          value: {{ ternary "true" "false" (eq .forward true) | quote }}
+        {{- end }}
+        {{- end }}
         {{- range $key, $value := .Values.api.env }}
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
-        {{- with .Values.api.extraVolumeMounts }}
         volumeMounts:
+        # Writable scratch space; the root filesystem is read-only.
+        - name: tmp
+          mountPath: /tmp
+        {{- with .Values.api.extraVolumeMounts }}
         {{- range . }}
         - name: {{ .name | quote }}
           mountPath: {{ .mountPath | quote }}
@@ -104,9 +188,11 @@ spec:
             port: http
           initialDelaySeconds: 3
           periodSeconds: 5
-      {{- with .Values.api.extraVolumes }}
       volumes:
-        {{- toYaml . | nindent 8 }}
+      - name: tmp
+        emptyDir: {}
+      {{- with .Values.api.extraVolumes }}
+        {{- toYaml . | nindent 6 }}
       {{- end }}
 ---
 apiVersion: v1

@@ -8,7 +8,8 @@
 # Installs the pre-built aiplex CLI (and aiplex-api, used by `aiplex dev`,
 # when the release archive carries it) to ~/.local/bin (AIPLEX_INSTALL_DIR).
 # AIPLEX_DOWNLOAD_BASE overrides the release download URL (for mirrors and tests).
-# The archive is checked against the release's checksums.txt when one is there.
+# The archive is checked against the release's checksums.txt before anything is installed;
+# a missing checksums.txt is an error. Nothing runs with sudo: the default directory is in $HOME.
 
 set -euo pipefail
 
@@ -31,6 +32,13 @@ info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
+# The version becomes part of a URL and a file name, so accept only a tag-shaped value.
+if [[ "$VERSION" != "latest" ]]; then
+    [[ "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$ ]] \
+        || err "invalid version '${VERSION}' (expected latest or vX.Y.Z)"
+    [[ "$VERSION" == v* ]] || VERSION="v${VERSION}"
+fi
+
 # ─── Detect platform ───────────────────────────────────────
 detect_platform() {
     OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -52,8 +60,11 @@ resolve_version() {
     command -v curl >/dev/null || err "curl is required"
     command -v tar >/dev/null || err "tar is required"
     if [[ "$VERSION" == "latest" ]]; then
-        VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-            | grep '"tag_name"' | cut -d'"' -f4)
+        local body
+        body="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null)" \
+            || err "Could not reach the GitHub API for the latest release. Specify with: --version v0.1.0"
+        # With pipefail, a grep with no match would exit the script silently; keep it out of the status.
+        VERSION="$(printf '%s\n' "$body" | { grep '"tag_name"' || true; } | cut -d'"' -f4)"
         if [[ -z "$VERSION" ]]; then
             err "Could not determine latest version. Specify with: --version v0.1.0"
         fi
@@ -75,28 +86,31 @@ install() {
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "${tmpdir:-}"' EXIT
 
-    curl -fsSL "$url" -o "${tmpdir}/${filename}" || err "Download failed: ${url}. Check the version (releases: https://github.com/${REPO}/releases)"
-
-    # Verify the archive against the release checksums.
-    if curl -fsSL "${DOWNLOAD_BASE}/${VERSION}/checksums.txt" -o "${tmpdir}/checksums.txt" 2>/dev/null; then
-        local want got
-        want="$(awk -v f="$filename" '$2 == f || $2 == "*"f {print $1}' "${tmpdir}/checksums.txt")"
-        [[ -n "$want" ]] || err "checksums.txt does not list ${filename}"
-        if command -v sha256sum >/dev/null; then
-            got="$(sha256sum "${tmpdir}/${filename}" | awk '{print $1}')"
-        else
-            got="$(shasum -a 256 "${tmpdir}/${filename}" | awk '{print $1}')"
-        fi
-        [[ "$want" == "$got" ]] || err "checksum mismatch for ${filename} (expected ${want}, got ${got})"
-        ok "Checksum verified"
-    else
-        info "No checksums.txt next to the archive; skipping checksum verification"
+    # A missing asset (no build for this OS/arch in this release) is the common failure; say so.
+    if ! curl -fsSL "$url" -o "${tmpdir}/${filename}" 2>/dev/null; then
+        err "No ${filename} in release ${VERSION}: this release has no build for ${OS}/${ARCH}, or the download failed (${url}). Releases: https://github.com/${REPO}/releases"
     fi
+
+    # Verify the archive against the release checksums. Fail closed: a release always
+    # publishes checksums.txt, so a missing or unreadable one is an error, not a skip.
+    curl -fsSL "${DOWNLOAD_BASE}/${VERSION}/checksums.txt" -o "${tmpdir}/checksums.txt" 2>/dev/null \
+        || err "Could not download checksums.txt for ${VERSION}; refusing to install an unverified archive"
+    local want got
+    want="$(awk -v f="$filename" '$2 == f || $2 == "*"f {print $1}' "${tmpdir}/checksums.txt")"
+    [[ -n "$want" ]] || err "checksums.txt does not list ${filename}"
+    if command -v sha256sum >/dev/null; then
+        got="$(sha256sum "${tmpdir}/${filename}" | awk '{print $1}')"
+    else
+        got="$(shasum -a 256 "${tmpdir}/${filename}" | awk '{print $1}')"
+    fi
+    [[ "$want" == "$got" ]] || err "checksum mismatch for ${filename} (expected ${want}, got ${got})"
+    ok "Checksum verified"
 
     info "Installing to ${INSTALL_DIR}..."
     mkdir -p "$INSTALL_DIR"
 
     if [[ "$ext" == "zip" ]]; then
+        command -v unzip >/dev/null || err "unzip is required to unpack ${filename}"
         unzip -o "${tmpdir}/${filename}" -d "$tmpdir" >/dev/null
     else
         tar -xzf "${tmpdir}/${filename}" -C "$tmpdir"
@@ -122,7 +136,7 @@ check_path() {
         echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
         echo ""
         local shell_rc="$HOME/.bashrc"
-        [[ "$SHELL" == */zsh ]] && shell_rc="$HOME/.zshrc"
+        [[ "${SHELL:-}" == */zsh ]] && shell_rc="$HOME/.zshrc"
         info "Or permanently:"
         echo "  echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ${shell_rc}"
     fi

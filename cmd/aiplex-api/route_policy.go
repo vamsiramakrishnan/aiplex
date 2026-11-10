@@ -44,6 +44,10 @@ var routeRules = func() []api.RouteRule {
 		// Shared-secret callbacks; each route group carries its own BearerToken guard.
 		tenantRule(post, "/auth/token-hook", api.RouteInternal),
 		tenantPrefix(post, "/internal/", api.RouteInternal),
+		// Prometheus scrape: the AIPLEX_METRICS_TOKEN bearer secret (503 when
+		// unset), so an in-cluster scraper needs no AIPlex identity. Metrics
+		// carry no principal, request or trace identifiers.
+		tenantRule(get, "/metrics", api.RouteInternal),
 
 		// Access points: the handler admits by caller kind and subjects.
 		tenantPrefix(nil, "/ap/{apid}/", api.RouteAuthenticated),
@@ -67,6 +71,17 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(get, "/api/v1/access-points/{id}", api.RouteAuthenticated),
 		tenantRule([]string{http.MethodPut, http.MethodDelete}, "/api/v1/access-points/{id}", api.RouteAdmin),
 		tenantRule(post, "/api/v1/access-points/{id}/quota-plan", api.RouteAdmin),
+		// Routing state (breakers, recent outcomes) names backends: operators
+		// only. Purging the response cache: admins.
+		tenantRule(get, "/api/v1/access-points/{id}/routing", api.RouteOperator),
+		tenantRule(post, "/api/v1/access-points/{id}/cache/purge", api.RouteAdmin),
+		// Budgets: operators read definitions, admins write and preview. Any
+		// verified caller may ask for the status of a budget; the handler
+		// answers only a direct member (404 otherwise) with spent and
+		// remaining, and gives operators the full view.
+		tenantRule(get, "/api/v1/budgets/{id}/status", api.RouteAuthenticated),
+		tenantRule(post, "/api/v1/budgets/preview", api.RouteAdmin),
+		tenantRule([]string{http.MethodPut, http.MethodDelete}, "/api/v1/budgets/{id}", api.RouteAdmin),
 		// Client configuration for an access point: operators read it in full;
 		// any other verified caller only for an access point that admits it,
 		// without operator-only detail (handler: OverviewHandler.ConnectForCaller).
@@ -75,7 +90,20 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(get, "/api/v1/usage/records", api.RouteAuthenticated),
 		tenantRule(get, "/api/v1/usage/records/{id}", api.RouteAuthenticated),
 		tenantRule(get, "/api/v1/usage/summary", api.RouteAuthenticated),
+		// Back-estimation rewrites unknown costs in the ledger: admins only.
+		tenantRule(post, "/api/v1/usage/backfill", api.RouteAdmin),
+		tenantRule(get, "/api/v1/usage/config", api.RouteAuthenticated),
+		// Feedback: the record's own principal or actor, or an operator (the
+		// handler checks which; an invisible record answers as missing).
+		tenantRule(get, "/api/v1/usage/records/{id}/feedback", api.RouteAuthenticated),
+		tenantRule(post, "/api/v1/usage/records/{id}/feedback", api.RouteAuthenticated),
 		tenantPrefix(writes, "/api/v1/usage/", api.RouteAdmin),
+		// OTLP receiver: any verified caller in the tenant reports its own
+		// telemetry. Records are attributed to the verified token's principal,
+		// never to attributes in the payload.
+		tenantRule(post, "/otlp/v1/logs", api.RouteAuthenticated),
+		tenantRule(post, "/otlp/v1/metrics", api.RouteAuthenticated),
+		tenantRule(post, "/otlp/v1/traces", api.RouteAuthenticated),
 		// Quota attempts: the caller's own, or the aiplex:quota:read grant.
 		tenantRule(get, "/api/v1/quota/attempts/{id}", api.RouteAuthenticated),
 
@@ -85,6 +113,8 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(nil, "/api/v1/llm/gateway/{id}/*", api.RouteAuthenticated),
 		tenantRule(post, "/api/v1/a2a/connections/{id}/invoke", api.RouteAuthenticated),
 		tenantRule(post, "/api/v1/mcp/connections/{id}/invoke", api.RouteAuthenticated),
+		// Policy-rule dry run: describes the connection's rules, so operators only.
+		tenantRule(post, "/api/v1/mcp/connections/{id}/rules/test", api.RouteOperator),
 		tenantRule([]string{http.MethodGet, http.MethodPost, http.MethodDelete}, "/api/v1/mcp/connections/{id}/authorization", api.RouteAuthenticated),
 		tenantRule(post, "/api/v1/mcp/connections/{id}/authorization/complete", api.RouteAuthenticated),
 		tenantRule(post, "/api/v1/iam/native/bindings/{id}/read", api.RouteAuthenticated),
@@ -97,6 +127,7 @@ var routeRules = func() []api.RouteRule {
 		// Tenant-partitioned configuration: admin or deployer (the default
 		// access), plus each handler's own action grants.
 		tenantPrefix(nil, "/api/v1/access-points", api.RouteOperator),
+		tenantPrefix(nil, "/api/v1/budgets", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/overview/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/usage/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/llm/surfaces", api.RouteOperator),
@@ -105,6 +136,12 @@ var routeRules = func() []api.RouteRule {
 		tenantPrefix(nil, "/api/v1/clients/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/network/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/quota/", api.RouteOperator),
+		// Request-hook policies: operators read, write and dry-run them.
+		// Callers never read them: a policy names detection rules, patterns
+		// and sidecar endpoints, which would help a caller shape content to
+		// evade it. A caller learns of a policy only from a refusal's safe
+		// public message.
+		tenantPrefix(nil, "/api/v1/hooks/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/iam/native/", api.RouteOperator),
 
 		// Deployment-wide administration (refused to other tenants).

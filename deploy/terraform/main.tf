@@ -52,18 +52,31 @@ provider "google-beta" {
   region  = var.region
 }
 
-# Enable required APIs
+# Enable required APIs. This list must equal gcpsetup.TerraformAPIs()
+# (internal/gcpsetup); TestTerraformAPIListMatchesTable fails when they differ.
+# cloudresourcemanager and serviceusage are not here: they must already be
+# enabled for Terraform to enable anything (aiplex platform preflight checks).
 resource "google_project_service" "apis" {
   for_each = toset([
-    "container.googleapis.com",
     "alloydb.googleapis.com",
-    "firestore.googleapis.com",
-    "secretmanager.googleapis.com",
-    "certificatemanager.googleapis.com",
-    "mesh.googleapis.com",
-    "privateca.googleapis.com",
     "artifactregistry.googleapis.com",
+    "binaryauthorization.googleapis.com",
+    "certificatemanager.googleapis.com",
+    "cloudkms.googleapis.com",
+    "cloudscheduler.googleapis.com",
+    "cloudtrace.googleapis.com",
+    "compute.googleapis.com",
+    "container.googleapis.com",
+    "containeranalysis.googleapis.com",
+    "dns.googleapis.com",
+    "firestore.googleapis.com",
     "iam.googleapis.com",
+    "mesh.googleapis.com",
+    "monitoring.googleapis.com",
+    "privateca.googleapis.com",
+    "secretmanager.googleapis.com",
+    "servicenetworking.googleapis.com",
+    "storage.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false

@@ -16,7 +16,11 @@
 #   make deploy       Helm install
 #   make verify       Health check + status
 
-.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race examples-test release-smoke \
+# GoReleaser version, pinned for both local and CI use (ci.yml, release.yml and
+# tools/release-smoke.sh use the same value). Bump deliberately, with all four in step.
+GORELEASER_VERSION := v2.20.0
+
+.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race examples-test release-smoke update-price-catalog \
         infra infra-plan infra-destroy deploy deploy-dry verify \
         docker-up docker-down console
 
@@ -62,6 +66,12 @@ test-coverage: ## Run tests with coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+sdk-test: ## Run the Python (sdk/python, in .venv) and TypeScript (sdk/typescript) SDK suites; installs their dependencies
+	python3 -m venv sdk/python/.venv
+	sdk/python/.venv/bin/pip install -q -e 'sdk/python[test]'
+	sdk/python/.venv/bin/python -m pytest sdk/python -q
+	cd sdk/typescript && npm ci --no-audit --no-fund && npm test
+
 demo: ## Scripted first run of `aiplex dev`: chat, stream, MCP tool call, usage, connect (exits non-zero on failure)
 	@bash tools/demo.sh
 
@@ -76,6 +86,11 @@ e2e-race: ## End-to-end tests with aiplex-api built with the race detector
 
 examples-test: ## Run the examples in examples/ against `aiplex dev` (EXAMPLES_INSTALL_SDKS=1 installs the OpenAI SDKs temporarily)
 	@bash examples/test.sh
+
+update-price-catalog: ## Refresh both price catalogue snapshots to pinned upstream commits: make update-price-catalog [COMMIT=<litellm sha>] [MODELSDEV_COMMIT=<models.dev sha>] (default: current upstream heads)
+	@commit="$(COMMIT)"; if [ -z "$$commit" ]; then commit=$$(git ls-remote https://github.com/BerriAI/litellm.git refs/heads/main | cut -f1); fi; \
+	mdcommit="$(MODELSDEV_COMMIT)"; if [ -z "$$mdcommit" ]; then mdcommit=$$(git ls-remote https://github.com/sst/models.dev.git HEAD | cut -f1); fi; \
+	echo "pinning litellm $$commit and models.dev $$mdcommit"; cd pkg/pricecatalog && $(GO) run ./gen -commit $$commit && $(GO) run ./genmodelsdev -commit $$mdcommit && $(GO) test . ./gen ./genmodelsdev -count=1
 
 e2e-aiplex-tape: ## Run the AIPlex+Tape end-to-end demo as an in-process smoke test
 	$(GO) test ./tests/... -run "AIPlexTape" -v -count=1
@@ -224,11 +239,14 @@ deps: ## Check the tools each workflow needs
 
 # ─── Release ────────────────────────────────────────────
 
+release-tool: ## Install the pinned goreleaser ($(GORELEASER_VERSION)) into GOPATH/bin
+	$(GO) install github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
+
 release-check: ## Validate .goreleaser.yaml
 	goreleaser check
 
-release-dry: ## Build release archives locally into dist/ (no publish)
-	goreleaser release --snapshot --clean --skip=publish
+release-dry: ## Build release archives locally into dist/ (no publish, docker, signing, SBOM)
+	goreleaser release --snapshot --clean --skip=publish,docker,sign,sbom
 
 release: ## Publish a release from the current tag (CI does this on a v* tag; requires GITHUB_TOKEN)
 	goreleaser release --clean

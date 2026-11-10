@@ -336,7 +336,10 @@ func humanDuration(ms int64) string {
 // (estimated)", "USD 12.40 (settled)": trailing zeros beyond cents trimmed,
 // basis always shown. Unknown stays "unknown"; it is never shown as 0.
 func shortMoney(currency, amount string, scale uint8, basis string) string {
-	if basis != "settled" && basis != "estimated" {
+	if basis == "cached" {
+		return "0 (cached)"
+	}
+	if basis != "settled" && basis != "estimated" && basis != "reported" {
 		return usageUnknown
 	}
 	value, err := formatFixed(amount, scale)

@@ -13,6 +13,8 @@ An access point is one stable URL, `/ap/{id}/…`, in front of a tenant's models
 | PUT | `/api/v1/access-points/{id}` | Create or update an access point | `admin` role |
 | DELETE | `/api/v1/access-points/{id}` | Delete an access point | `admin` role |
 | POST | `/api/v1/access-points/{id}/quota-plan` | Render and validate the QoS quota fragment. Never activates a policy. | `admin` role |
+| GET | `/api/v1/access-points/{id}/routing` | Live routing state of routed models in the answering API process: per backend, the circuit breaker (`state`, `consecutive_failures`, `opened_at`, `half_open_at`) and the last outcomes; response-cache occupancy (`cache_store`). | `admin` or `deployer` role |
+| POST | `/api/v1/access-points/{id}/cache/purge` | Remove cached answers of the access point, or of one model with `?model=`, in the answering API process. Returns `{"purged": n}`. | `admin` role |
 
 All routes are under `/api/v1`, which requires a verified identity. Outside development mode, the `admin` or `deployer` role is required for non-GET methods, and the access-point writes narrow that to `admin`. A caller without the role receives `403 FORBIDDEN`.
 
@@ -30,6 +32,7 @@ The resource `id` must equal the `id` field. The body is decoded strictly, so un
 | `tools` | array of object | No | Tool connections exposed. See Tools. |
 | `skills` | array of object | No | Skill server instances exposed. See Skills. |
 | `qos` | object | No | Quality of service and limits. See QoS. |
+| `labels` | object of string | No | Up to 8 trusted experiment tags, stored as `tags` on every usage record of an exchange through this access point. Keys match `[a-z][a-z0-9_.-]{0,31}`, values are up to 64 characters of `[A-Za-z0-9_.:/@+() -]` and are not `(other)`. A caller can add tags only with the `X-AIPlex-Tags` header for keys the operator allowed, and cannot override a label. |
 
 At least one of `models`, `tools` or `skills` must be present.
 
@@ -49,8 +52,13 @@ At least one of `models`, `tools` or `skills` must be present.
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `name` | string | Yes | Client-facing model name. Matches `[A-Za-z0-9._@-]` first, then `[A-Za-z0-9._@/:-]`, up to 256 characters, no `..`. Unique within the access point. |
-| `surface_ref` | string | Yes | Identifier of a saved `model-surface` resource in the tenant |
-| `native_model` | string | Yes | Model identifier the surface lists. Same character rules as `name`. |
+| `surface_ref` | string | Yes, unless `backends` | Identifier of a saved `model-surface` resource in the tenant |
+| `native_model` | string | Yes, unless `backends` | Model identifier the surface lists. Same character rules as `name`. |
+| `backends` | array of `{surface_ref, native_model, weight, priority}` | No | One to eight backends instead of `surface_ref`/`native_model`. Every backend must serve the same client wires natively. |
+| `routing` | object | No | `strategy` (`priority`, `weighted`, `lowest_cost`), `retry`, `fallback`, `breaker`, `lowest_cost`, `deadline_ms`. |
+| `cache` | object | No | `ttl` (1s to 24h), `scope` (`principal` default, or `access_point`), `max_entry_bytes`. Off unless present. |
+
+The routing and cache fields, their defaults and the safety rules are in [Reliability and routing](/docs/library/reliability-and-routing).
 
 A `name` that differs from `native_model` is allowed only when the surface's facade rewrites the model in the request. Otherwise the save is rejected.
 
@@ -60,6 +68,7 @@ A `name` that differs from `native_model` is allowed only when the surface's fac
 |---|---|---|---|
 | `connection_ref` | string | Yes | Identifier of a managed `tool-connection` resource. Must match `[A-Za-z0-9][A-Za-z0-9_.-]{0,62}`, contain no `__` and not end in `_`. |
 | `expose` | array of string | No | Tool names or prefixes ending in `*`. Omitted exposes every tool the connection permits. Validated as a tool policy. |
+| `rules` | array of rule | No | [Policy rules](../library/tool-policy-rules.md) for calls through this access point, in the same shape as the connection's `tools.rules`. They run in addition to the connection's rules, so an access point can only add restrictions. Compiled when the access point is saved; a rule that does not check is a `400 INVALID_SPEC` with `details.field` `tools/N/rules`. |
 
 At most 64 tool entries, each connection listed once.
 
@@ -381,14 +390,28 @@ A successful `tools/call` returns the managed tool's result unchanged. The respo
 
 ```json
 {
+  "servers": [
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "example.gateway/ap-team",
+        "title": "Team",
+        "description": "Every tool exposed by access point team; tool names are {connection}__{tool}",
+        "version": "1.0.0",
+        "remotes": [{"type": "streamable-http", "url": "https://gateway.example/ap/team/mcp"}]
+      },
+      "_meta": {}
+    }
+  ],
+  "metadata": {"count": 1},
   "templates": [],
-  "total": 0,
+  "total": 1,
   "page": 0,
-  "page_size": 0
+  "page_size": 1
 }
 ```
 
-Each entry carries the template fields and a `remotes` list with `type: streamable-http` and the MCP URL. The response contains an aggregate entry only when the access point has tools and the MCP module is enabled.
+`servers` follows the MCP Registry API's list response (server.json schema 2025-12-11): each entry is `{server, _meta}`, and `metadata.count` is the number of entries. `name` is the reverse-DNS of the public URL's host (`localhost` when it has no DNS name), a slash, and `ap-{id}` or `ap-{id}-{connection}`; `description` and `title` are cut to the schema's 100 characters. `_meta` is an empty object: the official registry's status and publication times are not asserted here. `templates`, `total`, `page` and `page_size` are the AIPlex catalog members and carry the same entries as template fields plus `remotes`; they remain for existing clients. The response contains an aggregate entry only when the access point has tools and the MCP module is enabled.
 
 `GET /skills` returns `access_point_id`, `servers` (the manifests the caller may invoke) and `unavailable` (instance references that are not running or whose template cannot be read). Errors use the AIPlex error shape.
 

@@ -1,0 +1,24 @@
+# A tenant-wide hook policy: mask email addresses in prompts and tool
+# arguments, and refuse any request that carries a private key block.
+#
+#   aiplex hooks policies set -f examples/hooks/policy.yaml
+#   aiplex hooks policies test pii-guard --text "mail jane@example.com"
+#
+# Redaction is pattern matching, not a guarantee that personal data is gone.
+id: pii-guard
+description: Mask email addresses; refuse private keys.
+scope:
+  kind: tenant
+hooks:
+  - id: redact
+    type: redact
+    phases: [request]
+    message: "The request contains a private key. Remove it and try again."
+    redact:
+      rules:
+        - id: email
+          builtin: email
+          action: mask
+        - id: private_key
+          builtin: private_key
+          action: deny

@@ -73,7 +73,7 @@ func reportError(w io.Writer, cmd *cobra.Command, args []string, err error) int 
 		fmt.Fprintf(w, "[DEBUG] %T: %v\n", rootCause(err), err)
 		var apiErr *aiplex.Error
 		if errors.As(err, &apiErr) {
-			fmt.Fprintf(w, "[DEBUG] HTTP %d code=%s request_id=%s details=%v\n", apiErr.StatusCode, apiErr.Code, apiErr.RequestID, apiErr.Details)
+			fmt.Fprintf(w, "[DEBUG] HTTP %d code=%s request_id=%s trace_id=%s details=%v\n", apiErr.StatusCode, apiErr.Code, apiErr.RequestID, apiErr.TraceID, apiErr.Details)
 		}
 	}
 	return ce.code
@@ -206,6 +206,9 @@ func explain(cmd *cobra.Command, args []string, err error) *cliError {
 		hints := []string{}
 		if apiErr.RequestID != "" {
 			hints = append(hints, "Request ID: "+apiErr.RequestID)
+		}
+		if apiErr.TraceID != "" {
+			hints = append(hints, "Trace ID: "+apiErr.TraceID)
 		}
 		if local {
 			if p, e := devLogPath(); e == nil {

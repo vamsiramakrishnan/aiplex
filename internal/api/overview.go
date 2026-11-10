@@ -330,6 +330,12 @@ func (h *OverviewHandler) scan(ctx context.Context, tenant string, filter usagel
 	if h.Ledger == nil {
 		return out, errOverviewNoLedger
 	}
+	// Roll-ups cover managed exchanges. Harness-reported records can describe
+	// the same requests and are never added to them; read them from the usage
+	// summary with source=reported.
+	if filter.Source == "" {
+		filter.Source = usageledger.SourceManaged
+	}
 	agg := usageledger.NewAggregator(usageledger.SummaryQuery{Filter: filter, GroupBy: groupBy})
 	cursor := ""
 	for {

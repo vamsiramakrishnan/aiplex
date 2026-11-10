@@ -95,7 +95,7 @@ interrupted session leaves its open lease unsettled.
 | google | gemini-cachedContents | json | advisory | `gemini-cachedcontent-create.json` | cachedContents create/get/list/update/delete are request-count and never read for usage: usageMetadata.totalTokenCount is the cache size, repeated on every get/list, and how creation is billed is UNCONFIRMED |
 | google | gemini-countTokens | json | advisory | `gemini-count-tokens.json` | countTokens: an input-size estimate, never consumption; only the request is counted and the response is never read for usage |
 | google | gemini-embedContent | json | exact | `gemini-embed.json` |  |
-| google | gemini-generateContent | json | exact | `gemini-generate-error-429.json`<br>`gemini-generate-tooluse.json`<br>`gemini-generate.json` | observation exact; strict settlement fails closed for this fixture: toolUsePromptTokenCount is positive: Gemini tool-use prompt tokens are outside the gemini-text profile (fail closed) |
+| google | gemini-generateContent | json | exact | `gemini-generate-error-429.json`<br>`gemini-generate-grounded.json`<br>`gemini-generate-tooluse.json`<br>`gemini-generate.json` | observation exact; strict settlement fails closed for this fixture: toolUsePromptTokenCount is positive: Gemini tool-use prompt tokens are outside the gemini-text profile (fail closed) |
 | google | gemini-interactions | json | exact | `gemini-interactions.json` |  |
 | google | gemini-interactions | sse | exact | `gemini-interactions-interrupted.sse`<br>`gemini-interactions.sse` |  |
 | google | gemini-live | websocket | unsupported | `gemini-live-interrupted.ws.jsonl (format-checked)`<br>`gemini-live.ws.jsonl (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it (Live messages replayed through the Vertex Live relay) |
@@ -127,7 +127,7 @@ interrupted session leaves its open lease unsettled.
 | openai | live-voice-sessions | websocket | advisory | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session (token-metered leases refused before the dial); voice seconds are the primary meter, observed as voice_session_milliseconds from cumulative session.usage.updated snapshots (never summed) and final only with session.closed; nested Responses/decision token usage is advisory, counted once per response |
 | openai | moderations | json | advisory | `moderation.json` | request-count; the response documents no usage |
 | openai | realtime | websocket | exact | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` |  |
-| openai | responses | json | exact | `responses.json` |  |
+| openai | responses | json | exact | `responses-web-search.json`<br>`responses.json` | observation exact; strict settlement fails closed for this fixture: server-tool quantities are outside the output-inclusive token profile (fail closed) |
 | openai | responses | sse | exact | `responses.error.sse`<br>`responses.failed.sse`<br>`responses.incomplete.sse`<br>`responses.sse` |  |
 | openai | responses | websocket | exact | `responses.interrupted.ws.jsonl`<br>`responses.ws.jsonl` |  |
 | openai | responses-cancel | json | advisory | `responses.background.cancelled.json` | POST /v1/responses/{id}/cancel: request-count, owner-only; never read for usage |

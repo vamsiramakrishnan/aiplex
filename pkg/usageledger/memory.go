@@ -147,4 +147,29 @@ func (s *MemoryStore) List(ctx context.Context, tenant string, q Query) (Page, e
 	return page, nil
 }
 
-var _ Store = (*MemoryStore)(nil)
+// BackfillCost sets the cost of a record whose cost is still unknown (see
+// CostBackfiller). It never replaces a settled or estimated cost.
+func (s *MemoryStore) BackfillCost(ctx context.Context, tenant, id string, cost Cost) (bool, error) {
+	if err := cost.Validate(); err != nil || cost.Basis == BasisUnknown {
+		return false, invalid("backfilled cost must be a valid known cost")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, r := range s.tenants[tenant] {
+		if r.ID == id && r.TenantID == tenant && !s.expired(r) {
+			if r.Cost.Basis != BasisUnknown {
+				return false, nil
+			}
+			updated := r.Clone()
+			updated.Cost = cost
+			s.tenants[tenant][i] = updated
+			return true, nil
+		}
+	}
+	return false, ErrNotFound
+}
+
+var (
+	_ Store          = (*MemoryStore)(nil)
+	_ CostBackfiller = (*MemoryStore)(nil)
+)

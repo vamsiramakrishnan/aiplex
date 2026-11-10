@@ -239,6 +239,10 @@ func listDenialsCmd() *cobra.Command {
 		Use:     "denials",
 		Aliases: []string{"deny"},
 		Short:   "List policy denials",
+		Long: `List recent authorization denials: those the gateway's authz sidecar reports
+(when it is deployed and configured) and those the API records itself. Each row
+has the trace id of the refused request when the caller sent a traceparent.
+Denials are deployment-wide and need the admin role.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			for {
 				c := newClient()
@@ -256,12 +260,16 @@ func listDenialsCmd() *cobra.Command {
 				} else if output == "yaml" {
 					printYAML(list)
 				} else {
-					headers := []string{"ID", "PLANE", "AGENT", "ACTION", "REASON", "TIME"}
+					headers := []string{"ID", "PLANE", "AGENT", "ACTION", "REASON", "TIME", "TRACE"}
 					var rows [][]string
 					for _, d := range list {
 						ts := d.Timestamp.Format("15:04:05")
+						trace := d.TraceID
+						if trace == "" {
+							trace = "-"
+						}
 						rows = append(rows, []string{
-							d.ID, d.Plane, d.AgentID, d.Action, d.Reason, ts,
+							d.ID, d.Plane, d.AgentID, d.Action, d.Reason, ts, trace,
 						})
 					}
 					printTable(headers, rows)

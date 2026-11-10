@@ -138,14 +138,15 @@ Token profiles accept only complete, supported text usage. Two rules apply to ev
 output-inclusive token profile:
 
 - **Server-tool quantities fail closed** for token metering, per counter. This covers
-  Anthropic `server_tool_use` counters and Gemini tool-use prompt tokens.
+  Anthropic `server_tool_use` counters, OpenAI built-in tool calls in Responses output, Gemini
+  billed tool calls and Gemini tool-use prompt tokens.
 - **Cache writes** are a mapped meter. A binding with no cache-write meter refuses an
   observation that reports positive cache writes, and the exposure is retained.
 
 For the OpenAI and Anthropic token profiles, reasoning tokens are diagnostic and already
-included in `output_tokens`, so they are not added again. The per-TTL cache-write counters
-and the `server_tool_*` counters are not in the usage ledger record. See
-[usage ledger](usage-ledger.md#limits).
+included in `output_tokens`, so they are not added again. The one-hour cache-write part and the
+server-tool request counts are in the usage ledger record (`cache_write_1h_tokens`,
+`server_tools`); the other per-TTL counters are not. See [usage ledger](usage-ledger.md#limits).
 
 ## WebSocket sessions
 
@@ -322,7 +323,7 @@ is operator configuration. No caller value overrides it.
 | Field | Used by | Meaning |
 | --- | --- | --- |
 | `id` | All | Provider ID: `openai`, `anthropic`, `azure-openai`, `bedrock`, `openai-compatible` or `gemini-developer`. |
-| `base_path` | `openai-compatible` | Prefix for operation paths. Default `/v1`. |
+| `base_path` | `openai-compatible`, `anthropic` | `openai-compatible`: prefix for operation paths, default `/v1`. `anthropic`: a path prefix before every upstream path, for an Anthropic-compatible endpoint served under one (z.ai serves it under `/api/anthropic`, so `/v1/messages` is sent to `<origin>/api/anthropic/v1/messages`); clients still call `/v1/messages`. An absolute path of 1 to 4 plain segments (`[A-Za-z0-9._-]`, no query, fragment, dot segment or trailing slash) is required. The origin rules below are unchanged: the prefix is not part of the origin, so the same approved origin covers it. |
 | `api_version` | `azure-openai` | Pinned `api-version` query value for deployment-scoped operations. |
 | `region` | `bedrock` | Signing region. It must match the origin. |
 | `organization`, `project` | `openai` | Pinned `OpenAI-Organization` and `OpenAI-Project` headers. |
@@ -408,6 +409,14 @@ Rules:
 - If `Authorization` and a provider header are both present, they must carry the same token.
   Conflicting values are refused with `401`. So are repeated provider header values that differ,
   and a provider key sent together with an `X-Goog-Iap-Jwt-Assertion` header.
+- **A real provider key beside the AIPlex token** is refused the same way. Claude Code does this when
+  its settings already hold `ANTHROPIC_API_KEY`: it sends that key as `x-api-key` beside the AIPlex
+  token. Nothing is forwarded or used. The error says which header to remove (`remove the X-Api-Key
+  header`) and that the value reached the gateway in this request, is discarded, and is never logged,
+  stored or forwarded, so it should be treated as seen by the gateway operator in transit only. The key
+  value is dropped before identity extraction: it appears in no log, response, ledger record, audit
+  event or span (tested with a planted marker). If you do not run or trust the gateway, rotate the key.
+  Sending the AIPlex token alone in `x-api-key` keeps working.
 
 ## Routes
 
@@ -566,8 +575,72 @@ Limits of this gate:
   InvokeModel bodies are model-specific and are not observed.
 - Anthropic token metering fails closed for server-tool calls, and for cache writes when the
   binding maps no cache-write meter.
+- A provider's `401` or `403` is the **gateway's** credential being refused, since a caller never
+  supplies the credential a provider sees. It reaches the caller as a `502` in the provider's own
+  error shape with the code `upstream_credential_rejected` (the provider's body, which could name a key
+  prefix, is not relayed), and the ledger records `error_class` `upstream_auth`. Operators see the
+  surface id in the error details; other callers do not. This also covers the Gemini Developer API's
+  `400` with reason `API_KEY_INVALID`. The quota hold is released as for any rejection before processing.
 - WebSocket sessions on the default `session` metering are bounded by time, not by tokens.
   A session can run until `max_session_seconds` even when quota has no token headroom left.
   Token metering bounds each admitted response or allowance window instead.
 - Provider credentials are references. Values are resolved at dispatch and are not
   returned by any route.
+
+## What was run against live providers
+
+On 2026-11-10 requests were sent through `aiplex dev` to three live providers, with the smallest models and
+short prompts (a few dozen requests each). Nothing here is a performance or reliability claim. Account details
+are left out on purpose.
+
+| Provider and surface | Endpoints exercised | Result |
+| --- | --- | --- |
+| Gemini Developer API (`gemini-developer`), models `gemini-3.1-flash-lite` and `gemini-2.5-flash-lite`, `gemini-embedding-001`/`-2` | `generateContent`, `streamGenerateContent?alt=sse`, `countTokens`, `embedContent`, `batchEmbedContents`, a function-calling request, a thinking request, two identical ~6k-token prompts for implicit caching | Ledger input, output, thinking and cached counts equalled the response's `usageMetadata` in every case. Catalogue price import (with `--accept-partial`) gave estimated costs that were recomputed by hand and matched (rounded up to the price scale). Not run: Live (WebSocket) sessions. |
+| z.ai as `openai-compatible` (`base_path: /api/coding/paas/v4`) | Chat Completions JSON and SSE | Usage captured, including `reasoning_tokens` and `cached_tokens`; the response model (`model_version`) differs from the requested model, as z.ai aliases models. `model_version` is the model name the provider reports in its response, recorded as sent: a provider may report an alias, a dated snapshot or another model's name, and AIPlex does not map it to the requested `model_id`. Price and filter on `model_id`, which is the model AIPlex dispatched. |
+| z.ai's Anthropic-compatible API through the `anthropic` provider | Messages JSON and SSE, `count_tokens`; a Claude Code session | Usage captured (input arrives on `message_delta`, `cache_read_input_tokens` present). The `anthropic` provider then had no path prefix and z.ai serves the API under `/api/anthropic`, so a local path-rewriting proxy was placed in front of z.ai for this run. `base_path` for `anthropic` was added afterwards; it is tested against a local upstream and has not been run against z.ai. |
+| OpenAI (`openai`) | `moderations` (free) succeeded; Chat Completions, Responses and embeddings were refused by OpenAI with 429 `insufficient_quota` | The key had no credit, so token capture on OpenAI endpoints (streaming with and without `include_usage`, cached and reasoning tokens) was **not** exercised live. The 429 was recorded as `denied`, `error_class` `rate_limited`, and passed to the caller in OpenAI's error format. A 429 with error code `insufficient_quota` is now classed `upstream_quota_exhausted` (the response is still passed through unchanged); that code is from OpenAI's documentation and the live response above, and the change has been tested only against a local upstream. |
+
+Error paths, on all three: an unknown model is refused by the access point with a protocol-native 404 (the ledger now
+records it for a caller the access point admitted: `error_class` `model_not_found`, with the requested name, sanitized and
+cut to 128 characters, as `model_id`; a caller the access point does not admit leaves no record); a request the provider
+rejects (400) is recorded as `error`/`invalid_request`; a wrong provider key was passed through as the provider's own 401
+(Gemini answers 400 `API_KEY_INVALID`), which made a failed *gateway* credential look like a failed *caller* credential in the
+ledger. That is changed: it is now a `502` with `error_class` `upstream_auth` (see the Limits section). No key value appeared
+in responses, the API log, the ledger or the audit log (scripted search for the literal values).
+
+With `--otel`, spans arrived at an OTLP/HTTP receiver for these calls. The `traceparent` header sent to the provider
+carried the trace and span ID of the ledger record, and both Google and z.ai accepted it.
+
+Things this showed: Google answers 404 for `gemini-2.5-flash` (the former `aiplex dev` default; it is now
+`gemini-3.1-flash-lite`); `gemini-embedding-001` reports usage only as a top-level `tokenCount` string; the
+Developer API omits `cachedContentTokenCount` and `thoughtsTokenCount` when they are zero, which the ledger now
+records as 0 for the Developer API (it used to leave them unknown, which made every imported Gemini price cost
+`unknown`); Gemini reports thinking tokens apart from output tokens, so the catalogue import now also prices
+`reasoning_tokens` for `gemini-developer` at the output rate.
+
+### Second run, 2026-11-10: modality splits, tool billing and back-estimation
+
+Ten more requests went through `aiplex dev --provider gemini` to the Gemini Developer API with `gemini-3.1-flash-lite`
+(three text requests, two image requests with a 1x1 PNG, two audio requests with 0.1 s of silent WAV and three
+`google_search` requests; the key never left the environment and a scripted search of everything the run wrote found
+no copy of it). What this showed:
+
+- `promptTokensDetails` carries the modalities that were present and omits the rest: the image request reported
+  `TEXT 6` and `IMAGE 1089`, the audio request `TEXT 9` and `AUDIO 5`. The ledger's `input_image_tokens` and
+  `input_audio_tokens` equalled the response. A text-only prompt lists `TEXT` alone, so the ledger now records
+  the unlisted standard modalities as reported zeros when the list adds up to `promptTokenCount`.
+- `usageMetadata.serviceTier` was `standard` on every response and is recorded as `service_tier`. A flex or
+  priority request was not run, so the tier values other than `standard` are from the API reference, not observed.
+- A `google_search` request returned no `groundingMetadata` (with a tiny prompt and `maxOutputTokens` 32) but
+  did return `usageMetadata.billedToolCalls: [{"tool":"GOOGLE_SEARCH_RETRIEVAL","successfulToolCallCount":1,"searchQueryCount":1}]`.
+  The ledger records `server_tools: {"google_search": 1}` from it. Its cost stays `unknown` because no price rates
+  `server_tool.google_search`.
+- With the `gemini-3.1-flash-lite` catalogue price imported, the text request cost 4 micro-USD (4 text input tokens
+  at 0.25 plus 2 output tokens at 1.5, recomputed by hand), and the audio request cost 8 (7.75 rounded up: 9 text
+  at 0.25, 5 audio at 0.5, 2 output at 1.5; `exact` is `31/4`). The image request stayed `unknown`: the imported price
+  rates audio but not image tokens, so an image count with no rate is not partially costed.
+- `aiplex usage prices backfill` priced the audio record that had been written before the price existed, left the
+  other three unknown (an image count with no rate; a tool call with no rate; and, before the zero-fill above, a text
+  record whose audio count was unknown), and a second run changed nothing.
+- Not run: OpenAI and Anthropic requests (no key with credit), `flex` or `priority` tiers, a request over any
+  long-context threshold, one-hour cache writes, and the OpenAI built-in tools.

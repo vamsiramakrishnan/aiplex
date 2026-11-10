@@ -1,0 +1,17 @@
+# Release image for aiplex-api, built by GoReleaser's dockers_v2 (see .goreleaser.yaml).
+# GoReleaser lays out the build context as $TARGETPLATFORM/<binary> (for example
+# linux/amd64/aiplex-api), so the prebuilt binary for each platform is copied from there.
+# source, version and revision labels are set by GoReleaser; the static labels are here.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+ARG TARGETPLATFORM
+
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.title="aiplex-api"
+LABEL org.opencontainers.image.description="API server for aiplex"
+
+COPY $TARGETPLATFORM/aiplex-api /aiplex-api
+
+USER 65532:65532
+
+ENTRYPOINT ["/aiplex-api"]

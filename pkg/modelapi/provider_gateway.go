@@ -95,9 +95,9 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "operation denied", http.StatusForbidden)
 		return
 	}
-	lease, e := g.prepareExecution(r, trusted, op, metadata, body)
+	body, inspect, lease, e := g.prepareDispatch(r, trusted, op, metadata, body)
 	if e != nil {
-		writeExecutionError(w, e)
+		writeDispatchError(w, e)
 		return
 	}
 	var run *executionRun
@@ -114,7 +114,12 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	upstream, e := url.Parse(strings.TrimSuffix(g.surface.Origin, "/") + r.URL.EscapedPath())
+	hit, store := g.cacheLookup(r, op, metadata, body)
+	if hit != nil {
+		g.serveCached(w, r, op, metadata, run, inspect, hit)
+		return
+	}
+	upstream, e := url.Parse(g.upstreamOrigin() + r.URL.EscapedPath())
 	if e != nil {
 		http.Error(w, "invalid upstream request", http.StatusBadRequest)
 		return
@@ -139,9 +144,9 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		writeExecutionError(w, e)
 		return
 	}
-	response, e := g.client.Do(request)
+	response, notSent, e := g.do(request)
 	if e != nil {
-		if err := run.finish(execution.Result{Err: e}); err != nil {
+		if err := run.finish(transportResult(e, notSent)); err != nil {
 			writeExecutionError(w, err)
 			return
 		}
@@ -152,6 +157,10 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	if g.options.ObserveLimits != nil {
 		g.options.ObserveLimits(r.Context(), owner, providerlimits.Parse(g.surface.Provider.ID, response.StatusCode, response.Header, time.Now()))
 	}
+	if g.handleUpstreamAuth(w, r, run, response) {
+		return
+	}
+	g.noteRejectionClass(r, response)
 	if response.StatusCode >= 300 && response.StatusCode < 400 {
 		if err := run.finish(execution.Result{StatusCode: response.StatusCode, Err: errors.New("upstream redirect refused")}); err != nil {
 			writeExecutionError(w, err)
@@ -161,6 +170,10 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	success := response.StatusCode >= 200 && response.StatusCode < 300
+	if inspect && success {
+		g.serveInspected(w, r, response, owner, op, metadata, run, store, func(out http.Header) { g.copyProviderResponseHeaders(out, response.Header, response.StatusCode) })
+		return
+	}
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	jsonResponse := mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 	if success && mediaType == "text/event-stream" {
@@ -202,6 +215,9 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 			writeExecutionError(w, err)
 			return
 		}
+		if store != nil && success && jsonResponse {
+			store(response.StatusCode, response.Header, data)
+		}
 		g.copyProviderResponseHeaders(w.Header(), response.Header, response.StatusCode)
 		w.WriteHeader(response.StatusCode)
 		_, _ = w.Write(data)
@@ -216,6 +232,9 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		if e = g.observeJSON(r.Context(), owner, op, data, true); e != nil {
 			http.Error(w, "resource ownership could not be persisted", http.StatusBadGateway)
 			return
+		}
+		if store != nil && jsonResponse {
+			store(response.StatusCode, response.Header, data)
 		}
 		g.copyProviderResponseHeaders(w.Header(), response.Header, response.StatusCode)
 		w.WriteHeader(response.StatusCode)

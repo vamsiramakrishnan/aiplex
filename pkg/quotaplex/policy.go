@@ -18,6 +18,8 @@ const maxPolicyRules = 32
 type ResolveError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// BudgetID names the tenant budget draw that caused the denial.
+	BudgetID string `json:"budget_id,omitempty"`
 }
 
 func (e *ResolveError) Error() string         { return e.Code + ": " + e.Message }
@@ -459,6 +461,9 @@ func ValidateDemand(demand Demand) error {
 	if len(demand.Bounds) == 0 || len(demand.Bounds) > 64 {
 		return fmt.Errorf("bounded meter exposure required")
 	}
+	if err := validateDraws(demand.Budgets); err != nil {
+		return err
+	}
 	return ValidateVector(demand.Bounds)
 }
 
@@ -659,14 +664,25 @@ func (c *CompiledPolicy) Resolve(demand Demand, now time.Time) (Plan, error) {
 		}
 		priced, err := PriceUsage(demand.Bounds, selected.Prices, policy.Meters)
 		if err != nil {
-			return Plan{}, policyDenied("unpriced_meter", err.Error())
+			// Unknown is never zero: an unpriceable request is denied, except
+			// when only allow_and_flag cost budgets need its price, which
+			// then count it as unknown cost instead.
+			tolerant, firstDeny := drawsPriceTolerance(demand.Budgets)
+			if len(moneyMeters) > 0 || !(tolerant || firstDeny != "") {
+				return Plan{}, policyDenied("unpriced_meter", err.Error())
+			}
+			if !tolerant {
+				return Plan{}, drawDenied("unpriced_meter", err.Error(), firstDeny)
+			}
+			selected = nil
+		} else {
+			for meter, quantity := range priced {
+				plan.Bounds[meter] = quantity
+			}
+			plan.Prices = policyCopy(selected.Prices)
+			plan.PriceBookID = selected.ID
+			plan.PriceBookRevision = selected.Revision
 		}
-		for meter, quantity := range priced {
-			plan.Bounds[meter] = quantity
-		}
-		plan.Prices = policyCopy(selected.Prices)
-		plan.PriceBookID = selected.ID
-		plan.PriceBookRevision = selected.Revision
 	}
 	for _, rule := range policy.Budgets {
 		if !policyMatches(rule.Match, demand.Target) {
@@ -698,6 +714,9 @@ func (c *CompiledPolicy) Resolve(demand Demand, now time.Time) (Plan, error) {
 		lineage := policyLineage(policy.ID, "budget", rule.ID)
 		key := policyKey(lineage, scope, window.Start.UTC().Format(time.RFC3339Nano), window.End.UTC().Format(time.RFC3339Nano))
 		plan.Budgets = append(plan.Budgets, BudgetLimit{Key: key, LineageKey: lineage, Shape: c.lineages[lineage], RuleID: rule.ID, MeterID: rule.MeterID, Window: window, Limit: limit, Demand: quantity})
+	}
+	if err := c.resolveDraws(demand, &plan, selected, now); err != nil {
+		return Plan{}, err
 	}
 	for _, rule := range policy.Rates {
 		if !policyMatches(rule.Match, demand.Target) {

@@ -146,7 +146,7 @@ and carries a QoS class that is rendered into quota controls.
 		Example:     "  aiplex access-points list\n  aiplex access-points create team --model mock-gpt=local-models --tool local-tools",
 		Annotations: map[string]string{"kind": "access point"},
 	}
-	cmd.AddCommand(spAPListCmd(), spAPGetCmd(), spAPCreateCmd(), spAPApplyCmd(), spAPDeleteCmd(), spAPQuotaPlanCmd())
+	cmd.AddCommand(spAPListCmd(), spAPGetCmd(), spAPCreateCmd(), spAPApplyCmd(), spAPDeleteCmd(), spAPQuotaPlanCmd(), spAPRoutingCmd(), spAPPurgeCacheCmd())
 	registerLister("access-points", func(ctx context.Context, c *aiplex.Client) ([]string, error) {
 		list, err := c.ListAccessPoints(ctx)
 		ids := make([]string, 0, len(list))
@@ -239,7 +239,25 @@ func spAPGetCmd() *cobra.Command {
 				fmt.Fprintf(out, "  Subjects:  %d principals, %d agents, %d groups, %d client registrations\n", len(sub.Principals), len(sub.Agents), len(sub.Groups), len(sub.ClientRegistrations))
 			}
 			for _, m := range s.Models {
-				fmt.Fprintf(out, "  Model:     %s -> %s on %s\n", m.Name, m.NativeModel, m.SurfaceRef)
+				if len(m.Backends) == 0 {
+					fmt.Fprintf(out, "  Model:     %s -> %s on %s\n", m.Name, m.NativeModel, m.SurfaceRef)
+				} else {
+					strategy := "priority"
+					if m.Routing != nil && m.Routing.Strategy != "" {
+						strategy = m.Routing.Strategy
+					}
+					fmt.Fprintf(out, "  Model:     %s (%s)\n", m.Name, strategy)
+					for i, b := range m.Backends {
+						fmt.Fprintf(out, "    %d. %s on %s (weight %d, priority %d)\n", i+1, b.NativeModel, b.SurfaceRef, b.EffectiveWeight(), b.Priority)
+					}
+				}
+				if m.Cache != nil {
+					scope := m.Cache.Scope
+					if scope == "" {
+						scope = "principal"
+					}
+					fmt.Fprintf(out, "    cache: ttl %s, scope %s\n", m.Cache.TTL, scope)
+				}
 			}
 			for _, t := range s.Tools {
 				expose := "all permitted tools"
@@ -430,29 +448,76 @@ func spAPQuotaPlanCmd() *cobra.Command {
 
 func connectCmd() *cobra.Command {
 	var client string
+	var wf connectWriteFlags
 	cmd := &cobra.Command{
 		Use:   "connect <access-point>",
-		Short: "Print ready-to-paste configuration for pointing a client at an access point",
+		Short: "Show, or write, the configuration that points a client at an access point",
 		Long: `Shows the base URLs, MCP and skills URLs, how to obtain a token, and snippets
 for a client. --client takes a client profile (for example claude-code, codex,
 antigravity) or "generic" (the default) for environment variables and curl.
 
-Snippets read the token from $AIPLEX_TOKEN; no token or secret is printed.`,
-		Example: "  aiplex connect ide\n  aiplex connect ide --client claude-code\n  aiplex connect ide -o json",
-		Args:    cobra.ExactArgs(1),
+Snippets read the token from $AIPLEX_TOKEN; no token or secret is printed.
+
+With --write, the configuration is merged into the client's own config file
+instead of only being printed. Supported for claude-code (settings.json and the
+MCP server list), codex (config.toml), gemini-cli (settings.json) and antigravity
+(its MCP server list only: ~/.gemini/config/mcp_config.json). Each file
+is shown as a diff and needs confirmation (--yes without a terminal). A copy of
+the original goes to ~/.aiplex/connect-backups first, existing keys are never
+replaced wholesale, and a file that is not valid JSON or TOML is refused rather
+than overwritten. A token value is never written: files refer to $AIPLEX_TOKEN,
+or, with --token-helper, to "aiplex --context NAME auth print-token" for the context in
+effect (which must have a stored token, since the client runs the helper later). Parts a file cannot hold
+(an environment variable for the shell) are printed as remaining steps.
+antigravity's model and gateway settings, and antigravity-acp, stay print-only.
+
+--undo restores the most recent backup for --client (or the most recent one).
+--dry-run shows the diff and writes nothing. aiplex does not install the client.`,
+		Example: `  aiplex connect ide
+  aiplex connect ide --client claude-code
+  aiplex connect local --client claude-code --write
+  aiplex connect local --client codex --write --dry-run
+  aiplex connect local --client gemini-cli --write --with-telemetry http://localhost:4318
+  aiplex connect --undo --client claude-code
+  aiplex connect ide -o json`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := newClient().ConnectAccessPoint(cmd.Context(), args[0], client)
+			if wf.undo {
+				return runConnectUndo(cmd, client, &wf)
+			}
+			if len(args) != 1 {
+				return usageError("connect needs an access point ID", "List the ones you can use with: aiplex access-points list")
+			}
+			if wf.write || wf.dryRun {
+				return runConnectWrite(cmd, args[0], client, &wf)
+			}
+			if err := wf.rejectWriteOnly(cmd); err != nil {
+				return err
+			}
+			apiClient := client
+			if client == "gemini-cli" {
+				apiClient = "generic"
+			}
+			c, err := newClient().ConnectAccessPoint(cmd.Context(), args[0], apiClient)
 			if err != nil {
 				return fmt.Errorf("connect: %w", err)
 			}
+			c.Client = client
 			if spStructured(cmd, c) {
 				return nil
 			}
 			spRenderConnect(cmd.OutOrStdout(), c)
+			if client == "gemini-cli" {
+				fmt.Fprintln(cmd.OutOrStdout(), "\nGemini CLI: use the genai base URL as GOOGLE_GEMINI_BASE_URL and $AIPLEX_TOKEN as GEMINI_API_KEY.")
+			}
+			if hint := connectWriteHint(args[0], client); hint != "" {
+				fmt.Fprintln(cmd.OutOrStdout(), "\n"+hint)
+			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&client, "client", "generic", "Client profile ID, or generic")
+	cmd.Flags().StringVar(&client, "client", "generic", "Client profile ID, gemini-cli, or generic")
+	wf.bind(cmd)
 	return cmd
 }
 

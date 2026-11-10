@@ -25,6 +25,7 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex dev`](./dev.md) | Run AIPlex on this machine with a mock model, mock tools and the Console |
 | [`aiplex login`](./login.md) | Sign in to an AIPlex API and store the token for the current context |
 | [`aiplex logout`](./logout.md) | Forget the stored token for the current context |
+| [`aiplex auth`](./auth.md) | Credential helpers for tools that fetch a token by running a command |
 | [`aiplex whoami`](./whoami.md) | Show which API and identity the CLI is using, and your roles |
 | [`aiplex config`](./config.md) | Manage named contexts (API URL and credentials per environment) |
 | [`aiplex ctx`](./ctx.md) | Switch to another context, or show the current one |
@@ -47,6 +48,8 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex a2a`](./a2a.md) | Discover agents and delegate tasks between them (A2A) |
 | [`aiplex usage`](./usage.md) | See what each request cost: records, totals and model prices |
 | [`aiplex quota`](./quota.md) | Inspect quota policy, balances, loans and admission decisions |
+| [`aiplex budgets`](./budgets.md) | Budgets: team and project limits above per-caller quota |
+| [`aiplex hooks`](./hooks.md) | Request hooks — inspect, mask or refuse prompts, responses and tool calls |
 | [`aiplex status`](./status.md) | Show a dashboard summary of the platform |
 | [`aiplex resources`](./resources.md) | Low-level access to any resource kind (prefer the guided commands) |
 | [`aiplex apply`](./apply.md) | Apply a declarative AIPlex configuration file |
@@ -84,6 +87,7 @@ Get started:
   dev           Run AIPlex on this machine with a mock model, mock tools and the Console
   login         Sign in to an AIPlex API and store the token for the current context
   logout        Forget the stored token for the current context
+  auth          Credential helpers for tools that fetch a token by running a command
   whoami        Show which API and identity the CLI is using, and your roles
   config        Manage named contexts (API URL and credentials per environment)
   ctx           Switch to another context, or show the current one
@@ -116,6 +120,8 @@ Agents and identity:
 Usage and quota:
   usage         See what each request cost: records, totals and model prices
   quota         Inspect quota policy, balances, loans and admission decisions
+  budgets       Budgets: team and project limits above per-caller quota
+  hooks         Request hooks — inspect, mask or refuse prompts, responses and tool calls
 
 Operate:
   status        Show a dashboard summary of the platform

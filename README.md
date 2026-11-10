@@ -9,9 +9,26 @@ AIPlex is a gateway that sits between the people, agents and developer tools tha
   <img alt="Callers (agents, users, clients) reach one access point, which checks identity and policy and writes a usage record before forwarding to models, tools and skills." src="brand/launch/architecture.svg">
 </picture>
 
+## Install
+
+No release has been tagged and nothing is published yet. The release workflow produces the install script's archives, a Homebrew cask for macOS and container images on the first `v*` tag. Until then, build from source (below).
+
+- **Install script** (Linux and macOS, amd64 or arm64). This installs `aiplex` and `aiplex-api` into `~/.local/bin`, verifies the archive against the release `checksums.txt` first, and needs no sudo:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash -s -- --version v0.1.0
+  ```
+
+- **Homebrew, macOS only** (not published yet): `brew install --cask vamsiramakrishnan/tap/aiplex`. The cask lives in the `vamsiramakrishnan/homebrew-tap` repository. Homebrew casks do not install on Linux; Linux users use the install script or the archive.
+- **Container images** (not published yet; the release workflow builds `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex` for linux/amd64 and linux/arm64 on the first tag).
+- **Build from source**: Go 1.25 or newer, then `make build`, which writes `bin/aiplex` and `bin/aiplex-api`.
+
+Full details are in the [getting started guide](docs-site/docs/getting-started/index.md).
+
 ## Try it in 60 seconds
 
-You need Go 1.25 or newer, `curl` and a terminal. No Docker, cloud account or API key.
+You need `aiplex` installed (see Install) or Go 1.25 or newer, `curl` and a terminal. No Docker, cloud account or API key.
 
 ```bash
 git clone https://github.com/vamsiramakrishnan/aiplex.git
@@ -117,7 +134,9 @@ Stop `aiplex dev` with Ctrl+C. State is in memory and is discarded.
 - The call was recorded in a **usage ledger**: who called, which model, tokens in and out, and cost. The cost says `(estimated)` because the price is a placeholder; a token count or price that is not known is shown as unknown, never as zero.
 - The same access point serves MCP tools at `http://127.0.0.1:8080/ap/local/mcp`. `aiplex connect local` prints ready-to-paste configuration for curl, MCP clients and several developer clients.
 
-More to try with `aiplex dev` running: `aiplex usage records`, `aiplex usage summary --by model`, `aiplex connect local`, and the [examples](examples/README.md). `make demo` scripts the whole run, including a streaming request and an MCP tool call, and exits non-zero on the first failure.
+To configure Claude Code, Codex or Gemini CLI for it, `aiplex connect local --client claude-code --write` shows a diff, keeps a backup and can be undone. `aiplex mcp serve` gives a coding agent read-only tools to inspect AIPlex ([harness onboarding](docs/harness-onboarding.md)).
+
+More to try with `aiplex dev` running: `aiplex usage records`, `aiplex usage summary --by model`, `aiplex connect local`, and the [examples](examples/README.md). `make demo` scripts the whole run, including a streaming request and an MCP tool call, and exits non-zero on the first failure. `aiplex dev --otel http://127.0.0.1:4318` exports traces and metrics to an OTLP collector you run ([observability](docs/observability.md)); without it nothing is exported.
 
 ### Next: an access point and a price
 
@@ -145,7 +164,17 @@ aiplex usage prices set gpt-4o-mini --input-per-mtok 0.15 --output-per-mtok 0.60
 Created price gpt-4o-mini (revision 1): input USD 0.15/Mtok, output USD 0.60/Mtok
 ```
 
-Prices are only used to estimate cost; `aiplex usage prices list` shows them. A price file (`aiplex usage prices set -f price.json`) takes the full specification. See [the usage ledger](docs/usage-ledger.md#prices) and [access points](docs/access-points.md).
+Prices are only used to estimate cost; `aiplex usage prices list` shows them. A price file (`aiplex usage prices set -f price.json`) takes the full specification.
+
+To start from public list prices instead, the binary carries a pinned snapshot of a third-party price list. Nothing is priced from it automatically; you choose what to import:
+
+```bash
+aiplex usage prices catalog search gpt-4o
+aiplex usage prices catalog import openai/gpt-4o-mini --dry-run   # exact rates, source and snapshot date, nothing written
+aiplex usage prices catalog import openai/gpt-4o-mini --yes
+```
+
+Catalogue prices can be stale or wrong, and discounts or commitments are not reflected; cost from them stays `estimated`. See [the usage ledger](docs/usage-ledger.md#prices) and [access points](docs/access-points.md).
 
 ### When a command fails
 
@@ -172,7 +201,7 @@ AIPlex separates **who is calling** from **what they are calling**, and puts one
 | --- | --- |
 | **Agents** | Registered workloads. They authenticate with a token from their own platform, bound to a registered agent ([agent identity federation](docs/agent-identity-federation.md)). A delegated call keeps both the user and the agent identity. |
 | **Users** | People who sign in through a corporate identity provider such as Google Workspace, Microsoft Entra ID or Okta, or any OIDC issuer ([user identity federation](docs/user-identity-federation.md)). Groups come from verified claims or a signed directory authority. |
-| **Clients** | Registered developer clients such as Claude, Codex and Antigravity ([ClientPlex](docs/clientplex.md)). AIPlex produces reviewed configuration for them; it does not install them. |
+| **Clients** | Registered developer clients such as Claude, Codex and Antigravity ([ClientPlex](docs/clientplex.md)). AIPlex produces reviewed configuration for them and, when you ask (`aiplex connect --write`), merges it into the client's own config file with a diff, a backup and an undo ([harness onboarding](docs/harness-onboarding.md)). It does not install the client binaries. |
 
 | Resources | What AIPlex does |
 | --- | --- |
@@ -183,7 +212,10 @@ AIPlex separates **who is calling** from **what they are calling**, and puts one
 Around those:
 
 - **Access points** give a group of callers one URL in front of models, tools and skills ([specification](docs/access-points.md)).
-- **The usage ledger** records every managed exchange ([specification](docs/usage-ledger.md)).
+- **The usage ledger** records every managed exchange ([specification](docs/usage-ledger.md)). Cost is unknown until you set a price or import one from the bundled third-party list-price catalogue ([prices](docs/usage-ledger.md#price-catalogue)).
+- **Observability**: OpenTelemetry traces and metrics for each request and managed exchange, exported over OTLP when you set an endpoint, and a Prometheus `/metrics` route. Prompts and credentials are never recorded ([guide](docs/observability.md)).
+- **Harness onboarding**: `aiplex connect --write` configures Claude Code, Codex and Gemini CLI, and `aiplex mcp serve` gives a coding agent read-only tools over AIPlex ([guide](docs/harness-onboarding.md)).
+- **Least-privilege deployment**: `aiplex platform preflight` checks the Google Cloud permissions, APIs and billing that the deployment needs before anything is created, and the platform's own identities hold narrower grants ([guide](docs/gcp-permissions.md)).
 - **QuotaPlex** (opt-in) shares budgets and admission controls on covered execution paths ([guide](docs/quotaplex-core.md)).
 - **A2APlex** invokes native cloud agents (Google, AWS, Foundry, Copilot) and records delegation history ([guide](docs/connected-plexes.md)).
 - **Networking** prepares private-connectivity and egress plans ([guide](docs/anvil-deployment-provider.md)).
@@ -216,6 +248,7 @@ Effective access for a delegated call is the intersection of three limits: what 
 | Console (`console/`) | React and TypeScript | Embedded in the CLI binary when built first (`make console`). |
 | `aiplex-authz` (`authz/`) | Rust | Scope authorization for the gateway `ext_authz` hook; has its own tests in CI. |
 | Go SDK (`sdk/`) | Go | Client for the API. |
+| Python and TypeScript SDKs (`sdk/python/`, `sdk/typescript/`) | Python, TypeScript | Unpublished clients for the API, run against the local development stack only (`make sdk-test`). |
 | Deployment (`deploy/`) | Terraform, Helm, Kubernetes, Ory config | Helm charts are linted in CI. No deployment to a live cloud project is recorded in this repository. |
 | Docs site (`docs-site/`) | Docusaurus | Builds with broken links as errors. |
 
@@ -226,12 +259,27 @@ Effective access for a delegated call is the intersection of three limits: what 
 | **MCPlex** | Connect tools, register OAuth clients, authorize users and invoke configured tools | Tool connections, delegated OAuth, eight upstream auth types, allow/deny and read-only tool policy, and stateless JSON/finite-SSE execution. Registration alone does not execute or meter a tool. |
 | **A2APlex** | Invoke native cloud agents and inspect delegation history | Google, AWS, Foundry and Copilot connections, actor-separated sessions and reported delegation chains. Opaque agent-internal model/tool calls need their own instrumentation. |
 | **LLMPlex** | Configure model routes/surfaces and forward native model operations | HTTP/SSE/Live protocols, client wire facades, OpenAI/Anthropic/Azure/Bedrock/OpenAI-compatible/Gemini Developer provider surfaces, media and [batch](docs/model-batches.md) operations, and stateful resource ownership. Available protocols and models are explicit operator configuration. |
-| **ClientPlex** | Connect Antigravity, Codex and Claude clients to supported model endpoints | Client profiles, saved registrations, protocol checks and reviewed configuration fragments. It does not install clients, issue credentials or grant model access. A rendered plan stays `configured-unverified` until the installed client, provider access and deployment are qualified. |
+| **ClientPlex** | Connect Antigravity, Codex and Claude clients to supported model endpoints | Client profiles, saved registrations, protocol checks and reviewed configuration fragments. ClientPlex itself writes no workstation files, installs no clients, issues no credentials and grants no model access; the CLI's opt-in `aiplex connect --write` edits the client's config file ([harness onboarding](docs/harness-onboarding.md)). A rendered plan stays `configured-unverified` until the installed client, provider access and deployment are qualified. |
 | **SkillsPlex** | Discover deployed skills and inspect invocation history | Skill manifests, capabilities and attributed audit records. |
 | **QuotaPlex** | Share budgets and admission controls across supported execution paths | Allocations, prices, funding, budget holds, admitted rates, permits, scheduling and settlement. Opt-in; only explicitly covered paths are protected. |
 | **Networking** | Prepare private connectivity, identity and egress configuration | Native network artifacts and optional reviewed Anvil execution. Saved intent, successful apply and observed readiness are separate states. |
 
 The shared identity layer verifies workforce, workload and native-agent credentials and keeps principal and actor memberships separate. Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity and Microsoft Entra Agent ID through scoped inventory, reviewed policy plans and durable apply receipts ([native governance](docs/native-agent-governance.md)). See [module contracts](docs/modules.md).
+
+### Gateway features
+
+| Feature | What it does | Guide |
+| --- | --- | --- |
+| Request hooks | Redact, size-limit or refuse prompts, responses and tool calls; HTTP sidecar hooks | [request hooks](docs/request-hooks.md) |
+| Routing, retry, fallback, cache | Priority, weighted or lowest-cost backend order; retries and fallback; circuit breakers; opt-in exact-match response cache | [reliability and routing](docs/reliability-and-routing.md) |
+| Budgets | Team and project limits above per-caller quota | [budgets](docs/budgets.md) |
+| Tool policy rules | Expressions over tool calls, with a dry run | [policy rules on tool calls](docs/tool-policy-rules.md) |
+| MCP Registry import | Import streamable-HTTP remotes from the official registry as tool connections | [MCP Registry import](docs/mcp-registry-import.md) |
+| Harness telemetry | Claude Code, Codex and Gemini CLI usage over OTLP, recorded as `reported` ledger records | [harness onboarding](docs/harness-onboarding.md), [observability](docs/observability.md) |
+| Price catalogue | Two pinned snapshots (LiteLLM, models.dev); backfill prices records written before a price existed | [usage ledger](docs/usage-ledger.md) |
+| Antigravity | `connect --write` writes its MCP server list; model traffic is print-only | [harness onboarding](docs/harness-onboarding.md) |
+| Python and TypeScript SDKs | Unpublished clients for the API | [Python](sdk/python/README.md), [TypeScript](sdk/typescript/README.md) |
+| Request lifecycle | The order of checks for models and tools | [request lifecycle](docs/request-lifecycle.md) |
 
 ### QuotaPlex
 
@@ -255,18 +303,18 @@ The [usage-format coverage matrix](docs/reference/usage-formats/coverage.md) lis
 
 ## Try a real provider
 
-`aiplex dev` can forward to OpenAI, Anthropic or Gemini instead of the mock model. Name the environment variable that holds your key; the key is not accepted as a flag and is never printed or written to disk:
+`aiplex dev` can forward to OpenAI, Anthropic or Gemini instead of the mock model. The Gemini Developer API has been run live this way; OpenAI and Anthropic first-party endpoints have not (see [project status](#project-status)). Name the environment variable that holds your key; the key is not accepted as a flag and is never printed or written to disk:
 
 ```bash
 export OPENAI_API_KEY=...          # your own key
 aiplex dev --provider openai --api-key-env OPENAI_API_KEY
 ```
 
-Use `--provider anthropic` or `--provider gemini` with the matching variable, and `--model` to choose a model. Without the variable set, `aiplex dev` stops with an error that names it. **This path has not been run against a live provider by the project**, so treat the first run as a test. Real-provider requests cost whatever your provider charges.
+Use `--provider anthropic` or `--provider gemini` with the matching variable, and `--model` to choose a model. Without the variable set, `aiplex dev` stops with an error that names it. Real-provider requests cost whatever your provider charges.
 
 ## Deploy
 
-Deploying to a cluster is a multi-step operation, not a single command: Terraform for the infrastructure, Helm for the application, identity configuration for your own identity providers, and operator-supplied provider credentials. Start from [Install the platform][docs-install] and the [Helm identity configuration](docs/helm-identity-config.md), and read the [production qualification](docs/production-qualification.md) notes before enabling hard limits.
+Deploying to a cluster is a multi-step operation, not a single command: Terraform for the infrastructure, Helm for the application, identity configuration for your own identity providers, and operator-supplied provider credentials. Start from [Install the platform][docs-install] and the [Helm identity configuration](docs/helm-identity-config.md). Run `aiplex platform preflight` to see which Google Cloud permissions the deployer lacks; `aiplex platform apply` refuses to start while they are missing. Upgrading an existing deployment has its own steps ([Google Cloud permissions](docs/gcp-permissions.md)). Read the [production qualification](docs/production-qualification.md) notes before enabling hard limits.
 
 ## Project status
 
@@ -278,12 +326,22 @@ What has been validated, from the repository's own tests and CI:
 - Provider usage formats replayed from fixtures built from provider documentation.
 - Firestore transactions and recovery against the official Firestore emulator.
 - Console tests and build, Helm lint, Rust tests, and JSON schema checks.
+- Config merge, diff, backup and undo for the three client files, the stdio MCP server, OpenTelemetry export to an in-process OTLP receiver, the Google Cloud preflight against a fake Google API, and the price catalogue import. Each uses isolated homes, fixtures or fakes.
+
+Run live on Linux, 2026-11-10, a few dozen requests each ([details](docs/model-providers.md#what-was-run-against-live-providers), [harness onboarding](docs/harness-onboarding.md#what-has-and-has-not-been-validated)):
+
+- The Gemini Developer API and z.ai (as `openai-compatible` and through the `anthropic` provider). Ledger usage matched the provider's responses.
+- Claude Code, Gemini CLI and Codex loading the files `aiplex connect --write` writes. Codex was run against the mock model only. Antigravity CLI loaded its MCP server entry; a model turn was not observed.
+- Claude Code telemetry sent to the OTLP receiver and recorded as reported usage.
 
 What has not been validated, and is not recorded anywhere in this repository:
 
-- Any run against live OpenAI, Anthropic, Google, Azure or AWS model endpoints.
-- Any comparison of AIPlex's usage or cost figures against a provider invoice.
-- A deployment to a live cloud project, and load, availability or backup-restore behaviour.
+- Any run against live OpenAI or Anthropic first-party endpoints (the OpenAI key had no credit), or against Azure, Bedrock or Vertex.
+- Any comparison of AIPlex's usage or cost figures against a provider invoice, and the Presidio and LLM Guard adapters against the real services.
+- A deployment to a live cloud project, and load, availability or backup-restore behaviour. The Google Cloud permissions table, the preflight, the custom deployer role and the narrowed runtime grants have not been run against a live project.
+- macOS and Windows; the container image build and push; the Homebrew cask; Firestore-backed budgets.
+- OpenTelemetry export to a real collector, Jaeger, Cloud Trace or Cloud Monitoring. The telemetry overhead has not been measured.
+- The price catalogue is a third-party snapshot (LiteLLM, retrieved 2026-11-10). Its prices have not been checked against provider price pages, and discounts and commitments are not reflected.
 - Cost shown by `aiplex dev` is from placeholder prices. The local development server is unauthenticated and must stay on loopback.
 
 See [SECURITY.md](SECURITY.md) for the security model's current limits.
@@ -298,7 +356,7 @@ See [SECURITY.md](SECURITY.md) for the security model's current limits.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE). The price catalogue snapshot under `pkg/pricecatalog/` is third-party data under the MIT licence; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 <!-- The documentation address. This block is the only place the README spells it out. -->
 [docs]: https://vamsiramakrishnan.github.io/aiplex/

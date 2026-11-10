@@ -244,9 +244,11 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "operation denied", http.StatusForbidden)
 		return true
 	}
-	lease, err := g.prepareExecution(r, trusted, op, metadata, body)
+	// Extended operations (images, audio, files, batches) have no response
+	// extractor: the hooks refuse them up front when a response hook applies.
+	body, _, lease, err := g.prepareDispatch(r, trusted, op, metadata, body)
 	if err != nil {
-		writeExecutionError(w, err)
+		writeDispatchError(w, err)
 		return true
 	}
 	var run *executionRun
@@ -259,7 +261,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 			}
 		}
 	}
-	upstream, err := url.Parse(strings.TrimSuffix(g.surface.Origin, "/") + r.URL.EscapedPath())
+	upstream, err := url.Parse(g.upstreamOrigin() + r.URL.EscapedPath())
 	if err != nil {
 		http.Error(w, "invalid upstream request", http.StatusBadRequest)
 		return true
@@ -302,7 +304,9 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 		writeExecutionError(w, err)
 		return true
 	}
-	response, err := g.client.Do(request)
+	// Media exchanges are observed for routing but settle a transport
+	// failure as uncertain (their leases do not take NotSent).
+	response, _, err := g.do(request)
 	if err != nil {
 		if finishErr := run.finish(execution.Result{Err: err}); finishErr != nil {
 			writeExecutionError(w, finishErr)
@@ -315,6 +319,10 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 	if g.options.ObserveLimits != nil {
 		g.options.ObserveLimits(r.Context(), owner, providerlimits.Parse(g.surface.Provider.ID, response.StatusCode, response.Header, time.Now()))
 	}
+	if g.handleUpstreamAuth(w, r, run, response) {
+		return true
+	}
+	g.noteRejectionClass(r, response)
 	x := extendedExchange{g: g, w: w, r: r, owner: owner, op: op, spec: spec, run: run, response: response, metadata: metadata, images: images, body: body}
 	x.serve()
 	return true

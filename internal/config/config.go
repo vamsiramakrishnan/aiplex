@@ -54,9 +54,10 @@ type Config struct {
 	WIFPool         string `env:"WIF_POOL,default=aiplex-agents"`
 	WorkforcePoolID string `env:"WORKFORCE_POOL_ID,default=aiplex-users"`
 
-	// Observability
-	LogLevel     string `env:"LOG_LEVEL,default=info"`
-	OTelEndpoint string `env:"OTEL_ENDPOINT,default="`
+	// Observability. OpenTelemetry is configured by the standard OTEL_*
+	// variables, read by pkg/telemetry (OTEL_ENDPOINT is a deprecated alias of
+	// OTEL_EXPORTER_OTLP_ENDPOINT handled there).
+	LogLevel string `env:"LOG_LEVEL,default=info"`
 
 	// Console SPA origins allowed by CORS. Comma-separated list of full origins
 	// (scheme + host[:port]). When empty, CORS is permissive ("*") only in

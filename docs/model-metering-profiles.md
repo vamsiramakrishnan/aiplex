@@ -233,10 +233,18 @@ Server-tool quantities always fail closed, per counter: Anthropic
 `server_tool_use.web_search_requests`, `web_fetch_requests` and
 `code_execution_requests` (per-request billing; code execution also bills
 container time that no usage object reports), any unknown `server_tool_use`
-key, and Gemini `toolUsePromptTokenCount` / `total_tool_use_tokens`. The
-documented counters are carried as `server_tool_*` counters on the usage
-observation; the usage ledger record has no field for them. The strict
-profiles also refuse tool requests, so no exposure bound exists for them.
+key, OpenAI built-in tool calls in Responses `output` (`web_search_call`,
+`file_search_call`, `code_interpreter_call`, `image_generation_call`), Gemini
+`usageMetadata.billedToolCalls`, and Gemini `toolUsePromptTokenCount` /
+`total_tool_use_tokens`. The counts are carried as `server_tool_<kind>_requests`
+counters on the usage observation, and the usage ledger keeps them in a
+record's `server_tools` map (kind to request count), with the Gemini tool-use
+prompt tokens as the unit `tool_use_prompt_tokens`. Earlier versions did not
+keep them in the ledger. A count appears only when the provider reports it; a
+price rates one with a per-call `server_tool.<kind>` meter, and a record with a
+positive count and no rate for it has an unknown cost (see
+[server tools](usage-ledger.md#server-tools)). The strict profiles also refuse
+tool requests, so no exposure bound exists for them.
 
 Bedrock Converse responses carry no model identifier. Under a strict profile
 the versioned `modelId` the gateway dispatched to (the URL path selector,

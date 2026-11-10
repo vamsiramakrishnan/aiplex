@@ -1,0 +1,365 @@
+{{- /*
+The GKE Gateway that fronts the platform: the load balancer, the HTTPS and
+redirect listeners, the routes to the Console, API and planes, and the Cloud
+Armor attachment. `aiplex platform apply` installs this chart, so the Gateway
+is applied with the rest of the platform; deploy/k8s/gateway.yaml is only a
+pointer to it.
+
+Prerequisites, all created by Terraform (deploy/terraform): the global address
+named by gateway.addressName (gateway.tf), the certificate map named by
+gateway.certMap (gateway.tf) and, for gateway.cloudArmorPolicy, the security
+policy (security.tf). The cluster must have the Gateway API enabled (gke.tf
+gateway_api_config). The GatewayClass is supplied by GKE and is cluster-scoped,
+so the chart neither creates nor modifies it.
+
+Not validated against a live cluster. Docs followed:
+https://docs.cloud.google.com/kubernetes-engine/docs/how-to/deploying-gateways
+https://docs.cloud.google.com/kubernetes-engine/docs/how-to/configure-gateway-resources
+*/ -}}
+{{- if .Values.gateway.enabled }}
+{{- $ns := include "aiplex.namespace" . }}
+{{- $hosts := .Values.gateway.hostnames | default (list .Values.global.domain) }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: aiplex-gateway
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+  annotations:
+    networking.gke.io/certmap: {{ .Values.gateway.certMap | quote }}
+spec:
+  gatewayClassName: {{ .Values.gateway.className }}
+  addresses:
+  - type: NamedAddress
+    value: {{ .Values.gateway.addressName | quote }}
+  listeners:
+  - name: https
+    protocol: HTTPS
+    port: 443
+    tls:
+      mode: Terminate
+    allowedRoutes:
+      namespaces:
+        from: All
+  - name: http-redirect
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces:
+        from: All
+---
+# Redirect HTTP to HTTPS.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: http-redirect
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    sectionName: http-redirect
+  rules:
+  - filters:
+    - type: RequestRedirect
+      requestRedirect:
+        scheme: https
+        statusCode: 301
+---
+# Console (SPA): the root of the domain.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: console-route
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    sectionName: https
+  hostnames:
+  {{- range $hosts }}
+  - {{ . | quote }}
+  {{- end }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: aiplex-console
+      port: 80
+---
+# API: /api/*, /auth/*, /healthz, /readyz, /v0.1/*, /events and /otlp/* (the
+# OTLP/HTTP receiver for coding-harness telemetry: /otlp/v1/logs, /metrics,
+# /traces; an exporter's endpoint is https://<domain>/otlp). The receiver bounds
+# its own bodies (4 MiB as sent by default, AIPLEX_OTLP_MAX_BODY_BYTES); the GKE
+# Gateway exposes no request-body-size setting, so nothing is configured here
+# and the load balancer's own limits apply.
+# /metrics is deliberately not routed: scrapers reach the API Service inside the
+# cluster with the AIPLEX_METRICS_TOKEN bearer secret. /internal/* (the authz
+# sidecar's denial reports) is not routed either; it is cluster-internal.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: api-route
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    sectionName: https
+  hostnames:
+  {{- range $hosts }}
+  - {{ . | quote }}
+  {{- end }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /api/
+    - path:
+        type: PathPrefix
+        value: /auth/
+    - path:
+        type: PathPrefix
+        value: /healthz
+    - path:
+        type: PathPrefix
+        value: /readyz
+    - path:
+        type: PathPrefix
+        value: /v0.1/
+    - path:
+        type: PathPrefix
+        value: /events
+    - path:
+        type: PathPrefix
+        value: /otlp/
+    backendRefs:
+    - name: aiplex-api
+      port: 8080
+---
+# LLMPlex: /llm/*.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: llmplex-route
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    sectionName: https
+  hostnames:
+  {{- range $hosts }}
+  - {{ . | quote }}
+  {{- end }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /llm/
+    backendRefs:
+    - name: aiplex-api
+      port: 8080
+---
+# MCPlex and A2APlex: /mcp/* and /a2a/*. The routes live in the plane
+# namespaces and point at the API Service in aiplex-system, which needs a
+# ReferenceGrant there.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcplex-route
+  namespace: mcplex
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    namespace: {{ $ns }}
+    sectionName: https
+  hostnames:
+  {{- range $hosts }}
+  - {{ . | quote }}
+  {{- end }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /mcp/
+    {{- if .Values.gateway.envoyGatewayPolicies }}
+    filters:
+    - type: ExtensionRef
+      extensionRef:
+        group: gateway.envoyproxy.io
+        kind: SecurityPolicy
+        name: aiplex-authz
+    {{- end }}
+    backendRefs:
+    - name: aiplex-api
+      namespace: {{ $ns }}
+      port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: a2aplex-route
+  namespace: a2aplex
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+  - name: aiplex-gateway
+    namespace: {{ $ns }}
+    sectionName: https
+  hostnames:
+  {{- range $hosts }}
+  - {{ . | quote }}
+  {{- end }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /a2a/
+    backendRefs:
+    - name: aiplex-api
+      namespace: {{ $ns }}
+      port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-plane-routes-to-api
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: mcplex
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: a2aplex
+  to:
+  - group: ""
+    kind: Service
+    name: aiplex-api
+{{- if .Values.gateway.cloudArmorPolicy }}
+---
+# Cloud Armor: attach the backend security policy (Terraform, security.tf) to
+# the Services the Gateway routes to. Without these the policy exists but
+# filters nothing.
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: aiplex-api-waf
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  default:
+    securityPolicy: {{ .Values.gateway.cloudArmorPolicy | quote }}
+  targetRef:
+    group: ""
+    kind: Service
+    name: aiplex-api
+---
+apiVersion: networking.gke.io/v1
+kind: GCPBackendPolicy
+metadata:
+  name: aiplex-console-waf
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  default:
+    securityPolicy: {{ .Values.gateway.cloudArmorPolicy | quote }}
+  targetRef:
+    group: ""
+    kind: Service
+    name: aiplex-console
+{{- end }}
+---
+# The load balancer's health check defaults to GET / on the serving port. The
+# API answers 404 there, so check its health endpoint instead.
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: aiplex-api-health
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: /healthz
+  targetRef:
+    group: ""
+    kind: Service
+    name: aiplex-api
+{{- if .Values.gateway.envoyGatewayPolicies }}
+---
+# Envoy Gateway policies. These kinds exist only where Envoy Gateway is
+# installed (the GKE Gateway controller ignores them), so they are off by
+# default. When on: ext_authz through OPA and per-user rate limits.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: aiplex-authz
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: aiplex-gateway
+  extAuth:
+    grpc:
+      backendRef:
+        name: opa-ext-authz
+        port: 9191
+    withRequestBody:
+      maxRequestBytes: 65536
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: global-rate-limit
+  namespace: {{ $ns }}
+  labels:
+    {{- include "aiplex.labels" . | nindent 4 }}
+spec:
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: aiplex-gateway
+  rateLimit:
+    type: Global
+    global:
+      rules:
+      - clientSelectors:
+        - headers:
+          - name: x-jwt-sub
+            type: Distinct
+        limit:
+          requests: 200
+          unit: Minute
+      - clientSelectors:
+        - headers:
+          - name: x-jwt-sub
+            type: Distinct
+        limit:
+          requests: 5000
+          unit: Hour
+{{- end }}
+{{- end }}

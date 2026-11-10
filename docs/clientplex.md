@@ -25,6 +25,8 @@ requires the current revision. Configuration plans resolve destination reference
 in that same tenant, validate protocol compatibility and render fragments. They
 do not execute commands, fetch credentials or write workstation files. Secret
 references and target environment names are returned separately from artifacts.
+The CLI's separate, opt-in `aiplex connect --write` is what edits a client's config
+file ([harness onboarding](harness-onboarding.md)); ClientPlex plans never do.
 
 The Console provides profile discovery, revision-aware registration editing and
 plan review. The SDK and `aiplex clients` commands use the same API.

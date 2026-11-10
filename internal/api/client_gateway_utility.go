@@ -172,7 +172,16 @@ func (h *ConnectedHandler) AccessPointResource(protocol string) http.HandlerFunc
 		}
 		var candidates, owned []candidate
 		seen := map[string]bool{}
+		var refs []string
 		for _, entry := range ap.Models {
+			// A resource created through a routed model lives on the backend
+			// that served it: every backend surface is a candidate owner.
+			for _, b := range entry.allBackends() {
+				refs = append(refs, b.SurfaceRef)
+			}
+		}
+		for _, ref := range refs {
+			entry := struct{ SurfaceRef string }{ref}
 			if seen[entry.SurfaceRef] {
 				continue
 			}

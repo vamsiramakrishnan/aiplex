@@ -17,12 +17,30 @@ spec:
       labels:
         app.kubernetes.io/name: aiplex-console
     spec:
+      # The console serves static files and never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # nginxinc/nginx-unprivileged (console/Dockerfile) runs as uid 101.
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: nginx
         image: {{ include "aiplex.console.image" . }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
         ports:
-        - containerPort: 80
+        - containerPort: 8080
           name: http
+        volumeMounts:
+        # nginx-unprivileged keeps its pid and temp files under /tmp.
+        - name: tmp
+          mountPath: /tmp
         resources:
           {{- toYaml .Values.console.resources | nindent 10 }}
         livenessProbe:
@@ -30,6 +48,9 @@ spec:
             path: /
             port: http
           periodSeconds: 30
+      volumes:
+      - name: tmp
+        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

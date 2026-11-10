@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 )
 
 // JSON writes a JSON response with the given status code.
@@ -20,5 +21,6 @@ func Error(w http.ResponseWriter, r *http.Request, status int, code, message str
 		Code:      code,
 		Message:   message,
 		RequestID: GetRequestID(r.Context()),
+		TraceID:   telemetry.TraceID(r.Context()),
 	})
 }

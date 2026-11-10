@@ -44,6 +44,10 @@ const (
 	BasisSettled   = "settled"
 	BasisEstimated = "estimated"
 	BasisUnknown   = "unknown"
+	// BasisReported is a cost the harness itself reported (for example Claude
+	// Code's cost_usd). It is the sender's estimate, neither settled by a
+	// provider invoice nor computed from an AIPlex price.
+	BasisReported = "reported"
 
 	// MaxTextLength bounds every identifier stored on a record.
 	MaxTextLength = 512
@@ -127,6 +131,15 @@ type Cost struct {
 	Currency string `json:"currency,omitempty"`
 	Amount   string `json:"amount,omitempty"`
 	Scale    uint8  `json:"scale"`
+	// Exact is the unrounded amount in minor units as a fraction ("37/4" for
+	// 9.25), set only when Amount was rounded up from it. Summaries add Exact
+	// values before rounding once, so rounding does not accumulate.
+	Exact string `json:"exact,omitempty"`
+	// PriceID names the model-price an estimate used.
+	PriceID string `json:"price_id,omitempty"`
+	// BackfilledAt is set when the cost was computed after the record was
+	// written, for a record whose cost was unknown at write time.
+	BackfilledAt *time.Time `json:"backfilled_at,omitempty"`
 }
 
 // MarshalJSON omits the scale of an unknown cost so it cannot be read as zero.
@@ -227,10 +240,21 @@ type Record struct {
 	ClientID string `json:"client_id,omitempty"`
 	// AccessPointID and CallerKind are set only for exchanges that entered
 	// through an access point; CallerKind is agent, user or client.
-	AccessPointID  string `json:"access_point_id,omitempty"`
-	CallerKind     string `json:"caller_kind,omitempty"`
-	RequestID      string `json:"request_id,omitempty"`
+	AccessPointID string `json:"access_point_id,omitempty"`
+	CallerKind    string `json:"caller_kind,omitempty"`
+	// BudgetIDs are the tenant budgets the exchange drew from (its own and
+	// every ancestor), recorded only for an attempt that was dispatched.
+	BudgetIDs []string `json:"budget_ids,omitempty"`
+	RequestID string   `json:"request_id,omitempty"`
+	// TraceID and SpanID are the W3C identifiers of the exchange's span (the
+	// CLIENT span of a managed exchange; for a record reported through the
+	// legacy usage report, the SERVER span of the request that reported it;
+	// for a record from harness telemetry, the ids on the harness's own log
+	// event, empty when the event carried none). The trace continues the caller's
+	// traceparent when it sent a valid one. They are generated whether or not
+	// telemetry export is on, so logs, traces and records correlate.
 	TraceID        string `json:"trace_id,omitempty"`
+	SpanID         string `json:"span_id,omitempty"`
 	QuotaAttemptID string `json:"quota_attempt_id,omitempty"`
 	Streaming      bool   `json:"streaming"`
 	// Session is true for a WebSocket session exchange: one record covers the
@@ -240,8 +264,21 @@ type Record struct {
 	HTTPStatus int    `json:"http_status,omitempty"`
 	ErrorClass string `json:"error_class,omitempty"`
 	Source     string `json:"source"`
-	Requests   int64  `json:"requests"`
-	Usage      *Usage `json:"usage"`
+	// Harness, HarnessVersion and SessionID describe a reported record (see
+	// telemetry_fields.go). They are labels the sender chose, never identity.
+	Harness         string `json:"harness,omitempty"`
+	HarnessVersion  string `json:"harness_version,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	ClientRequestID string `json:"client_request_id,omitempty"`
+	// CallerSpanID is the span id of the traceparent the caller sent with a
+	// managed request. It only correlates a reported record to this one.
+	CallerSpanID       string            `json:"caller_span_id,omitempty"`
+	ReportedAttributes map[string]string `json:"reported_attributes,omitempty"`
+	// Tags are experiment labels from trusted access point configuration and
+	// an operator-allowlisted request header (see telemetry_fields.go).
+	Tags     map[string]string `json:"tags,omitempty"`
+	Requests int64             `json:"requests"`
+	Usage    *Usage            `json:"usage"`
 	// UsageBound qualifies Usage when the exchange ended without final usage
 	// evidence: "lower_bound" (the counters are what was observed before the
 	// exchange ended), "ambiguous" (a resumed session whose counter
@@ -258,10 +295,38 @@ type Record struct {
 	// reported for generated images (for example "1024x1024", "high").
 	ImageSize    string `json:"image_size,omitempty"`
 	ImageQuality string `json:"image_quality,omitempty"`
-	Cost         Cost   `json:"cost"`
+	// ServiceTier is the processing tier the provider reported for the
+	// exchange (OpenAI service_tier, for example "default", "flex",
+	// "priority"); "mixed" when parts of one exchange disagreed.
+	ServiceTier string `json:"service_tier,omitempty"`
+	// ServerTools counts provider-side tool requests the provider reported
+	// (kind to count, for example web_search). See server_tools.go.
+	ServerTools map[string]int64 `json:"server_tools,omitempty"`
+	Cost        Cost             `json:"cost"`
 	// ProviderLimits is the provider rate-limit metadata observed on the
 	// managed exchange's native response, when any was reported.
 	ProviderLimits *providerlimits.Limits `json:"provider_limits,omitempty"`
+	// Hooks summarizes request-hook decisions on the exchange (hooks.go).
+	// It never holds content or matched text.
+	Hooks *HookSummary `json:"hooks,omitempty"`
+	// ToolPolicyRule is the identifier of the tool policy rule that refused
+	// the call (error_class tool_policy_denied or tool_policy_error). Empty
+	// for a default deny and when no rule decided. Never arguments.
+	ToolPolicyRule string `json:"tool_policy_rule,omitempty"`
+	// Attempts, Backend and RoutingStrategy describe a routed access-point
+	// exchange (routing.go): every attempt in order, the backend that
+	// served, and the strategy. Provider, model and cost are those of the
+	// backend that served.
+	Attempts        []Attempt   `json:"attempts,omitempty"`
+	Backend         *BackendRef `json:"backend,omitempty"`
+	RoutingStrategy string      `json:"routing_strategy,omitempty"`
+	// Cache is the response-cache outcome when the model has a cache.
+	Cache *CacheInfo `json:"cache,omitempty"`
+	// CachedResponseUsage is, on a cache hit, the usage of the original
+	// exchange whose answer was replayed. It is not provider usage of this
+	// exchange (Usage is zero and the cost basis is "cached") and summaries
+	// do not add it to token totals.
+	CachedResponseUsage *Usage `json:"cached_response_usage,omitempty"`
 }
 
 // NewID returns a random record identifier.
@@ -312,7 +377,7 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "span_id": r.SpanID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "tool_policy_rule": r.ToolPolicyRule, "image_size": r.ImageSize, "image_quality": r.ImageQuality, "service_tier": r.ServiceTier} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}
@@ -321,6 +386,14 @@ func (r Record) Validate() error {
 	case "", "agent", "user", "client":
 	default:
 		return invalid("caller_kind must be agent, user or client")
+	}
+	if len(r.BudgetIDs) > 16 {
+		return invalid("budget_ids is bounded to 16 entries")
+	}
+	for _, id := range r.BudgetIDs {
+		if !validText(id, true) {
+			return invalid("budget_ids entries are bounded printable text")
+		}
 	}
 	switch r.UsageBound {
 	case "", UsageLowerBound, UsageAmbiguous, UsagePartial:
@@ -358,6 +431,18 @@ func (r Record) Validate() error {
 			return err
 		}
 	}
+	if err := r.validateTelemetryFields(); err != nil {
+		return err
+	}
+	if err := r.Hooks.validate(); err != nil {
+		return err
+	}
+	if err := validateServerTools(r.ServerTools); err != nil {
+		return err
+	}
+	if err := r.validateRouting(); err != nil {
+		return err
+	}
 	return r.Cost.Validate()
 }
 
@@ -365,20 +450,32 @@ func (r Record) Validate() error {
 func (c Cost) Validate() error {
 	switch c.Basis {
 	case BasisUnknown:
-		if c.Currency != "" || c.Amount != "" || c.Scale != 0 {
+		if c.Currency != "" || c.Amount != "" || c.Scale != 0 || c.Exact != "" || c.PriceID != "" || c.BackfilledAt != nil {
 			return invalid("unknown cost cannot carry an amount")
 		}
 		return nil
-	case BasisSettled, BasisEstimated:
+	case BasisCached:
+		return validateCachedCost(c)
+	case BasisSettled, BasisEstimated, BasisReported:
 		if !ValidCurrency(c.Currency) || c.Scale > MaxScale {
 			return invalid("cost needs a three-letter currency and scale up to %d", MaxScale)
 		}
 		if _, ok := c.AmountInt(); !ok || len(c.Amount) > 64 {
 			return invalid("cost amount must be a nonnegative decimal integer")
 		}
+		if !validText(c.PriceID, false) {
+			return invalid("cost price_id is not bounded printable text")
+		}
+		if c.Exact != "" {
+			exact, ok := new(big.Rat).SetString(c.Exact)
+			amount, _ := c.AmountInt()
+			if !ok || len(c.Exact) > 128 || exact.IsInt() || exact.Sign() < 0 || new(big.Rat).SetInt(amount).Cmp(exact) < 0 || new(big.Rat).SetInt(new(big.Int).Sub(amount, big.NewInt(1))).Cmp(exact) >= 0 {
+				return invalid("cost exact must be a fraction rounded up to amount")
+			}
+		}
 		return nil
 	}
-	return invalid("cost basis must be settled, estimated or unknown")
+	return invalid("cost basis must be settled, estimated, reported, cached or unknown")
 }
 
 // Clone returns a deep copy so stores never share counter pointers.
@@ -400,6 +497,24 @@ func (r Record) Clone() Record {
 		u.TotalTokens = copyCounter(r.Usage.TotalTokens)
 		u.UnitUsage = r.Usage.UnitUsage.clone()
 		r.Usage = &u
+	}
+	r.ReportedAttributes, r.Tags = cloneLabels(r.ReportedAttributes), cloneLabels(r.Tags)
+	r.Hooks = cloneHooks(r.Hooks)
+	if r.ServerTools != nil {
+		tools := make(map[string]int64, len(r.ServerTools))
+		for k, v := range r.ServerTools {
+			tools[k] = v
+		}
+		r.ServerTools = tools
+	}
+	if r.Cost.BackfilledAt != nil {
+		at := *r.Cost.BackfilledAt
+		r.Cost.BackfilledAt = &at
+	}
+	cloneRouting(&r)
+	r.BudgetIDs = append([]string(nil), r.BudgetIDs...)
+	if len(r.BudgetIDs) == 0 {
+		r.BudgetIDs = nil
 	}
 	return r
 }

@@ -17,8 +17,12 @@ import (
 const (
 	SeedAccessPoint = "local"
 	SeedSurface     = "local-models"
-	SeedConnection  = "local-tools"
-	MockModel       = "mock-gpt"
+	// SeedSurfaceB is the chat surface on the second mock provider (Mock B),
+	// created with the mock provider but on no access point, for trying
+	// routing: list it as a second backend of mock-gpt.
+	SeedSurfaceB   = "local-models-b"
+	SeedConnection = "local-tools"
+	MockModel      = "mock-gpt"
 	// MockSecretRef is the secret reference the extra mock surfaces use. Their
 	// providers require a credential scheme, so the stack gives the API process
 	// a throwaway value under this reference (the mock ignores it).
@@ -72,9 +76,24 @@ func DefaultModel(provider string) string {
 	case "anthropic":
 		return "claude-haiku-4-5"
 	case "gemini":
-		return "gemini-2.5-flash"
+		return "gemini-3.1-flash-lite"
 	}
 	return MockModel
+}
+
+// ClaudeCodeBetas are the anthropic-beta values Claude Code 2.1.322 sent on
+// /v1/messages when observed on 2026-11-10 (capture of a headless turn), plus
+// the long-standing ones it has used before. The gateway refuses a beta the
+// surface does not list, so a development surface lists them or the real
+// client's first request fails with 400. A beta a later Claude Code adds has to
+// be added to the surface's provider.anthropic_betas.
+func ClaudeCodeBetas() []string {
+	return []string{
+		"claude-code-20250219", "interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14",
+		"token-efficient-tools-2025-02-19", "context-management-2025-06-27", "advanced-tool-use-2025-11-20",
+		"effort-2025-11-24", "per-turn-control-2026-07-01", "mid-conversation-tool-changes-2026-07-01",
+		"thinking-token-count-2026-05-13",
+	}
 }
 
 // SurfaceSpec builds the model-surface spec for a provider. origin is the
@@ -114,7 +133,7 @@ func surfaceSpec(id, provider, origin, model string, mock bool) (map[string]any,
 		auth = map[string]any{"type": "bearer", "secret_ref": ProviderSecretRef}
 	case "anthropic":
 		providerID, protocol, opIDs = modelapi.ProviderAnthropic, modelapi.ProtocolAnthropicMessages, []string{"anthropic.messages", "anthropic.messages-count-tokens"}
-		providerBlock = map[string]any{"id": providerID, "anthropic_version": "2023-06-01"}
+		providerBlock = map[string]any{"id": providerID, "anthropic_version": "2023-06-01", "anthropic_betas": ClaudeCodeBetas()}
 		auth = map[string]any{"type": "api_key", "in": "header", "name": "x-api-key", "secret_ref": ProviderSecretRef}
 	case "gemini":
 		providerID, protocol, opIDs = modelapi.ProviderGeminiDeveloper, modelapi.ProtocolGoogleGenAI, []string{"gemini.models.generateContent", "gemini.models.streamGenerateContent", "gemini.models.countTokens"}
@@ -268,6 +287,13 @@ func (s *Stack) Seed(ctx context.Context, o SeedOptions) (*Seeded, error) {
 		}
 		out.Price = o.Model
 		out.Models[0].Price = o.Model
+		specB, _, e := SurfaceSpec(SeedSurfaceB, o.Provider, s.ModelsBURL, o.Model)
+		if e != nil {
+			return nil, e
+		}
+		if err = api.Create(ctx, "/api/v1/llm/surfaces/"+SeedSurfaceB, specB); err != nil {
+			return nil, fmt.Errorf("create model surface %s: %w", SeedSurfaceB, err)
+		}
 		for _, m := range MockSurfaces {
 			spec, e := MockSurfaceSpec(m, origin)
 			if e != nil {

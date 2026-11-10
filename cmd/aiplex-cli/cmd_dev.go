@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -59,7 +60,9 @@ func devCmd() *cobra.Command {
 		contextName       string
 		noConsole, open   bool
 		noTools, detach   bool
+		quota             bool
 		allowOrigins      []string
+		otelEndpoint      string
 	)
 	cmd := &cobra.Command{
 		Use:   "dev",
@@ -101,17 +104,24 @@ or is killed, the local API stops with it.
 The local API calls only loopback upstreams and the public OpenAI, Anthropic
 and Gemini APIs; allow another origin with --allow-origin https://host.
 
+--otel URL exports OpenTelemetry traces and metrics over OTLP/HTTP to a
+collector you run (for example Jaeger on http://127.0.0.1:4318). Without it
+nothing is exported; OTEL_* variables already in your environment are passed
+to the local API unchanged.
+
 A real provider key is read from the environment variable you name with
 --api-key-env. It is passed only to the local API process's environment; it
 is never printed, accepted as a flag value, or written to disk.`,
 		Example: `  aiplex dev
+  aiplex dev --quota    # QuotaPlex on, so budgets that count requests work
   aiplex dev --detach && aiplex dev status
   aiplex dev --provider openai --api-key-env OPENAI_API_KEY
   aiplex dev --provider anthropic --api-key-env ANTHROPIC_API_KEY --model claude-haiku-4-5
+  aiplex dev --otel http://127.0.0.1:4318    # traces and metrics to a local collector or Jaeger
   eval "$(aiplex dev env)"    # in another terminal: AIPLEX_URL, AIPLEX_TOKEN, OPENAI_BASE_URL, ...`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			o := devOptions{port: port, consolePort: consolePort, provider: provider, keyEnv: keyEnv, model: model, apiBin: apiBin, contextName: contextName, noConsole: noConsole, open: open, noTools: noTools, allowOrigins: allowOrigins}
+			o := devOptions{port: port, consolePort: consolePort, provider: provider, keyEnv: keyEnv, model: model, apiBin: apiBin, contextName: contextName, noConsole: noConsole, open: open, noTools: noTools, allowOrigins: allowOrigins, otel: otelEndpoint, quota: quota}
 			if err := refuseIfDevRunning(); err != nil {
 				return err
 			}
@@ -130,9 +140,11 @@ is never printed, accepted as a flag value, or written to disk.`,
 	cmd.Flags().StringVar(&contextName, "context", "local", "CLI context to create for the local API")
 	cmd.Flags().BoolVar(&noConsole, "no-console", false, "Do not serve the Console")
 	cmd.Flags().BoolVar(&open, "open", false, "Open the Console in a browser")
+	cmd.Flags().BoolVar(&quota, "quota", false, "Turn QuotaPlex on for the mock surfaces and tools so budgets that count requests work (mock provider only; counters reset when the API restarts)")
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Do not start the built-in MCP server's tool connection")
 	cmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in the background; stop with: aiplex dev stop")
 	cmd.Flags().StringSliceVar(&allowOrigins, "allow-origin", nil, "Extra upstream origin the local API may call, e.g. https://mcp.example.com (repeatable)")
+	cmd.Flags().StringVar(&otelEndpoint, "otel", "", "Export OpenTelemetry traces and metrics (OTLP/HTTP) to this collector endpoint, e.g. http://127.0.0.1:4318")
 	cmd.AddCommand(devEnvCmd(), devStatusCmd(), devStopCmd(), devTokenCmd())
 	return cmd
 }
@@ -144,7 +156,9 @@ type devOptions struct {
 	contextName       string
 	noConsole, open   bool
 	noTools           bool
+	quota             bool
 	allowOrigins      []string
+	otel              string
 }
 
 func runDev(parent context.Context, o devOptions) error {
@@ -183,7 +197,13 @@ func runDev(parent context.Context, o devOptions) error {
 	if err != nil {
 		return err
 	}
-	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins, ExtraOrigins: extra})
+	// OTEL_* variables already in the environment reach the API unchanged;
+	// --otel sets the OTLP endpoint on top of them.
+	apiEnv, err := devOTelEnv(o.otel)
+	if err != nil {
+		return err
+	}
+	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins, ExtraOrigins: extra, Env: apiEnv, Quota: o.quota, QuotaNoTools: o.noTools})
 	if err != nil {
 		return fmt.Errorf("%w\n  API log: %s", err, logPath)
 	}
@@ -439,6 +459,7 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		}
 		row("Models", strings.Join(names, ", ")+"  (built-in mock provider, no API key)")
 		row("", "wires: "+strings.Join(wires, ", "))
+		row("Mock B", s.ModelsBURL+"  (a second mock provider for routing; models named *-fault-* fail on demand)")
 	default:
 		row("Model", seeded.Model+"  via "+seeded.Provider+" (key from $"+o.keyEnv+")")
 	}
@@ -450,8 +471,15 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		row("Price", "placeholder rates for each mock model, so estimated cost shows in usage")
 	} else {
 		row("Price", "none (prices are your contracted rates: aiplex usage prices set -f price.json)")
+		if hint := devPriceHint(seeded.Provider, seeded.Model); hint != "" {
+			row("", hint)
+		}
 	}
-	row("Quota", "off (optional: QuotaPlex reads an operator policy file named by AIPLEX_QUOTA_FILE)")
+	if o.quota {
+		row("Quota", "on for the mock surfaces and tools (request counts); try: aiplex budgets create team --unit requests --amount 100 --window day --user alice@localhost")
+	} else {
+		row("Quota", "off (aiplex dev --quota turns it on for budgets that count requests; QuotaPlex otherwise reads an operator policy file named by AIPLEX_QUOTA_FILE)")
+	}
 	ctxNote := "\"" + o.contextName + "\" (current"
 	if previous != "" {
 		ctxNote += "; \"" + previous + "\" is restored when you stop"
@@ -461,6 +489,9 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		row("Console", consoleURL)
 	} else if !o.noConsole {
 		row("Console", consoleNote)
+	}
+	if endpoint := devOTelEndpoint(o.otel); endpoint != "" {
+		row("Telemetry", endpoint+"  (OTLP traces and metrics; trace_id is on each request log line and usage record)")
 	}
 	row("API log", logPath+"  (what aiplex-api prints: requests, errors, startup)")
 	if detached {
@@ -479,6 +510,9 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	fmt.Println()
 	fmt.Println("    # 2. See what it cost and who made it")
 	fmt.Println("    aiplex usage records")
+	fmt.Println()
+	fmt.Println("    # Configure your coding agent for it (shows a diff, keeps a backup, undo with --undo)")
+	fmt.Println("    aiplex connect " + seeded.AccessPoint + " --client claude-code --write      # or codex, gemini-cli")
 	fmt.Println()
 	if consoleURL != "" {
 		fmt.Println("    # 3. Open the Console (URL also shown by: aiplex dev status)")
@@ -639,4 +673,33 @@ func seededModelNames(seeded *devstack.Seeded) []string {
 		names = append(names, m.Name)
 	}
 	return names
+}
+
+// devOTelEnv validates --otel and returns the API environment it sets. The
+// endpoint is the OTLP/HTTP base URL (the API appends /v1/traces and
+// /v1/metrics); OTEL_EXPORTER_OTLP_PROTOCOL in the environment can select
+// grpc instead.
+func devOTelEnv(endpoint string) ([]string, error) {
+	if endpoint == "" {
+		return nil, nil
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("--otel takes a collector URL such as http://127.0.0.1:4318, got %q", endpoint)
+	}
+	return []string{"OTEL_EXPORTER_OTLP_ENDPOINT=" + endpoint}, nil
+}
+
+// devOTelEndpoint is where the local API exports telemetry: --otel, else an
+// endpoint already in the environment, else "" (export off).
+func devOTelEndpoint(flag string) string {
+	if flag != "" {
+		return flag
+	}
+	for _, name := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_ENDPOINT"} {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }

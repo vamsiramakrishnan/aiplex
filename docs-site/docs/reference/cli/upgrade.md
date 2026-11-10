@@ -17,11 +17,12 @@ Examples:
   aiplex upgrade --yes
 
 Flags:
-  -h, --help            help for upgrade
-      --skip-deploy     Skip Helm (only run Terraform)
-      --skip-infra      Skip Terraform (only run Helm)
-  -f, --values string   Helm values file override
-  -y, --yes             Auto-approve Terraform changes
+  -h, --help             help for upgrade
+      --skip-deploy      Skip Helm (only run Terraform)
+      --skip-infra       Skip Terraform (only run Helm)
+      --skip-preflight   Do not check permissions, APIs and billing before Terraform (prints a warning)
+  -f, --values string    Helm values file override
+  -y, --yes              Auto-approve Terraform changes
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

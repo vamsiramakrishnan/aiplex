@@ -37,6 +37,13 @@ aiplex connect ide-platform-team -o json
 
 Any verified caller that the access point admits can run `aiplex connect`. Operators get the full output. Other callers get a reduced one, with only their own caller kind and auth step. A caller the access point does not admit gets `not found`.
 
+To apply it instead of copying it, add `--write` (`claude-code`, `codex` or `gemini-cli`). The command merges the settings into the client's own config file after showing a diff, keeps a backup, never writes a token value, and `aiplex connect --undo` restores the backup. It does not install the client. See [Harness onboarding](../library/harness-onboarding.md).
+
+```bash
+aiplex connect ide-platform-team --client claude-code --write --dry-run
+aiplex connect ide-platform-team --client claude-code --write
+```
+
 ## 3. Check what the client can reach
 
 ```bash
@@ -55,3 +62,5 @@ aiplex clients plan --help
 ```
 
 See the [ClientPlex guide](../guides/clientplex.md).
+
+`aiplex connect <access-point> --client <client> --write` merges the configuration into the client's own file after showing a diff. It covers `claude-code`, `codex`, `gemini-cli` and `antigravity`; for Antigravity only its MCP server list is written, and its model settings stay print-only ([Harness onboarding](../library/harness-onboarding.md)). Add `--with-telemetry aiplex` to send the client's usage events to this deployment's receiver as reported records; the token is never written to the file.

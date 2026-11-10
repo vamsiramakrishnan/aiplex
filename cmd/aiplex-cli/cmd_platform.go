@@ -24,12 +24,14 @@ No need to run terraform, helm, or kubectl directly.
 
 Flow:
   aiplex init                    # configure project
-  aiplex platform apply          # deploy everything
+  aiplex platform preflight      # check permissions, APIs and billing
+  aiplex platform apply          # deploy everything (runs the preflight first)
   aiplex platform status         # check infrastructure
   aiplex platform destroy        # tear down`,
 	}
 
 	cmd.AddCommand(
+		platformPreflightCmd(),
 		platformApplyCmd(),
 		platformStatusCmd(),
 		platformDestroyCmd(),
@@ -39,10 +41,11 @@ Flow:
 
 func platformApplyCmd() *cobra.Command {
 	var (
-		skipInfra   bool
-		skipDeploy  bool
-		autoApprove bool
-		valuesFile  string
+		skipInfra     bool
+		skipDeploy    bool
+		autoApprove   bool
+		valuesFile    string
+		skipPreflight bool
 	)
 
 	cmd := &cobra.Command{
@@ -50,10 +53,13 @@ func platformApplyCmd() *cobra.Command {
 		Short: "Deploy infrastructure and application (terraform + helm)",
 		Long: `Runs the full deployment pipeline:
 
+  0. Runs aiplex platform preflight and stops if a required permission,
+     API or billing is missing (--skip-preflight to override)
   1. Creates GCS bucket for Terraform state (if needed)
   2. Runs terraform init + apply (GKE, AlloyDB, Firestore, certs, DNS)
   3. Configures kubectl context
-  4. Runs helm install/upgrade (AIPlex API, Console, Ory, OPA)
+  4. Runs helm install/upgrade (AIPlex API, Console, Ory, OPA, and the
+     Gateway with its routes and Cloud Armor attachment)
   5. Waits for cert provisioning
   6. Runs health check
 
@@ -87,6 +93,15 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 
 			tfDir := findTerraformDir()
 			helmDir := findHelmDir()
+
+			// Step 0: permission preflight (before anything is created)
+			if !skipInfra {
+				fmt.Println("[0/6] Preflight: permissions, APIs, billing...")
+				if err := requirePreflight(cmd.Context(), os.Stdout, ctx.Project, skipPreflight); err != nil {
+					return err
+				}
+				fmt.Println()
+			}
 
 			// Step 1: Terraform state bucket
 			if !skipInfra {
@@ -188,7 +203,7 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 
 			// Step 5: Helm deploy
 			if !skipDeploy {
-				fmt.Println("[5/6] Helm deploy (AIPlex API, Console, Ory, OPA)...")
+				fmt.Println("[5/6] Helm deploy (AIPlex API, Console, Ory, OPA, Gateway)...")
 				helmArgs := []string{
 					"upgrade", "--install", "aiplex", helmDir,
 					"--namespace", "aiplex-system", "--create-namespace",
@@ -241,6 +256,7 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 	cmd.Flags().BoolVar(&skipDeploy, "skip-deploy", false, "Skip Helm (only run Terraform)")
 	cmd.Flags().BoolVarP(&autoApprove, "yes", "y", false, "Auto-approve Terraform changes")
 	cmd.Flags().StringVarP(&valuesFile, "values", "f", "", "Helm values file override")
+	cmd.Flags().BoolVar(&skipPreflight, "skip-preflight", false, "Do not check permissions, APIs and billing before Terraform (prints a warning)")
 	return cmd
 }
 
@@ -498,21 +514,30 @@ func stateBucketName(project string) string {
 	return fmt.Sprintf("%s-aiplex-tfstate", project)
 }
 
+// stateBucketCommands returns the gcloud invocations that make the state
+// bucket exist with object versioning on (so an overwritten or corrupted state
+// can be recovered). Terraform does not manage this bucket: it holds
+// Terraform's own state.
+func stateBucketCommands(project string, exists bool) [][]string {
+	gs := fmt.Sprintf("gs://%s", stateBucketName(project))
+	var cmds [][]string
+	if !exists {
+		cmds = append(cmds, []string{"storage", "buckets", "create", gs,
+			"--project", project, "--location", "US", "--uniform-bucket-level-access", "--quiet"})
+	}
+	return append(cmds, []string{"storage", "buckets", "update", gs, "--versioning", "--project", project, "--quiet"})
+}
+
 func ensureStateBucket(project string) error {
 	bucket := stateBucketName(project)
-	// Check if bucket exists
-	err := exec.Command("gcloud", "storage", "buckets", "describe",
-		fmt.Sprintf("gs://%s", bucket), "--project", project, "--quiet").Run()
-	if err == nil {
-		return nil // exists
+	exists := exec.Command("gcloud", "storage", "buckets", "describe",
+		fmt.Sprintf("gs://%s", bucket), "--project", project, "--quiet").Run() == nil
+	for _, args := range stateBucketCommands(project, exists) {
+		if err := exec.Command("gcloud", args...).Run(); err != nil {
+			return fmt.Errorf("gcloud %s: %w", strings.Join(args[:3], " "), err)
+		}
 	}
-	// Create it
-	return exec.Command("gcloud", "storage", "buckets", "create",
-		fmt.Sprintf("gs://%s", bucket),
-		"--project", project,
-		"--location", "US",
-		"--uniform-bucket-level-access",
-		"--quiet").Run()
+	return nil
 }
 
 func waitForCert(tfDir string, maxChecks int) {

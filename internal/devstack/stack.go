@@ -65,19 +65,32 @@ type Options struct {
 	// ExtraOrigins are additional loopback or HTTPS origins the outbound
 	// policy approves (for test upstreams).
 	ExtraOrigins []string
+	// Quota turns QuotaPlex on with a generated request-count policy for the
+	// seeded mock surfaces and tools, so tenant budgets that count requests
+	// work locally. Mock provider only. QuotaNoTools leaves out the tool
+	// bindings when the tool connection is not seeded.
+	Quota        bool
+	QuotaNoTools bool
+	// QuotaTariff adds a placeholder per-request price (0.001 USD) on the
+	// primary surface and none elsewhere, for tests of cost budgets.
+	QuotaTariff bool
 }
 
 // Stack is a running local stack.
 type Stack struct {
-	Issuer    *Issuer
-	Models    *MockModels
-	MCP       *MockMCP
-	APIURL    string
-	ModelsURL string
-	MCPURL    string
-	IssuerURL string
-	Dir       string
-	Token     string
+	Issuer *Issuer
+	Models *MockModels
+	// ModelsB is a second, independent mock provider (its replies are
+	// prefixed "[b]"), so routing can fall over from one backend to another.
+	ModelsB    *MockModels
+	ModelsBURL string
+	MCP        *MockMCP
+	APIURL     string
+	ModelsURL  string
+	MCPURL     string
+	IssuerURL  string
+	Dir        string
+	Token      string
 
 	opts      Options
 	ownDir    bool
@@ -144,7 +157,10 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	if opts.APIBinary == "" {
 		return nil, fmt.Errorf("API binary not set")
 	}
-	s := &Stack{opts: opts, Models: &MockModels{}, MCP: &MockMCP{}, exited: make(chan struct{})}
+	if opts.Quota && opts.Provider != "mock" {
+		return nil, fmt.Errorf("--quota covers the built-in mock surfaces; with --provider %s, enable QuotaPlex with an operator quota file (AIPLEX_QUOTA_FILE), see docs/budgets.md", opts.Provider)
+	}
+	s := &Stack{opts: opts, Models: &MockModels{}, ModelsB: &MockModels{Name: "b"}, MCP: &MockMCP{}, exited: make(chan struct{})}
 	ok := false
 	defer func() {
 		if !ok {
@@ -169,7 +185,7 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	for _, srv := range []struct {
 		h   http.Handler
 		dst *string
-	}{{s.issuerHandler(), &s.IssuerURL}, {s.Models, &s.ModelsURL}, {s.MCP, &s.MCPURL}} {
+	}{{s.issuerHandler(), &s.IssuerURL}, {s.Models, &s.ModelsURL}, {s.ModelsB, &s.ModelsBURL}, {s.MCP, &s.MCPURL}} {
 		server, url, e := Listen(srv.h)
 		if e != nil {
 			return nil, e
@@ -234,6 +250,13 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	}
 	if len(opts.ConsoleOrigins) > 0 {
 		env = append(env, "CONSOLE_ORIGINS="+strings.Join(opts.ConsoleOrigins, ","))
+	}
+	if opts.Quota {
+		quotaPath, qerr := writeQuotaFile(s.Dir, DevTenant, opts.QuotaNoTools, opts.QuotaTariff)
+		if qerr != nil {
+			return nil, qerr
+		}
+		env = append(env, "AIPLEX_MODULES="+QuotaModules, "AIPLEX_QUOTA_FILE="+quotaPath)
 	}
 	env = append(env, opts.Env...)
 	s.env = env
@@ -323,7 +346,7 @@ func writeJSONFile(path string, v any) error {
 const ProviderSecretRef = "dev-provider-key"
 
 func (s *Stack) writeConnections() (string, error) {
-	origins := []string{s.ModelsURL, s.MCPURL, s.IssuerURL}
+	origins := []string{s.ModelsURL, s.ModelsBURL, s.MCPURL, s.IssuerURL}
 	origins = append(origins, s.opts.ExtraOrigins...)
 	if s.opts.Provider != "mock" {
 		origin, _ := ProviderOrigin(s.opts.Provider)

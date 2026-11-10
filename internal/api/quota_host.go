@@ -128,6 +128,8 @@ type QuotaHost struct {
 	maxMembershipAge     time.Duration
 	store                quotaplex.Store
 	configurationDigests map[string]string
+	// budgets resolves a tenant's budget tree; nil means no tenant budgets.
+	budgets BudgetSource
 }
 
 // QuotaInvocation is constructed by a trusted model/tool adapter. BeforeDispatch

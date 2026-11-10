@@ -8,6 +8,26 @@ for flags and examples. For the local stack, see [local development](local-devel
 The CLI is implemented in `cmd/aiplex-cli`. The resolution order below is from `resolveTarget` in
 `cmd/aiplex-cli/target.go` and the context handling in `cmd/aiplex-cli/main.go`.
 
+## Command groups
+
+These are the groups `aiplex --help` lists, with the page that covers each. Every group also has
+its own `--help`.
+
+| Group | Commands | Covered in |
+| --- | --- | --- |
+| Get started | `dev`, `login`, `logout`, `auth`, `whoami`, `config`, `ctx`, `doctor`, `health`, `version`, `init`, `quickstart` | [local development](local-development.md), this page |
+| Connect clients | `access-points`, `connect`, `who`, `clients` | [access points](access-points.md), [harness onboarding](harness-onboarding.md) |
+| Models | `llm` (surfaces, routes, batches, capacity) | [model providers](model-providers.md), [model batches](model-batches.md) |
+| Tools | `mcp` (connections, registry, serve), `tools`, `tool-auth`, `skills` | [tool connection auth](tool-connection-auth.md), [policy rules](tool-policy-rules.md), [MCP Registry import](mcp-registry-import.md) |
+| Agents and identity | `agents`, `identity`, `a2a` | [agent identity federation](agent-identity-federation.md), [connected Plexes](connected-plexes.md) |
+| Usage and quota | `usage` (records, summary, prices, backfill, feedback), `quota`, `budgets`, `hooks` | [usage ledger](usage-ledger.md), [QuotaPlex administration](quotaplex-administration.md), [budgets](budgets.md), [request hooks](request-hooks.md) |
+| Operate | `status`, `resources`, `apply`, `validate`, `modules`, `platform`, `upgrade`, `infra`, `native`, `catalog`, `deploy`, `undeploy`, `list`, `get`, `logs`, `runs`, `console`, `tui` | [Google Cloud permissions](gcp-permissions.md), [modules](modules.md), [native agent governance](native-agent-governance.md) |
+| Additional | `completion`, `help` | [shell completion](#shell-completion) |
+
+`aiplex access-points routing` shows the live routing and breaker state of an access point
+([reliability and routing](reliability-and-routing.md)). The request order that hooks, routing, budgets
+and tool rules apply is in [request lifecycle](request-lifecycle.md).
+
 ## Finding the API and the token
 
 Every command resolves three things, in this order. The first source that is set wins.
@@ -166,6 +186,15 @@ The commands that take `--yes` include:
 - `aiplex config delete-context`
 - `aiplex platform apply` (approves the Terraform changes) and `aiplex platform destroy`
 
+The commands that write outside the API ask the same way, and refuse without a terminal unless `--yes` is given:
+
+- `aiplex connect <access-point> --client <client> --write` (a diff of each client config file) and `aiplex connect --undo`
+  ([harness onboarding](harness-onboarding.md))
+- `aiplex usage prices catalog import` (creates price resources; `--dry-run` writes nothing)
+- `aiplex usage prices backfill` (prices records whose cost was unknown; shows the dry-run result first, `--dry-run` writes nothing)
+
+`aiplex platform preflight` only reads, and it changes nothing in Google Cloud.
+
 `aiplex platform destroy` does not use the terminal check. Without `--yes` it reads a line from standard input
 and proceeds only if that line is `destroy`. There is no top-level `aiplex delete`, `aiplex remove` or
 `aiplex delete-context` command.
@@ -199,3 +228,7 @@ and a zsh form that writes to `fpath`. Run `aiplex completion --help` for them.
 - [Tool connection auth](tool-connection-auth.md): `aiplex mcp connections`.
 - [Model providers](model-providers.md): `aiplex llm surfaces create`.
 - [Usage ledger](usage-ledger.md#cli): `aiplex usage` and its columns.
+- [Usage ledger, price catalogue](usage-ledger.md#price-catalogue): `aiplex usage prices catalog search|show|import`.
+- [Harness onboarding](harness-onboarding.md): `aiplex connect --write` and `--undo`, `aiplex auth print-token` and `aiplex mcp serve`.
+- [Observability](observability.md): `aiplex dev --otel`, and the telemetry variables the API reads.
+- [Google Cloud permissions](gcp-permissions.md): `aiplex platform preflight`, and the upgrade steps.

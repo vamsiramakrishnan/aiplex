@@ -1,0 +1,12 @@
+{
+  "name": "aiplex",
+  "version": "0.1.0",
+  "description": "Read-only AIPlex tools and onboarding instructions for Gemini CLI.",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "aiplex": {
+      "command": "aiplex",
+      "args": ["mcp", "serve"]
+    }
+  }
+}

@@ -100,6 +100,22 @@ type Options struct {
 	// acquisition or upstream I/O (HTTP requests and WebSocket session
 	// admission alike). An *execution.StatusError becomes the response.
 	Admit func(context.Context, contracts.RequestContext, Operation, Metadata) error
+	// Hooks inspects request and response content (hooks.go). Nil leaves
+	// every body untouched.
+	Hooks ContentHooks
+	// NoteError receives the error class of a failure the gateway attributes
+	// itself (upstream_auth, upstream_quota_exhausted; upstream_errors.go).
+	NoteError func(ctx context.Context, class string)
+	// OperatorDetail reports whether the caller is an operator, who sees the
+	// surface id in gateway-generated upstream errors. Nil means no one does.
+	OperatorDetail func(ctx context.Context) bool
+	// ObserveDispatch receives each upstream round trip's outcome (status
+	// and headers, or the transport error and whether the request provably
+	// never left). A routing layer uses it to classify an attempt.
+	ObserveDispatch func(context.Context, DispatchOutcome)
+	// Cache is the exact-match response cache seam (dispatch.go). Nil
+	// disables caching.
+	Cache ResponseCache
 }
 type compiledOperation struct {
 	operation Operation
@@ -260,6 +276,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "operation denied", http.StatusForbidden)
 			return
 		}
+		if !g.sessionHooks(w, r, op, metadata) {
+			return
+		}
 		g.serveLive(w, r, trusted, owner, op)
 		return
 	}
@@ -280,9 +299,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "operation denied", http.StatusForbidden)
 		return
 	}
-	lease, e := g.prepareExecution(r, trusted, op, metadata, body)
+	body, inspect, lease, e := g.prepareDispatch(r, trusted, op, metadata, body)
 	if e != nil {
-		writeExecutionError(w, e)
+		writeDispatchError(w, e)
 		return
 	}
 	var run *executionRun
@@ -299,6 +318,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set(execution.AttemptHeader, id)
 			}
 		}
+	}
+	hit, store := g.cacheLookup(r, op, metadata, body)
+	if hit != nil {
+		g.serveCached(w, r, op, metadata, run, inspect, hit)
+		return
 	}
 	token, e := g.options.TokenSource.Token(r.Context())
 	if e != nil || strings.TrimSpace(token) == "" {
@@ -327,9 +351,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeExecutionError(w, e)
 		return
 	}
-	response, e := g.client.Do(request)
+	response, notSent, e := g.do(request)
 	if e != nil {
-		if err := run.finish(execution.Result{Err: e}); err != nil {
+		if err := run.finish(transportResult(e, notSent)); err != nil {
 			writeExecutionError(w, err)
 			return
 		}
@@ -337,6 +361,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	if g.handleUpstreamAuth(w, r, run, response) {
+		return
+	}
 	if response.StatusCode >= 300 && response.StatusCode < 400 {
 		if err := run.finish(execution.Result{StatusCode: response.StatusCode, Err: errors.New("upstream redirect refused")}); err != nil {
 			writeExecutionError(w, err)
@@ -346,6 +373,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	success := response.StatusCode >= 200 && response.StatusCode < 300
+	if inspect && success {
+		g.serveInspected(w, r, response, owner, op, metadata, run, store, func(out http.Header) { copyResponseHeaders(out, response.Header) })
+		return
+	}
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	jsonResponse := mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
 	if success && mediaType == "text/event-stream" {
@@ -381,6 +412,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeExecutionError(w, err)
 			return
 		}
+		if store != nil && success && jsonResponse {
+			store(response.StatusCode, response.Header, data)
+		}
 		copyResponseHeaders(w.Header(), response.Header)
 		w.WriteHeader(response.StatusCode)
 		_, _ = w.Write(data)
@@ -397,6 +431,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if e = g.observeJSON(r.Context(), owner, op, data, true); e != nil {
 			http.Error(w, "resource ownership could not be persisted", 502)
 			return
+		}
+		if store != nil && jsonResponse {
+			store(response.StatusCode, response.Header, data)
 		}
 		copyResponseHeaders(w.Header(), response.Header)
 		w.WriteHeader(response.StatusCode)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,6 +32,9 @@ type serverOptions struct {
 	identity *auth.WIFValidator
 	// officialRegistryURL replaces the public MCP registry origin.
 	officialRegistryURL string
+	// metrics serves GET /metrics (main passes the telemetry exporter's
+	// handler; nil serves an empty exposition).
+	metrics http.Handler
 }
 
 // server is the fully wired HTTP API. close releases resources acquired while
@@ -189,6 +193,10 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	federationH.Providers = userFederationH.Providers
 	userFederationH.Bindings = federationH.Bindings
 	usageH := configureUsageLedger(store, cfg, connectedH, llmH)
+	otlpH, err := configureUsageTelemetry(store, usageH, connectedH, &srv.closers)
+	if err != nil {
+		return nil, fmt.Errorf("usage telemetry configuration failed: %w", err)
+	}
 	dashH.Ledger, dashH.Tenant = usageH.Ledger, connectedH.Tenant
 	quotaRuntime, err := configureQuota(ctx, cfg, store, connectedH)
 	if err != nil {
@@ -266,6 +274,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	r := chi.NewRouter()
 	r.Use(api.Recover)
 	r.Use(api.RequestID)
+	r.Use(api.Tracing) // SERVER span; continues a valid inbound traceparent
 	r.Use(api.Logger)
 	corsOrigins := cfg.AllowedOrigins
 	switch {
@@ -281,7 +290,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			limit := int64(1 << 20)
-			if nativeInvocation(r) {
+			if nativeInvocation(r) || strings.HasPrefix(r.URL.Path, "/otlp/") {
 				limit = 8 << 20
 			}
 			api.MaxBody(limit)(next).ServeHTTP(w, r)
@@ -319,6 +328,15 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		}
 		healthH.Readiness(w, r.WithContext(probe))
 	})
+	// Prometheus text exposition for an in-cluster scraper: a shared-secret
+	// internal route (route_policy.go) that the gateway does not publish.
+	metrics := opts.metrics
+	if metrics == nil {
+		metrics = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		})
+	}
+	r.With(api.MetricsAuth(cfg.DevelopmentMode)).Get("/metrics", metrics.ServeHTTP)
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
@@ -349,7 +367,9 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		}
 		r.Get("/modules", moduleDiscovery(moduleRegistry))
 		mountUsageLedger(r, usageH, connectedH)
-		connectedH.MountAccessPoints(r) // /api/v1/access-points
+		mountHookPolicies(r, connectedH) // /api/v1/hooks/policies
+		connectedH.MountAccessPoints(r)  // /api/v1/access-points
+		connectedH.MountBudgets(r)       // /api/v1/budgets
 		// Single-pane overview: /api/v1/overview
 		api.NewOverviewHandler(connectedH, usageH.Ledger, store, federationH.Bindings).Mount(r)
 
@@ -449,6 +469,16 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		r.Post("/internal/projections/rebuild/{run_id}", runsH.RebuildProjection)
 	})
 
+	// Authorization denials reported by the authz sidecar. Same guard style as
+	// the Tape routes: a shared bearer secret (AIPLEX_DENIAL_TOKEN, a Secret
+	// reference in the chart; 503 while unset) and a per-source rate limit. The
+	// handler adds a body limit, a closed schema and a global limit.
+	r.Group(func(r chi.Router) {
+		r.Use(api.BearerToken(api.DenialTokenEnv))
+		r.Use(api.IPRateLimit(parseFloatEnv("AIPLEX_DENIAL_RPS", 20), parseIntEnv("AIPLEX_DENIAL_BURST", 100)))
+		r.Post("/internal/policy-denials", dashH.RecordPolicyDenial)
+	})
+
 	// MCP sub-registry (v0.1 spec)
 	if moduleEnabled(enabledModules, "mcplex") {
 		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/v0.1/servers", catalogH.List)
@@ -456,6 +486,10 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 
 	// Access points: /ap/{id}/… model, MCP, catalog and skill endpoints.
 	connectedH.MountAccessPointEndpoints(r)
+
+	// OTLP receiver for harness telemetry: /otlp/v1/{logs,metrics,traces}.
+	// Any verified caller may report its own telemetry (route_policy.go).
+	otlpH.Mount(r.With(api.RequireIdentity(cfg.DevelopmentMode)))
 
 	// A2A Agent Card discovery (per-instance)
 	if moduleEnabled(enabledModules, "a2aplex") {

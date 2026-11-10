@@ -62,6 +62,21 @@ type ToolPolicy struct {
 	Allow    []string `json:"allow,omitempty"`
 	Deny     []string `json:"deny,omitempty"`
 	ReadOnly bool     `json:"read_only,omitempty"`
+	// Rules are policy expressions evaluated after the lists, the caller's
+	// scope and read_only. See ToolRule.
+	Rules []ToolRule `json:"rules,omitempty"`
+}
+
+// ToolRule is one policy rule on tool calls. When is a CEL boolean expression
+// over tool, args, caller, access_point and request; Effect is "deny" or
+// "allow". Message is shown to the caller when the rule refuses a call and
+// must be safe to publish.
+type ToolRule struct {
+	ID          string `json:"id"`
+	Description string `json:"description,omitempty"`
+	When        string `json:"when"`
+	Effect      string `json:"effect"`
+	Message     string `json:"message,omitempty"`
 }
 
 // ToolAuthField describes one auth block member for generated forms.
@@ -134,6 +149,18 @@ type ToolConnection struct {
 	Execution   *ToolExecution `json:"execution,omitempty"`
 	Auth        *ToolAuth      `json:"auth,omitempty"`
 	Tools       *ToolPolicy    `json:"tools,omitempty"`
+	// Provenance is set on connections imported from an MCP Registry.
+	Provenance *ToolProvenance `json:"provenance,omitempty"`
+}
+
+// ToolProvenance records the MCP Registry entry a connection was imported
+// from. It is informational: nothing in authorization or dispatch reads it.
+type ToolProvenance struct {
+	Registry    string `json:"registry"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	RetrievedAt string `json:"retrieved_at"`
+	SHA256      string `json:"sha256"`
 }
 
 // ToolConnectionRecord is a tool connection with its stored revision.

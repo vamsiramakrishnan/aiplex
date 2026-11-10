@@ -30,6 +30,12 @@ resource "google_alloydb_cluster" "aiplex" {
   ]
 }
 
+variable "alloydb_cpu_count" {
+  description = "vCPUs for the AlloyDB primary instance (aiplex init offers 2, 4 or 8)"
+  type        = number
+  default     = 2
+}
+
 # Primary instance
 resource "google_alloydb_instance" "primary" {
   cluster       = google_alloydb_cluster.aiplex.name
@@ -37,7 +43,7 @@ resource "google_alloydb_instance" "primary" {
   instance_type = "PRIMARY"
 
   machine_config {
-    cpu_count = 2
+    cpu_count = var.alloydb_cpu_count
   }
 
   depends_on = [google_alloydb_cluster.aiplex]
@@ -56,6 +62,13 @@ resource "google_compute_subnetwork" "aiplex" {
   region        = var.region
   network       = google_compute_network.aiplex.id
   project       = var.project_id
+
+  # Private Google Access lets nodes without external IPs reach Google APIs
+  # (Artifact Registry, Secret Manager, Firestore) from this subnet:
+  # https://docs.cloud.google.com/vpc/docs/configure-private-google-access
+  # Turned on only with cluster_network = "aiplex" (gke.tf), so an existing
+  # deployment's subnet is not touched.
+  private_ip_google_access = local.dedicated_network
 
   secondary_ip_range {
     range_name    = "pods"

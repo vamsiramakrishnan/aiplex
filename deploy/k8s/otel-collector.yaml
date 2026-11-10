@@ -1,3 +1,21 @@
+# Raw manifest; the Helm chart renders the same collector with the project
+# filled in from global.projectId. Replace PROJECT_ID before applying, e.g.
+#   sed "s/PROJECT_ID/$(gcloud config get-value project)/g" deploy/k8s/otel-collector.yaml | kubectl apply -f -
+# Applied unchanged it exports to a project named "PROJECT_ID" and fails.
+# aiplex-api sends OTLP here (http://otel-collector.aiplex-system:4318, see
+# deploy/k8s/aiplex-api.yaml). The collector runs as its own service account,
+# mapped to the aiplex-otel-collector Google service account (Terraform,
+# otel_collector = true), which holds roles/cloudtrace.agent and
+# roles/monitoring.metricWriter.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: aiplex-system
+  annotations:
+    iam.gke.io/gcp-service-account: aiplex-otel-collector@PROJECT_ID.iam.gserviceaccount.com
+automountServiceAccountToken: false
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -81,11 +99,23 @@ spec:
       labels:
         app: otel-collector
     spec:
-      serviceAccountName: aiplex-api
+      serviceAccountName: otel-collector
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: otel-collector
-        image: otel/opentelemetry-collector-contrib:latest
+        image: otel/opentelemetry-collector-contrib:0.164.0  # pinned; update deliberately
         args: ["--config=/etc/otel/config.yaml"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
         ports:
         - containerPort: 4317
           name: otlp-grpc

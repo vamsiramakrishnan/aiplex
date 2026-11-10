@@ -10,11 +10,15 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/pkg/cloudagents"
@@ -23,6 +27,8 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
@@ -43,6 +49,7 @@ type usageCapture struct {
 	anthropicRaw bool
 	attemptID    string
 	errorCode    string
+	noCost       bool
 	incomplete   bool
 	streaming    bool
 	finished     bool
@@ -51,17 +58,35 @@ type usageCapture struct {
 	// usage is final only with a terminal observation.
 	terminalSeen bool
 	bound        string
+	// span is the exchange's CLIENT span; its identifiers are the record's
+	// trace_id and span_id. genAIProvider is gen_ai.provider.name.
+	span          trace.Span
+	genAIProvider string
+	// hooks summarizes request-hook decisions (hooks.go); nil when none ran.
+	hooks *usageledger.HookSummary
+	// route is set for an attempt of a routed access-point model: the
+	// finished record goes to the router, which submits one record per
+	// exchange (access_point_routing.go).
+	route *routeAttempt
+	// cacheHit is the cached answer this exchange was served from.
+	cacheHit *routing.CacheEntry
 }
 
 // beginUsage starts capturing an exchange for a verified tenant. The returned
-// writer must be used for the rest of the handler; finish must be deferred.
-func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, tenant, plane, resourceID string) (http.ResponseWriter, *usageCapture) {
+// writer and request must be used for the rest of the handler (the request
+// carries the exchange's CLIENT span, whose context upstream requests
+// propagate); finish must be deferred.
+func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, tenant, plane, resourceID string) (http.ResponseWriter, *http.Request, *usageCapture) {
 	if h == nil || h.Ledger == nil || tenant == "" {
-		return w, nil
+		return w, r, nil
 	}
-	c := &usageCapture{h: h, r: r, started: time.Now().UTC()}
+	// The span is named when the exchange finishes (operation and model are
+	// known only then). Its identifiers exist whether or not export is on.
+	ctx, span := telemetry.Tracer().Start(r.Context(), plane, trace.WithSpanKind(trace.SpanKindClient))
+	r = r.WithContext(ctx)
+	c := &usageCapture{h: h, r: r, started: time.Now().UTC(), span: span}
 	c.writer = &usageWriter{ResponseWriter: w}
-	c.record = usageledger.Record{TenantID: tenant, Plane: plane, ResourceID: resourceID, Source: usageledger.SourceManaged, Requests: 1, RequestID: GetRequestID(r.Context()), TraceID: traceIDFromHeader(r.Header.Get("traceparent"))}
+	c.record = usageledger.Record{TenantID: tenant, Plane: plane, ResourceID: resourceID, Source: usageledger.SourceManaged, Requests: 1, RequestID: GetRequestID(r.Context()), TraceID: telemetry.TraceID(ctx), SpanID: telemetry.SpanID(ctx)}
 	if identity := GetWIFIdentity(r.Context()); identity != nil {
 		c.record.PrincipalID = identity.PrincipalID
 		c.record.PrincipalDisplay = principalDisplay(identity)
@@ -72,17 +97,16 @@ func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, te
 	if call := accessPointCallFrom(r.Context()); call != nil {
 		c.record.AccessPointID = call.ID
 		c.record.CallerKind = call.CallerKind
+		if len(call.Tags) > 0 {
+			c.record.Tags = call.Tags
+		}
 	}
-	return c.writer, c
-}
-
-// traceIDFromHeader extracts a W3C trace ID for correlation only.
-func traceIDFromHeader(value string) string {
-	parts := strings.Split(strings.TrimSpace(value), "-")
-	if len(parts) < 4 || len(parts[1]) != 32 || !traceHex(parts[1], 32) || parts[1] == strings.Repeat("0", 32) {
-		return ""
-	}
-	return parts[1]
+	// Keys that let a harness's own telemetry be matched to this record:
+	// the caller's span id from its traceparent and its per-request id.
+	_, c.record.CallerSpanID = telemetry.RemoteParent(r.Header)
+	c.record.ClientRequestID = clientRequestID(r.Header.Get("X-Client-Request-Id"))
+	c.route = routeAttemptFrom(r.Context())
+	return c.writer, r, c
 }
 
 func (c *usageCapture) set(fn func(*usageledger.Record)) {
@@ -98,6 +122,7 @@ func (c *usageCapture) set(fn func(*usageledger.Record)) {
 func (c *usageCapture) agent(provider cloudagents.Provider, operation string) {
 	c.set(func(r *usageledger.Record) {
 		r.Provider = string(provider)
+		c.genAIProvider = telemetry.AgentProviderName(string(provider))
 		r.Operation = operation
 		if strings.Contains(strings.ToLower(operation), "stream") {
 			c.streaming = true
@@ -118,6 +143,30 @@ func (c *usageCapture) noteError(err error) {
 		}
 		c.mu.Unlock()
 	}
+}
+
+// uncosted marks an exchange that must never be priced: no provider was
+// called, so no settlement or per-request price may apply.
+func (c *usageCapture) uncosted() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.noCost = true
+	c.mu.Unlock()
+}
+
+// noteClass keeps the error class of a failure the gateway attributes itself
+// (upstream_auth, upstream_quota_exhausted). The first one wins.
+func (c *usageCapture) noteClass(class string) {
+	if c == nil || class == "" || len(class) > 64 {
+		return
+	}
+	c.mu.Lock()
+	if c.errorCode == "" {
+		c.errorCode = class
+	}
+	c.mu.Unlock()
 }
 
 func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string, terminal bool, bound string, dimensions ...map[string]string) {
@@ -154,11 +203,21 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 	// forwards the native counters unnormalized).
 	c.mu.Lock()
 	c.anthropicRaw = connection.Surface.Publisher == "anthropic"
+	c.genAIProvider = telemetry.ModelProviderName("", true)
 	if connection.Surface.Provider != nil {
 		c.record.Provider = connection.Surface.Provider.ID
 		c.anthropicRaw = connection.Surface.Provider.ID == modelapi.ProviderAnthropic || connection.Surface.Provider.ID == modelapi.ProviderBedrock
+		c.genAIProvider = telemetry.ModelProviderName(connection.Surface.Provider.ID, false)
 	}
 	c.mu.Unlock()
+	opts.NoteError = func(_ context.Context, class string) { c.noteClass(class) }
+	if opts.OperatorDetail == nil {
+		// Operators (admin or deployer) see the surface id in gateway-made
+		// upstream errors; every other caller sees none.
+		opts.OperatorDetail = func(ctx context.Context) bool {
+			return HasRole(GetWIFAccess(ctx), models.RoleAdmin, models.RoleDeployer)
+		}
+	}
 	authorize := opts.Authorize
 	opts.Authorize = func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
 		c.set(func(r *usageledger.Record) {
@@ -397,8 +456,14 @@ func (c *usageCapture) finish() {
 	record := c.record.Clone()
 	counters := c.usage.Snapshot()
 	anthropicRaw, attemptID, code, incomplete := c.anthropicRaw, c.attemptID, c.errorCode, c.incomplete
+	noCost := c.noCost
 	streaming := c.streaming || hijacked
 	bound, terminalSeen := c.bound, c.terminalSeen
+	if c.hooks != nil {
+		summary := *c.hooks
+		summary.Results = append([]usageledger.HookResult(nil), c.hooks.Results...)
+		record.Hooks = &summary
+	}
 	c.mu.Unlock()
 	if hijacked && !terminalSeen {
 		// A relayed session without a final usage observation: whatever was
@@ -454,6 +519,7 @@ func (c *usageCapture) finish() {
 		normalizeExclusiveInput(counters)
 	}
 	record.Usage = usageledger.FromCounters(counters)
+	record.ServerTools = usageledger.ServerToolsFromCounters(counters)
 	if bound != "" {
 		record.UsageBound = bound
 	} else if nonTokenUsage(counters) {
@@ -462,10 +528,64 @@ func (c *usageCapture) finish() {
 		record.UsageBound = usageledger.UsagePartial
 	}
 	record.Cost = usageledger.UnknownCost()
+	c.mu.Lock()
+	hit := c.cacheHit
+	c.mu.Unlock()
+	if hit != nil {
+		// Served from the response cache: the provider produced nothing for
+		// this exchange (zero usage, a "cached" cost of 0); the original
+		// usage is kept apart so summaries never count it as provider usage.
+		zero := func() *int64 { n := int64(0); return &n }
+		record.Usage = &usageledger.Usage{InputTokens: zero(), OutputTokens: zero(), CacheReadTokens: zero(), CacheWriteTokens: zero(), ReasoningTokens: zero(), TotalTokens: zero()}
+		counters := map[string]int64{}
+		for k, v := range hit.Counters {
+			counters[k] = v
+		}
+		record.CachedResponseUsage = usageledger.FromCounters(counters)
+		record.UsageBound = ""
+		record.Cost = usageledger.CachedCost()
+		if hit.ModelVersion != "" {
+			record.ModelVersion = hit.ModelVersion
+		}
+	}
 	h := c.h
-	h.Ledger.Submit(c.r.Context(), func(ctx context.Context) (usageledger.Record, error) {
-		if attemptID != "" && h.Quota != nil {
-			if cost, ok := h.Quota.settledCost(ctx, record.TenantID, attemptID); ok {
+	span, genAIProvider := c.span, c.genAIProvider
+	firstWrite := c.writer.firstWriteAt()
+	submit := func(record usageledger.Record) {
+		h.submitExchange(c.r.Context(), span, record, genAIProvider, firstWrite, attemptID, noCost)
+	}
+	if c.route != nil {
+		if span != nil {
+			span.SetAttributes(c.route.spanAttributes()...)
+		}
+		c.route.deliver(&deliveredRecord{record: record, span: span, genAIProvider: genAIProvider, firstWrite: firstWrite, submit: submit})
+		return
+	}
+	submit(record)
+}
+
+// submitExchange resolves the record's cost (quota settlement, else an
+// operator price) and submits it; the span ends once the cost is resolved,
+// at the exchange's own finish time.
+func (h *ConnectedHandler) submitExchange(parent context.Context, span trace.Span, record usageledger.Record, genAIProvider string, firstWrite time.Time, attemptID string, noCost bool) {
+	// Handler fields are read here, on the request's goroutine, not in the
+	// background write.
+	quota := h.Quota
+	h.Ledger.Submit(parent, func(ctx context.Context) (out usageledger.Record, err error) {
+		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
+		if noCost {
+			return record, nil
+		}
+		if record.Cost.Basis == usageledger.BasisCached {
+			// A cache hit drew request-count budgets only; record them.
+			if attemptID != "" && quota != nil {
+				record.BudgetIDs = quota.budgetsDrawn(ctx, record.TenantID, attemptID)
+			}
+			return record, nil
+		}
+		if attemptID != "" && quota != nil {
+			record.BudgetIDs = quota.budgetsDrawn(ctx, record.TenantID, attemptID)
+			if cost, ok := quota.settledCost(ctx, record.TenantID, attemptID); ok {
 				record.Cost = cost
 				return record, nil
 			}
@@ -478,6 +598,54 @@ func (c *usageCapture) finish() {
 		}
 		return record, nil
 	})
+}
+
+// endExchangeSpan names and ends the exchange's CLIENT span and records its
+// metrics. Attributes come from the finished ledger record only: identifiers,
+// counts and classifications, never payloads or credentials.
+func endExchangeSpan(ctx context.Context, span trace.Span, record usageledger.Record, genAIProvider string, firstWrite time.Time) {
+	e := telemetry.Exchange{
+		Plane: record.Plane, Operation: record.Operation, Provider: record.Provider, ProviderName: genAIProvider,
+		RequestModel: record.ModelID, ResponseModel: record.ModelVersion, ToolName: record.ToolName,
+		ResourceID: record.ResourceID, AccessPointID: record.AccessPointID, CallerKind: record.CallerKind,
+		PrincipalID: record.PrincipalID, ActorID: record.ActorID, ClientID: record.ClientID, RequestID: record.RequestID, RecordID: record.ID,
+		Status: record.Status, HTTPStatus: record.HTTPStatus, Streaming: record.Streaming, Session: record.Session,
+		Duration: record.FinishedAt.Sub(record.StartedAt), Usage: record.Usage, UsageBound: record.UsageBound, Cost: record.Cost,
+		QuotaAttemptID: record.QuotaAttemptID, QuotaDenied: telemetry.IsQuotaDenial(record.Status, record.ErrorClass),
+	}
+	if record.Status != usageledger.StatusOK {
+		e.ErrorType = record.ErrorClass
+		if e.ErrorType == "" {
+			e.ErrorType = record.Status
+		}
+	}
+	switch record.Plane {
+	case usageledger.PlaneLLM:
+		e.OperationName = telemetry.ModelOperationName(record.Operation)
+	case usageledger.PlaneMCP:
+		e.MCPMethod = record.Operation
+		if record.Operation == "tools/call" {
+			e.OperationName = telemetry.OpExecuteTool
+		}
+		e.Provider = ""
+	case usageledger.PlaneA2A:
+		e.OperationName = telemetry.OpInvokeAgent
+	}
+	if !firstWrite.IsZero() && firstWrite.After(record.StartedAt) {
+		e.TimeToFirstChunk = firstWrite.Sub(record.StartedAt)
+	}
+	telemetry.Metrics().RecordExchange(ctx, e)
+	if span == nil {
+		return
+	}
+	span.SetName(e.SpanName())
+	span.SetAttributes(e.Attributes()...)
+	span.SetAttributes(hookSpanAttributes(record)...)
+	span.SetAttributes(toolPolicySpanAttributes(record)...)
+	if record.Status != usageledger.StatusOK {
+		span.SetStatus(codes.Error, "")
+	}
+	span.End(trace.WithTimestamp(record.FinishedAt))
 }
 
 // nonTokenUsage reports observed meters the record cannot represent: units
@@ -552,6 +720,34 @@ func modelPricesFrom(ctx context.Context, store resources.Store, tenant string) 
 // settledCost reads the money a quota settlement charged for the attempt. It
 // is a read of durable state: it never settles, retries or changes the quota
 // outcome. More than one distinct monetary meter is ambiguous and ignored.
+// budgetsDrawn lists the tenant budgets a dispatched attempt drew from. An
+// attempt that was denied or released before dispatch (hook denial, grant
+// denial) drew nothing and reports none. A cache hit claims and settles its
+// lease (one request, money at zero), so it lists the budgets it counted in.
+func (h *QuotaHost) budgetsDrawn(ctx context.Context, tenant, attempt string) []string {
+	value, ok := h.tenants[tenant]
+	if !ok || value.engine == nil {
+		return nil
+	}
+	info, err := value.engine.GetAttempt(ctx, tenant, attempt)
+	if err != nil {
+		return nil
+	}
+	switch info.Decision.State {
+	case "settled", "dispatching", "unknown":
+	default:
+		return nil
+	}
+	var ids []string
+	for _, b := range info.Plan.Budgets {
+		if b.BudgetID != "" {
+			ids = append(ids, b.BudgetID)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 func (h *QuotaHost) settledCost(ctx context.Context, tenant, attempt string) (usageledger.Cost, bool) {
 	value, ok := h.tenants[tenant]
 	if !ok || value.engine == nil {
@@ -588,6 +784,15 @@ type usageWriter struct {
 	wrote       bool
 	writeFailed bool
 	hijacked    bool
+	// firstWrite is when the first response bytes were written (time to
+	// first chunk for a streamed exchange).
+	firstWrite time.Time
+}
+
+func (w *usageWriter) firstWriteAt() time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.firstWrite
 }
 
 func (w *usageWriter) WriteHeader(status int) {
@@ -605,6 +810,9 @@ func (w *usageWriter) Write(p []byte) (int, error) {
 		w.status = http.StatusOK
 	}
 	w.wrote = true
+	if w.firstWrite.IsZero() && len(p) > 0 {
+		w.firstWrite = time.Now().UTC()
+	}
 	w.mu.Unlock()
 	n, err := w.ResponseWriter.Write(p)
 	if err != nil {

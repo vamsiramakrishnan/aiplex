@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/connections"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
@@ -14,6 +15,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
@@ -99,7 +101,7 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
-	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneMCP, id)
+	w, r, usage := h.beginUsage(w, r, tenant, usageledger.PlaneMCP, id)
 	defer usage.finish()
 	record, err := h.Store.Get(r.Context(), tenant, "tool-connection", id)
 	if err != nil {
@@ -121,6 +123,10 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 	if client == nil {
 		client = h.Runtime.HTTP
 	}
+	// Upstream tool requests carry the exchange's trace context (HTTP
+	// headers only; the JSON-RPC body is relayed unchanged, so no
+	// params._meta trace context is added).
+	client = telemetry.Client(client)
 	requestedTool := ""
 	opts := toolexec.Options{HTTPClient: client, TokenSource: toolexec.TokenSourceFunc(func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, config.IdentityRef) }), Context: func(req *http.Request) (contracts.RequestContext, error) { return h.trusted(req, id) }, Authorize: func(ctx context.Context, _ contracts.RequestContext, _ toolexec.Connection, request toolexec.Request) error {
 		requestedTool = request.Name
@@ -159,7 +165,16 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 	if h.Quota != nil {
 		opts.Prepare = h.ToolExecutionPreparer(r, record, connection)
 	}
+	// One retry after a transport failure for tools/list and for calls of
+	// tools annotated readOnlyHint=true (observed through this gateway);
+	// never for other calls, an HTTP status or a JSON-RPC error.
+	opts.Retry = &toolexec.TransportRetry{Attempts: 2, Backoff: 100 * time.Millisecond, Call: func(ctx context.Context, request toolexec.Request) bool {
+		readOnly, known := h.readOnlyHint(ctx, tenant, record, request.Name)
+		return known && readOnly
+	}}
 	usage.instrumentTool(&opts)
+	h.installToolRules(r, tenant, record, connection, &opts, usage)
+	h.installToolHooks(r, tenant, id, &opts, usage)
 	gateway, err := toolexec.NewGateway(config, opts)
 	if err != nil {
 		Error(w, r, 503, "TOOL_EXECUTION_UNAVAILABLE", "managed tool execution is unavailable")

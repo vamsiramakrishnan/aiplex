@@ -15,6 +15,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/vamsiramakrishnan/aiplex/pkg/clientplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
+	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 // Client wire protocols served under /ap/{id}. Each lists the model-surface
@@ -189,9 +191,24 @@ func nativeErrorBody(protocol string, status int, code, message string) []byte {
 	default:
 		value = map[string]any{"error": map[string]any{"message": message, "type": openAIErrorType(status), "param": nil, "code": strings.ToLower(code)}}
 	}
+	if hookCode(code) {
+		// Request-hook refusals carry their stable code in each protocol's
+		// own place for a machine-readable reason.
+		switch protocol {
+		case WireAnthropic:
+			value.(map[string]any)["error"].(map[string]any)["code"] = strings.ToLower(code)
+		case WireGenAI, WireGeminiLive:
+			value.(map[string]any)["error"].(map[string]any)["details"] = []any{map[string]any{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": code, "domain": "aiplex"}}
+		case WireBedrockConverse, WireBedrockInvoke:
+			value.(map[string]any)["code"] = strings.ToLower(code)
+		}
+	}
 	body, _ := json.Marshal(value)
 	return body
 }
+
+// hookCode reports a request-hook refusal code (HOOK_DENIED and friends).
+func hookCode(code string) bool { return strings.HasPrefix(strings.ToUpper(code), "HOOK_") }
 
 func writeNativeError(w http.ResponseWriter, protocol string, status int, code, message string) {
 	w.Header().Del("Content-Length")
@@ -202,6 +219,9 @@ func writeNativeError(w http.ResponseWriter, protocol string, status int, code, 
 	}
 	if protocol == WireBedrockConverse || protocol == WireBedrockInvoke {
 		w.Header().Set("X-Amzn-ErrorType", bedrockErrorType(status))
+	}
+	if hookCode(code) {
+		w.Header().Set("X-Aiplex-Error-Code", strings.ToLower(code))
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(nativeErrorBody(protocol, status, code, message))
@@ -510,84 +530,121 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			}
 		}
 		if entry == nil {
-			fail(w, r, http.StatusNotFound, "MODEL_NOT_FOUND", fmt.Sprintf("model %q is not available through this access point", name))
-			return
-		}
-		connection, err := h.accessPointSurface(r.Context(), tenant, entry.SurfaceRef)
-		if err != nil {
-			fail(w, r, http.StatusServiceUnavailable, "SURFACE_UNAVAILABLE", "model surface is unavailable")
-			return
-		}
-		serving := accessPointWireProtocols(connection.Surface.Protocol)
-		reachable := false
-		for _, p := range serving {
-			if p == protocol {
-				reachable = true
-			}
-		}
-		if !reachable {
-			served := accessPointServedWires(connection.Surface, entry.NativeModel)
-			paths := make([]string, 0, len(served))
-			for _, p := range served {
-				paths = append(paths, p+" ("+accessPointWirePath(p)+")")
-			}
-			fail(w, r, http.StatusBadRequest, "PROTOCOL_MISMATCH", fmt.Sprintf("model %q is not served through %s; it is served through: %s", name, protocol, strings.Join(paths, ", ")))
+			// The caller passed the access point's gate, so the refusal is
+			// recorded: who asked for what, with the requested name bounded
+			// and sanitized because it is caller-controlled text. Requests
+			// that fail the gate (unauthenticated, not admitted) write
+			// nothing, so they cannot fill the ledger.
+			unknownModel(h, w, r, tenant, call, name, fail)
 			return
 		}
 		if ap.QoS != nil && h.Quota == nil {
 			fail(w, r, http.StatusServiceUnavailable, "QUOTA_UNAVAILABLE", "access point QoS requires quota enforcement, which is not configured")
 			return
 		}
-		path, body := local, data
-		rawQuery := r.URL.RawQuery
-		if azure {
-			// api-version is accepted and ignored: the surface pins its own.
-			rawQuery = dropAPIVersion(rawQuery)
-		}
-		if deployment != "" && !bodyHasModel {
-			// A deployment-route body without a model gets the native one, so
-			// every surface sees the model where its own wire expects it.
-			if body, err = insertBodyModel(data, entry.NativeModel); err != nil {
-				fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
-				return
-			}
-			data = body
-		}
-		if accessPointWebSocket(protocol) {
-			body = nil
-			rawQuery = url.Values{"model": {entry.NativeModel}}.Encode()
-		}
-		if entry.Name != entry.NativeModel {
-			switch {
-			case protocol == WireGenAI && method != "":
-				path = "/v1beta/models/" + entry.NativeModel + ":" + method
-			case protocol == WireBedrockConverse || protocol == WireBedrockInvoke:
-				// The path selects the model; the body is relayed untouched.
-				path = "/model/" + entry.NativeModel + "/" + method
-			case protocol == WireOpenAIRealtime:
-				// rawQuery already carries the native model.
-			case accessPointBodyModelWire(protocol, r.Header.Get("Content-Type")) && accessPointAliasRewritable(connection.Surface):
-				// Only the request's model value changes; the response keeps
-				// the provider's native model name.
-				if body, err = rewriteBodyModel(data, entry.NativeModel); err != nil {
-					fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
-					return
-				}
-			default:
-				fail(w, r, http.StatusServiceUnavailable, "MODEL_ALIAS_UNSUPPORTED", "this wire relays the body verbatim; the model name must be the native name")
-				return
-			}
-		}
-		if path, err = accessPointFacadePath(connection.Surface, protocol, entry.NativeModel, path); err != nil {
-			fail(w, r, http.StatusServiceUnavailable, "SURFACE_UNSUPPORTED", "model surface cannot serve this protocol")
+		in := accessPointClientRequest{protocol: protocol, local: local, deployment: deployment, azure: azure, data: data, name: name, method: method, bodyHasModel: bodyHasModel}
+		if entry.routed() {
+			h.serveRoutedModel(w, r, tenant, ap, call, *entry, in)
 			return
 		}
-		inner := delegateRequest(r, call, "/api/v1/llm/gateway/"+entry.SurfaceRef+path, entry.SurfaceRef, body)
-		inner.URL.RawQuery = rawQuery
+		inner, failure := h.accessPointBackendRequest(r, tenant, call, entry.primary(), in)
+		if failure != nil {
+			fail(w, r, failure.status, failure.code, failure.message)
+			return
+		}
 		writer := &nativeErrorWriter{ResponseWriter: w, protocol: protocol, call: call}
 		defer writer.finish()
 		h.ClientGateway(writer, inner)
 	}
+}
+
+// accessPointClientRequest is what the access point read from the caller's
+// request before choosing a backend.
+type accessPointClientRequest struct {
+	protocol     string
+	local        string // the path below /ap/{id}
+	deployment   string // Azure deployment route segment, if any
+	azure        bool
+	data         []byte // the caller's body
+	name         string // the client-facing model name
+	method       string // GenAI or Bedrock method from the path
+	bodyHasModel bool
+}
+
+// backendFailure is a refusal raised while building a backend request.
+type backendFailure struct {
+	status        int
+	code, message string
+}
+
+// accessPointBackendRequest builds the delegated request that asks one
+// backend (a saved surface and its native model name) for the caller's
+// request: the model name is rewritten where the wire carries it and every
+// other byte is left as sent.
+func (h *ConnectedHandler) accessPointBackendRequest(r *http.Request, tenant string, call *accessPointCall, backend routing.Backend, in accessPointClientRequest) (*http.Request, *backendFailure) {
+	protocol, data := in.protocol, in.data
+	connection, err := h.accessPointSurface(r.Context(), tenant, backend.SurfaceRef)
+	if err != nil {
+		return nil, &backendFailure{http.StatusServiceUnavailable, "SURFACE_UNAVAILABLE", "model surface is unavailable"}
+	}
+	serving := accessPointWireProtocols(connection.Surface.Protocol)
+	reachable := false
+	for _, p := range serving {
+		if p == protocol {
+			reachable = true
+		}
+	}
+	if !reachable {
+		served := accessPointServedWires(connection.Surface, backend.NativeModel)
+		paths := make([]string, 0, len(served))
+		for _, p := range served {
+			paths = append(paths, p+" ("+accessPointWirePath(p)+")")
+		}
+		return nil, &backendFailure{http.StatusBadRequest, "PROTOCOL_MISMATCH", fmt.Sprintf("model %q is not served through %s; it is served through: %s", in.name, protocol, strings.Join(paths, ", "))}
+	}
+	path, body := in.local, data
+	rawQuery := r.URL.RawQuery
+	if in.azure {
+		// api-version is accepted and ignored: the surface pins its own.
+		rawQuery = dropAPIVersion(rawQuery)
+	}
+	if in.deployment != "" && !in.bodyHasModel {
+		// A deployment-route body without a model gets the native one, so
+		// every surface sees the model where its own wire expects it.
+		if body, err = insertBodyModel(data, backend.NativeModel); err != nil {
+			return nil, &backendFailure{http.StatusBadRequest, "INVALID_REQUEST", err.Error()}
+		}
+		data = body
+	}
+	if accessPointWebSocket(protocol) {
+		body = nil
+		rawQuery = url.Values{"model": {backend.NativeModel}}.Encode()
+	}
+	if in.name != backend.NativeModel {
+		switch {
+		case protocol == WireGenAI && in.method != "":
+			path = "/v1beta/models/" + backend.NativeModel + ":" + in.method
+		case protocol == WireBedrockConverse || protocol == WireBedrockInvoke:
+			// The path selects the model; the body is relayed untouched.
+			path = "/model/" + backend.NativeModel + "/" + in.method
+		case protocol == WireOpenAIRealtime:
+			// rawQuery already carries the native model.
+		case accessPointBodyModelWire(protocol, r.Header.Get("Content-Type")) && accessPointAliasRewritable(connection.Surface):
+			// Only the request's model value changes; the response keeps
+			// the provider's native model name.
+			if body, err = rewriteBodyModel(data, backend.NativeModel); err != nil {
+				return nil, &backendFailure{http.StatusBadRequest, "INVALID_REQUEST", err.Error()}
+			}
+		default:
+			return nil, &backendFailure{http.StatusServiceUnavailable, "MODEL_ALIAS_UNSUPPORTED", "this wire relays the body verbatim; the model name must be the native name"}
+		}
+	}
+	if path, err = accessPointFacadePath(connection.Surface, protocol, backend.NativeModel, path); err != nil {
+		return nil, &backendFailure{http.StatusServiceUnavailable, "SURFACE_UNSUPPORTED", "model surface cannot serve this protocol"}
+	}
+	inner := delegateRequest(r, call, "/api/v1/llm/gateway/"+backend.SurfaceRef+path, backend.SurfaceRef, body)
+	inner.URL.RawQuery = rawQuery
+	return inner, nil
 }
 
 type accessPointListedModel struct {
@@ -601,15 +658,21 @@ type accessPointListedModel struct {
 func (h *ConnectedHandler) listedModels(r *http.Request, tenant string, ap AccessPoint) []accessPointListedModel {
 	out := []accessPointListedModel{}
 	for _, entry := range ap.Models {
-		connection, err := h.accessPointSurface(r.Context(), tenant, entry.SurfaceRef)
-		if err != nil {
-			continue
+		// A routed model is listed when the caller may use any backend; it
+		// is described by the first such backend (backends serve the same
+		// wires, which is checked when the access point is saved).
+		for _, backend := range entry.allBackends() {
+			connection, err := h.accessPointSurface(r.Context(), tenant, backend.SurfaceRef)
+			if err != nil {
+				continue
+			}
+			modelID, err := connection.Surface.ModelID(backend.NativeModel)
+			if err != nil || h.authorize(r, "llm:model:"+modelID) != nil {
+				continue
+			}
+			out = append(out, accessPointListedModel{Entry: entry, ModelID: modelID, Publisher: connection.Surface.Publisher, Protocols: accessPointServedWires(connection.Surface, backend.NativeModel)})
+			break
 		}
-		modelID, err := connection.Surface.ModelID(entry.NativeModel)
-		if err != nil || h.authorize(r, "llm:model:"+modelID) != nil {
-			continue
-		}
-		out = append(out, accessPointListedModel{Entry: entry, ModelID: modelID, Publisher: connection.Surface.Publisher, Protocols: accessPointServedWires(connection.Surface, entry.NativeModel)})
 	}
 	return out
 }
@@ -702,4 +765,45 @@ func missingGrantMessage(principal string, missing []string) string {
 		}
 	}
 	return fmt.Sprintf("this access point admits you, but your account is missing the grant(s): %s. An operator can add them with: aiplex agents user-scopes set %s --scopes %s (set replaces the list: include the scopes shown by `aiplex agents user-scopes get %s`)", strings.Join(missing, ", "), principal, strings.Join(suggest, ","), principal)
+}
+
+// maxRecordedModelName bounds the requested model name stored on a record.
+const maxRecordedModelName = 128
+
+// unknownModel answers 404 MODEL_NOT_FOUND and writes a ledger record for the
+// admitted caller: status error, error_class model_not_found, no usage, no
+// cost, and the requested name (sanitized, at most 128 characters) as
+// model_id.
+func unknownModel(h *ConnectedHandler, w http.ResponseWriter, r *http.Request, tenant string, call *accessPointCall, name string, fail accessPointErrorWriter) {
+	w, r, capture := h.beginUsage(w, r, tenant, usageledger.PlaneLLM, "")
+	defer capture.finish()
+	capture.set(func(rec *usageledger.Record) {
+		rec.Operation = "unknown-model"
+		rec.ModelID = boundedModelName(name)
+		if call != nil {
+			rec.AccessPointID, rec.CallerKind = call.ID, call.CallerKind
+		}
+	})
+	capture.uncosted()
+	capture.noteClass("model_not_found")
+	fail(w, r, http.StatusNotFound, "MODEL_NOT_FOUND", fmt.Sprintf("model %q is not available through this access point", name))
+}
+
+// boundedModelName makes a caller-supplied model name safe to store: control
+// characters and invalid UTF-8 are dropped and the result is cut to
+// maxRecordedModelName characters.
+func boundedModelName(name string) string {
+	var b strings.Builder
+	count := 0
+	for _, c := range strings.ToValidUTF8(name, "") {
+		if c < 0x20 || c == 0x7f || c == 0xfffd {
+			continue
+		}
+		if count == maxRecordedModelName {
+			break
+		}
+		b.WriteRune(c)
+		count++
+	}
+	return strings.TrimSpace(b.String())
 }

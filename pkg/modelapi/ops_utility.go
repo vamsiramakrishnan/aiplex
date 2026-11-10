@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
@@ -151,6 +152,17 @@ func inspectStateless(surfaceID string, op Operation, data []byte, includeUsage 
 		fields["prompt_tokens"], fields["total_tokens"] = "input_tokens", "total_tokens"
 	} else if raw = root["usageMetadata"]; raw != nil {
 		fields["promptTokenCount"] = "input_tokens"
+	}
+	if raw == nil && root["tokenCount"] != nil {
+		// Live Gemini Developer API, observed 2026-11-10: gemini-embedding-001
+		// answers embedContent and batchEmbedContents with a top-level
+		// tokenCount (an int64 string) and no usageMetadata.
+		text := strings.Trim(strings.TrimSpace(string(root["tokenCount"])), `"`)
+		n, err := strconv.ParseInt(text, 10, 64)
+		if err != nil || n < 0 || n > 1<<53 {
+			return jsonObservation{}, true, fmt.Errorf("invalid provider usage counter")
+		}
+		return jsonObservation{nativeTerminal: true, usage: &UsageObservation{Source: "upstream", SurfaceID: surfaceID, OperationID: op.ID, Terminal: true, Counters: map[string]int64{"input_tokens": n}, Cumulative: true}}, true, nil
 	}
 	if raw == nil || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return jsonObservation{}, true, nil

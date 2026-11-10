@@ -190,9 +190,12 @@ func (h *ConnectedHandler) schedulerFragment(r *http.Request, tenant string, ap 
 		}
 	}
 	for _, m := range ap.Models {
-		if connection, err := h.accessPointSurface(r.Context(), tenant, m.SurfaceRef); err == nil {
-			for _, op := range connection.Surface.Operations {
-				add(m.SurfaceRef, op.ID)
+		// Every backend of a routed model is a route of the flow.
+		for _, b := range m.allBackends() {
+			if connection, err := h.accessPointSurface(r.Context(), tenant, b.SurfaceRef); err == nil {
+				for _, op := range connection.Surface.Operations {
+					add(b.SurfaceRef, op.ID)
+				}
 			}
 		}
 	}

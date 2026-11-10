@@ -17,7 +17,10 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolpolicy"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 // AccessPointKind is the tenant resource kind of an access point: one stable
@@ -46,6 +49,13 @@ type AccessPoint struct {
 	Tools       []AccessPointTool   `json:"tools,omitempty"`
 	Skills      []AccessPointSkill  `json:"skills,omitempty"`
 	QoS         *AccessPointQoS     `json:"qos,omitempty"`
+	// Project is a free-form label an administrator sets here. Tenant budgets
+	// may select it as a member (members.projects); it is trusted because only
+	// an administrator can set it, and it is never read from a request.
+	Project string `json:"project,omitempty"`
+	// Labels are trusted experiment tags stored on every usage record of an
+	// exchange through this access point (see usage_tags.go).
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // AccessPointSubjects narrows who may call. Principals, groups and agents are
@@ -63,19 +73,52 @@ type AccessPointSubjects struct {
 	ClientRegistrations []string             `json:"client_registrations,omitempty"`
 }
 
-// AccessPointModel maps a client-facing model name to a saved model surface.
+// AccessPointModel maps a client-facing model name to a saved model surface
+// (surface_ref and native_model), or to an ordered list of backends with a
+// routing block (reliability-and-routing). cache turns on the exact-match
+// response cache for the model; it is off unless present.
 type AccessPointModel struct {
-	Name        string `json:"name"`
-	SurfaceRef  string `json:"surface_ref"`
-	NativeModel string `json:"native_model"`
+	Name        string            `json:"name"`
+	SurfaceRef  string            `json:"surface_ref,omitempty"`
+	NativeModel string            `json:"native_model,omitempty"`
+	Backends    []routing.Backend `json:"backends,omitempty"`
+	Routing     *routing.Routing  `json:"routing,omitempty"`
+	Cache       *routing.Cache    `json:"cache,omitempty"`
+	// derived marks SurfaceRef/NativeModel filled from Backends[0] when the
+	// specification was decoded (see decodeAccessPoint); never serialized.
+	derived bool
+}
+
+// allBackends lists the model's backends: the backends list, or the single
+// surface_ref/native_model pair.
+func (m AccessPointModel) allBackends() []routing.Backend {
+	if len(m.Backends) > 0 {
+		return m.Backends
+	}
+	return []routing.Backend{{SurfaceRef: m.SurfaceRef, NativeModel: m.NativeModel}}
+}
+
+// primary is the first listed backend.
+func (m AccessPointModel) primary() routing.Backend { return m.allBackends()[0] }
+
+// routed reports whether the model goes through the router (several
+// backends, a routing block or a cache). A plain surface_ref model is served
+// exactly as before.
+func (m AccessPointModel) routed() bool {
+	return len(m.Backends) > 0 || m.Routing != nil || m.Cache != nil
 }
 
 // AccessPointTool exposes one saved tool connection. Expose is an optional
 // list of tool names or prefixes ending in '*'; omitted exposes every tool
 // the connection itself permits.
+//
+// Rules are policy rules (pkg/toolpolicy) evaluated in addition to the
+// connection's own tools.rules: a call must pass both, so an access point can
+// only add restrictions.
 type AccessPointTool struct {
-	ConnectionRef string   `json:"connection_ref"`
-	Expose        []string `json:"expose,omitempty"`
+	ConnectionRef string            `json:"connection_ref"`
+	Expose        []string          `json:"expose,omitempty"`
+	Rules         []toolpolicy.Rule `json:"rules,omitempty"`
 }
 
 type AccessPointSkill struct {
@@ -192,6 +235,14 @@ func decodeAccessPoint(id string, raw []byte) (AccessPoint, error) {
 	if ap.ID != id || !accessPointIDPattern.MatchString(id) {
 		return ap, withField("id", fmt.Errorf("access point id must match the resource id and [A-Za-z0-9._-]{1,128}"))
 	}
+	for i := range ap.Models {
+		// A backends list fills the single-backend fields with its first
+		// backend, so readers that describe one surface per model (connect,
+		// overview, quota plan) describe the primary backend.
+		if m := &ap.Models[i]; len(m.Backends) > 0 && m.SurfaceRef == "" && m.NativeModel == "" {
+			m.SurfaceRef, m.NativeModel, m.derived = m.Backends[0].SurfaceRef, m.Backends[0].NativeModel, true
+		}
+	}
 	return ap, nil
 }
 
@@ -233,7 +284,27 @@ func (h *ConnectedHandler) validateAccessPoint(ctx context.Context, tenant, id s
 	if err = h.validateAccessPointQoS(tenant, ap.QoS); err != nil {
 		return ap, err
 	}
+	if ap.Project != "" && !budgetLabelPattern.MatchString(ap.Project) {
+		return ap, withField("project", fmt.Errorf("project must match [A-Za-z0-9][A-Za-z0-9._-]{0,127}"))
+	}
+	if err = validateAccessPointLabels(ap.Labels); err != nil {
+		return ap, withField("labels", err)
+	}
 	return ap, nil
+}
+
+// validateAccessPointLabels bounds the labels an access point stamps on usage
+// records.
+func validateAccessPointLabels(labels map[string]string) error {
+	if len(labels) > usageledger.MaxTags {
+		return fmt.Errorf("labels is bounded to %d entries", usageledger.MaxTags)
+	}
+	for k, v := range labels {
+		if !usageledger.ValidTagKey(k) || !usageledger.ValidTagValue(v) || v == usageledger.TagOverflowValue {
+			return fmt.Errorf("labels need keys of [a-z][a-z0-9_.-]{0,31} and values of up to %d characters of [A-Za-z0-9_.:/@+() -], other than %q", usageledger.MaxTagValueLength, usageledger.TagOverflowValue)
+		}
+	}
+	return nil
 }
 
 func (h *ConnectedHandler) validateAccessPointSubjects(ctx context.Context, tenant string, s AccessPointSubjects) error {
@@ -295,6 +366,18 @@ func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant
 	names := map[string]bool{}
 	for i, m := range entries {
 		at := func(field string) string { return fmt.Sprintf("models/%d/%s", i, field) }
+		if len(m.Backends) > 0 || m.Routing != nil || m.Cache != nil {
+			if err := h.validateRoutedModel(ctx, tenant, i, m); err != nil {
+				return err
+			}
+			if names[m.Name] {
+				return withField(at("name"), fmt.Errorf("model name %q is not unique", m.Name))
+			}
+			names[m.Name] = true
+			if len(m.Backends) > 0 {
+				continue
+			}
+		}
 		if !accessPointModelPattern.MatchString(m.Name) || !accessPointModelPattern.MatchString(m.NativeModel) || strings.Contains(m.Name+m.NativeModel, "..") || m.SurfaceRef == "" {
 			field := "surface_ref"
 			switch {
@@ -305,7 +388,7 @@ func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant
 			}
 			return withField(at(field), fmt.Errorf("models entries need name, surface_ref and native_model ([A-Za-z0-9._@/:-], no '..')"))
 		}
-		if names[m.Name] {
+		if names[m.Name] && !m.routed() {
 			return withField(at("name"), fmt.Errorf("model name %q is not unique", m.Name))
 		}
 		names[m.Name] = true
@@ -362,6 +445,11 @@ func (h *ConnectedHandler) validateAccessPointTools(ctx context.Context, tenant 
 		if t.Expose != nil {
 			if err := (toolexec.ToolPolicy{Allow: t.Expose}).Validate(); err != nil {
 				return withField(at("expose"), fmt.Errorf("tools[%s].expose: %v", t.ConnectionRef, strings.TrimPrefix(err.Error(), "tools.allow ")))
+			}
+		}
+		if len(t.Rules) > 0 {
+			if _, err := toolpolicy.CompileCached(t.Rules); err != nil {
+				return withField(at("rules"), fmt.Errorf("tools[%s].rules: %v", t.ConnectionRef, err))
 			}
 		}
 		if _, err := h.accessPointToolConnection(ctx, tenant, t.ConnectionRef); err != nil {
@@ -497,6 +585,8 @@ func (h *ConnectedHandler) MountAccessPoints(r chi.Router) {
 		r.Put("/{id}", write)
 		r.Delete("/{id}", write)
 		r.Post("/{id}/quota-plan", h.AccessPointQuotaPlan)
+		r.Get("/{id}/routing", h.AccessPointRouting)
+		r.Post("/{id}/cache/purge", h.AccessPointCachePurge)
 	})
 }
 

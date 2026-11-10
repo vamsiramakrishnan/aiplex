@@ -12,18 +12,24 @@ import (
 )
 
 type quotaHostLease struct {
-	mu                sync.Mutex
-	host              *QuotaHost
-	engine            *quotaplex.Engine
-	bound             *quotaplex.BoundProvider
-	ticket            *enforcement.Ticket
-	demand            quotaplex.Demand
-	binding           QuotaBinding
-	proof             *QuotaBoundsProof
-	claim             *quotaplex.DispatchClaim
-	claimUncertain    bool
-	resource          string
-	modelVersion      string
+	mu             sync.Mutex
+	host           *QuotaHost
+	engine         *quotaplex.Engine
+	bound          *quotaplex.BoundProvider
+	ticket         *enforcement.Ticket
+	demand         quotaplex.Demand
+	binding        QuotaBinding
+	proof          *QuotaBoundsProof
+	claim          *quotaplex.DispatchClaim
+	claimUncertain bool
+	resource       string
+	modelVersion   string
+	// notSent marks an attempt whose request provably never left (no
+	// connection was established): it settles as zero requests.
+	notSent bool
+	// unpriced settles an answer served from the response cache with every
+	// money meter at zero.
+	unpriced          bool
 	counters          execution.CumulativeUsage
 	evidence          *quotaplex.TerminalEvidence
 	acknowledged      bool
@@ -272,7 +278,11 @@ func (l *quotaHostLease) terminalLocked(ctx context.Context, native map[string]i
 	for counter, meter := range l.binding.Meters {
 		value, present := native[counter]
 		if counter == "requests" {
+			// One dispatched request; a provably unsent attempt is none.
 			value, present = 1, true
+			if n, given := native["requests"]; given && n == 0 && l.notSent {
+				value = 0
+			}
 		}
 		if !present || value < 0 {
 			return quotaStatus(502, "QUOTA_USAGE_INCOMPLETE", "terminal usage omits a protected meter")
@@ -290,7 +300,7 @@ func (l *quotaHostLease) terminalLocked(ctx context.Context, native map[string]i
 		producer = "native-agent"
 	}
 	eventID, _ := quotaDigest([]string{l.demand.Context.TenantID, l.demand.AttemptID, producer, "terminal"})
-	evidence := quotaplex.TerminalEvidence{Version: quotaplex.Version, ProducerID: producer, ConfigurationDigest: l.demand.Target.ConfigurationDigest, Settlement: quotaplex.Settlement{TenantID: l.demand.Context.TenantID, AttemptID: l.demand.AttemptID, EventID: eventID, Claim: *l.claim, Usage: usage, ProviderResourceID: l.resource}, ObservedModelVersion: l.modelVersion, RequireModelVersion: quotaStrictProfile(l.binding.Profile)}
+	evidence := quotaplex.TerminalEvidence{Version: quotaplex.Version, ProducerID: producer, ConfigurationDigest: l.demand.Target.ConfigurationDigest, Settlement: quotaplex.Settlement{TenantID: l.demand.Context.TenantID, AttemptID: l.demand.AttemptID, EventID: eventID, Claim: *l.claim, Usage: usage, ProviderResourceID: l.resource, Unpriced: l.unpriced}, ObservedModelVersion: l.modelVersion, RequireModelVersion: quotaStrictProfile(l.binding.Profile)}
 	if l.evidence != nil {
 		oldDigest, _ := quotaDigest(l.evidence)
 		newDigest, _ := quotaDigest(evidence)
@@ -364,13 +374,33 @@ func (l *quotaHostLease) Finish(ctx context.Context, result execution.Result) er
 	if l.binding.Profile == quotaProfileBatch {
 		return l.finishBatchLocked(bounded, result)
 	}
+	if result.NotSent && l.binding.Plane == "llmplex" {
+		// No request byte reached the provider (connection never
+		// established): the attempt consumed nothing, not even a request, so
+		// it settles at zero instead of leaving uncertain exposure. A routed
+		// exchange retries or falls over to another attempt of its own.
+		zero := map[string]int64{}
+		for counter := range l.binding.Meters {
+			zero[counter] = 0
+		}
+		zero["requests"] = 0
+		if l.modelVersion == "" {
+			l.modelVersion = l.binding.ModelVersion
+		}
+		l.notSent = true
+		return l.terminalLocked(bounded, zero)
+	}
+	// A cache hit counts the request but no provider price applies: its
+	// settlement leaves every money meter (and cost budget) at zero.
+	l.unpriced = result.Cached && result.ResponseComplete && l.binding.Plane == "llmplex"
 	if l.binding.Profile == quotaProfileRequests && result.ResponseComplete {
 		return l.terminalLocked(bounded, map[string]int64{"requests": 1, "tool_calls": 1})
 	}
-	if result.Rejected && result.ResponseComplete && l.binding.Plane == "llmplex" {
+	if (result.Rejected || result.Cached) && result.ResponseComplete && l.binding.Plane == "llmplex" {
 		// A documented not-processed rejection (see modelapi
-		// rejectedBeforeProcessing): one request, zero consumption. No model
-		// ran, so the pinned target version stands as the version proof.
+		// rejectedBeforeProcessing), or an answer served from the AIPlex
+		// response cache: one request, zero consumption. No model ran, so
+		// the pinned target version stands as the version proof.
 		zero := map[string]int64{"requests": 1}
 		for counter := range l.binding.Meters {
 			if counter != "requests" {

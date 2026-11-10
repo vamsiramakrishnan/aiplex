@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,12 +25,133 @@ import (
 // Model names select test behaviour: a name containing "ratelimit" answers
 // the provider's own 429 shape with Retry-After, "hang" never answers until
 // the client goes away, and "slow" streams one chunk every 50ms for 2s.
+// A name containing "fault" injects failures (see MockFault).
 // Replies are deterministic and include token usage computed from the input.
 type MockModels struct {
 	mu       sync.Mutex
 	requests []MockRequest
 	// HangLimit bounds how long a "hang" model holds a request (default 10m).
 	HangLimit time.Duration
+	// Name labels this mock in replies ("" for the default mock), so a test
+	// can tell which of two mock backends answered.
+	Name   string
+	faults map[string]int
+}
+
+// ResetFaults forgets how many times each fault model has failed.
+func (m *MockModels) ResetFaults() {
+	m.mu.Lock()
+	m.faults = nil
+	m.mu.Unlock()
+}
+
+// MockFault is a failure injected by the model name. The name contains
+// "fault" and dash-separated options:
+//
+//	s<status>   answer with this status (default 503)
+//	n<count>    fail only the first count requests for this model name and
+//	            path, then answer normally (default: always fail)
+//	ra<sec>     send Retry-After: <sec>
+//	d<ms>       wait before answering
+//	dropbefore  close the connection without any response
+//	dropafter   answer 200 text/event-stream, send one event, then close
+//
+// For example "gpt-fault-s503-n2-ra1" fails twice with 503 and Retry-After 1.
+type MockFault struct {
+	Status     int
+	Count      int
+	RetryAfter string
+	Delay      time.Duration
+	DropBefore bool
+	DropAfter  bool
+}
+
+// ParseMockFault reads the fault options of a model name.
+func ParseMockFault(model string) (MockFault, bool) {
+	if !strings.Contains(model, "fault") {
+		return MockFault{}, false
+	}
+	f := MockFault{Status: 503}
+	for _, part := range strings.Split(model, "-") {
+		switch {
+		case part == "dropbefore":
+			f.DropBefore = true
+		case part == "dropafter":
+			f.DropAfter = true
+		case strings.HasPrefix(part, "ra") && len(part) > 2:
+			f.RetryAfter = part[2:]
+		case strings.HasPrefix(part, "s") && len(part) == 4:
+			if n, err := strconv.Atoi(part[1:]); err == nil {
+				f.Status = n
+			}
+		case strings.HasPrefix(part, "n") && len(part) > 1:
+			if n, err := strconv.Atoi(part[1:]); err == nil {
+				f.Count = n
+			}
+		case strings.HasPrefix(part, "d") && len(part) > 1:
+			if n, err := strconv.Atoi(part[1:]); err == nil {
+				f.Delay = time.Duration(n) * time.Millisecond
+			}
+		}
+	}
+	return f, true
+}
+
+// fault applies an injected failure; it returns true when it answered.
+func (m *MockModels) fault(w http.ResponseWriter, r *http.Request, model string) bool {
+	f, ok := ParseMockFault(model)
+	if !ok {
+		return false
+	}
+	key := r.URL.Path + "\x00" + model
+	m.mu.Lock()
+	if m.faults == nil {
+		m.faults = map[string]int{}
+	}
+	m.faults[key]++
+	seen := m.faults[key]
+	m.mu.Unlock()
+	if f.Count > 0 && seen > f.Count {
+		return false
+	}
+	if f.Delay > 0 {
+		select {
+		case <-r.Context().Done():
+			return true
+		case <-time.After(f.Delay):
+		}
+	}
+	switch {
+	case f.DropBefore:
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				_ = conn.Close()
+			}
+		}
+		return true
+	case f.DropAfter:
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		_, _ = io.WriteString(w, "data: {\"id\":\"mock-partial\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial \"}}]}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				_ = conn.Close()
+			}
+		}
+		return true
+	}
+	if f.RetryAfter != "" {
+		w.Header().Set("Retry-After", f.RetryAfter)
+	}
+	body := map[string]any{"error": map[string]any{"message": fmt.Sprintf("mock fault %d", f.Status), "type": "mock_fault"}}
+	if r.URL.Path == "/v1/messages" {
+		body = map[string]any{"type": "error", "error": map[string]any{"type": "overloaded_error", "message": fmt.Sprintf("mock fault %d", f.Status)}}
+	}
+	writeJSON(w, f.Status, body)
+	return true
 }
 
 // MockRequest is what the mock recorded about one upstream request. Header
@@ -40,9 +162,14 @@ type MockRequest struct {
 	Authorization       string
 	APIKey              string // x-api-key
 	GoogAPIKey          string // x-goog-api-key
+	Traceparent         string // W3C trace context AIPlex propagated
+	IdempotencyKey      string // Idempotency-Key, if any reached the provider
 	Model               string
 	Stream              bool
 	BodyBytes           int
+	// Body is the request body as received (first 64 KiB), so tests can
+	// prove what reached the provider (for example a masked prompt).
+	Body string
 }
 
 // Requests returns a copy of the recorded requests.
@@ -52,13 +179,24 @@ func (m *MockModels) Requests() []MockRequest {
 	return append([]MockRequest(nil), m.requests...)
 }
 
-func (m *MockModels) record(r *http.Request, model string, stream bool, n int) {
+func (m *MockModels) record(r *http.Request, model string, stream bool, body []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.requests = append(m.requests, MockRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Authorization: r.Header.Get("Authorization"), APIKey: r.Header.Get("X-Api-Key"), GoogAPIKey: r.Header.Get("X-Goog-Api-Key"), Model: model, Stream: stream, BodyBytes: n})
+	kept := body
+	if len(kept) > 64<<10 {
+		kept = kept[:64<<10]
+	}
+	m.requests = append(m.requests, MockRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Authorization: r.Header.Get("Authorization"), APIKey: r.Header.Get("X-Api-Key"), GoogAPIKey: r.Header.Get("X-Goog-Api-Key"), Traceparent: r.Header.Get("Traceparent"), IdempotencyKey: r.Header.Get("Idempotency-Key"), Model: model, Stream: stream, BodyBytes: len(body), Body: string(kept)})
 }
 
 // MockReply is the deterministic assistant text for a prompt.
+func (m *MockModels) reply(prompt string) string {
+	if m.Name != "" {
+		return "[" + m.Name + "] " + MockReply(prompt)
+	}
+	return MockReply(prompt)
+}
+
 func MockReply(prompt string) string {
 	prompt = strings.TrimSpace(prompt)
 	if len(prompt) > 80 {
@@ -105,7 +243,7 @@ func (m *MockModels) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && path == "/v1/messages/count_tokens":
 		var req anthropicRequest
 		_ = json.Unmarshal(body, &req)
-		m.record(r, req.Model, false, len(body))
+		m.record(r, req.Model, false, body)
 		writeJSON(w, 200, map[string]any{"input_tokens": countTokens(req.text())})
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/v1beta/models/"):
 		m.gemini(w, r, body)
@@ -117,6 +255,9 @@ func (m *MockModels) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // behaviour applies the name-selected test behaviours. It returns true when
 // the response has been written.
 func (m *MockModels) behaviour(w http.ResponseWriter, r *http.Request, model string, rateLimited func()) bool {
+	if m.fault(w, r, model) {
+		return true
+	}
 	switch {
 	case strings.Contains(model, "ratelimit"):
 		w.Header().Set("Retry-After", "7")
@@ -176,7 +317,7 @@ func (m *MockModels) openAIChat(w http.ResponseWriter, r *http.Request, body []b
 		writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "invalid request: model and messages are required", "type": "invalid_request_error"}})
 		return
 	}
-	m.record(r, req.Model, req.Stream, len(body))
+	m.record(r, req.Model, req.Stream, body)
 	if m.behaviour(w, r, req.Model, func() {
 		writeJSON(w, 429, map[string]any{"error": map[string]any{"message": "Rate limit reached for mock model", "type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}})
 	}) {
@@ -187,7 +328,7 @@ func (m *MockModels) openAIChat(w http.ResponseWriter, r *http.Request, body []b
 		prompt.WriteString(contentText(msg.Content))
 		prompt.WriteString(" ")
 	}
-	reply := MockReply(lastLine(prompt.String()))
+	reply := m.reply(lastLine(prompt.String()))
 	in, out := countTokens(prompt.String()), countTokens(reply)
 	usage := map[string]any{"prompt_tokens": in, "completion_tokens": out, "total_tokens": in + out}
 	id := fmt.Sprintf("chatcmpl-mock-%d", time.Now().UnixNano())
@@ -283,14 +424,14 @@ func (m *MockModels) openAIResponses(w http.ResponseWriter, r *http.Request, bod
 		writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "invalid request: model and input are required", "type": "invalid_request_error"}})
 		return
 	}
-	m.record(r, req.Model, req.Stream, len(body))
+	m.record(r, req.Model, req.Stream, body)
 	if m.behaviour(w, r, req.Model, func() {
 		writeJSON(w, 429, map[string]any{"error": map[string]any{"message": "Rate limit reached for mock model", "type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}})
 	}) {
 		return
 	}
 	prompt := req.text()
-	reply := MockReply(strings.TrimSpace(prompt))
+	reply := m.reply(strings.TrimSpace(prompt))
 	in, out := countTokens(prompt), countTokens(reply)
 	usage := map[string]any{"input_tokens": in, "input_tokens_details": map[string]any{"cached_tokens": 0}, "output_tokens": out, "output_tokens_details": map[string]any{"reasoning_tokens": 0}, "total_tokens": in + out}
 	now := time.Now()
@@ -352,7 +493,7 @@ func (m *MockModels) openAIEmbeddings(w http.ResponseWriter, r *http.Request, bo
 		writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "invalid request", "type": "invalid_request_error"}})
 		return
 	}
-	m.record(r, req.Model, false, len(body))
+	m.record(r, req.Model, false, body)
 	var inputs []string
 	var one string
 	if json.Unmarshal(req.Input, &one) == nil {
@@ -396,14 +537,14 @@ func (m *MockModels) anthropicMessages(w http.ResponseWriter, r *http.Request, b
 		writeJSON(w, 400, map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": "model, max_tokens and messages are required"}})
 		return
 	}
-	m.record(r, req.Model, req.Stream, len(body))
+	m.record(r, req.Model, req.Stream, body)
 	if m.behaviour(w, r, req.Model, func() {
 		writeJSON(w, 429, map[string]any{"type": "error", "error": map[string]any{"type": "rate_limit_error", "message": "Rate limit reached for mock model"}})
 	}) {
 		return
 	}
 	prompt := req.text()
-	reply := MockReply(prompt)
+	reply := m.reply(prompt)
 	in, out := countTokens(prompt), countTokens(reply)
 	id := fmt.Sprintf("msg_mock_%d", time.Now().UnixNano())
 	if !req.Stream {
@@ -461,7 +602,7 @@ func (m *MockModels) gemini(w http.ResponseWriter, r *http.Request, body []byte)
 		return
 	}
 	stream := method == "streamGenerateContent"
-	m.record(r, model, stream, len(body))
+	m.record(r, model, stream, body)
 	if m.behaviour(w, r, model, func() {
 		writeJSON(w, 429, map[string]any{"error": map[string]any{"code": 429, "message": "Resource has been exhausted (mock).", "status": "RESOURCE_EXHAUSTED"}})
 	}) {
@@ -492,7 +633,7 @@ func (m *MockModels) gemini(w http.ResponseWriter, r *http.Request, body []byte)
 		writeJSON(w, 404, map[string]any{"error": map[string]any{"code": 404, "message": "method not implemented by mock", "status": "NOT_FOUND"}})
 		return
 	}
-	reply := MockReply(prompt.String())
+	reply := m.reply(prompt.String())
 	out := countTokens(reply)
 	candidate := func(text string, finish string) map[string]any {
 		c := map[string]any{"content": map[string]any{"role": "model", "parts": []map[string]any{{"text": text}}}, "index": 0}
