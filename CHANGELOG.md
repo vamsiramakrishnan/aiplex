@@ -25,6 +25,14 @@ There has been no tagged release yet. This section summarises what exists in the
 - `integrations/claude-code` (plugin with three skills), `integrations/gemini-cli` (extension) and a root `AGENTS.md`; a test checks that every `aiplex` command in them exists.
 - Gemini CLI's base URL and Antigravity's configuration are printed as remaining steps, not written: Gemini CLI has no settings key for the base URL, and Antigravity's config location is not documented.
 
+### Harness telemetry, tags and feedback
+
+- An OTLP/HTTP receiver (`POST /otlp/v1/logs`, `/metrics`, `/traces`; protobuf or JSON, gzip, bounded) records a coding harness's usage events as `source=reported` ledger records under the sender's verified identity: Claude Code `api_request` and `api_error`, Codex `response.completed`, Gemini CLI `api_response` and `api_error`. Metrics and traces are accepted and not recorded, so a request is not counted twice. Retries are idempotent; unmapped signals can be forwarded to your collector (`AIPLEX_OTLP_FORWARD`). `aiplex connect --write --with-telemetry aiplex` points a client at it without writing the token to a file. Mappings come from the harnesses' documentation; only Claude Code was run against a real client.
+- Cost basis `reported` for a cost a harness reported. Summaries keep managed and reported records in separate groups, leave out reported records that share an explicit key with a managed record, and say so (`source_split`, `excluded_correlated_reported`, `notes`); `merge_sources=true` adds them together. The dashboard and overview roll-ups count managed records only.
+- Record `tags` from access point `labels` and an operator-allowlisted `X-AIPlex-Tags` header (`tag.<key>` filter, `tag:<key>` grouping, a per-key cap with an `(other)` bucket). Append-only record feedback (`POST /api/v1/usage/records/{id}/feedback`, `aiplex usage feedback`), shown in the record and in summaries (`feedback=true`, `-o wide`) with "without feedback" counted apart.
+- The Console shows trace and span ids with copy buttons, a trace viewer link (`AIPLEX_TRACE_URL_TEMPLATE`), a source badge and the harness.
+- Managed `tools/call` requests carry the exchange's trace context in `params._meta` as well as the HTTP headers; the rest of the request is relayed byte for byte. Agent exchanges with known final usage are counted in the GenAI token counters.
+
 ### Observability
 
 - OpenTelemetry in `aiplex-api`: a SERVER span per HTTP request and a CLIENT span per managed model, tool and agent exchange, named and attributed per the GenAI and MCP semantic conventions. Those conventions are in Development status; the revision AIPlex follows and every name are in `pkg/telemetry/semconv.go`. See `docs/observability.md`.
