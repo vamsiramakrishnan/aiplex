@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, authenticatedRequest, type LLMBackend } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
+import ModelSurfacesPanel from '../components/ModelSurfacesPanel'
+import OpenBatches from '../components/OpenBatches'
 
 interface RouteConfig {
  revision?: number
@@ -38,7 +40,7 @@ interface RouteFormData {
 }
 
 export default function LLMPlex() {
-  const [tab, setTab] = useState<'providers' | 'routes' | 'costs'>('providers')
+  const [tab, setTab] = useState<'providers' | 'routes' | 'costs' | 'surfaces' | 'batches'>('providers')
   const [showRouteForm, setShowRouteForm] = useState(false)
   const [editingRoute, setEditingRoute] = useState<RouteConfig | null>(null)
   const [formData, setFormData] = useState<RouteFormData>({
@@ -55,8 +57,9 @@ export default function LLMPlex() {
   const instances = useQuery({ queryKey: ['instances', 'llmplex'], queryFn: () => listInstances('llmplex') })
   const routes = useQuery({ queryKey: ['llm-routes'], queryFn: getRoutes })
   const usage = useQuery({ queryKey: ['llm-usage', 'day'], queryFn: () => getUsageSummary('day') })
-  const activeLoading = tab === 'providers' ? catalog.isLoading || instances.isLoading : tab === 'routes' ? routes.isLoading : usage.isLoading
-  const activeError = tab === 'providers' ? catalog.error ?? instances.error : tab === 'routes' ? routes.error : usage.error
+  const ownTab = tab === 'surfaces' || tab === 'batches' // these tabs load and report their own data
+  const activeLoading = ownTab ? false : tab === 'providers' ? catalog.isLoading || instances.isLoading : tab === 'routes' ? routes.isLoading : usage.isLoading
+  const activeError = ownTab ? null : tab === 'providers' ? catalog.error ?? instances.error : tab === 'routes' ? routes.error : usage.error
 
   const putRouteMutation = useMutation({
     mutationFn: ({ modelId, config }: { modelId: string; config: Partial<RouteConfig> }) =>
@@ -177,7 +180,7 @@ export default function LLMPlex() {
       <p className="text-gray-500 mb-6">Agent &harr; Model (LLM providers)</p>
 
       <div className="flex gap-2 mb-6">
-        {(['providers', 'routes', 'costs'] as const).map((t) => (
+        {(['providers', 'routes', 'costs', 'surfaces', 'batches'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -190,6 +193,9 @@ export default function LLMPlex() {
 
       {activeLoading && <p role="status">Loading module data…</p>}
       {activeError && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeError.message}</p>}
+
+      {tab === 'surfaces' && <ModelSurfacesPanel />}
+      {tab === 'batches' && <OpenBatches />}
 
       {tab === 'providers' && !activeLoading && !activeError && (
         <div>

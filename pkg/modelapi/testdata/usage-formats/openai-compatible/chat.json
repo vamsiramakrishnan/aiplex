@@ -1,0 +1,1 @@
+{"id":"chatcmpl-compat-1","object":"chat.completion","created":1700000100,"model":"fixture-model-a","choices":[{"index":0,"message":{"role":"assistant","content":"Synthetic answer."},"finish_reason":"stop"}],"usage":{"prompt_tokens":42,"completion_tokens":17,"total_tokens":59}}

@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"The"}]},"index":0}],"usageMetadata":{"promptTokenCount":1500,"candidatesTokenCount":4,"cachedContentTokenCount":1024,"thoughtsTokenCount":210,"totalTokenCount":1714},"modelVersion":"synthetic-model-001","responseId":"resp-synth-0003"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":" quick brown"}]},"index":0}],"usageMetadata":{"promptTokenCount":1500,"candidatesTokenCount":31,"cachedContentTokenCount":1024,"thoughtsTokenCount":210,"totalTokenCount":1741},"modelVersion":"synthetic-model-001","responseId":"resp-synth-0003"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":" fox."}]},"index":0,"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1500,"candidatesTokenCount":58,"cachedContentTokenCount":1024,"thoughtsTokenCount":210,"totalTokenCount":1768},"modelVersion":"synthetic-model-001","responseId":"resp-synth-0003"}
+

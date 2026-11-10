@@ -144,10 +144,10 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 		if !ok {
 			return nil, fmt.Errorf("quota binding references an unconfigured tenant")
 		}
-		if binding.Profile != quotaProfileRequests && !quotaStrictProfile(binding.Profile) {
+		if binding.Profile != quotaProfileRequests && !quotaStrictProfile(binding.Profile) && !quotaExtendedProfile(binding.Profile) {
 			return nil, fmt.Errorf("quota binding profile is unsupported")
 		}
-		if quotaStrictProfile(binding.Profile) && (!quotaInterfacePresent(bounds) || binding.Plane != "llmplex" || binding.Model == "" || binding.ModelVersion == "") {
+		if quotaStrictProfile(binding.Profile) && ((!quotaInterfacePresent(bounds) && binding.Profile != quotaProfileLiveAllowance) || binding.Plane != "llmplex" || binding.Model == "" || binding.ModelVersion == "") {
 			return nil, fmt.Errorf("Gemini quota profile needs a trusted bounds authority and exact model version")
 		}
 		if quotaStrictProfile(binding.Profile) && !quotaProfileOperation(binding) {
@@ -156,26 +156,31 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 		if len(binding.Limits) > 0 {
 			return nil, fmt.Errorf("binding limits are not an exposure authority; configure provider-limit evidence")
 		}
-		if len(binding.Meters) == 0 || len(binding.Meters) > 8 || binding.Meters["requests"] == "" {
+		if len(binding.Meters) == 0 || len(binding.Meters) > 12 || binding.Meters["requests"] == "" {
 			return nil, fmt.Errorf("quota binding requires a request meter and bounded mappings")
 		}
 		policy := tenant.policy.Policy()
+		if quotaExtendedProfile(binding.Profile) {
+			if err := validateExtendedBinding(binding, policy); err != nil {
+				return nil, err
+			}
+		}
 		seenMeters := map[string]bool{}
 		for native, meterID := range binding.Meters {
 			unit := ""
-			switch native {
-			case "requests":
-				unit = "requests"
-			case "tool_calls":
-				if binding.Plane == "mcplex" {
-					unit = "calls"
-				}
-			case "uncached_input_tokens", "cached_tokens", "output_tokens", "thought_tokens":
-				if quotaStrictProfile(binding.Profile) {
-					for _, required := range quotaProfileCounters(binding.Profile) {
-						if native == required {
-							unit = "tokens"
-						}
+			if quotaExtendedProfile(binding.Profile) {
+				unit = quotaExtendedMeterUnit(binding, native)
+			} else {
+				switch native {
+				case "requests":
+					unit = "requests"
+				case "tool_calls":
+					if binding.Plane == "mcplex" {
+						unit = "calls"
+					}
+				default:
+					if quotaStrictProfile(binding.Profile) && quotaProfileTokenCounter(binding.Profile, native) {
+						unit = "tokens"
 					}
 				}
 			}
@@ -190,6 +195,12 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 				if binding.Meters[native] == "" {
 					return nil, fmt.Errorf("Gemini profile requires complete disjoint token mappings")
 				}
+			}
+			if binding.Profile == quotaProfileLiveAllowance && len(binding.Meters) < 2 {
+				return nil, fmt.Errorf("Live allowance profile requires at least one token meter")
+			}
+			if _, ok := quotaBindingCacheWrites(binding); !ok {
+				return nil, fmt.Errorf("cache-write meters must map either the total or the complete per-TTL breakdown")
 			}
 		}
 		if binding.FundingAccountID != "" {
@@ -438,6 +449,10 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 		}
 	}
 	target.PoolID, target.ModelVersion = binding.PoolID, binding.ModelVersion
+	accessPoint := accessPointCallFrom(r.Context())
+	if err := accessPoint.applyQuotaTarget(tenant.policy.Policy(), &target); err != nil {
+		return nil, err
+	}
 	configuration := struct {
 		Binding       QuotaBinding
 		Configuration any
@@ -489,6 +504,9 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 		}
 		if err := in.Reauthorize(callCtx); err != nil {
 			return quotaStatus(403, "QUOTA_EXECUTION_REVOKED", "execution authority or configuration changed")
+		}
+		if err := accessPoint.recheckCall(callCtx); err != nil {
+			return quotaStatus(403, "QUOTA_ACCESS_POINT_CHANGED", "access point configuration or caller admission changed")
 		}
 		freshPrincipal, freshActor, err := h.subjects(callCtx, r, request.TenantID, h.clock().UTC())
 		if err != nil {

@@ -123,7 +123,10 @@ Get started:
 		resourcesCmd(),
 		nativeCmd(),
 		quotaCmd(),
+		usageCmd(),
+		accessPointsCmd(), connectCmd(), whoCmd(), identityUserCmd(),
 		toolAuthCmd(),
+		toolsCmd(),
 		infrastructureCmd(),
 
 		// Onboarding

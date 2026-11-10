@@ -1,0 +1,44 @@
+{
+  "id": "resp_fix0001",
+  "object": "response",
+  "created_at": 1700000010,
+  "status": "completed",
+  "completed_at": 1700000012,
+  "error": null,
+  "incomplete_details": null,
+  "model": "fixture-model-b",
+  "output": [
+    {
+      "id": "msg_fix1",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Hello from the fixture.",
+          "annotations": [],
+          "logprobs": []
+        }
+      ]
+    }
+  ],
+  "background": false,
+  "store": true,
+  "usage": {
+    "input_tokens": 2048,
+    "input_tokens_details": {
+      "cached_tokens": 1024,
+      "cache_write_tokens": 512,
+      "cache_write_tokens_details": {
+        "ttl_30m_tokens": 512,
+        "ttl_12h_tokens": 0
+      }
+    },
+    "output_tokens": 731,
+    "output_tokens_details": {
+      "reasoning_tokens": 384
+    },
+    "total_tokens": 2779
+  }
+}

@@ -136,6 +136,24 @@ func main() {
 		log.Fatal().Err(err).Msg("connected module configuration failed")
 	}
 	connectedH.ResolveAccess = wifValidator.SyncUserScopes
+	connectedH.AccessPoint = accessPointOptions(cfg, store)
+	federationH, err := agentFederation(cfg, store, resourceStore, connectedH.Runtime.Config.Network, connectedH.Tenant, wifValidator)
+	if err != nil {
+		log.Fatal().Err(err).Msg("agent identity federation configuration failed")
+	}
+	userDirectoriesR, secretName, err := userDirectories(connectedH.Runtime, sm, cfg.DevelopmentMode)
+	if err != nil {
+		log.Fatal().Err(err).Msg("user identity directory configuration failed")
+	}
+	userFederationH, err := userFederation(cfg, resourceStore, connectedH.Runtime.Config.Network, connectedH.Tenant, wifValidator, userDirectoriesR)
+	if err != nil {
+		log.Fatal().Err(err).Msg("user identity federation configuration failed")
+	}
+	userFederationH.SecretName = secretName
+	// Write-time and dry-run overlap detection between the two federation kinds.
+	federationH.Providers = userFederationH.Providers
+	userFederationH.Bindings = federationH.Bindings
+	usageH := configureUsageLedger(store, cfg, connectedH, llmH)
 	quotaRuntime, err := configureQuota(ctx, cfg, store, connectedH)
 	if err != nil {
 		log.Fatal().Err(err).Msg("quota module configuration failed")
@@ -230,6 +248,7 @@ func main() {
 			api.MaxBody(limit)(next).ServeHTTP(w, r)
 		})
 	}) // 1MB max request body
+	r.Use(api.NativeKeyHeaders) // provider-native key headers -> bearer, model routes only
 	r.Use(api.WIFAuthMode(wifValidator, cfg.DevelopmentMode)) // Extract WIF identity + sync Dimension B
 	r.Use(api.AuditLog)                                       // Log all mutations
 	r.Use(api.RateLimit(200))                                 // 200 req/min per user (in-process)
@@ -277,11 +296,17 @@ func main() {
 		r.Get("/agents/{clientId}", agentH.Get)
 		r.Delete("/agents/{clientId}", agentH.Delete)
 		r.Get("/agents/{clientId}/permissions", agentH.GetPermissions)
+		federationH.Mount(r)     // cross-cloud agent identity presets, bindings, plans, verify
+		userFederationH.Mount(r) // workforce user identity providers, plans, verify
 
 		for _, module := range enabledModules {
 			module.mount(r)
 		}
 		r.Get("/modules", moduleDiscovery(moduleRegistry))
+		mountUsageLedger(r, usageH, connectedH)
+		connectedH.MountAccessPoints(r) // /api/v1/access-points
+		// Single-pane overview: /api/v1/overview
+		api.NewOverviewHandler(connectedH, usageH.Ledger, store, federationH.Bindings).Mount(r)
 
 		// Dashboard — unified observability
 		r.Route("/dashboard", func(r chi.Router) {
@@ -372,6 +397,9 @@ func main() {
 	if moduleEnabled(enabledModules, "mcplex") {
 		r.With(api.RequireIdentity(cfg.DevelopmentMode)).Get("/v0.1/servers", catalogH.List)
 	}
+
+	// Access points: /ap/{id}/… model, MCP, catalog and skill endpoints.
+	connectedH.MountAccessPointEndpoints(r)
 
 	// A2A Agent Card discovery (per-instance)
 	if moduleEnabled(enabledModules, "a2aplex") {

@@ -32,10 +32,74 @@ func TestOutputInclusiveUsageDoesNotDoubleCountReasoningOrCache(t *testing.T) {
 			}
 		})
 	}
-	for _, quantity := range []string{"cache_write_tokens", "server_tool_calls"} {
-		value := &UsageObservation{Counters: map[string]int64{"input_tokens": 5, "cached_tokens": 0, "output_tokens": 2, quantity: 1}}
-		if err := normalizeOutputInclusive(value, false); err == nil {
-			t.Fatal("unsupported native billing dimension accepted", quantity)
+	value := &UsageObservation{Counters: map[string]int64{"input_tokens": 5, "cached_tokens": 0, "output_tokens": 2, "server_tool_calls": 1}}
+	if err := normalizeOutputInclusive(value, false); err == nil {
+		t.Fatal("server-tool quantities accepted by a token profile")
+	}
+}
+
+func TestOutputInclusiveCacheWritesAreDisjointMeters(t *testing.T) {
+	// OpenAI: input includes reads and writes; uncached = input - read - write.
+	value := &UsageObservation{Counters: map[string]int64{"input_tokens": 12000, "cached_tokens": 4000, "cache_write_tokens": 7000, "cache_write_30m_tokens": 7000, "cache_write_12h_tokens": 0, "output_tokens": 10, "total_tokens": 12010}}
+	if err := normalizeOutputInclusive(value, false); err != nil {
+		t.Fatal(err)
+	}
+	if c := value.Counters; c["uncached_input_tokens"] != 1000 || c["cached_tokens"] != 4000 || c["cache_write_tokens"] != 7000 || c["input_tokens"] != 12000 {
+		t.Fatal("OpenAI cache composition double counted", c)
+	}
+	// Anthropic: input excludes reads and writes; total input is their sum.
+	value = &UsageObservation{Counters: map[string]int64{"input_tokens": 50, "cached_tokens": 100, "cache_write_tokens": 30, "cache_write_5m_tokens": 10, "cache_write_1h_tokens": 20, "output_tokens": 4}}
+	if err := normalizeOutputInclusive(value, true); err != nil {
+		t.Fatal(err)
+	}
+	if c := value.Counters; c["uncached_input_tokens"] != 50 || c["input_tokens"] != 180 || c["cache_write_1h_tokens"] != 20 {
+		t.Fatal("Anthropic cache composition wrong", c)
+	}
+	// Re-normalizing a normalized observation is idempotent.
+	if err := normalizeOutputInclusive(value, true); err != nil || value.Counters["input_tokens"] != 180 {
+		t.Fatal("normalization not idempotent", err, value.Counters)
+	}
+	// Zero writes imply zero in every TTL bucket.
+	value = &UsageObservation{Counters: map[string]int64{"input_tokens": 5, "cached_tokens": 0, "output_tokens": 2}}
+	if err := normalizeOutputInclusive(value, true); err != nil || value.Counters["cache_write_5m_tokens"] != 0 || value.Counters["cache_write_1h_tokens"] != 0 {
+		t.Fatal("zero cache writes left TTL buckets unknown", err, value.Counters)
+	}
+	// Positive writes without a breakdown leave the buckets unknown.
+	value = &UsageObservation{Counters: map[string]int64{"input_tokens": 5, "cached_tokens": 0, "cache_write_tokens": 3, "output_tokens": 2}}
+	if err := normalizeOutputInclusive(value, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, known := value.Counters["cache_write_5m_tokens"]; known {
+		t.Fatal("unreported TTL breakdown invented", value.Counters)
+	}
+	for name, counters := range map[string]map[string]int64{
+		"breakdown conflicts with total": {"input_tokens": 5, "cached_tokens": 0, "cache_write_tokens": 3, "cache_write_5m_tokens": 1, "cache_write_1h_tokens": 1, "output_tokens": 2},
+		"partial breakdown":              {"input_tokens": 5, "cached_tokens": 0, "cache_write_tokens": 3, "cache_write_5m_tokens": 3, "output_tokens": 2},
+	} {
+		if err := normalizeOutputInclusive(&UsageObservation{Counters: counters}, true); err == nil {
+			t.Fatal(name, "accepted")
+		}
+	}
+	// OpenAI reads + writes cannot exceed input.
+	if err := normalizeOutputInclusive(&UsageObservation{Counters: map[string]int64{"input_tokens": 5, "cached_tokens": 3, "cache_write_tokens": 3, "output_tokens": 2}}, false); err == nil {
+		t.Fatal("cache subsets larger than input accepted")
+	}
+}
+
+func TestVertexOpenAIChatSettlesOnlyProvenComposition(t *testing.T) {
+	value := &UsageObservation{Counters: map[string]int64{"input_tokens": 27, "output_tokens": 549, "thought_tokens": 504, "total_tokens": 576}}
+	if err := normalizeVertexOpenAIChat(value); err != nil {
+		t.Fatal(err)
+	}
+	if _, cached := value.Counters["uncached_input_tokens"]; cached {
+		t.Fatal("unreported cache split invented", value.Counters)
+	}
+	for _, counters := range []map[string]int64{
+		{"input_tokens": 27, "thought_tokens": 504, "total_tokens": 576},
+		{"input_tokens": 27, "output_tokens": 45, "total_tokens": 576},
+	} {
+		if err := normalizeVertexOpenAIChat(&UsageObservation{Counters: counters}); err == nil {
+			t.Fatal("unproven composition settled", counters)
 		}
 	}
 }

@@ -1,0 +1,3 @@
+{"messageStart":{"role":"assistant"}}
+{"contentBlockDelta":{"contentBlockIndex":0,"delta":{"text":"Synthetic"}}}
+{"messageStop":{"stopReason":"end_turn"}}

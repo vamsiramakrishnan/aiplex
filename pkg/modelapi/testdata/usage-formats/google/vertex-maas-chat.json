@@ -1,0 +1,23 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "Synthetic open-model reply.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1234567890,
+  "id": "2026-01-01|00:00:00.000000-00|0.0.0.0|-1",
+  "model": "synthetic-open-model-maas",
+  "object": "chat.completion",
+  "system_fingerprint": "",
+  "usage": {
+    "completion_tokens": 131,
+    "prompt_tokens": 14,
+    "total_tokens": 145
+  }
+}

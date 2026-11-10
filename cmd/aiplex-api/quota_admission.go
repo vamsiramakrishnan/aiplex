@@ -64,7 +64,11 @@ type quotaSchedulingRoute struct {
 	ResourceID  string `json:"resource_id"`
 	OperationID string `json:"operation_id"`
 	PayerID     string `json:"payer_id,omitempty"`
-	FlowID      string `json:"flow_id"`
+	// AccessPointID optionally narrows the route to traffic that entered
+	// through one access point; a matching narrowed route wins over an
+	// unnarrowed one for the same resource and operation.
+	AccessPointID string `json:"access_point_id,omitempty"`
+	FlowID        string `json:"flow_id"`
 }
 type quotaSchedulingDeployment struct {
 	ExpectedDigest string                    `json:"expected_digest,omitempty"`
@@ -114,16 +118,16 @@ func newQuotaScheduledAdmission(manifest []quotaSchedulingDeployment) (*quotaSch
 		for i, route := range m.Routes {
 			for j := 0; j < i; j++ {
 				previous := m.Routes[j]
-				if previous.ResourceID == route.ResourceID && previous.OperationID == route.OperationID && (previous.PayerID == "" || route.PayerID == "" || previous.PayerID == route.PayerID) {
+				if previous.ResourceID == route.ResourceID && previous.OperationID == route.OperationID && previous.AccessPointID == route.AccessPointID && (previous.PayerID == "" || route.PayerID == "" || previous.PayerID == route.PayerID) {
 					return nil, fmt.Errorf("overlapping scheduler payer routes")
 				}
 			}
 		}
 		for _, route := range m.Routes {
-			if quotaplex.ValidateStoreCoordinate(tenant, route.ResourceID, route.OperationID) != nil || m.Config.Queue.Weights[route.FlowID] == 0 {
+			if quotaplex.ValidateStoreCoordinate(tenant, route.ResourceID, route.OperationID) != nil || m.Config.Queue.Weights[route.FlowID] == 0 || len(route.AccessPointID) > 128 {
 				return nil, fmt.Errorf("exact scheduler route and configured flow required")
 			}
-			rkey := quotaDigest([]string{route.ResourceID, route.OperationID, route.PayerID})
+			rkey := quotaDigest([]string{route.ResourceID, route.OperationID, route.PayerID, route.AccessPointID})
 			if seen[rkey] {
 				return nil, fmt.Errorf("ambiguous scheduler route")
 			}
@@ -190,8 +194,16 @@ func (a *quotaScheduledAdmission) Admit(ctx context.Context, e *quotaplex.Engine
 		return e.Admit(ctx, d)
 	}
 	flow := ""
+	narrowed := false
 	for _, route := range entry.deployment.Routes {
-		if route.ResourceID == d.Target.ResourceID && route.OperationID == d.Target.Operation && (route.PayerID == "" || route.PayerID == plan.PayerID) {
+		if route.ResourceID == d.Target.ResourceID && route.OperationID == d.Target.Operation && (route.PayerID == "" || route.PayerID == plan.PayerID) && (route.AccessPointID == "" || route.AccessPointID == d.Target.AccessPointID) {
+			specific := route.AccessPointID != ""
+			if narrowed && !specific {
+				continue
+			}
+			if specific && !narrowed {
+				flow, narrowed = "", true
+			}
 			if flow != "" {
 				return quotaplex.Decision{}, fmt.Errorf("scheduler route overlaps for selected payer")
 			}

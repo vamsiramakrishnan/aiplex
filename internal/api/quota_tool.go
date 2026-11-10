@@ -16,6 +16,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 type quotaToolConfiguration struct {
@@ -63,6 +64,10 @@ func (h *ConnectedHandler) toolConfiguration(ctx context.Context, tenant string,
 			}
 		}
 		result.OAuthGrantID = session.GrantID
+	} else if config.CredentialMode == toolexec.ConnectionAuth {
+		if err := h.connectionAuthConfiguration(tenant, connection, &result); err != nil {
+			return quotaToolConfiguration{}, err
+		}
 	} else {
 		if err := h.Runtime.CheckDestination(tenant, config.IdentityRef, config.Endpoint); err != nil {
 			return quotaToolConfiguration{}, err
@@ -94,6 +99,8 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
+	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneMCP, id)
+	defer usage.finish()
 	record, err := h.Store.Get(r.Context(), tenant, "tool-connection", id)
 	if err != nil {
 		resourceError(w, r, err)
@@ -145,9 +152,14 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 	}
+	if err = h.governToolExecution(r, tenant, record, connection, &opts); err != nil {
+		Error(w, r, 503, "TOOL_CONFIGURATION_UNAVAILABLE", "tool execution prerequisites are unavailable")
+		return
+	}
 	if h.Quota != nil {
 		opts.Prepare = h.ToolExecutionPreparer(r, record, connection)
 	}
+	usage.instrumentTool(&opts)
 	gateway, err := toolexec.NewGateway(config, opts)
 	if err != nil {
 		Error(w, r, 503, "TOOL_EXECUTION_UNAVAILABLE", "managed tool execution is unavailable")

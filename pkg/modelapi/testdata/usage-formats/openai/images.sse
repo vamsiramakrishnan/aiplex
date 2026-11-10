@@ -1,0 +1,4 @@
+data: {"type":"image_generation.partial_image","b64_json":"AAAA","created_at":1700000021,"size":"1024x1024","quality":"high","background":"opaque","output_format":"png","partial_image_index":0}
+
+data: {"type":"image_generation.completed","b64_json":"BBBB","created_at":1700000022,"size":"1024x1024","quality":"high","background":"opaque","output_format":"png","usage":{"total_tokens":190,"input_tokens":60,"output_tokens":130,"input_tokens_details":{"text_tokens":20,"image_tokens":40}}}
+

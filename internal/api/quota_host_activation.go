@@ -28,7 +28,7 @@ func (h *QuotaHost) configureHeads(ctx context.Context, cfg QuotaHostConfig) err
 	authorityDigest := ""
 	needsBounds := false
 	for _, binding := range h.bindings {
-		if quotaStrictProfile(binding.Profile) {
+		if quotaStrictProfile(binding.Profile) && binding.Profile != quotaProfileLiveAllowance {
 			needsBounds = true
 		}
 	}

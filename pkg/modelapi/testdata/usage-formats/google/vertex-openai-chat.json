@@ -1,0 +1,31 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "Synthetic reply.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1770852204,
+  "id": "synthetic-id-0001",
+  "model": "google/synthetic-model-001",
+  "object": "chat.completion",
+  "system_fingerprint": "",
+  "usage": {
+    "completion_tokens": 48,
+    "completion_tokens_details": {
+      "reasoning_tokens": 130
+    },
+    "extra_properties": {
+      "google": {
+        "traffic_type": "ON_DEMAND"
+      }
+    },
+    "prompt_tokens": 612,
+    "total_tokens": 790
+  }
+}

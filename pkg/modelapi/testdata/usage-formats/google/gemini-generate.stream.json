@@ -1,0 +1,47 @@
+[
+  {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": "Part"
+            }
+          ]
+        },
+        "index": 0
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 900,
+      "candidatesTokenCount": 12,
+      "totalTokenCount": 912
+    },
+    "modelVersion": "synthetic-model-001",
+    "responseId": "resp-synth-0004"
+  },
+  {
+    "candidates": [
+      {
+        "content": {
+          "role": "model",
+          "parts": [
+            {
+              "text": " two."
+            }
+          ]
+        },
+        "index": 0,
+        "finishReason": "STOP"
+      }
+    ],
+    "usageMetadata": {
+      "promptTokenCount": 900,
+      "candidatesTokenCount": 120,
+      "totalTokenCount": 1020
+    },
+    "modelVersion": "synthetic-model-001",
+    "responseId": "resp-synth-0004"
+  }
+]

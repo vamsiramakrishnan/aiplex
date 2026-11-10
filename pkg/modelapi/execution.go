@@ -36,6 +36,11 @@ func (f ExecutionPreparerFunc) Prepare(ctx context.Context, request ExecutionReq
 }
 
 func (g *Gateway) prepareExecution(r *http.Request, trusted contracts.RequestContext, op Operation, metadata Metadata, body []byte) (execution.Lease, error) {
+	if g.options.Admit != nil && !sessionExchange(r.Context()) {
+		if err := g.options.Admit(r.Context(), trusted, op, metadata); err != nil {
+			return nil, err
+		}
+	}
 	if g.options.Execution == nil {
 		return nil, nil
 	}
@@ -87,6 +92,18 @@ type executionRun struct {
 	ctx     context.Context
 	claimed bool
 	closed  bool
+	// dispatchedModel is the exact model the request was dispatched to, for
+	// protocols whose responses carry no model identifier (Bedrock Converse:
+	// the versioned modelId is the URL path selector and is not echoed).
+	dispatchedModel string
+}
+
+// modelIdentity fills an observation's model version from the dispatched
+// model when the native response reports none.
+func (r *executionRun) modelIdentity(value *UsageObservation) {
+	if r != nil && value != nil && value.ModelVersion == "" && r.dispatchedModel != "" && !requestCountRun(r) {
+		value.ModelVersion = r.dispatchedModel
+	}
 }
 
 func (r *executionRun) beforeDispatch(ctx context.Context) error {
@@ -117,7 +134,7 @@ func (r *executionRun) observe(value UsageObservation) error {
 	for key, n := range value.Counters {
 		copy[key] = n
 	}
-	return r.lease.Observe(ctx, execution.Observation{Source: value.Source, EventID: value.EventID, ResourceID: value.ResourceID, ModelVersion: value.ModelVersion, Counters: copy, Cumulative: value.Cumulative, Terminal: value.Terminal})
+	return r.lease.Observe(ctx, execution.Observation{Source: value.Source, EventID: value.EventID, ResourceID: value.ResourceID, ModelVersion: value.ModelVersion, Counters: copy, Cumulative: value.Cumulative, Terminal: value.Terminal, Bound: value.Bound, Dimensions: cloneDimensions(value.Dimensions)})
 }
 func (r *executionRun) finish(result execution.Result) error {
 	if r == nil || r.closed {

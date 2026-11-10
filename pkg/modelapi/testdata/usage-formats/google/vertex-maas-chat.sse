@@ -1,0 +1,6 @@
+data: {"choices":[{"delta":{"role":"assistant","content":"Syn"},"index":0,"logprobs":null}],"created":1770850461,"id":"maas-id-1","model":"google/synthetic-model-001","object":"chat.completion.chunk","system_fingerprint":""}
+
+data: {"choices":[{"delta":{"role":"assistant","content":"thetic."},"index":0,"logprobs":null,"finish_reason":"stop"}],"created":1770850461,"id":"maas-id-1","model":"google/synthetic-model-001","object":"chat.completion.chunk","system_fingerprint":"","usage":{"completion_tokens":131,"prompt_tokens":14,"total_tokens":145}}
+
+data: [DONE]
+

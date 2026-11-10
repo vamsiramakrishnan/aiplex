@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
 type jsonObservation struct {
@@ -25,14 +27,34 @@ type jsonObservation struct {
 
 func cumulativeUsage(op Operation) bool {
 	switch op.ID {
-	case "models.generateContent", "models.streamGenerateContent", "endpoints.generateContent", "endpoints.streamGenerateContent", "openai.chat-completions", "response.create", "response.get", "interaction.create", "interaction.get", "anthropic.messages":
+	case "models.generateContent", "models.streamGenerateContent", "endpoints.generateContent", "endpoints.streamGenerateContent", "openai.chat-completions", "response.create", "response.get", "interaction.create", "interaction.get", "anthropic.messages",
+		"openai.v1.chat-completions", "openai.v1.responses", "azure.v1.chat-completions", "azure.v1.responses", "azure.deployments.chat-completions", "compat.chat-completions", "bedrock.converse", "bedrock.converse-stream":
 		return true
 	default:
-		return false
+		return utilityCumulative(op)
 	}
 }
 
+// anthropicWire reports a Messages-format body on this surface: the native
+// Messages API, Vertex rawPredict on the anthropic publisher, or a Bedrock
+// InvokeModel body whose model-native payload is the Messages shape.
+func (g *Gateway) anthropicWire(op Operation) bool {
+	return op.ID == "anthropic.messages" || (g.surface.Publisher == "anthropic" && anthropicOperation(op)) || bedrockInvoke(op)
+}
+
 func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, data []byte, terminal, includeUsage bool) (jsonObservation, error) {
+	if utilityNoUsage(op) {
+		includeUsage = false // ops_utility.go: never a usage-bearing response
+	}
+	if result, handled, err := inspectStateless(g.surface.ID, op, data, includeUsage); handled {
+		return result, err
+	}
+	if bedrockOperation(op) && !(bedrockInvoke(op) && anthropicShaped(data)) {
+		return g.inspectBedrockJSON(op, data, includeUsage)
+	}
+	if geminiGeneration(op) && jsonArray(data) {
+		return g.inspectGeminiArray(ctx, owner, op, data, terminal, includeUsage)
+	}
 	var result jsonObservation
 	var root map[string]json.RawMessage
 	if err := json.Unmarshal(data, &root); err != nil {
@@ -137,6 +159,14 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 			}
 		}
 	}
+	if result.eventType == "message_start" && g.anthropicWire(op) {
+		// message_start.output_tokens is a placeholder (1-3 tokens), never a
+		// usage report; the cumulative message_delta carries the real count.
+		delete(usage, "output_tokens")
+	}
+	if raw := root["predictions"]; raw != nil && len(usage) == 0 && predictOperation(op) {
+		return result, embeddingPredictUsage(&result, g.surface.ID, op, raw)
+	}
 	if len(usage) == 0 {
 		return result, nil
 	}
@@ -161,21 +191,34 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		return nil
 	}
 	for native, target := range mappings {
-		if raw := usage[native]; raw != nil {
+		// A documented-nullable counter (Anthropic message_delta cache and
+		// input fields) that is null is unknown, never zero and never invalid.
+		if raw := usage[native]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			if err := setCounter(target, raw); err != nil {
 				return result, err
 			}
 		}
 	}
 	for _, key := range []string{"input_tokens_details", "prompt_tokens_details"} {
-		if raw := usage[key]; raw != nil {
+		if raw := usage[key]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			var detail map[string]json.RawMessage
 			if json.Unmarshal(raw, &detail) != nil {
 				return result, fmt.Errorf("invalid input usage details")
 			}
-			if n := detail["cache_write_tokens"]; n != nil {
+			if n := detail["cache_write_tokens"]; n != nil && !bytes.Equal(bytes.TrimSpace(n), []byte("null")) {
 				if err := setCounter("cache_write_tokens", n); err != nil {
 					return result, err
+				}
+			}
+			// Responses: cache_write_tokens_details.ttl_30m_tokens and
+			// ttl_12h_tokens "do not overlap and sum to cache_write_tokens".
+			if n := detail["cache_write_tokens_details"]; n != nil && !bytes.Equal(bytes.TrimSpace(n), []byte("null")) {
+				buckets, err := cacheWriteBuckets(n, map[string]string{"ttl_30m_tokens": "cache_write_30m_tokens", "ttl_12h_tokens": "cache_write_12h_tokens"})
+				if err != nil {
+					return result, err
+				}
+				for meter, value := range buckets {
+					counters[meter] = value
 				}
 			}
 		}
@@ -185,10 +228,20 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		if json.Unmarshal(raw, &calls) != nil {
 			return result, fmt.Errorf("invalid native server-tool usage")
 		}
-		for _, quantity := range calls {
+		// Server-tool requests are billed per request, not per token. Each
+		// documented counter is kept as ledger telemetry under its own name;
+		// server_tool_calls marks any positive quantity so that every strict
+		// token profile fails closed (see serverToolMetering).
+		for key, quantity := range calls {
+			if bytes.Equal(bytes.TrimSpace(quantity), []byte("null")) {
+				continue
+			}
 			var n int64
 			if json.Unmarshal(quantity, &n) != nil || n < 0 {
 				return result, fmt.Errorf("invalid native server-tool quantity")
+			}
+			if meter, known := serverToolCounters[key]; known {
+				counters[meter] = n
 			}
 			if n > 0 {
 				counters["server_tool_calls"] = 1
@@ -196,21 +249,51 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		}
 	}
 	for parent, meter := range map[string]string{"input_tokens_details": "cached_tokens", "prompt_tokens_details": "cached_tokens", "output_tokens_details": "thought_tokens", "completion_tokens_details": "thought_tokens"} {
-		if raw := usage[parent]; raw != nil {
+		if raw := usage[parent]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			var detail map[string]json.RawMessage
 			if json.Unmarshal(raw, &detail) != nil {
 				return result, fmt.Errorf("invalid provider usage detail")
 			}
-			field := "cached_tokens"
+			fields := []string{"cached_tokens"}
 			if meter == "thought_tokens" {
-				field = "reasoning_tokens"
+				// OpenAI reports reasoning_tokens, Anthropic thinking_tokens.
+				// Both are subsets of output, never additive.
+				fields = []string{"reasoning_tokens", "thinking_tokens"}
 			}
-			if value := detail[field]; value != nil {
-				if err := setCounter(meter, value); err != nil {
-					return result, err
+			for _, field := range fields {
+				if value := detail[field]; value != nil && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+					if err := setCounter(meter, value); err != nil {
+						return result, err
+					}
 				}
 			}
 		}
+	}
+	if g.anthropicWire(op) {
+		// Per-TTL cache-write breakdown: ephemeral_5m/1h buckets do not overlap
+		// and sum to cache_creation_input_tokens (each documented default 0).
+		if raw := usage["cache_creation"]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			buckets, err := cacheWriteBuckets(raw, map[string]string{"ephemeral_5m_input_tokens": "cache_write_5m_tokens", "ephemeral_1h_input_tokens": "cache_write_1h_tokens"})
+			if err != nil {
+				return result, err
+			}
+			for meter, value := range buckets {
+				counters[meter] = value
+			}
+		}
+	}
+	if err := reconcileCacheWriteBuckets(counters); err != nil {
+		return result, err
+	}
+	// Per-modality token splits (units.go): subsets, observed when reported;
+	// an unreadable split is dropped (unknown), never guessed.
+	if modality := map[string]int64{}; modalityCounters(usage, modality) == nil {
+		for key, n := range modality {
+			counters[key] = n
+		}
+	}
+	if op.ID == "openai.chat-completions" && g.surface.Provider == nil {
+		vertexCompletionComposition(counters)
 	}
 	if len(counters) == 0 {
 		return result, nil
@@ -218,8 +301,197 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 	if root["event_type"] != nil || root["type"] != nil {
 		terminal = result.nativeTerminal
 	}
-	result.usage = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, ResourceID: id, Terminal: terminal, Counters: counters, Cumulative: cumulativeUsage(op) || (g.surface.Publisher == "anthropic" && anthropicOperation(op)), ModelVersion: result.modelVersion}
+	result.usage = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, ResourceID: id, Terminal: terminal, Counters: counters, Cumulative: cumulativeUsage(op) || g.anthropicWire(op), ModelVersion: result.modelVersion}
 	return result, nil
+}
+
+// vertexCompletionComposition gives the Vertex OpenAI-compatible endpoint's
+// counters OpenAI semantics. Unlike OpenAI, Gemini on that endpoint reports
+// completion_tokens EXCLUDING reasoning_tokens (prompt + completion +
+// reasoning = total). Open models on the same endpoint may follow OpenAI's
+// inclusive convention, so the native total decides: an exclusive composition
+// folds reasoning into output; an inclusive one stays; anything else leaves
+// output and total unknown rather than guessing.
+func vertexCompletionComposition(counters map[string]int64) {
+	thought, hasThought := counters["thought_tokens"]
+	output, hasOutput := counters["output_tokens"]
+	if !hasThought || thought == 0 || !hasOutput {
+		return
+	}
+	input, hasInput := counters["input_tokens"]
+	total, hasTotal := counters["total_tokens"]
+	switch {
+	case hasInput && hasTotal && total == input+output+thought:
+		counters["output_tokens"] = output + thought
+	case hasInput && hasTotal && total == input+output && thought <= output:
+	default:
+		delete(counters, "output_tokens")
+		delete(counters, "total_tokens")
+	}
+}
+
+// cacheWriteBuckets maps a per-TTL cache-write breakdown object. Every key
+// must be a known bucket: an unrecognized bucket would leave the documented
+// sum incomplete, so it is rejected rather than ignored. A missing known
+// bucket is its documented default 0.
+func cacheWriteBuckets(raw json.RawMessage, names map[string]string) (map[string]int64, error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return nil, fmt.Errorf("invalid cache-write breakdown")
+	}
+	out := map[string]int64{}
+	for _, meter := range names {
+		out[meter] = 0
+	}
+	for key, value := range fields {
+		meter, known := names[key]
+		if !known {
+			return nil, fmt.Errorf("unrecognized cache-write bucket %q", key)
+		}
+		var n int64
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			continue
+		}
+		if json.Unmarshal(value, &n) != nil || n < 0 || n > 1<<53 {
+			return nil, fmt.Errorf("invalid cache-write bucket")
+		}
+		out[meter] = n
+	}
+	return out, nil
+}
+
+// cacheWriteFamilies are the per-TTL cache-write meters of each provider.
+var cacheWriteFamilies = [][]string{{"cache_write_5m_tokens", "cache_write_1h_tokens"}, {"cache_write_30m_tokens", "cache_write_12h_tokens"}}
+
+// reconcileCacheWriteBuckets derives the scalar from a complete breakdown and
+// rejects a breakdown that contradicts a reported scalar.
+func reconcileCacheWriteBuckets(counters map[string]int64) error {
+	for _, family := range cacheWriteFamilies {
+		var sum int64
+		present := false
+		for _, meter := range family {
+			if n, ok := counters[meter]; ok {
+				present = true
+				sum += n
+			}
+		}
+		if !present {
+			continue
+		}
+		if scalar, ok := counters["cache_write_tokens"]; ok && scalar != sum {
+			return fmt.Errorf("cache-write breakdown conflicts with its total")
+		}
+		counters["cache_write_tokens"] = sum
+	}
+	return nil
+}
+
+func jsonArray(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	return len(trimmed) > 0 && trimmed[0] == '['
+}
+
+// anthropicShaped reports a decoded Messages-API object or stream event: the
+// documented shape of an Anthropic model's InvokeModel body on Bedrock.
+func anthropicShaped(data []byte) bool {
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(data, &probe) != nil {
+		return false
+	}
+	switch probe.Type {
+	case "message", "message_start", "message_delta", "message_stop", "content_block_start", "content_block_delta", "content_block_stop", "ping", "error":
+		return true
+	}
+	return false
+}
+
+// inspectGeminiArray observes streamGenerateContent without alt=sse: one JSON
+// array of GenerateContentResponse. usageMetadata is cumulative within the
+// stream, so the last element is authoritative; earlier elements must not
+// regress and are never added.
+func (g *Gateway) inspectGeminiArray(ctx context.Context, owner Owner, op Operation, data []byte, terminal, includeUsage bool) (jsonObservation, error) {
+	var elements []json.RawMessage
+	if err := json.Unmarshal(data, &elements); err != nil {
+		return jsonObservation{}, nil
+	}
+	var last jsonObservation
+	var cumulative execution.CumulativeUsage
+	version := ""
+	for i, element := range elements {
+		value, err := g.inspectJSON(ctx, owner, op, element, terminal && i == len(elements)-1, includeUsage)
+		if err != nil {
+			return value, err
+		}
+		if value.modelVersion != "" {
+			if version != "" && version != value.modelVersion {
+				return value, fmt.Errorf("native model version changed within stream")
+			}
+			version = value.modelVersion
+		}
+		if value.usage != nil {
+			if err = cumulative.Observe(value.usage.Counters); err != nil {
+				return value, err
+			}
+		}
+		if i < len(elements)-1 && value.nativeTerminal {
+			return value, fmt.Errorf("native generation continued after final marker")
+		}
+		if value.candidateCount > last.candidateCount {
+			last.candidateCount = value.candidateCount
+		}
+		last.foreignCandidate = last.foreignCandidate || value.foreignCandidate
+		last.usage, last.nativeTerminal, last.resource, last.gemini = value.usage, value.nativeTerminal, value.resource, value.gemini
+	}
+	last.modelVersion = version
+	if last.usage != nil && last.usage.ModelVersion == "" {
+		last.usage.ModelVersion = version
+	}
+	return last, nil
+}
+
+func predictOperation(op Operation) bool {
+	return op.ID == "models.predict" || op.ID == "endpoints.predict"
+}
+
+// embeddingPredictUsage reads Vertex embedding :predict statistics
+// (predictions[].embeddings.statistics.token_count, summed per instance).
+// Other :predict models have model-defined bodies: usage stays unknown unless
+// every prediction carries the embedding statistics.
+func embeddingPredictUsage(result *jsonObservation, surfaceID string, op Operation, raw json.RawMessage) error {
+	var predictions []struct {
+		Embeddings *struct {
+			Statistics *struct {
+				TokenCount *json.Number `json:"token_count"`
+			} `json:"statistics"`
+		} `json:"embeddings"`
+	}
+	if json.Unmarshal(raw, &predictions) != nil || len(predictions) == 0 {
+		return nil
+	}
+	var sum int64
+	for _, p := range predictions {
+		if p.Embeddings == nil || p.Embeddings.Statistics == nil || p.Embeddings.Statistics.TokenCount == nil {
+			return nil
+		}
+		n, err := p.Embeddings.Statistics.TokenCount.Int64()
+		if err != nil {
+			// The statistic is documented as a number; accept whole values only.
+			f, ferr := p.Embeddings.Statistics.TokenCount.Float64()
+			if ferr != nil || f < 0 || f > 1<<53 || f != float64(int64(f)) {
+				return nil
+			}
+			n = int64(f)
+		}
+		if n < 0 || n > 1<<53 || sum > 1<<53 {
+			return nil
+		}
+		sum += n
+	}
+	result.nativeTerminal = true
+	result.usage = &UsageObservation{Source: "upstream", SurfaceID: surfaceID, OperationID: op.ID, Terminal: true, Counters: map[string]int64{"input_tokens": sum}, Cumulative: true}
+	return nil
 }
 
 func nativeTerminal(root, object map[string]json.RawMessage) bool {
@@ -293,10 +565,19 @@ func (g *Gateway) emitLegacy(ctx context.Context, owner Owner, value *UsageObser
 	}
 }
 func (g *Gateway) observeJSON(ctx context.Context, owner Owner, op Operation, data []byte, terminal bool) error {
-	result, err := g.inspectJSON(ctx, owner, op, data, terminal, g.options.Observe != nil)
+	if g.options.Observe == nil {
+		_, err := g.inspectJSON(ctx, owner, op, data, terminal, false)
+		return err
+	}
+	result, err := g.inspectJSON(ctx, owner, op, data, terminal, true)
 	if err == nil {
 		g.emitLegacy(ctx, owner, result.usage)
+		return nil
 	}
+	// Legacy observation is advisory on uncontrolled paths: a response the
+	// gateway would deliver without an observer is not rejected because its
+	// usage object is malformed. Usage then stays unobserved (unknown).
+	_, err = g.inspectJSON(ctx, owner, op, data, terminal, false)
 	return err
 }
 

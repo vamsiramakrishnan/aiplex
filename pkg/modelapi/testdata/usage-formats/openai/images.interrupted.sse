@@ -1,0 +1,2 @@
+data: {"type":"image_generation.partial_image","b64_json":"AAAA","created_at":1700000023,"size":"1024x1024","quality":"high","background":"opaque","output_format":"png","partial_image_index":0}
+

@@ -4,7 +4,7 @@ import A2APlex from './pages/A2APlex'
 import LLMPlex from './pages/LLMPlex'
 import SkillsPlex from './pages/SkillsPlex'
 import ClientPlex from './pages/ClientPlex'
-import QuotaPlex from './pages/QuotaPlex'
+import { QuotaOverview } from './pages/QuotaTabs'
 import type { ModuleDescriptor } from './api/client'
 
 export interface ConsoleModule {
@@ -22,7 +22,7 @@ export const consoleModules: readonly ConsoleModule[] = [
   { name: 'llmplex', path: '/llmplex', label: 'LLMPlex', component: LLMPlex },
   { name: 'skillsplex', path: '/skillsplex', label: 'SkillsPlex', component: SkillsPlex },
   { name: 'clientplex', path: '/clientplex', label: 'ClientPlex', component: ClientPlex },
-  { name: 'quotaplex', path: '/quotaplex', label: 'QuotaPlex', component: QuotaPlex },
+  { name: 'quotaplex', path: '/quotaplex', label: 'QuotaPlex', component: QuotaOverview },
 ]
 
 export function enabledConsoleModules(descriptors: readonly ModuleDescriptor[]): ConsoleModule[] {

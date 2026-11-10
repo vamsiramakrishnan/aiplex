@@ -69,10 +69,15 @@ func policyGroup(group GroupRef) error {
 }
 
 func policyMatchValid(match Match) error {
-	for _, value := range []string{match.Plane, match.Provider, match.ResourceID, match.Operation, match.PoolID, match.BillingAccount, match.Region, match.ModelVersion} {
+	for _, value := range []string{match.Plane, match.Provider, match.ResourceID, match.Operation, match.PoolID, match.BillingAccount, match.Region, match.ModelVersion, match.AccessPointID, match.ClientID} {
 		if policyText(value, true) != nil || strings.Contains(value, "*") {
 			return fmt.Errorf("match selectors require exact bounded values; empty selects all")
 		}
+	}
+	switch match.CallerKind {
+	case "", "agent", "user", "client":
+	default:
+		return fmt.Errorf("caller_kind selector must be agent, user or client")
 	}
 	return nil
 }
@@ -85,8 +90,15 @@ func policyMatches(match Match, target Target) bool {
 		(match.PoolID == "" || match.PoolID == target.PoolID) &&
 		(match.BillingAccount == "" || match.BillingAccount == target.BillingAccount) &&
 		(match.Region == "" || match.Region == target.Region) &&
-		(match.ModelVersion == "" || match.ModelVersion == target.ModelVersion)
+		(match.ModelVersion == "" || match.ModelVersion == target.ModelVersion) &&
+		(match.AccessPointID == "" || match.AccessPointID == target.AccessPointID) &&
+		(match.CallerKind == "" || match.CallerKind == target.CallerKind) &&
+		(match.ClientID == "" || match.ClientID == target.ClientID)
 }
+
+// MatchesTarget reports whether a selector applies to a target, using the
+// same rule admission uses. Empty selector fields select all values.
+func MatchesTarget(match Match, target Target) bool { return policyMatches(match, target) }
 
 func policyScopeValid(scope Scope, tenant string, accounts map[string]Account) error {
 	if policyText(scope.ID, true) != nil {
@@ -403,7 +415,7 @@ func ValidateDemand(demand Demand) error {
 			return err
 		}
 	}
-	for _, value := range []string{demand.Context.ActorID, demand.Context.ApplicationID, demand.Context.Purpose, demand.Target.PoolID, demand.Target.BillingAccount, demand.Target.Region, demand.Target.ModelVersion, demand.FundingAccountID} {
+	for _, value := range []string{demand.Context.ActorID, demand.Context.ApplicationID, demand.Context.Purpose, demand.Target.PoolID, demand.Target.BillingAccount, demand.Target.Region, demand.Target.ModelVersion, demand.Target.AccessPointID, demand.Target.ClientID, demand.FundingAccountID} {
 		if err := policyText(value, true); err != nil {
 			return err
 		}
@@ -419,6 +431,14 @@ func ValidateDemand(demand Demand) error {
 	}
 	if demand.RequireModelVersion && demand.Target.ModelVersion == "" {
 		return fmt.Errorf("required model-version evidence needs a pinned target version")
+	}
+	switch demand.Target.CallerKind {
+	case "", "agent", "user", "client":
+	default:
+		return fmt.Errorf("caller kind must be agent, user or client")
+	}
+	if (demand.Target.AccessPointID == "") != (demand.Target.CallerKind == "") {
+		return fmt.Errorf("access point and caller kind are bound together")
 	}
 	if err := policyMembershipStatic(demand.Principal, demand.Context.TenantID); err != nil {
 		return err

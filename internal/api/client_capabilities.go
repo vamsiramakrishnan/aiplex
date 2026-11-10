@@ -8,6 +8,9 @@ import (
 // Built-in developer clients need an actual mapped inference operation, not a
 // protocol label on an otherwise unrelated native API surface.
 func clientSurfaceReady(surface modelapi.Surface) bool {
+	if surface.Provider != nil {
+		return providerClientSurfaceReady(surface)
+	}
 	var ids []string
 	switch surface.Protocol {
 	case clientplex.GenAI:

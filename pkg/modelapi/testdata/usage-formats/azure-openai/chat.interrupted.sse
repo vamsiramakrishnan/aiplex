@@ -1,0 +1,4 @@
+data: {"id":"chatcmpl-azure-fixture-3","object":"chat.completion.chunk","created":1700000002,"model":"fixture-model-a","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-azure-fixture-3","object":"chat.completion.chunk","created":1700000002,"model":"fixture-model-a","choices":[{"index":0,"delta":{"content":"Partial"},"finish_reason":null}],"usage":null}
+

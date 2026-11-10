@@ -17,6 +17,7 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
+	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 )
 
 type Owner struct{ TenantID, PrincipalID, SurfaceID string }
@@ -56,6 +57,12 @@ type UsageObservation struct {
 	Cumulative   bool             `json:"cumulative"`
 	EventID      string           `json:"event_id,omitempty"`
 	ModelVersion string           `json:"model_version,omitempty"`
+	// Bound labels a session-ending observation without final usage
+	// evidence (see execution.Observation.Bound).
+	Bound string `json:"bound,omitempty"`
+	// Dimensions carries provider-reported billing dimensions (see
+	// execution.Observation.Dimensions).
+	Dimensions map[string]string `json:"dimensions,omitempty"`
 }
 type Options struct {
 	UpstreamHeaders http.Header
@@ -73,6 +80,24 @@ type Options struct {
 	AllowHTTPForTests bool
 	MaxBodyBytes      int64
 	MaxStreamDuration time.Duration
+	// Credential presents the upstream credential on provider surfaces
+	// (Surface.Provider != nil), which do not use TokenSource.
+	Credential Credential
+	// ObserveLimits receives each provider response's normalized rate-limit
+	// metadata (provider surfaces only). It is advisory telemetry.
+	ObserveLimits func(context.Context, Owner, providerlimits.Limits)
+	// Batches durably tracks provider batches created through this gateway
+	// and BatchSettler settles and records them (batch.go). Without a store,
+	// batch operations are relayed and counted per exchange only.
+	Batches      BatchStore
+	BatchSettler BatchSettler
+	// MaxUploadBytes bounds one spooled multipart upload (default
+	// DefaultMaxUploadBytes, at most 1 GiB).
+	MaxUploadBytes int64
+	// Admit runs after authorization and before any quota lease, credential
+	// acquisition or upstream I/O (HTTP requests and WebSocket session
+	// admission alike). An *execution.StatusError becomes the response.
+	Admit func(context.Context, contracts.RequestContext, Operation, Metadata) error
 }
 type compiledOperation struct {
 	operation Operation
@@ -96,6 +121,12 @@ func NewGateway(s Surface, opts Options) (*Gateway, error) {
 		if !opts.AllowHTTPForTests || (origin.Hostname() != "localhost" && (ip == nil || !ip.IsLoopback())) {
 			return nil, fmt.Errorf("model surface requires HTTPS")
 		}
+	}
+	if s.Provider != nil {
+		if opts.Credential == nil || len(opts.UpstreamHeaders) > 0 {
+			return nil, fmt.Errorf("provider surface requires an upstream credential and no Google trusted headers")
+		}
+		opts.TokenSource = TokenSourceFunc(func(context.Context) (string, error) { return "", fmt.Errorf("provider surfaces use Credential") })
 	}
 	if opts.HTTPClient == nil || opts.Context == nil || opts.Authorize == nil || opts.TokenSource == nil {
 		return nil, fmt.Errorf("native gateway requires safe HTTP client, trusted context, authorizer, and token source")
@@ -144,6 +175,12 @@ func NewGateway(s Surface, opts Options) (*Gateway, error) {
 }
 func compileOperation(s Surface, o Operation) (compiledOperation, error) {
 	fixed := map[string]string{"version": s.APIVersion, "project": s.Project, "location": s.Location, "publisher": s.Publisher, "endpoint": s.Endpoint}
+	if s.Provider != nil {
+		fixed = map[string]string{"base": s.Provider.BasePath}
+		if fixed["base"] == "" {
+			fixed["base"] = "/v1"
+		}
+	}
 	pattern := "^"
 	params := []string{}
 	remaining := o.Path
@@ -169,9 +206,17 @@ func compileOperation(s Surface, o Operation) (compiledOperation, error) {
 }
 func (g *Gateway) Surface() Surface { return cloneSurface(g.surface) }
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	bounded, cancel := context.WithTimeout(r.Context(), g.options.MaxStreamDuration)
+	limit := g.options.MaxStreamDuration
+	if websocketUpgrade(r) {
+		limit = g.surface.WebSocket.maxSession(limit)
+	}
+	bounded, cancel := context.WithTimeout(r.Context(), limit)
 	defer cancel()
 	r = r.WithContext(bounded)
+	if g.surface.Provider != nil {
+		g.serveProvider(w, r)
+		return
+	}
 	op, params, ok := g.match(r.Method, r.URL.Path)
 	if !ok {
 		http.Error(w, "operation is not allowed by this surface", http.StatusNotFound)
@@ -207,23 +252,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if op.Transport == WebSocket {
+		// Operation-level authorization before the upgrade; the model-level
+		// decision and request-count admission follow the bounded setup.
 		if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
 			http.Error(w, "operation denied", http.StatusForbidden)
-			return
-		}
-		if g.options.Execution != nil {
-			lease, err := g.prepareExecution(r, trusted, op, metadata, nil)
-			if err != nil {
-				writeExecutionError(w, err)
-				return
-			}
-			cleanup, cancel := executionContext(r.Context())
-			defer cancel()
-			if err = lease.Abort(cleanup); err != nil {
-				writeExecutionError(w, err)
-				return
-			}
-			writeExecutionError(w, &execution.StatusError{Status: http.StatusNotImplemented, Code: "UNSUPPORTED_EXECUTION_TRANSPORT", Message: "controlled Live execution requires a supported lifecycle adapter"})
 			return
 		}
 		g.serveLive(w, r, trusted, owner, op)
@@ -254,6 +286,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var run *executionRun
 	if lease != nil {
 		run = &executionRun{lease: lease, ctx: r.Context()}
+		if embeddingOperation(op) {
+			// Embedding responses carry no model identifier.
+			run.dispatchedModel = g.normalizeModel(metadata.Model)
+		}
 		defer run.close()
 		if receipt, ok := lease.(execution.Receipt); ok {
 			id := receipt.AttemptID()
@@ -339,7 +375,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Terminal: terminal}); err != nil {
+		if err = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Terminal: terminal, Rejected: !success && g.rejectedBeforeProcessing(response.StatusCode)}); err != nil {
 			writeExecutionError(w, err)
 			return
 		}
@@ -390,6 +426,14 @@ func (g *Gateway) match(method, path string) (Operation, map[string]string, bool
 	return Operation{}, nil, false
 }
 func (g *Gateway) allowedModel(model string) bool {
+	if g.surface.Provider != nil {
+		for _, allowed := range g.surface.Models {
+			if model == allowed {
+				return true
+			}
+		}
+		return false
+	}
 	prefix := "projects/" + g.surface.Project + "/locations/" + g.surface.Location + "/publishers/" + g.surface.Publisher + "/models/"
 	relative := "publishers/" + g.surface.Publisher + "/models/"
 	if strings.HasPrefix(model, "projects/") && !strings.HasPrefix(model, prefix) {
@@ -569,6 +613,9 @@ func (g *Gateway) resourceID(kind, name string) (string, error) {
 	if validSegment(name) {
 		return name, nil
 	}
+	if g.surface.Provider != nil {
+		return g.providerResourceID(kind, name)
+	}
 	if kind == "prediction-operation" {
 		prefix := "projects/" + g.surface.Project + "/locations/" + g.surface.Location + "/"
 		if !strings.HasPrefix(name, prefix) {
@@ -632,6 +679,9 @@ func BoundedContext(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 func (g *Gateway) normalizeModel(model string) string {
+	if g.surface.Provider != nil {
+		return model
+	}
 	prefix := "projects/" + g.surface.Project + "/locations/" + g.surface.Location + "/publishers/" + g.surface.Publisher + "/models/"
 	model = strings.TrimPrefix(model, prefix)
 	model = strings.TrimPrefix(model, "publishers/"+g.surface.Publisher+"/models/")

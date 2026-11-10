@@ -21,7 +21,24 @@ type Observation struct {
 	Counters     map[string]int64
 	Cumulative   bool
 	Terminal     bool
+	// Bound qualifies a non-terminal observation that ends a session without
+	// final usage evidence: BoundLowerBound (counters are a lower bound),
+	// BoundAmbiguous (counter composition across a resumed session is not
+	// established) or BoundPartial (non-token units were not captured).
+	// Empty means no qualification.
+	Bound string
+	// Dimensions are provider-reported billing dimensions of the observed
+	// units (for example image_size, image_quality) and the batch marker
+	// ("batch": "true"). They never change a counter.
+	Dimensions map[string]string
 }
+
+// Usage-bound labels for Observation.Bound.
+const (
+	BoundLowerBound = "lower_bound"
+	BoundAmbiguous  = "ambiguous"
+	BoundPartial    = "partial"
+)
 
 // ResponseComplete means the response body/protocol completed. Terminal also
 // requires native finality and the operation's declared usage evidence.
@@ -29,7 +46,13 @@ type Result struct {
 	StatusCode       int
 	ResponseComplete bool
 	Terminal         bool
-	Err              error
+	// Rejected means the provider refused the request with a status its
+	// documentation defines as not processed and not billed (rate limit,
+	// overload, authentication/permission or request validation before
+	// generation). The response body is complete. A receipt may settle it
+	// as one request with zero consumption instead of retaining exposure.
+	Rejected bool
+	Err      error
 }
 
 // Lease is prepared after authorization and payload validation. BeforeDispatch

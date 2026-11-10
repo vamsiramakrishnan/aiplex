@@ -1,0 +1,22 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "Response to sample request."
+          }
+        ]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 3,
+    "candidatesTokenCount": 900,
+    "totalTokenCount": 1957,
+    "trafficType": "ON_DEMAND_FLEX",
+    "thoughtsTokenCount": 1054
+  }
+}

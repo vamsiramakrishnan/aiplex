@@ -28,11 +28,16 @@ func (h *ConnectedHandler) quotaModelConfiguration(ctx context.Context, tenant s
 	if h.Runtime == nil || h.Store == nil || record.TenantID != tenant || record.Kind != "model-surface" || record.ID != connection.Surface.ID || record.Revision == 0 {
 		return quotaModelConfiguration{}, fmt.Errorf("model configuration identity is unavailable")
 	}
-	identity, err := h.Runtime.Identity(tenant, connection.IdentityRef)
-	if err != nil {
-		return quotaModelConfiguration{}, err
+	// Provider surfaces with a secret-reference credential have no identity
+	// profile; the auth block itself is pinned through the connection.
+	var identity connections.Identity
+	var err error
+	if connection.Surface.Provider == nil || connection.IdentityRef != "" {
+		if identity, err = h.Runtime.Identity(tenant, connection.IdentityRef); err != nil {
+			return quotaModelConfiguration{}, err
+		}
 	}
-	if err = h.Runtime.CheckDestination(tenant, connection.IdentityRef, connection.Surface.Origin); err != nil {
+	if err = h.checkModelDestination(tenant, connection); err != nil {
 		return quotaModelConfiguration{}, err
 	}
 	if h.Runtime.Policy == nil || h.Runtime.Policy.ValidateURL(connection.Surface.Origin) != nil {
@@ -63,9 +68,10 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 		if !modelapi.Coverage(input.Operation).RequestCount {
 			return nil, quotaStatus(501, "QUOTA_OPERATION_UNSUPPORTED", "this model operation has no managed execution adapter")
 		}
-		if input.Metadata.Transport == modelapi.WebSocket {
-			return nil, quotaStatus(501, "QUOTA_TRANSPORT_UNSUPPORTED", "protected Live sessions require a renewal and metering adapter")
-		}
+		// WebSocket sessions are admitted only under the request-count profile
+		// (quotaProfileOperation admits no token profile for them): one session
+		// is one admitted exchange, settled once at session end, bounded by the
+		// gateway's maximum stream duration. The gateway aborts any other lease.
 		if input.Context.TenantID != record.TenantID || input.Context.ResourceID != record.ID || input.Surface.ID != connection.Surface.ID {
 			return nil, quotaStatus(403, "QUOTA_SURFACE_MISMATCH", "verified surface context changed")
 		}
@@ -85,15 +91,16 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 		if err != nil {
 			return nil, err
 		}
-		provider := connection.Surface.Publisher
-		if provider == "" {
-			provider = connection.Surface.Protocol
-		}
+		provider := connection.Surface.ProviderID()
 		billing := connection.BillingProject
 		if billing == "" {
 			billing = connection.Surface.Project
 		}
-		target := quotaplex.Target{Plane: "llmplex", Provider: provider, ResourceID: record.ID, Operation: input.Operation.ID, BillingAccount: billing, Region: connection.Surface.Location}
+		region := connection.Surface.Location
+		if connection.Surface.Provider != nil {
+			region = connection.Surface.Provider.Region
+		}
+		target := quotaplex.Target{Plane: "llmplex", Provider: provider, ResourceID: record.ID, Operation: input.Operation.ID, BillingAccount: billing, Region: region}
 		reauthorize := func(callCtx context.Context) error {
 			current, err := h.Store.Get(callCtx, input.Context.TenantID, "model-surface", record.ID)
 			if err != nil {
@@ -126,10 +133,13 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 			}
 			return h.authorizeAllCurrent(callCtx, r, required...)
 		}
-		if input.Operation.ID == "models.streamGenerateContent" || input.Operation.ID == "endpoints.streamGenerateContent" {
+		if input.Operation.ID == "models.streamGenerateContent" || input.Operation.ID == "endpoints.streamGenerateContent" || input.Operation.ID == "gemini.models.streamGenerateContent" {
 			query, err := url.ParseQuery(input.RawQuery)
-			if err != nil || len(query["alt"]) != 1 || query.Get("alt") != "sse" {
-				return nil, quotaStatus(400, "QUOTA_STREAM_SHAPE_UNSUPPORTED", "protected Gemini streaming requires alt=sse")
+			// alt=sse streams frames; without alt the response is one JSON
+			// array, which a lease buffers (bounded by the body limit),
+			// observes whole and settles before delivery.
+			if err != nil || len(query["alt"]) > 1 || (len(query["alt"]) == 1 && query.Get("alt") != "sse") {
+				return nil, quotaStatus(400, "QUOTA_STREAM_SHAPE_UNSUPPORTED", "protected Gemini streaming requires alt=sse or the JSON-array form")
 			}
 		}
 		protocolHeaders := http.Header{}
@@ -142,6 +152,10 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 			Provider        quotaModelConfiguration
 			ProtocolHeaders http.Header
 		}{configuration, protocolHeaders}
-		return h.Quota.Prepare(ctx, r, QuotaInvocation{Context: input.Context, Plane: "llmplex", ResourceID: record.ID, OperationID: input.Operation.ID, Model: model, Target: target, Body: append([]byte(nil), input.Body...), Method: input.Method, Path: input.Path, RawQuery: input.RawQuery, Headers: input.Headers, Configuration: invocationConfiguration, Reauthorize: reauthorize})
+		semantics := ""
+		if connection.Surface.Provider != nil {
+			semantics = connection.Surface.Provider.UsageSemantics
+		}
+		return h.Quota.Prepare(ctx, r, QuotaInvocation{Context: input.Context, Plane: "llmplex", ResourceID: record.ID, OperationID: input.Operation.ID, Model: model, Target: target, Body: append([]byte(nil), input.Body...), Method: input.Method, Path: input.Path, RawQuery: input.RawQuery, Headers: input.Headers, Configuration: invocationConfiguration, Reauthorize: reauthorize, SessionAllowance: connection.Surface.SessionAllowance(), UsageSemantics: semantics})
 	})
 }

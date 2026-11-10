@@ -1,7 +1,6 @@
 package toolexec
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -36,9 +35,32 @@ type Invocation struct {
 	Headers    http.Header
 }
 
+// Credential applies one upstream credential to an outbound request. It must
+// refuse requests that do not target the origin it is bound to.
+type Credential interface {
+	Apply(*http.Request) error
+}
+
+// CredentialSource yields the credential for one dispatch. It is an
+// alternative to TokenSource for connections with an explicit auth block.
+type CredentialSource func(context.Context) (Credential, error)
+
+type bearerToken string
+
+func (b bearerToken) Apply(r *http.Request) error {
+	r.Header.Set("Authorization", "Bearer "+string(b))
+	return nil
+}
+
 type Options struct {
-	HTTPClient        *http.Client
-	TokenSource       TokenSource
+	HTTPClient  *http.Client
+	TokenSource TokenSource
+	Credentials CredentialSource
+	// Unauthorized is called when the upstream answers HTTP 401 for the
+	// credential it was sent, so cached tokens can be invalidated.
+	Unauthorized func(context.Context, Credential)
+	// List enables governed tools/list. Nil keeps tools/call only.
+	List              *ListOptions
 	Context           func(*http.Request) (contracts.RequestContext, error)
 	Authorize         func(context.Context, contracts.RequestContext, Connection, Request) error
 	Prepare           func(context.Context, Invocation) (execution.Lease, error)
@@ -63,7 +85,7 @@ func NewGateway(connection Connection, options Options) (*Gateway, error) {
 	if u.Scheme != "https" && !options.AllowHTTPForTests {
 		return nil, fmt.Errorf("tool endpoint requires HTTPS")
 	}
-	if options.HTTPClient == nil || !tokenSourcePresent(options.TokenSource) || options.Context == nil || options.Authorize == nil {
+	if options.HTTPClient == nil || (!tokenSourcePresent(options.TokenSource) && options.Credentials == nil) || options.Context == nil || options.Authorize == nil {
 		return nil, fmt.Errorf("safe HTTP, operator token, verified context and authorizer are required")
 	}
 	if options.MaxBodyBytes == 0 {
@@ -138,13 +160,17 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid or oversized tool request", http.StatusBadRequest)
 		return
 	}
+	if g.options.List != nil && isListRequest(body) {
+		g.serveList(w, r, trusted, body)
+		return
+	}
 	request, err := ParseRequest(body, g.connection.AllowedTools)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err = g.options.Authorize(r.Context(), copyContext(trusted), g.Connection(), copyRequest(request)); err != nil {
-		http.Error(w, "tool invocation denied", http.StatusForbidden)
+		rpcDenied(w, request.ID, err)
 		return
 	}
 	var lease execution.Lease
@@ -184,23 +210,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = lease.Finish(cleanup, execution.Result{StatusCode: uncertainStatus, Err: errors.New("tool execution did not establish terminal usage")})
 		}
 	}()
-	token, err := g.options.TokenSource.Token(r.Context())
-	if err != nil || !validBearer(token) {
+	credential, upstream, err := g.upstreamRequest(r.Context(), request.Body)
+	if err != nil {
 		http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, g.connection.Endpoint, bytes.NewReader(request.Body))
-	if err != nil {
-		http.Error(w, "tool request unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	upstream.Header.Set("Content-Type", "application/json")
-	upstream.Header.Set("Accept", "application/json")
-	if g.connection.Mode == StatelessStreamableHTTP {
-		upstream.Header.Set("Accept", "application/json, text/event-stream")
-	}
-	upstream.Header.Set("MCP-Protocol-Version", g.connection.ProtocolVersion)
-	upstream.Header.Set("Authorization", "Bearer "+token)
 	if g.options.BeforeDispatch != nil {
 		if err = g.options.BeforeDispatch(r.Context()); err != nil {
 			executionError(w, err, "tool authorization changed")
@@ -221,6 +235,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer response.Body.Close()
 	uncertainStatus = response.StatusCode
+	g.unauthorized(r.Context(), response, credential)
 	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, g.options.MaxResponseBytes+1))
 	media, _, mediaErr := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	validResponse := media == "application/json" && ValidateResponse(responseBody, request.ID) == nil

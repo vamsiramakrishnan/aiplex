@@ -152,9 +152,9 @@ The authorization path is implemented by [`policies/aiplex_authz.rego`](policies
 
 | Module | What it does | Ownership and current boundary |
 | --- | --- | --- |
-| **MCPlex** | Connect tools, register OAuth clients, authorize users and invoke configured tools | Tool connections, delegated OAuth and stateless JSON/finite-SSE execution. Registration alone does not execute or meter a tool. |
+| **MCPlex** | Connect tools, register OAuth clients, authorize users and invoke configured tools | Tool connections, delegated OAuth, eight upstream auth types, allow/deny and read-only tool policy, and stateless JSON/finite-SSE execution. Registration alone does not execute or meter a tool. See [tool connection auth](docs/tool-connection-auth.md). |
 | **A2APlex** | Invoke native cloud agents and inspect delegation history | Google, AWS, Foundry and Copilot connections, actor-separated sessions and reported delegation chains. Opaque agent-internal model/tool calls need their own instrumentation. |
-| **LLMPlex** | Configure model routes/surfaces and forward native model operations | HTTP/SSE/Live protocols, client wire facades and stateful resource ownership. Available protocols and models are explicit operator configuration. |
+| **LLMPlex** | Configure model routes/surfaces and forward native model operations | HTTP/SSE/Live protocols, client wire facades, OpenAI/Anthropic/Azure/Bedrock/OpenAI-compatible/Gemini Developer provider surfaces, media and [batch](docs/model-batches.md) operations, and stateful resource ownership. Available protocols and models are explicit operator configuration. See [model providers](docs/model-providers.md). |
 | **ClientPlex** | Connect Antigravity, Codex and Claude clients to supported model endpoints | Client profiles, saved registrations, protocol checks and reviewed configuration fragments. It does not install clients, issue credentials or grant model access. |
 | **SkillsPlex** | Discover deployed skills and inspect invocation history | Skill manifests, capabilities and attributed audit records. An invocation report does not execute a skill or prove authorization. |
 | **QuotaPlex** | Share budgets and admission controls across supported execution paths | Allocations, prices, funding, budget holds, admitted rates, permits, scheduling and settlement. Opt-in; only explicitly covered paths are protected. |
@@ -220,17 +220,21 @@ LLMPlex and MCPlex keep their native HTTP, SSE and tool protocols. QuotaPlex own
 
 | Capability | Implemented | Still missing |
 | --- | --- | --- |
-| Membership | Verified group claims or a signed authority; independent principal/actor views | Native directory synchronization and distributed revocation event consumers |
+| Membership | Verified group claims, a signed authority, and on-demand directory group lookups for user identity providers (Entra, Google Cloud Identity, Okta); independent principal/actor views | Native directory synchronization and distributed revocation event consumers |
 | Allocations | Unequal budgets, exact prices, supported periods and explicit loans | Rolling budgets, split charging, currency conversion, automatic lending and population rebalance |
-| Model/tool metering | Supported native text profiles; stateless JSON/finite-SSE tool call counts | Live/async job billing, broader media/cache/server-tool profiles, tool rows/bytes/duration |
+| Model/tool metering | Supported native text profiles, with each provider format's observation status in the [usage-format coverage matrix](docs/reference/usage-formats/coverage.md); media-unit and batch-usage bindings ([batches](docs/model-batches.md)); stateless JSON/finite-SSE tool call counts; WebSocket sessions as one request-count admission with advisory usage, or per-response and allowance-window token metering on opt-in surfaces ([details](docs/model-providers.md#websocket-sessions)) | Live/async job billing, cache and server-tool profiles, tool rows/bytes/duration, and token metering for non-Messages Bedrock InvokeModel bodies |
 | Recovery | Durable evidence, restart-safe settlement and reviewed reconciliation | Native provider status/usage lookup adapters; long-running renewal and acknowledged cancellation |
-| Enforcement coverage | Exact bindings on supported managed API paths | Automatic Envoy/direct-route interception and authenticated remote admission/settlement RPC |
+| Enforcement coverage | Exact bindings on supported managed API paths; access-point QoS that fails closed without a covering control | Automatic Envoy/direct-route interception and authenticated remote admission/settlement RPC |
 | Operations | Policy preview/export, attempt/balance inspection, loans and corrections in API/CLI/Console | Isolated shadow evaluation, runtime coverage qualification and alerts for aging unknown exposure |
-| Throughput | Shared admitted-demand rates, concurrency and atomic weighted capacity admission | Provider capacity reservation, stream token pacing, preemption and provider minimum-throughput guarantees |
+| Throughput | Shared admitted-demand rates, concurrency and atomic weighted capacity admission; opt-in provider-limit cooldown and headroom gate per surface and replica ([details](docs/model-providers.md#capacity-policy)) | Provider capacity reservation, stream token pacing, preemption and provider minimum-throughput guarantees |
 
 Existing Envoy routes and direct provider calls do not automatically pass through this quota path. Admitted tokens/s and requests/s are separate from actual provider generation throughput. Hard limits require verified provider bounds, prices, identity sources and routing for each enabled profile; live billing, load and backup-restore qualification remain deployment work.
 
 Read the [core guide](docs/quotaplex-core.md), [managed execution guide](docs/quotaplex-integration.md), [execution coverage and regression matrix](docs/quotaplex-execution-coverage.md), or [full readiness register](docs/quotaplex-prerequisites.md). The [foundation design](docs/quotaplex-foundation-design.md) records allocation, metering and scheduling contracts.
+
+## Access points and the single pane
+
+An access point gives a group of agents, users or clients one stable URL, `https://<aiplex>/ap/{id}/…`, in front of models, MCP tools and skills. Admission checks the caller's kind and subjects before any model or tool work. A QoS block renders to reviewable QuotaPlex controls and fails closed when no control covers it. Callers can authenticate through [agent identity federation](docs/agent-identity-federation.md) or [user identity federation](docs/user-identity-federation.md). Every exchange is recorded in the [usage ledger](docs/usage-ledger.md). Start with [access points](docs/access-points.md). Access points do not translate between model wire protocols and do not intercept traffic that bypasses them.
 
 ## Module foundations
 

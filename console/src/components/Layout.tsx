@@ -4,19 +4,28 @@ import { useAuth } from '../hooks/useAuth'
 import { useModules } from '../hooks/useModules'
 
 const navItems = [
+  { to: '/overview', label: 'Overview' },
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/agents', label: 'Agents' },
+  { to: '/access-points', label: 'Access points' },
+  { to: '/identity/users', label: 'User identity' },
   { to: '/runs', label: 'Runs' },
   { to: '/permissions', label: 'Permissions' },
 ]
 
 const routeLabels: Record<string, string> = {
+  overview: 'Overview',
   dashboard: 'Dashboard',
   mcplex: 'MCPlex',
   a2aplex: 'A2APlex',
   llmplex: 'LLMPlex',
   skillsplex: 'SkillsPlex',
+  quotaplex: 'QuotaPlex',
+  usage: 'Usage',
   agents: 'Agents',
+  'access-points': 'Access points',
+  identity: 'Identity',
+  users: 'User identity',
   runs: 'Runs',
   permissions: 'Permissions',
   deploy: 'Deploy',
@@ -81,7 +90,7 @@ function Breadcrumbs() {
 export default function Layout() {
   const { user, logout } = useAuth()
   const { enabled, error } = useModules()
-  const navigation = [navItems[0], ...enabled.map((module) => ({ to: module.path, label: module.label })), ...navItems.slice(1)]
+  const navigation = [...navItems.slice(0, 2), ...enabled.map((module) => ({ to: module.path, label: module.label })), ...navItems.slice(2)]
   const [dark, toggleDark] = useDarkMode()
   const navigate = useNavigate()
 

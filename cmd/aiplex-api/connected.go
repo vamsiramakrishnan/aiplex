@@ -106,6 +106,9 @@ func connectedHandlers(store resources.Store, sm *secrets.Manager, cfg *config.C
 		}
 	}
 	connected := api.NewConnectedHandler(store, runtime, tenant, tools, cfg.DevelopmentMode)
+	if connected.ToolCredentials, e = toolCredentialProvider(runtime, sm, cfg.DevelopmentMode); e != nil {
+		return nil, nil, e
+	}
 	if tools != nil && (sm != nil || cfg.DevelopmentMode) {
 		var vault toolauth.SessionVault = connections.SecretToolSessions{Manager: sm}
 		if sm == nil {
@@ -132,8 +135,12 @@ func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHa
 	llm := available["llmplex"].mount
 	available["llmplex"].mount = func(r chi.Router) {
 		llm(r)
-		r.Route("/llm/surfaces", func(r chi.Router) { resourceRoutes(r, h, "model-surface") })
+		r.Route("/llm/surfaces", func(r chi.Router) {
+			resourceRoutes(r, h, "model-surface")
+			r.Get("/{id}/capacity", h.SurfaceCapacity)
+		})
 		r.Get("/llm/operations", h.ModelOperations)
+		r.Get("/llm/batches", h.ListModelBatches)
 		r.Handle("/llm/native/{id}/*", http.HandlerFunc(h.NativeModel))
 		r.Handle("/llm/gateway/{id}/*", http.HandlerFunc(h.ClientGateway))
 	}
@@ -144,6 +151,7 @@ func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHa
 	}
 	available["mcplex"].descriptor.APIPrefixes = []string{"/api/v1/mcp"}
 	available["mcplex"].mount = func(r chi.Router) {
+		r.Get("/mcp/auth-types", h.ToolAuthTypes)
 		r.Route("/mcp/connections", func(r chi.Router) {
 			resourceRoutes(r, h, "tool-connection")
 			r.Post("/{id}/registration", h.RegisterTool)
@@ -224,6 +232,9 @@ func serverTLS(cfg *config.Config) (*tls.Config, error) {
 // NativeInvocation bypasses only the administrative POST role test. The native
 // handler must enforce its own per-resource action grant before credentials.
 func nativeInvocation(r *http.Request) bool {
+	if strings.HasPrefix(r.URL.Path, "/ap/") {
+		return true // access points enforce per-request authorization themselves
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/mcp/connections/") {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/mcp/connections/"), "/")
 		if len(parts) >= 2 && parts[0] != "" && !strings.ContainsAny(parts[0], "%\\") && parts[1] == "authorization" {

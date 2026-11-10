@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -28,6 +29,7 @@ type WIFValidator struct {
 	isWorkforce     bool
 	sources         []IdentitySource
 	configErr       error
+	federation      FederatedVerifier
 }
 
 // IdentityStore is the persistence surface required by identity resolution.
@@ -122,6 +124,7 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 		poolID = v.workforcePoolID
 	}
 	var selected *IdentitySource
+	federated := false
 	if len(v.sources) > 0 {
 		routing, err := routingClaims(token)
 		if err != nil {
@@ -136,20 +139,39 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 				selected = source
 			}
 		}
-		if selected == nil {
+		if selected == nil && v.federation == nil {
 			return nil, fmt.Errorf("no trusted identity source matches token")
 		}
-		verifier, poolID, isWorkforce = selected.Verifier, selected.PoolID, selected.IsWorkforce
+		if selected != nil {
+			verifier, poolID, isWorkforce = selected.Verifier, selected.PoolID, selected.IsWorkforce
+		} else {
+			federated = true
+		}
+	} else if verifier == nil && v.federation != nil {
+		federated = true
 	}
-	if verifier == nil {
+	if verifier == nil && !federated {
 		return nil, fmt.Errorf("identity token verifier is not configured")
 	}
 	var claims map[string]any
 	var err error
 	requestVerifier, requestBound := verifier.(RequestTokenVerifier)
-	if requestBound {
+	switch {
+	case federated:
+		// Agent identity bindings: static sources did not claim the token.
+		requestBound = false
+		if wf, ok := v.federation.(WorkforceFederatedVerifier); ok {
+			claims, poolID, isWorkforce, err = wf.VerifyFederatedIdentity(r, token)
+		} else {
+			claims, poolID, err = v.federation.VerifyFederated(r, token)
+			isWorkforce = false
+		}
+		if errors.Is(err, ErrNoFederatedBinding) {
+			return nil, fmt.Errorf("no trusted identity source matches token")
+		}
+	case requestBound:
 		claims, err = requestVerifier.VerifyRequest(r, token)
-	} else {
+	default:
 		claims, err = verifier.Verify(r.Context(), token)
 	}
 	if err != nil {
@@ -213,6 +235,11 @@ func (v *WIFValidator) ExtractIdentity(r *http.Request) (*models.WIFIdentity, er
 	}
 	identity.PrincipalID = CanonicalPrincipalID(identity.Provider, identity.PoolID, identity.Subject)
 	identity.Groups = mergeScopes(nil, identity.Groups)
+	if _, carried := claims["groups"]; federated && isWorkforce && !carried {
+		// Federated users without a verified group claim have no group view at
+		// all (never an empty one).
+		identity.Groups = nil
+	}
 	identity.AuthorizedParty, _ = claims["azp"].(string)
 	if actor, ok := claims["act"].(map[string]any); ok {
 		identity.ActorSubject, _ = actor["sub"].(string)

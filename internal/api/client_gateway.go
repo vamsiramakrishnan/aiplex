@@ -13,7 +13,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 )
 
-var genaiClientPath = regexp.MustCompile(`^/v1beta/models/([A-Za-z0-9._@-]+):(generateContent|streamGenerateContent|countTokens|embedContent)$`)
+var genaiClientPath = regexp.MustCompile(`^/v1beta/models/([A-Za-z0-9._@-]+):(generateContent|streamGenerateContent|countTokens|embedContent|batchEmbedContents)$`)
 
 // ClientGateway adapts only documented client wire paths to the configured
 // Cloud surface. Authorization, ownership and server credentials stay in the
@@ -57,7 +57,14 @@ func clientNativePath(s modelapi.Surface, r *http.Request, path string) (string,
 	if strings.ContainsAny(path, "%\\\r\n") || strings.Contains(path, "..") {
 		return "", nil, fmt.Errorf("invalid client path")
 	}
+	if s.Provider != nil {
+		return providerClientNativePath(s, r, path)
+	}
 	base := "/" + s.APIVersion + "/projects/" + s.Project + "/locations/" + s.Location
+	if path == "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent" && r.Method == http.MethodGet {
+		// Vertex Live: the WebSocket path is fixed; the model is in setup.
+		return path, nil, nil
+	}
 	switch s.Protocol {
 	case "google-genai":
 		match := genaiClientPath.FindStringSubmatch(path)

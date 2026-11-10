@@ -1,0 +1,82 @@
+{
+  "name": "batches/synthbatch0001",
+  "state": "BATCH_STATE_SUCCEEDED",
+  "output": {
+    "inlinedResponses": {
+      "inlinedResponses": [
+        {
+          "metadata": {
+            "key": "request-1"
+          },
+          "response": {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "Batch answer one."
+                    }
+                  ]
+                },
+                "index": 0,
+                "finishReason": "STOP"
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 300,
+              "candidatesTokenCount": 40,
+              "thoughtsTokenCount": 25,
+              "totalTokenCount": 365
+            },
+            "modelVersion": "synthetic-model-001"
+          }
+        },
+        {
+          "metadata": {
+            "key": "request-2"
+          },
+          "response": {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "text": "Batch answer two."
+                    }
+                  ]
+                },
+                "index": 0,
+                "finishReason": "STOP"
+              }
+            ],
+            "usageMetadata": {
+              "promptTokenCount": 410,
+              "cachedContentTokenCount": 256,
+              "candidatesTokenCount": 75,
+              "totalTokenCount": 485
+            },
+            "modelVersion": "synthetic-model-001"
+          }
+        },
+        {
+          "metadata": {
+            "key": "request-3"
+          },
+          "error": {
+            "code": 3,
+            "message": "Synthetic invalid request.",
+            "details": []
+          }
+        }
+      ]
+    }
+  },
+  "batchStats": {
+    "requestCount": "3",
+    "successfulRequestCount": "2",
+    "failedRequestCount": "1",
+    "pendingRequestCount": "0"
+  }
+}

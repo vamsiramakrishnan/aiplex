@@ -146,6 +146,13 @@ type QuotaInvocation struct {
 	Headers       http.Header
 	Configuration any
 	Reauthorize   func(context.Context) error
+	// SessionAllowance is the per-meter Live allowance window from the
+	// saved surface configuration (websocket.token_allowance); 0 when the
+	// surface does not meter sessions by token.
+	SessionAllowance int64
+	// UsageSemantics is the saved surface's declaration of a generic
+	// compatible server's usage contract (provider.usage_semantics).
+	UsageSemantics string
 }
 
 // Prepare builds one typed, admitted execution lease shared by native model and

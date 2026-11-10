@@ -1,0 +1,14 @@
+{
+  "id": "resp_fix0007",
+  "object": "response",
+  "created_at": 1700000010,
+  "status": "cancelled",
+  "completed_at": null,
+  "error": null,
+  "incomplete_details": null,
+  "model": "fixture-model-b",
+  "output": [],
+  "background": true,
+  "store": true,
+  "usage": null
+}

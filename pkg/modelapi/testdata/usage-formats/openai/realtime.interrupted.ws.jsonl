@@ -1,0 +1,2 @@
+{"event_id":"event_h01","type":"response.created","response":{"object":"realtime.response","id":"resp_rt4","status":"in_progress","status_details":null,"output":[],"conversation_id":"conv_fix1","output_modalities":["audio"],"max_output_tokens":"inf","usage":null,"metadata":null}}
+{"event_id":"event_h02","type":"error","error":{"type":"invalid_request_error","code":"invalid_event","message":"The 'type' field is missing.","param":null,"event_id":"event_890"}}

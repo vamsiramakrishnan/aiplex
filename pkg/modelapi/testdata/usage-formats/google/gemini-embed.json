@@ -1,0 +1,18 @@
+{
+  "embedding": {
+    "values": [
+      0.011,
+      -0.024,
+      0.093
+    ]
+  },
+  "usageMetadata": {
+    "promptTokenCount": 18,
+    "promptTokenDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 18
+      }
+    ]
+  }
+}

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
@@ -320,6 +321,9 @@ func TestControlledStreamUncertaintyNeverPublishesFinalTail(t *testing.T) {
 	}
 }
 
+// A token-metered lease cannot govern a Live session: it is aborted after the
+// bounded setup and before any credential or upstream dial. A request-count
+// lease admits the session (see the usage-format conformance harness).
 func TestControlledLiveRejectedBeforeCredentialsOrUpgrade(t *testing.T) {
 	lease := &modelLease{}
 	var credentials atomic.Int32
@@ -330,9 +334,22 @@ func TestControlledLiveRejectedBeforeCredentialsOrUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := serve(t, g, "GET", "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent", "", "")
-	if w.Code != 501 || credentials.Load() != 0 || lease.aborts != 1 {
-		t.Fatal(w.Code, credentials.Load(), lease.aborts)
+	gateway := httptest.NewServer(g)
+	defer gateway.Close()
+	ws, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(gateway.URL, "http")+"/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	_ = ws.WriteMessage(websocket.TextMessage, []byte(`{"setup":{"model":"model-a"}}`))
+	_ = ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err = ws.ReadMessage()
+	var closeErr *websocket.CloseError
+	if !errors.As(err, &closeErr) || closeErr.Code != websocket.ClosePolicyViolation || closeErr.Text != "UNSUPPORTED_EXECUTION_TRANSPORT" {
+		t.Fatal("token-metered Live session not refused", err)
+	}
+	if credentials.Load() != 0 || lease.aborts != 1 || len(lease.results) != 0 {
+		t.Fatal(credentials.Load(), lease.aborts, lease.results)
 	}
 }
 

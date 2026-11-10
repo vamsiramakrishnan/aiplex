@@ -226,3 +226,15 @@ resource "google_firestore_index" "skills_by_agent_name" {
     order      = "DESCENDING"
   }
 }
+
+# Usage ledger retention. Records live in per-tenant subcollections
+# usage_ledger_tenants/{digest}/usage_ledger_records and carry expires_at;
+# queries use only the automatic single-field index on started_at.
+resource "google_firestore_field" "usage_ledger_ttl" {
+  project    = var.project_id
+  database   = google_firestore_database.aiplex.name
+  collection = "usage_ledger_records"
+  field      = "expires_at"
+
+  ttl_config {}
+}

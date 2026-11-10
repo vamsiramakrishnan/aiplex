@@ -27,9 +27,12 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/governance"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
+	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 type TenantResolver func(*http.Request) (string, error)
@@ -43,6 +46,10 @@ type ToolConnection struct {
 	Issuer                string                 `json:"issuer,omitempty"`
 	Client                toolauth.ClientProfile `json:"client"`
 	NetworkProfileRef     string                 `json:"network_profile_ref,omitempty"`
+	// Auth selects the upstream credential; nil keeps the execution
+	// credential mode's existing behaviour. Tools is connection-level policy.
+	Auth  *toolcredential.Auth `json:"auth,omitempty"`
+	Tools *toolexec.ToolPolicy `json:"tools,omitempty"`
 }
 type ConnectedHandler struct {
 	ToolSessions    *toolauth.Runtime
@@ -56,8 +63,15 @@ type ConnectedHandler struct {
 	Runtime         *connections.Runtime
 	Tenant          TenantResolver
 	Tools           *toolauth.Service
+	ToolCredentials *toolcredential.Provider
 	Development     bool
 	PublicURL       string
+	Ledger          *usageledger.Recorder
+	AccessPoint     AccessPointOptions
+	// Capacity holds the last provider limit observation per tenant+surface.
+	Capacity *providerlimits.Store
+	// CapacityGate acts on Capacity for surfaces with a capacity_policy.
+	CapacityGate *providerlimits.Gate
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
@@ -201,8 +215,16 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 	if kind == governance.BindingKind {
 		return h.validateAgentBinding(tenant, id, raw)
 	}
+	if kind == usageledger.PriceKind {
+		_, e := usageledger.DecodePrice(id, raw)
+		return e
+	}
 	if id == "" {
 		return fmt.Errorf("resource id required")
+	}
+	if kind == AccessPointKind {
+		_, e := h.validateAccessPoint(ctx, tenant, id, raw)
+		return e
 	}
 	validateNetworkRef := func(ref string) error {
 		if ref == "" {
@@ -225,6 +247,15 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 		}
 		if e := c.Surface.Validate(); e != nil {
 			return e
+		}
+		if e := validateCapacityPolicy(c); e != nil {
+			return e
+		}
+		if c.Surface.Provider != nil {
+			return h.validateProviderConnection(ctx, tenant, c, validateNetworkRef)
+		}
+		if c.Auth != nil {
+			return fmt.Errorf("auth applies only to provider surfaces; Google surfaces use identity_ref")
 		}
 		if e := h.Runtime.CheckDestination(tenant, c.IdentityRef, c.Surface.Origin); e != nil {
 			return e
@@ -315,6 +346,9 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 		if c.ID != id {
 			return fmt.Errorf("tool connection id mismatch")
 		}
+		if e := h.validateToolAuth(ctx, tenant, c); e != nil {
+			return e
+		}
 		if c.ClientRegistrationRef != "" {
 			record, e := h.Store.Get(ctx, tenant, clientplex.Kind, c.ClientRegistrationRef)
 			if e != nil {
@@ -345,7 +379,7 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			if e := c.Execution.Validate(); e != nil {
 				return e
 			}
-			if c.Execution.CredentialMode != toolexec.DelegatedOAuth {
+			if c.Execution.CredentialMode != toolexec.DelegatedOAuth && c.Execution.CredentialMode != toolexec.ConnectionAuth {
 				if e := h.Runtime.CheckDestination(tenant, c.Execution.IdentityRef, c.ResourceURL); e != nil {
 					return e
 				}
@@ -437,6 +471,15 @@ func (h *ConnectedHandler) RegisterTool(w http.ResponseWriter, r *http.Request) 
 	JSON(w, 200, saved)
 }
 func (h *ConnectedHandler) ModelOperations(w http.ResponseWriter, r *http.Request) {
+	if provider := r.URL.Query().Get("provider"); provider != "" {
+		descriptor, ok := modelapi.ProviderByID(provider)
+		if !ok {
+			Error(w, r, 404, "NOT_FOUND", "unknown model provider")
+			return
+		}
+		JSON(w, 200, descriptor)
+		return
+	}
 	JSON(w, 200, modelapi.Operations())
 }
 func (h *ConnectedHandler) trusted(r *http.Request, resource string) (contracts.RequestContext, error) {
@@ -510,6 +553,8 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
+	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneLLM, id)
+	defer usage.finish()
 	record, e := h.Store.Get(r.Context(), tenant, "model-surface", id)
 	if e != nil {
 		resourceError(w, r, e)
@@ -524,7 +569,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 503, "NETWORK_PROFILE_UNAVAILABLE", "network profile unavailable")
 		return
 	}
-	if e = h.Runtime.CheckDestination(tenant, connection.IdentityRef, connection.Surface.Origin); e != nil {
+	if e = h.checkModelDestination(tenant, connection); e != nil {
 		Error(w, r, 503, "CREDENTIAL_DESTINATION_DENIED", e.Error())
 		return
 	}
@@ -565,6 +610,16 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	if h.Quota != nil {
 		opts.Execution = h.ModelExecutionPreparer(r, record, connection)
 	}
+	if connection.Surface.Provider != nil {
+		if e = h.configureProviderOptions(r, tenant, id, record, connection, &opts, usage); e != nil {
+			Error(w, r, 503, "CREDENTIAL_UNAVAILABLE", "provider credential is unavailable")
+			return
+		}
+	}
+	opts.Batches = resourceBatchStore{store: h.Store}
+	opts.BatchSettler = batchSettler{quota: h.Quota, capture: usage, tenant: tenant}
+	usage.instrumentModel(&opts, connection)
+	defer h.installCapacityGate(r, tenant, id, connection, &opts, usage)()
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)
 	if e != nil {
 		Error(w, r, 503, "SURFACE_UNAVAILABLE", e.Error())
@@ -579,6 +634,8 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
+	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneA2A, id)
+	defer usage.finish()
 	record, e := h.Store.Get(r.Context(), tenant, "agent-connection", id)
 	if e != nil {
 		resourceError(w, r, e)
@@ -599,6 +656,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, 400, "INVALID_INVOCATION", "invalid native invocation")
 		return
 	}
+	usage.agent(c.Provider, in.Operation)
 	if e = h.authorize(r, "a2a:agent:"+id+":"+in.Operation); e != nil {
 		Error(w, r, 403, "ACTION_DENIED", e.Error())
 		return
@@ -637,7 +695,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	options := []cloudagents.Option{cloudagents.WithSessionStore(cloudSessions{h.Store})}
 	if h.Quota != nil {
-		options = append(options, cloudagents.WithExecutionPreparer(h.AgentExecutionPreparer(w, r, record, c)))
+		options = append(options, cloudagents.WithExecutionPreparer(usage.agentPreparer(h.AgentExecutionPreparer(w, r, record, c))))
 	}
 	invoker, e := cloudagents.NewInvoker(c, cloudagents.AuthorizeFunc(func(ctx context.Context, a cloudagents.Action) error {
 		if err := h.authorizeCurrent(ctx, r, "a2a:agent:"+id+":"+a.Operation); err != nil {
@@ -653,6 +711,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	response, e := invoker.Invoke(invokeCtx, trusted, in)
 	if e != nil {
+		usage.noteError(e)
 		var failure *execution.StatusError
 		if errors.As(e, &failure) {
 			if failure.RetryAfter > 0 {
@@ -675,7 +734,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(response.StatusCode)
-	copyNativeStream(w, response.Body)
+	copyNativeStream(w, usage.agentBody(response.Body))
 }
 
 type resourceOwnership struct {

@@ -1,0 +1,43 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "Synthetic grounded answer."
+          }
+        ]
+      },
+      "index": 0,
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 800,
+    "candidatesTokenCount": 60,
+    "thoughtsTokenCount": 100,
+    "toolUsePromptTokenCount": 450,
+    "totalTokenCount": 1410,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 800
+      }
+    ],
+    "toolUsePromptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 450
+      }
+    ],
+    "candidatesTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 60
+      }
+    ]
+  },
+  "modelVersion": "synthetic-model-001",
+  "responseId": "resp-synth-0002"
+}
