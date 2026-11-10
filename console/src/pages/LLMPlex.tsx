@@ -167,7 +167,7 @@ export default function LLMPlex() {
       <h1 className="text-2xl font-bold mb-2">LLMPlex</h1>
       <p className="text-gray-600 dark:text-gray-400 mb-6">Agent &harr; Model (LLM providers)</p>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {(['providers', 'routes', 'costs', 'surfaces', 'batches'] as const).map((t) => (
           <button
             key={t}

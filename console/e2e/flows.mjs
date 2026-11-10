@@ -453,5 +453,49 @@ await section('dashboard', async () => {
   await s.context.close()
 })
 
+await section('keyboard-and-login', async () => {
+  const s = await session('admin')
+  const { page } = s
+  for (const route of ['/overview', '/access-points/new', '/usage', '/llmplex']) {
+    await page.goto(base + route)
+    await settle(page)
+    let unfocused = 0, seen = new Set()
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.press('Tab')
+      const r = await page.evaluate(() => { const e = document.activeElement; if (!e || e === document.body) return null; const cs = getComputedStyle(e); const visible = (cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0) || cs.boxShadow !== 'none'; return { key: e.tagName + (e.id || e.getAttribute('aria-label') || e.textContent?.slice(0, 20)), visible } })
+      if (!r) continue
+      if (seen.has(r.key)) break
+      seen.add(r.key)
+      if (!r.visible) unfocused++
+    }
+    report.ok(`${route}: every tab stop shows a focus indicator`, unfocused === 0 && seen.size > 3, `${unfocused} without, ${seen.size} stops`)
+  }
+  await page.goto(base + '/access-points/new')
+  await settle(page)
+  await page.getByLabel(/Access point ID/).fill('enter-submit')
+  await page.getByRole('button', { name: 'Add tool connection' }).click()
+  await page.getByLabel('Tool connection').selectOption('local-tools')
+  await page.getByLabel(/Access point ID/).press('Enter')
+  await page.waitForURL('**/access-points/enter-submit', { timeout: 5000 }).catch(() => {})
+  report.ok('Enter in a form field submits the access point form', page.url().endsWith('/access-points/enter-submit'))
+  const created = await api('admin', 'GET', '/api/v1/access-points/enter-submit')
+  const gone = await api('admin', 'DELETE', '/api/v1/access-points/enter-submit', undefined, { 'If-Match': `"${created.json?.revision}"` })
+  report.ok('cleanup of the Enter-submit access point', gone.status === 204 || gone.status === 200, String(gone.status))
+  await s.context.close()
+  for (const dark of [false, true]) {
+    const a = await newSession(browser, base, null, { dark, width: dark ? 1440 : 390, height: 800 })
+    await a.page.goto(base + '/login')
+    await settle(a.page)
+    const issues = (await a11yScan(a.page)).filter((i) => i.rule !== 'h1-missing')
+    report.ok(`login (${dark ? 'dark' : 'light'}) passes the accessibility scan`, issues.length === 0, JSON.stringify(issues).slice(0, 300))
+    report.ok(`login (${dark ? 'dark' : 'light'}) follows the theme`, (await a.page.evaluate(() => getComputedStyle(document.body).backgroundColor)) === (dark ? 'rgb(11, 13, 19)' : 'rgb(255, 255, 255)'))
+    await a.page.getByLabel('Bearer Token').fill('not-a-token')
+    await a.page.getByRole('button', { name: 'Sign In' }).click()
+    await a.page.getByRole('alert').waitFor({ timeout: 5000 })
+    report.ok(`login (${dark ? 'dark' : 'light'}) rejects a bad token with a message`, /rejected|valid|verification/i.test(await a.page.getByRole('alert').first().textContent()))
+    await a.context.close()
+  }
+})
+
 await browser.close()
 report.finish()

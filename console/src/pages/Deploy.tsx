@@ -120,7 +120,7 @@ function DeployWizard() {
     <div>
       {deploy.isSuccess && deploy.data && <p role="status" className="mb-4 text-sm">Deployment request completed for <a className="underline" href={`/instances/${encodeURIComponent(deploy.data.id)}`}>{deploy.data.id}</a>. Reported status: {deploy.data.status}.</p>}
       {/* Step indicator */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {steps.map((s, i) => (
           <div key={s.key} className="flex items-center gap-2">
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium

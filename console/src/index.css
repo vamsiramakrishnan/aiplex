@@ -17,7 +17,7 @@ body {
 /* Borders without an explicit colour use the token border colour in dark mode. */
 @layer base {
   /* A table wider than its card scrolls inside the card, not the page. */
-  div:has(> table) { overflow-x: auto; }
+  div:has(> table) { overflow-x: auto; position: relative; }
   .dark *, .dark ::before, .dark ::after { border-color: var(--aiplex-color-border); }
 }
 

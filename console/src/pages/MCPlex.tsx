@@ -25,7 +25,7 @@ export default function MCPlex() {
       <h1 className="text-2xl font-bold mb-2">MCPlex</h1>
       <p className="text-gray-600 dark:text-gray-400 mb-6">Agent &harr; Tool (MCP servers)</p>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         <button
           onClick={() => setTab('instances')}
           className={`px-4 py-2 rounded text-sm ${tab === 'instances' ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}

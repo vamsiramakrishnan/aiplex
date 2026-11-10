@@ -58,7 +58,7 @@ export default function A2APlex() {
       </div>
       <p className="text-gray-600 dark:text-gray-400 mb-6">Agent &harr; Agent (A2A delegation)</p>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {(['agents', 'catalog', 'delegations'] as const).map((t) => (
           <button
             key={t}

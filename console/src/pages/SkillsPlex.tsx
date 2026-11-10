@@ -61,7 +61,7 @@ export default function SkillsPlex() {
       </div>
       <p className="text-gray-600 dark:text-gray-400 mb-6">Agent &harr; Skill (skill bundles served by skill servers)</p>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {(['servers', 'catalog', 'invocations'] as const).map((t) => (
           <button
             key={t}

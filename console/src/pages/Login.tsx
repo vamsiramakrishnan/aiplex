@@ -29,7 +29,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
+    <main className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
       <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-lg p-8">
         <div className="mb-6 text-center">
           <h1 className="flex justify-center">
@@ -72,10 +72,10 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="mt-6 text-xs text-gray-600 dark:text-gray-500 text-center">
-          Obtain a token via OAuth 2.1 device grant or authorization code flow.
+        <p className="mt-6 text-xs text-gray-600 dark:text-gray-400 text-center">
+          Obtain a token with your organisation's sign-in, or run `aiplex dev env` for a local one. Opening the Console that `aiplex dev` prints needs no token.
         </p>
       </div>
-    </div>
+    </main>
   )
 }
