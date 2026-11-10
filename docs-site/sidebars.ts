@@ -97,6 +97,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'guides/access-points'},
           items: [L('access-points', 'Specification and routes')],
         },
+        L('request-lifecycle', 'Request lifecycle (order of checks)'),
         L('request-hooks', 'Request hooks'),
         L('reliability-and-routing', 'Reliability and routing'),
         {

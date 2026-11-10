@@ -116,7 +116,7 @@ Editing a budget's amount, name, parent, members or thresholds keeps its counter
 
 ## Reservation, settlement and the overshoot bound
 
-Tokens and cost are only known after the response, so budgets use QuotaPlex's reserve-then-settle lifecycle.
+Tokens and cost are only known after the response, so budgets use QuotaPlex's reserve-then-settle lifecycle. Where this admission sits among the other checks is in [request lifecycle](request-lifecycle.md#models).
 
 1. **Admission** reserves the request's trusted exposure bound against every budget it draws from. A request is admitted only if `limit - consumed - reserved` is at least the reservation, for every budget, in one transaction. The bound is the request count for `requests`, the attested token bounds for `tokens` (the requested output cap plus the provider limits an operator attested) and the same bounds priced for `cost`.
 2. **Settlement** replaces the reservation with the observed usage from the terminal upstream response. Unused reservation is released.

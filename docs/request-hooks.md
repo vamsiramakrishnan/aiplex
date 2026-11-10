@@ -315,27 +315,17 @@ never contains the matched text or any part of the request.
 
 ## Order and quota
 
-1. Identity, tenant, access point admission and grants.
-2. Capacity admission (`Admit`).
-3. **Request hooks.**
-4. QuotaPlex lease (on the body that will be sent, after any transform),
-   provider credential, upstream dispatch.
-5. Usage observation (the same observers as without hooks).
-6. **Response hooks**, then delivery to the caller.
+Where hooks sit among the other checks, for models and for tools, is in
+[request lifecycle](request-lifecycle.md). In short: request hooks run after
+admission and the grants, before the quota and budget lease, and response hooks
+run before the response is delivered. A request refused by a hook reserves no
+quota and calls no provider.
 
-For an access-point model with several backends ([reliability and
-routing](reliability-and-routing.md)), steps 2 and 4 run for each attempt on its
-backend, but step 3 runs once: the first attempt runs the request hooks with the
-policies of every backend's surface, and later attempts (retries and fallbacks)
-dispatch the same hooked body with only the model name rewritten. Step 6 runs
-once, on the response that is delivered. A response-cache lookup sits between
-steps 4 and the dispatch; on a hit the response hooks run on the cached answer.
-
-A request refused at step 3 reserves no quota and calls no provider; there is
-nothing to release. Admission at step 2 has already counted the request against
-capacity limits, so a stream of refused requests still uses request-rate
-capacity. A response refused at step 6 has already been metered and settled:
-the tokens were produced and are charged.
+For a routed model, request hooks run once, on the first attempt, with the
+policies of every backend's surface; later attempts reuse the hooked body (see
+[reliability and routing](reliability-and-routing.md#request-and-response-hooks)).
+A response refused by a response hook has already been metered and settled: the
+tokens were produced and are charged.
 
 ## Recording
 

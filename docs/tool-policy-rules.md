@@ -42,7 +42,7 @@ restrictions; see [evaluation order](#evaluation-order).
 
 ## Evaluation order
 
-For a `tools/call`, in this order, stopping at the first refusal:
+For a `tools/call`, in this order, stopping at the first refusal (the whole sequence, including hooks and quota, is in [request lifecycle](request-lifecycle.md#tools)):
 
 1. The call is a valid JSON-RPC `tools/call` for a tool in `execution.allowed_tools`.
 2. The connection's `tools.allow` and `tools.deny` lists.
@@ -58,7 +58,7 @@ For a `tools/call`, in this order, stopping at the first refusal:
    `/mcp` endpoint, with the same semantics, on their own. The call must pass both sets.
    An `allow` rule on an access point cannot loosen the connection, because the
    connection's set already had to pass.
-7. Request hooks, then quota admission, then the upstream credential and the call.
+7. Request hooks, quota, credential and dispatch: see [request lifecycle](request-lifecycle.md#tools).
 
 An `allow` rule that matches does not stop later rules: a later `deny` still refuses.
 Rules are evaluated even after an `allow` matched, so an error in a later rule still
