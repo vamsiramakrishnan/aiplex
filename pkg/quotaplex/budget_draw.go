@@ -260,6 +260,15 @@ func (c *CompiledPolicy) resolveDraws(demand Demand, plan *Plan, selected *Price
 		limit := BudgetLimit{Key: DrawKey(policy.ID, d, window), LineageKey: lineage, Shape: DrawShape(d), RuleID: "budget:" + d.ID, Window: window, Limit: d.Limit, BudgetID: d.ID, Thresholds: append([]int(nil), d.Thresholds...)}
 		ids := drawMeters(d, policy.Meters, plan.Bounds)
 		if d.Unit == DrawCost {
+			known := false
+			for _, m := range policy.Meters {
+				if m.Unit == "money" && m.Currency == d.Currency && m.Scale == d.Scale {
+					known = true
+				}
+			}
+			if !known {
+				return drawDenied("unsupported_meter", "the quota policy has no money meter for this currency and scale", d.ID)
+			}
 			// Cost is computable only through a matching price book that
 			// prices every billable bounded meter. Unknown is never zero.
 			priced := len(ids) > 0
