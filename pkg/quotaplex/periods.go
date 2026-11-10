@@ -110,7 +110,7 @@ func elapsedWindow(anchor time.Time, duration time.Duration, at time.Time) (time
 }
 
 // localMidnight refuses civil-time gaps and folds instead of silently choosing
-// an offset. A future explicit boundary-resolution policy can support them.
+// an offset. They are not supported without an explicit boundary-resolution policy.
 func localMidnight(year int, month time.Month, day int, location *time.Location) (time.Time, error) {
 	resolved := time.Date(year, month, day, 0, 0, 0, 0, location)
 	matches := func(value time.Time) bool {

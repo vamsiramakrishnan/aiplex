@@ -5,9 +5,9 @@ standard library and can be imported without the AIPlex API server, Firestore,
 Kubernetes, Ory, or another Plex implementation. `pkg/contracts` holds the shared
 request-context and membership-snapshot wire types.
 
-This foundation does not implement QuotaPlex allocation, reservations, pricing,
-borrowing, or accounting. A future QuotaPlex can use the same lifecycle and
-discovery contracts as any other independently deployed service.
+`pkg/modules` itself implements no allocation, reservations, pricing, borrowing
+or accounting. QuotaPlex is a module that uses the same lifecycle and discovery
+contracts as any other independently deployed service.
 
 See [QuotaPlex requirements and limits](quotaplex-prerequisites.md) for the
 contracts and what hard enforcement requires.

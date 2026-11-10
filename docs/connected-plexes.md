@@ -124,7 +124,7 @@ advertises an authorization-server registration endpoint it cannot actually issu
 Production DCR secrets go to Secret Manager as tenant/issuer/profile-bound
 version-specific references. Only NotFound permits new registration; permission
 or network failures fail closed. Concurrent calls coalesce within a host, while
-immutable secret versions prevent cross-host client/secret confusion. Owner-bound PKCE callbacks, code exchange, refresh rotation and revocation now
+immutable secret versions prevent cross-host client/secret confusion. Owner-bound PKCE callbacks, code exchange, refresh rotation and revocation
 feed managed execution through the optional runtime. See
 [MCP runtime authorization](mcp-runtime-authorization.md).
 
@@ -145,7 +145,7 @@ intent/network revisions, bundle snapshot, executable, Anvil build and expiry.
 Public previews omit credentials and raw business payloads.
 
 Anvil's own deploy/publish commands prepare connector artifacts; they do not prove
-cloud apply or readiness. The HTTP integration now exposes operator-enabled approved execution and separately
+cloud apply or readiness. The HTTP integration exposes operator-enabled approved execution and separately
 configured native health observations. Durable approval and invocation records
 preserve ambiguous effects as `unknown`; none are automatically retried. See [Anvil provider](anvil-deployment-provider.md).
 

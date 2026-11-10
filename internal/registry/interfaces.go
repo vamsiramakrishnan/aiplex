@@ -54,7 +54,7 @@ type AgentStore interface {
 }
 
 // LLMPlexStore contains model configuration and usage reporting, not quota
-// reservations. A future quota module owns its transactional ledger separately.
+// reservations. The QuotaPlex module owns its transactional ledger separately.
 type LLMPlexStore interface {
 	TemplateReader
 	GetRouteConfig(context.Context, string) (*models.LLMRouteConfig, error)

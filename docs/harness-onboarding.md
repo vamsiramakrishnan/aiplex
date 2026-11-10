@@ -143,7 +143,7 @@ Tested: file merging, diffs, backup, undo, idempotence and token absence (unit a
 
 ### Observed with real clients
 
-Each client was started with an empty `HOME`, the files `connect --write` produced and `aiplex dev`. Environment variables that override settings files (`CLAUDE_CODE_*`, `ANTHROPIC_*`, for example `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST` in a hosted Claude Code session) must be removed from the client's environment.
+Each client was started with an empty `HOME`, the files `connect --write` produced and `aiplex dev`. Environment variables that override settings files (`CLAUDE_CODE_*`, `ANTHROPIC_*`, for example `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`, which an environment may already set) must be removed from the client's environment.
 
 | Client and version | Works | Not exercised or does not work |
 | --- | --- | --- |

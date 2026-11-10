@@ -89,7 +89,7 @@ Provider transport regressions are in
 [cumulative_stream_test.go](../pkg/modelapi/cumulative_stream_test.go).
 Scheduler integration is in
 [quota_scheduler_test.go](../cmd/aiplex-api/quota_scheduler_test.go).
-Accounting recovery remains covered by the existing quota core tests.
+Accounting recovery is covered by the quota core tests in `pkg/quotaplex`.
 
 These tests cover request-bound identity, actual dispatch and bypass exclusion,
 trusted terminal usage and recovery, shared model and tool controls, and admitted
@@ -112,8 +112,8 @@ Reproduce the complete Go validation from the repository root:
 ```sh
 go test -race ./... -count=1 -json
 go vet ./...
-go build -buildvcs=false -trimpath -o /tmp/aiplex-quota-api ./cmd/aiplex-api
-go build -buildvcs=false -trimpath -o /tmp/aiplex-quota-cli ./cmd/aiplex-cli
+go build -buildvcs=false -trimpath -o <out>/aiplex-api ./cmd/aiplex-api
+go build -buildvcs=false -trimpath -o <out>/aiplex ./cmd/aiplex-cli
 ```
 
 Focused execution evidence:
@@ -126,9 +126,9 @@ go test -race ./pkg/execution ./pkg/modelapi ./pkg/toolexec ./internal/api \
 The cross-plane regression uses the reference transactional store and distinct
 host/engine instances; it is not a production multi-replica load test. The
 ordinary Go suite skips emulator-only tests when `FIRESTORE_EMULATOR_HOST` is
-unset. The existing dedicated emulator CI lane and
-[production qualification guide](production-qualification.md) describe that
-separate qualification. No live provider invoice, cloud deployment, production
+unset. The dedicated Firestore emulator CI job and the
+[production qualification guide](production-qualification.md) cover that
+separate qualification, including how to run the emulator tests locally. No live provider invoice, cloud deployment, production
 enforcement or provider capacity reservation is produced by these tests.
 
 ### Media, unit and batch operations

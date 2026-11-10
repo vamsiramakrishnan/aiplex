@@ -11,7 +11,7 @@ import (
 // Gemini Developer API batch and long-running media operations, added to the
 // gemini-developer descriptor (ops_gemini_developer.go).
 //
-// Read in https://aistudio.google.com/api-reference/batch-api (2026-11-10):
+// Source: https://aistudio.google.com/api-reference/batch-api (retrieved 2026-11-10):
 // POST /v1beta/models/{model}:batchGenerateContent enqueues a batch; GET
 // /v1beta/batches/{id} returns its latest state; POST
 // /v1beta/batches/{id}:cancel. The batch name is "batches/{batch_id}". Output

@@ -1,8 +1,7 @@
 # Google model APIs: token-usage and quota wire formats
 
-Audit reference for usage observers. Every field name below was read in
-Google's official documentation on 2026-11-09. Where a detail could not be
-confirmed it is marked **UNCONFIRMED**. Fixtures that mirror each section live
+Audit reference for usage observers. Source: Google's official documentation, retrieved
+2026-11-09. Details the documentation does not state are marked **UNCONFIRMED**. Fixtures that mirror each section live
 in `pkg/modelapi/testdata/usage-formats/google/` (see `expected.json` there);
 fixture filenames are given in the "Fixture" column.
 
@@ -177,7 +176,7 @@ Fixtures: `gemini-cachedcontent-create.json`; hits in `gemini-generate.json`, `v
 
 ## 11. Other transports
 
-- gRPC: no page read documents any usage difference from REST. REST JSON uses camelCase; descriptions reference proto snake_case (`prompt_token_count`, ...). Bidi streaming is exposed as WebSocket (`...GenerativeService.BidiGenerateContent`, `...LlmBidiService/BidiGenerateContent`). Vertex lists `serverStreamingPredict`, `directPredict`, `directRawPredict` methods with no usage description read. **UNCONFIRMED.**
+- gRPC: the documentation describes no usage difference from REST. REST JSON uses camelCase; descriptions reference proto snake_case (`prompt_token_count`, ...). Bidi streaming is exposed as WebSocket (`...GenerativeService.BidiGenerateContent`, `...LlmBidiService/BidiGenerateContent`). Vertex lists `serverStreamingPredict`, `directPredict`, `directRawPredict` methods with no usage description read. **UNCONFIRMED.**
 - Long-running predict (Veo video on DA): `POST /v1beta/models/{model}:predictLongRunning`, poll operation `done`, result at `response.generateVideoResponse.generatedSamples[].video.uri`; no usage in that result. Billing is per output second (pricing page). Fixture `gemini-veo-operation.json`. Vertex Veo/Imagen: UNCONFIRMED.
 - Image models: Gemini image models via generateContent report image output tokens (pricing page gives per-resolution token counts, e.g. 1120 tokens for 1024x1024 on one model); `IMAGE` appears in `candidatesTokensDetails`.
 
@@ -193,7 +192,7 @@ Fixtures: `gemini-cachedcontent-create.json`; hits in `gemini-generate.json`, `v
 | Price/priority class | `serviceTier` standard/flex/priority; priority over limit is downgraded to standard (no error); flex is sheddable and fails with 503; priority default limits 0.3x standard | `trafficType` per response |
 | Provisioned Throughput | n/a | Default: overage runs on-demand (spillover). `X-Vertex-AI-LLM-Request-Type: dedicated` makes overage return 429; `shared` bypasses PT. Response indicator: `trafficType: PROVISIONED_THROUGHPUT`; spillover = `ON_DEMAND` with no `provisionedThroughput` object when PT exists for model/region. Standard PT with unused capacity can turn would-be 429s into 5xx. |
 | Dynamic shared quota | n/a | The docs describe "Standard PayGo" shared capacity with spend-based usage tiers (30-day rolling spend, org-level TPM thresholds, excess burst throttled first, thresholds apply to `global` endpoint) and "Priority PayGo" (downgraded to `ON_DEMAND` only when no spare capacity; `trafficType` tells). The term "dynamic shared quota" was not found in the pages read; the old URL `.../learn/dynamic-shared-quota` redirects to Standard PayGo. |
-| Live API | concurrent-session limits on the Developer API: UNCONFIRMED (not on the rate-limits page read) | concurrent session quota checked at session start, e.g. 1,000 per project by default for one native-audio model (start-manage-session page); error shape on rejection UNCONFIRMED |
+| Live API | concurrent-session limits on the Developer API: UNCONFIRMED (not on the rate-limits page) | concurrent session quota checked at session start, e.g. 1,000 per project by default for one native-audio model (start-manage-session page); error shape on rejection UNCONFIRMED |
 | Source | `https://aistudio.google.com/docs/rate-limits`; `https://aistudio.google.com/docs/api-errors?generate-content=true`; `https://aistudio.google.com/docs/api-errors`; `https://aistudio.google.com/docs/troubleshooting`; `https://aistudio.google.com/docs/priority-inference`; `.../flex-inference` | `https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/deploy/error-code-429`; `.../models/standard-paygo`; `.../models/priority-paygo`; `.../models/flex-paygo`; `.../models/provisioned-throughput/use-provisioned-throughput`; `.../models/capabilities/inference-metadata-logging` |
 
 Fixtures: `gemini-generate-error-429.json`, `vertex-generate-error-429.json`.

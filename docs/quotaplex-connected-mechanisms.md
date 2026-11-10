@@ -77,8 +77,8 @@ automatic lending allocation, live group-population rebalancing and structural
 queue migration are not installed. Current unequal fixed/anchored/calendar
 allocations and explicit loans remain available.
 
-Qualify real provider ceilings/prices, native identity/consent flows, target client
+Hard enforcement applies only to the covered operations and profiles. Real
+provider ceilings and prices, native identity and consent flows, target client
 compatibility, private routing, desired-state convergence, production contention,
-backup restore, admission latency and billing equivalence before expanding the
-hard-enforcement claim. The executable local/CI evidence and the live gates are
-recorded separately in the [qualification runbook](production-qualification.md).
+backup restore, admission latency and billing equivalence are not established by
+the local and CI evidence; see the [qualification runbook](production-qualification.md).

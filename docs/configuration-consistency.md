@@ -1,8 +1,8 @@
 # Revisioned legacy configuration
 
 Agent registrations, LLM routes/providers, IAM role bindings and manual grants
-now use atomic desired-state revisions in both bundled registry backends. This
-extends the existing legacy tables; it does not move their objects into another
+use atomic desired-state revisions in both bundled registry backends. This
+applies to the legacy tables; it does not move their objects into another
 Plex or change their gateway ownership.
 
 ## HTTP contract
@@ -51,7 +51,7 @@ manual grants. Custom read-only identity adapters retain their compatibility
 interface; they must implement this snapshot capability to provide the same
 cross-read consistency guarantee.
 
-Trusted bootstrap/reconciliation `Put*` methods remain available, but now advance
+Trusted bootstrap/reconciliation `Put*` methods remain available and advance
 the same revision and generation. They intentionally replace the current object;
 public handlers use the conditional interface. Direct database writes are not
 part of that contract.

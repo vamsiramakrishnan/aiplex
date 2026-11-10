@@ -66,8 +66,7 @@ process.
 ### 1. The smoke test (no external infra)
 
 In-process E2E test that exercises every layer of the pipeline. Runs
-in under a second. Asserts the headline claim: a crash mid-wire does
-not produce a duplicate wire.
+in under a second. Asserts that a crash mid-wire does not produce a duplicate wire.
 
 ```bash
 make e2e-aiplex-tape
@@ -116,7 +115,7 @@ aiplex apply -f examples/aiplex-tape-treasury/treasury.yaml
 
 | Claim | Evidence |
 | --- | --- |
-| Manifest generation includes the Tape runtime resources | `tests/aiplex_tape_e2e_test.go::TestE2E_AIPlexTape_TreasuryStory` — asserts `Instance.Runtime.Engine == tape` on the deployed instance + the engine emits tape-server + reactors |
+| Manifest generation includes the Tape runtime resources | `tests/aiplex_tape_e2e_test.go::TestE2E_AIPlexTape_TreasuryDeployAndRun` — asserts `Instance.Runtime.Engine == tape` on the deployed instance + the engine emits tape-server + reactors |
 | Identity (tenant/actor/subject/agent_id/scopes) is threaded onto every run | Same test seeds events with the deployed instance's ID; the run projection surfaces them via `GET /api/v1/runs/{id}` |
 | A crash mid-effect doesn't duplicate the side effect | `EffectsCount == 3` (begin + unknown + confirmed) — NOT 4 (no second begin), `UnknownEffects == 1` (transitioned, not duplicated) |
 | Scope denials are auditable | `TestE2E_AIPlexTape_PolicyDenialFlow` — `PolicyViolations == 1`, `EffectsCount == 0` (no fake effect from a denied attempt), and the run shows up in the timeline |

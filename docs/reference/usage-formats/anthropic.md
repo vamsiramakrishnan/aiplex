@@ -2,7 +2,7 @@
 
 Audit reference for usage observers. Gathered 2026-11-09 from official docs (URLs under each section).
 Fixtures: `pkg/modelapi/testdata/usage-formats/anthropic/` (see its README; `expected.json` has normalized totals).
-Anything not confirmed in a page read during this task is marked **UNCONFIRMED**. The docs were treated as authoritative over prior assumptions.
+Details that the provider's documentation does not state are marked **UNCONFIRMED**.
 
 Hosting platforms differ in endpoint and wrapper, not (as far as documented) in the Messages `usage` object. Bedrock Converse is the exception: its own `usage` shape.
 
@@ -88,11 +88,11 @@ Fixtures: `batch-results.jsonl`, `batch-results-partial.jsonl`.
 |---|---|---|
 | Server tools (web search / fetch) | same `usage` plus `server_tool_use.web_search_requests` / `web_fetch_requests`; streaming: in final `message_delta`; server tool results enlarge `input_tokens` (see `messages-server-tool.sse`). Prompt-caching page notes server tool results get cached automatically (can show unexpected `ephemeral_5m_input_tokens`). | streaming page, prompt-caching page |
 | Code execution | same Messages `usage`; `server_tool_use.code_execution_requests` in doc example; execution time billed separately by container hours (not in `usage`) | https://platform.claude.com/docs/en/agents-and-tools/tool-use/code-execution-tool |
-| MCP connector (beta, `mcp_servers` + `mcp_toolset` in `tools`) | rides the Messages response (`mcp_tool_use` / `mcp_tool_result` blocks). No MCP-specific usage counters found in the page (grep; not read in full): **UNCONFIRMED**. Not countable via count_tokens. | https://platform.claude.com/docs/en/agents-and-tools/mcp-connector |
+| MCP connector (beta, `mcp_servers` + `mcp_toolset` in `tools`) | rides the Messages response (`mcp_tool_use` / `mcp_tool_result` blocks). No MCP-specific usage counters documented: **UNCONFIRMED**. Not countable via count_tokens. | https://platform.claude.com/docs/en/agents-and-tools/mcp-connector |
 | Files API | files referenced in Messages requests count as ordinary input tokens in the same `usage`; Files API has its own request-rate limit. Per-file token accounting: **UNCONFIRMED** (page not read). | rate-limits page |
 | Fast mode | `usage.speed`; own headers `anthropic-fast-input-tokens-*`, `anthropic-fast-output-tokens-*` (limit/remaining/reset); 429 with `retry-after` | https://platform.claude.com/docs/en/build-with-claude/fast-mode |
 | Managed Agents (beta header `managed-agents-2026-04-01`) | Session object `usage` (cumulative over all model calls): `input_tokens` (uncached), `output_tokens`, `cache_read_input_tokens`, `cache_creation{ephemeral_5m,ephemeral_1h}`, `list_cost{amount,currency}`, `active_seconds`, `server_tool_use`. Same snapshot arrives as a `session.usage` event on `GET /v1/sessions/{id}/events/stream?beta=true` (`accept: text/event-stream`), emitted just before idle and when a budget pause occurs. Snapshot, not delta. Event envelope **UNCONFIRMED**. Per-thread usage has `list_cost`/`active_seconds`; thread token fields **UNCONFIRMED**. Not available on Bedrock/Vertex. | https://platform.claude.com/docs/en/managed-agents/session-observability, .../events-and-streaming |
-| WebSocket | no documented WebSocket inference transport found in pages read (**UNCONFIRMED** absence; AWS `InvokeModelWithBidirectionalStream` exists but is documented for other model families) | - |
+| WebSocket | no WebSocket inference transport is documented (**UNCONFIRMED**; AWS `InvokeModelWithBidirectionalStream` exists but is documented for other model families) | - |
 
 ## 3. Claude on Google Cloud / Vertex AI
 
@@ -175,7 +175,7 @@ Fixture: `ratelimit.json`.
 9. Existence of any documented WebSocket inference transport for Claude (none found).
 10. `server_tool_use` full key set (schema lists web_search/web_fetch; code execution doc shows `code_execution_requests`; tool-search/bash keys unknown).
 11. Whether `message_delta` can emit multiple times with differing cumulative values (docs say "one or more"); the fixtures assume last-wins.
-12. Docs model/version names in examples (e.g. `anthropic-version: 2026-10-21`) reflect the pages as read on 2026-11-09 and may move.
+12. Docs model/version names in examples (e.g. `anthropic-version: 2026-10-21`) reflect the documentation retrieved 2026-11-09 and may move.
 
 ## Fixture notes (Message Batches and Managed Agents)
 

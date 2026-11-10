@@ -1,8 +1,8 @@
 # Azure OpenAI: token usage formats
 
-Audit reference for the Azure OpenAI usage observers. Read in Microsoft's
-documentation on 2026-11-10. Anything not confirmed in a page read is marked
-**UNCONFIRMED**. Fixtures: `pkg/modelapi/testdata/usage-formats/azure-openai/`
+Audit reference for the Azure OpenAI usage observers. Source: Microsoft's
+documentation, retrieved 2026-11-10. Details the documentation does not state are
+marked **UNCONFIRMED**. Fixtures: `pkg/modelapi/testdata/usage-formats/azure-openai/`
 (`expected.json` has the values); the generic OpenAI-compatible fixtures are in
 `.../openai-compatible/` (section 5).
 
@@ -63,7 +63,7 @@ an empty array. All other chunks will also include a `usage` field, but with a
 null value. **NOTE:** If the stream is interrupted, you may not receive the
 final usage chunk" (`chat.sse`, `chat.interrupted.sse`). Whether Azure adds a
 `prompt_filter_results` chunk before the first delta on the v1 API is
-**UNCONFIRMED** in the pages read; the observer ignores chunks without usage.
+**UNCONFIRMED** in the documentation; the observer ignores chunks without usage.
 
 ## 3. Responses usage (`OpenAI.ResponseUsage`)
 

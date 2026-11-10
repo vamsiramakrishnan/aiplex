@@ -318,7 +318,7 @@ Deploying to a cluster is a multi-step operation, not a single command: Terrafor
 
 ## Project status
 
-AIPlex is **pre-1.0**. Interfaces, flags and output formats can change between releases, and the CLI's output is being reworked.
+AIPlex is **pre-1.0**. Interfaces, flags and output formats can change between releases.
 
 What has been validated, from the repository's own tests and CI:
 
@@ -358,7 +358,6 @@ See [SECURITY.md](SECURITY.md) for the security model's current limits.
 
 Apache License 2.0. See [LICENSE](LICENSE). The price catalogue snapshot under `pkg/pricecatalog/` is third-party data under the MIT licence; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-<!-- The documentation address. This block is the only place the README spells it out. -->
 [docs]: https://vamsiramakrishnan.github.io/aiplex/
 [docs-local]: https://vamsiramakrishnan.github.io/aiplex/docs/getting-started/local-development
 [docs-concepts]: https://vamsiramakrishnan.github.io/aiplex/docs/concepts

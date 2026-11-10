@@ -1,6 +1,6 @@
 # OpenAI usage and rate-limit formats
 
-Purpose: let an engineer audit AIPlex usage observers against what OpenAI documents. Every field name below was read in OpenAI's official docs on 2026-11-09 (API reference pages under `https://developers.openai.com/api/reference/resources/...` and guides under `https://developers.openai.com/api/docs/guides/...`; `platform.openai.com` redirects there or returns 403 to scripted fetches). Anything not seen is marked UNCONFIRMED. Model names in doc examples are placeholders and are not repeated here.
+Purpose: let an engineer audit AIPlex usage observers against what OpenAI documents. Source: OpenAI's official docs, retrieved 2026-11-09 (API reference pages under `https://developers.openai.com/api/reference/resources/...` and guides under `https://developers.openai.com/api/docs/guides/...`). Details the documentation does not state are marked UNCONFIRMED. Model names in doc examples are placeholders and are not repeated here.
 
 Fixtures for each section live in `pkg/modelapi/testdata/usage-formats/openai/` (see `expected.json` there).
 
@@ -151,7 +151,7 @@ Fixture: the `rate_limits.updated` event is inside `realtime.ws.jsonl` (not a us
 3. Responses: whether `response.incomplete`, `response.failed`, and cancelled responses ever carry non-null `usage` in real traffic (docs examples show `null`); `event:` line presence on the SSE wire (fixtures use it in `responses.sse` and omit it elsewhere to exercise both); usage on background responses; usage for `generate:false` warmups; parent object of `svg_usage`.
 4. Realtime: usage on cancelled/failed/incomplete `response.done`; location of the model id per response; WebRTC data-channel name for Realtime (seen for Live); byte-level event equivalence across WebSocket/WebRTC/SIP; whether `rate_limits.updated` is also sent over WebRTC/SIP.
 5. Realtime translation/transcription sessions: where duration is reported in-band (none seen).
-6. Live API: exact endpoint and event names were read in the reference/guides; behaviour on `connection_lost` (final seconds) is not documented.
+6. Live API: endpoint and event names are in the reference and guides; behaviour on `connection_lost` (final seconds) is not documented.
 7. Speech (TTS) SSE: event names and any usage payload; billing unit of speech and translations.
 8. Images: usage for non-GPT image models; whether partial-image tokens are inside the final usage; model id location on image responses.
 9. Batch: no explicit example of usage inside output-file lines; per-request 4xx representation (output line with non-200 `status_code` vs error file); batch-level usage cache-write counter absent.

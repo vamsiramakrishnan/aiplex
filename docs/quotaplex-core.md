@@ -1,9 +1,9 @@
 # QuotaPlex core
 
 QuotaPlex is a provider-independent Go library in [pkg/quotaplex](../pkg/quotaplex).
-It implements the accounting and admission foundation shared by model, tool,
+It implements the accounting and admission core shared by model, tool,
 agent and skill execution. The library installs no routes by itself. An optional
-[managed execution integration](quotaplex-integration.md) now binds supported model
+[managed execution integration](quotaplex-integration.md) binds supported model
 and stateless tool calls to admission, acknowledged terminal usage and recovery.
 Default traffic does not acquire quotas by registering the library. See the
 [allocation and metering semantics](quotaplex-allocation-and-metering.md) and

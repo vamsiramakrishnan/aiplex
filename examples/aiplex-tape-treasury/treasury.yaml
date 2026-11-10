@@ -1,6 +1,6 @@
 # AIPlex + Tape — Treasury Agent (end-to-end demo)
 #
-# This is the worked manifest for the integration story. AIPlex's deploy
+# This is the worked manifest for the integration. AIPlex's deploy
 # engine reads `runtime: { engine: tape }` and generates the
 # tape-server + reactor pods alongside this agent, then injects
 # AIPLEX_* + TAPE_URL env vars onto the agent's container so the

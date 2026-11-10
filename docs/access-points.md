@@ -581,8 +581,7 @@ access point admits.
 - Overview data is read from the usage ledger and resource store. Its usage roll-ups are
   admin-only. A deployer gets the same configuration view with usage withheld. Roll-ups are only
   as complete as the ledger's records.
-- Google Agent Registry import, publish and Agent Gateway push-down are not part of this
-  increment.
+- Not supported: Google Agent Registry import, publish and Agent Gateway push-down.
 - Responses WebSocket mode is not reachable through an access point (see
   [WebSocket sessions](#websocket-sessions)).
 - Bedrock and WebSocket usage through an access point is advisory, the same as on the

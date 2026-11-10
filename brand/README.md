@@ -140,14 +140,14 @@ Module colours meet 3:1 for graphics. Several are below 4.5:1, so module labels 
 | `--aiplex-color-focus-ring` | `#2F4FD8` | `#8DA2FF` |
 | `--aiplex-color-status-{ok,warning,denied,unknown}-{fg,bg}` | as in the status table | as in the status table |
 
-The earlier names still work: `--aiplex-gate`, `--aiplex-text`, `--aiplex-status-ok`, `--aiplex-module-*`, `--aiplex-brand-*` and the rest.
+Alias names also available: `--aiplex-gate`, `--aiplex-text`, `--aiplex-status-ok`, `--aiplex-module-*`, `--aiplex-brand-*` and the rest.
 
 ## Typography
 
 - **Wordmark:** custom outlines (above). It has no font dependency.
 - **Interface and documentation:** **Inter**, SIL Open Font License 1.1. It has a large x-height, tabular figures (`font-variant-numeric: tabular-nums` for usage tables) and a slashed-zero option. **Inter Display** (same family, same licence) is used for headlines of 30 px and larger in the composed graphics.
 - **Code, scopes, IDs, hex values and commands:** **JetBrains Mono**, SIL Open Font License 1.1.
-- **Font stacks** are in `tokens.css` (`--aiplex-font-sans`, `--aiplex-font-mono`). The tokens contain no type, spacing or radius scale. The Console and docs site already have scales, and these brand assets give no basis for choosing new values.
+- **Font stacks** are in `tokens.css` (`--aiplex-font-sans`, `--aiplex-font-mono`). The tokens contain no type, spacing or radius scale. The Console and docs site have their own scales.
 - **Outlined text:** no file under `brand/` contains `<text>`. Text in the brand sheets, social card, banner and architecture diagrams is drawn as glyph outlines from Inter and JetBrains Mono by `scripts/outline_text.py`, with pair kerning, so it renders the same with no fonts installed. This includes GitHub's sandboxed rendering of README images. The OFL permits outlines in artwork.
 
 ## Icons

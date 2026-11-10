@@ -238,7 +238,7 @@ Rolling budgets, minimum-throughput guarantees, native capacity reservation,
 preemption, remote admission RPC, direct-route interception and additional
 specialized model/tool/agent adapters remain explicit work.
 
-## Additional foundational mechanisms
+## Membership, configuration and administration mechanisms
 
 [Signed membership authority](membership-authority.md) can supply complete, expanded
 source-qualified principal and actor snapshots independently of JWT group claims.
