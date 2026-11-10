@@ -24,6 +24,7 @@ const usageUnknown = "unknown"
 
 type usageFilterFlags struct {
 	plane, provider, model, tool, agent, user, client, status, source string
+	accessPoint, callerKind                                           string
 	since, until                                                      string
 }
 
@@ -36,6 +37,8 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.agent, "agent", "", "Agent / actor ID (actor_id)")
 	fl.StringVar(&f.user, "user", "", "User / principal ID (principal_id)")
 	fl.StringVar(&f.client, "client", "", "Client ID (client_id)")
+	fl.StringVar(&f.accessPoint, "access-point", "", "Access point ID (access_point_id)")
+	fl.StringVar(&f.callerKind, "caller-kind", "", "Caller kind: agent, user or client (caller_kind)")
 	fl.StringVar(&f.status, "status", "", "Status: ok, error, denied or unknown")
 	fl.StringVar(&f.source, "source", "", "Source: managed or reported")
 	fl.StringVar(&f.since, "since", "", "Start of window: duration like 24h, 7d, or an RFC3339 time")
@@ -43,7 +46,7 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 }
 
 func (f *usageFilterFlags) filter(now time.Time) (aiplex.UsageFilter, error) {
-	out := aiplex.UsageFilter{Plane: f.plane, Provider: f.provider, ModelID: f.model, ToolName: f.tool, ActorID: f.agent, PrincipalID: f.user, ClientID: f.client, Status: f.status, Source: f.source}
+	out := aiplex.UsageFilter{Plane: f.plane, Provider: f.provider, ModelID: f.model, ToolName: f.tool, ActorID: f.agent, PrincipalID: f.user, ClientID: f.client, AccessPointID: f.accessPoint, CallerKind: f.callerKind, Status: f.status, Source: f.source}
 	var err error
 	if out.Since, err = parseUsageTime(f.since, now); err != nil {
 		return out, fmt.Errorf("--since: %w", err)
@@ -117,6 +120,7 @@ func usageRecordsCmd() *cobra.Command {
 		Short: "List usage records, newest first",
 		Example: `  aiplex usage records --since 24h --model gemini-2.5-flash
   aiplex usage records --agent tutor-agent --status error --limit 50
+  aiplex usage records --access-point ide-team --caller-kind agent --since 24h
   aiplex usage records --since 7d --all -o json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -210,12 +214,16 @@ func usageSummaryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "summary",
 		Short: "Totals of requests, tokens and cost, optionally grouped",
-		Long: `Aggregate usage. --by takes plane, provider, model, tool, agent, user, client
-or status (aliases: model=model_id, agent=actor_id, user=principal_id,
-client=client_id, tool=tool_name). Costs are never summed across currencies
+		Long: `Aggregate usage. --by takes plane, provider, model, tool, agent, user, client,
+access-point, caller-kind or status (aliases: model=model_id, agent=actor_id,
+user=principal_id, client=client_id, tool=tool_name, access-point=access_point_id,
+caller-kind=caller_kind). Records whose usage is bounded (lower_bound, ambiguous
+or partial) are included in the sums and counted in the BOUNDED column; their
+totals are not final. Costs are never summed across currencies
 or bases. When the scan limit is reached the totals cover only the newest
 records and the command says so.`,
 		Example: `  aiplex usage summary --by model,agent --since 7d
+  aiplex usage summary --by access-point,caller-kind --since 7d
   aiplex usage summary --by model --bucket day --since 30d -o json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -238,6 +246,12 @@ records and the command says so.`,
 				printTable(headers, rows)
 			}
 			fmt.Printf("\n%d records scanned.\n", summary.RecordsScanned)
+			for _, g := range summary.Groups {
+				if g.BoundedUsageRecords > 0 {
+					fmt.Println("NOTE: some totals include bounded usage (lower_bound, ambiguous or partial); those counters are not final. See the BOUNDED column.")
+					break
+				}
+			}
 			if summary.Truncated {
 				fmt.Println("WARNING: truncated - totals cover only the newest records scanned. Narrow the window with --since/--until.")
 			}
@@ -267,6 +281,23 @@ func usageCounter(u *usageledger.Usage, name string) string {
 	return strconv.FormatInt(*v, 10)
 }
 
+// usageRecordCounter renders a record's counter. A bounded record's counters
+// are never shown bare: the bound travels with the number.
+func usageRecordCounter(r usageledger.Record, name string) string {
+	v := usageCounter(r.Usage, name)
+	if r.UsageBound != "" && v != usageUnknown {
+		return v + " (" + r.UsageBound + ")"
+	}
+	return v
+}
+
+func usageSessionCell(r usageledger.Record) string {
+	if r.Session {
+		return "session"
+	}
+	return "—"
+}
+
 func usageCost(c usageledger.Cost) string {
 	return aiplex.FormatCost(c)
 }
@@ -284,12 +315,12 @@ func usageTarget(r usageledger.Record) string {
 }
 
 func usageRecordRows(records []usageledger.Record) ([]string, [][]string) {
-	headers := []string{"ID", "TIME", "PLANE", "MODEL/TOOL", "AGENT", "USER", "CLIENT", "STATUS", "IN", "OUT", "COST", "LATENCY"}
+	headers := []string{"ID", "TIME", "PLANE", "MODEL/TOOL", "AGENT", "USER", "CLIENT", "SESSION", "STATUS", "IN", "OUT", "COST", "LATENCY"}
 	rows := make([][]string, 0, len(records))
 	for _, r := range records {
 		rows = append(rows, []string{
-			r.ID, r.StartedAt.UTC().Format("2006-01-02T15:04:05Z"), r.Plane, usageTarget(r), usageDash(r.ActorID), usageDash(r.PrincipalID), usageDash(r.ClientID), r.Status,
-			usageCounter(r.Usage, usageledger.CounterInput), usageCounter(r.Usage, usageledger.CounterOutput), usageCost(r.Cost), fmt.Sprintf("%dms", r.LatencyMS),
+			r.ID, r.StartedAt.UTC().Format("2006-01-02T15:04:05Z"), r.Plane, usageTarget(r), usageDash(r.ActorID), usageDash(r.PrincipalID), usageDash(r.ClientID), usageSessionCell(r), r.Status,
+			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageCost(r.Cost), fmt.Sprintf("%dms", r.LatencyMS),
 		})
 	}
 	return headers, rows
@@ -305,12 +336,14 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		{"latency", fmt.Sprintf("%dms", r.LatencyMS)}, {"plane", r.Plane}, {"provider", usageDash(r.Provider)}, {"resource_id", usageDash(r.ResourceID)},
 		{"operation", usageDash(r.Operation)}, {"model_id", usageDash(r.ModelID)}, {"model_version", usageDash(r.ModelVersion)}, {"tool_name", usageDash(r.ToolName)},
 		{"principal_id", usageDash(r.PrincipalID)}, {"actor_id", usageDash(r.ActorID)}, {"client_id", usageDash(r.ClientID)}, {"request_id", usageDash(r.RequestID)},
-		{"trace_id", usageDash(r.TraceID)}, {"quota_attempt_id", usageDash(r.QuotaAttemptID)}, {"streaming", strconv.FormatBool(r.Streaming)},
+		{"access_point_id", usageDash(r.AccessPointID)}, {"caller_kind", usageDash(r.CallerKind)},
+		{"trace_id", usageDash(r.TraceID)}, {"quota_attempt_id", usageDash(r.QuotaAttemptID)}, {"streaming", strconv.FormatBool(r.Streaming)}, {"session", strconv.FormatBool(r.Session)},
+		{"usage_bound", usageDash(r.UsageBound)},
 		{"status", r.Status}, {"http_status", httpStatus}, {"error_class", usageDash(r.ErrorClass)}, {"source", r.Source},
 		{"requests", strconv.FormatInt(r.Requests, 10)},
 	}
 	for _, name := range usageledger.TokenCounters {
-		rows = append(rows, [2]string{name, usageCounter(r.Usage, name)})
+		rows = append(rows, [2]string{name, usageRecordCounter(r, name)})
 	}
 	rows = append(rows, [2]string{"cost", usageCost(r.Cost)})
 	return rows
@@ -318,7 +351,7 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 
 var usageGroupHeader = map[string]string{
 	"plane": "PLANE", "provider": "PROVIDER", "model_id": "MODEL", "tool_name": "TOOL", "actor_id": "AGENT",
-	"principal_id": "USER", "client_id": "CLIENT", "status": "STATUS",
+	"principal_id": "USER", "client_id": "CLIENT", "access_point_id": "ACCESS POINT", "caller_kind": "CALLER KIND", "status": "STATUS",
 }
 
 // usageTokens renders one summed token counter. A counter no record reported
@@ -326,13 +359,31 @@ var usageGroupHeader = map[string]string{
 func usageTokens(g usageledger.SummaryGroup, name string) string {
 	sum, reported := g.Tokens[name]
 	missing := g.TokensUnknown[name]
+	cell := strconv.FormatInt(sum, 10)
 	switch {
 	case !reported:
 		return usageUnknown
 	case missing > 0:
-		return fmt.Sprintf("%d (+%d unknown)", sum, missing)
+		cell = fmt.Sprintf("%d (+%d unknown)", sum, missing)
 	}
-	return strconv.FormatInt(sum, 10)
+	if g.BoundedUsageRecords > 0 {
+		// The sum includes counters that are not final.
+		cell += fmt.Sprintf(" [incl. %d bounded]", g.BoundedUsageRecords)
+	}
+	return cell
+}
+
+func usageBoundedCounts(g usageledger.SummaryGroup) string {
+	if g.BoundedUsageRecords == 0 {
+		return "—"
+	}
+	parts := []string{}
+	for _, p := range [][2]any{{usageledger.UsageLowerBound, g.LowerBoundRecords}, {usageledger.UsageAmbiguous, g.AmbiguousUsageRecords}, {usageledger.UsagePartial, g.PartialUsageRecords}} {
+		if n := p[1].(int64); n > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", p[0], n))
+		}
+	}
+	return fmt.Sprintf("%d (%s)", g.BoundedUsageRecords, strings.Join(parts, " "))
 }
 
 func usageCostTotals(g usageledger.SummaryGroup) string {
@@ -365,7 +416,7 @@ func usageSummaryRows(s *usageledger.Summary) ([]string, [][]string) {
 	if s.Bucket != "" {
 		headers = append(headers, "BUCKET")
 	}
-	headers = append(headers, "REQUESTS", "ERRORS", "DENIED", "IN", "OUT", "COST", "UNKNOWN")
+	headers = append(headers, "REQUESTS", "ERRORS", "DENIED", "IN", "OUT", "COST", "UNKNOWN", "BOUNDED")
 	rows := make([][]string, 0, len(s.Groups))
 	for _, g := range s.Groups {
 		var row []string
@@ -380,7 +431,7 @@ func usageSummaryRows(s *usageledger.Summary) ([]string, [][]string) {
 			row = append(row, start)
 		}
 		row = append(row, strconv.FormatInt(g.Requests, 10), strconv.FormatInt(g.Errors, 10), strconv.FormatInt(g.Denied, 10),
-			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageCostTotals(g), usageUnknownCounts(g))
+			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageCostTotals(g), usageUnknownCounts(g), usageBoundedCounts(g))
 		rows = append(rows, row)
 	}
 	return headers, rows

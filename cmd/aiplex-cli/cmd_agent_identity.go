@@ -277,6 +277,7 @@ func agentIdentityBindCmd() *cobra.Command {
 		displayName string
 		disabled    bool
 		replace     bool
+		ackOverlap  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "bind <agent> <id> --preset <preset> --input key=value ...",
@@ -292,7 +293,14 @@ Examples:
   aiplex agents identity bind tutor-agent gh-ci --preset github-actions \
     --input repository=acme/tutor --input ref=refs/heads/main
   aiplex agents identity bind tutor-agent aws-prod --preset aws-sts-web-identity \
-    --input account_id=123456789012 --input role_name=tutor --input region=us-east-1`,
+    --input issuer=https://abc123-def456-ghi789-jkl012.tokens.sts.global.api.aws \
+    --input role_arn=arn:aws:iam::123456789012:role/aiplex-agent --input region=us-east-1 \
+    --input audience=https://aiplex.example.com
+
+The audience input may be omitted when the server has a default audience.
+If a user identity provider of this tenant trusts the same issuer and
+audience the write is refused; pass --acknowledge-overlap to save it anyway
+(the server reports a warning, which is printed).`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if preset == "" {
@@ -329,7 +337,7 @@ Examples:
 				expected = current.Revision
 			}
 			b, err := c.PutAgentIdentity(ctx, args[0], args[1], aiplex.AgentIdentityRequest{
-				Preset: preset, Inputs: in, RequiredClaims: rc, DisplayName: displayName, Disabled: disabled,
+				Preset: preset, Inputs: in, RequiredClaims: rc, DisplayName: displayName, Disabled: disabled, AcknowledgeOverlap: ackOverlap,
 			}, expected)
 			if err != nil {
 				return explainIdentityError("bind identity", err)
@@ -344,6 +352,9 @@ Examples:
 			}
 			fmt.Fprintf(out, "%s identity binding %s for agent %s (revision %d)\n", verb, b.ID, b.ClientID, b.Revision)
 			fmt.Fprintf(out, "  Issuer:  %s\n  Subject: %s\n  Audience: %s\n", b.Issuer, b.Subject, b.Audience)
+			for _, w := range b.Warnings {
+				fmt.Fprintf(out, "  Warning: %s\n", w)
+			}
 			if !catalog.LiveAuthentication {
 				fmt.Fprintln(out, "  Note: live authentication is off on this server; use 'identity verify' to dry-run tokens.")
 			}
@@ -357,6 +368,7 @@ Examples:
 	cmd.Flags().StringVar(&displayName, "display-name", "", "Human-readable name")
 	cmd.Flags().BoolVar(&disabled, "disabled", false, "Create the binding disabled")
 	cmd.Flags().BoolVar(&replace, "replace", false, "Replace an existing binding with this id")
+	cmd.Flags().BoolVar(&ackOverlap, "acknowledge-overlap", false, "Save even though a user identity provider trusts the same issuer and audience (not persisted; repeat on every write)")
 	return cmd
 }
 

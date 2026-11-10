@@ -147,7 +147,10 @@ func uipApplyCmd() *cobra.Command {
   inputs: { domain: acme.okta.com }
   display_name: Acme Okta
 
-Fields this CLI does not know about are sent to the server unchanged. The
+Fields this CLI does not know about are sent to the server unchanged; for
+example "acknowledge_overlap: true" saves a provider even though an agent
+identity binding trusts the same issuer and audience (the server's warning is
+printed). The
 provider is created, or replaced at its current revision when it exists.
 Use '-f -' to read stdin.`,
 		Args: cobra.NoArgs,
@@ -180,6 +183,9 @@ Use '-f -' to read stdin.`,
 			verb := "Created"
 			if expected > 0 {
 				verb = "Updated"
+			}
+			for _, w := range saved.Warnings() {
+				fmt.Fprintf(cmd.OutOrStdout(), "Warning: %s\n", w)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s user identity provider %s (revision %d)\n  Issuer: %s\n  Audience: %s\nNext: aiplex identity user-providers plan %s\n", verb, saved.ID, saved.Revision, saved.Issuer, saved.Audience, saved.ID)
 			return nil

@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"net/http/httptest"
 	"reflect"
 	"testing"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
@@ -62,6 +65,33 @@ func TestLedgerNormalizesExclusiveInputIncludingCacheWrites(t *testing.T) {
 		normalizeExclusiveInput(got)
 		if !reflect.DeepEqual(got, test.want) {
 			t.Fatalf("%v -> %v, want %v", test.in, got, test.want)
+		}
+	}
+}
+
+// The session flag comes from the operation's WebSocket transport, not a list
+// of operation ids.
+func TestLedgerSessionFlagFollowsTransport(t *testing.T) {
+	for _, test := range []struct {
+		op   modelapi.Operation
+		want bool
+	}{
+		{modelapi.Operation{ID: "some.future.socket", Transport: modelapi.WebSocket}, true},
+		{modelapi.Operation{ID: "openai.v1.responses", Transport: modelapi.SSE}, false},
+		{modelapi.Operation{ID: "openai.v1.chat", Transport: modelapi.HTTP}, false},
+	} {
+		h := &ConnectedHandler{}
+		records := attachLedger(t, h)
+		_, capture := h.beginUsage(httptest.NewRecorder(), httptest.NewRequest("GET", "/x", nil), "tenant", usageledger.PlaneLLM, "surface")
+		opts := &modelapi.Options{Authorize: func(context.Context, contracts.RequestContext, modelapi.Surface, modelapi.Operation, modelapi.Metadata) error { return nil }}
+		capture.instrumentModel(opts, ModelConnection{})
+		if err := opts.Authorize(context.Background(), contracts.RequestContext{}, modelapi.Surface{}, test.op, modelapi.Metadata{}); err != nil {
+			t.Fatal(err)
+		}
+		capture.finish()
+		r := onlyRecord(t, records())
+		if r.Session != test.want || r.Operation != test.op.ID {
+			t.Fatalf("%s: session=%v", test.op.ID, r.Session)
 		}
 	}
 }

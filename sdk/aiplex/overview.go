@@ -43,6 +43,13 @@ type OverviewUsage struct {
 	TokensUnknown      map[string]int64 `json:"tokens_unknown"`
 	Cost               []OverviewCost   `json:"cost"`
 	UnknownCostRecords int64            `json:"unknown_cost_records"`
+	// BoundedUsageRecords counts records whose counters are not final (their
+	// usage_bound is set). They are included in Tokens; a non-zero count marks
+	// the totals non-final. The three per-bound counts sum to it.
+	BoundedUsageRecords   int64 `json:"bounded_usage_records,omitempty"`
+	LowerBoundRecords     int64 `json:"lower_bound_records,omitempty"`
+	AmbiguousUsageRecords int64 `json:"ambiguous_usage_records,omitempty"`
+	PartialUsageRecords   int64 `json:"partial_usage_records,omitempty"`
 }
 
 // OverviewUsageGroup is usage under one grouping key (model_id, tool_name or
@@ -300,12 +307,26 @@ type ConnectModel struct {
 	Protocols []string `json:"protocols"`
 }
 
+// ConnectEndpoint is a model endpoint that does not fit a single base URL:
+// Bedrock Runtime and WebSocket sessions. Transport is http, http-stream or
+// websocket. "{model}" in URL is replaced by a model name; Query lists query
+// parameters a connection requires (WebSocket URLs use ws or wss).
+type ConnectEndpoint struct {
+	Protocol  string   `json:"protocol"`
+	Transport string   `json:"transport"`
+	URL       string   `json:"url"`
+	Label     string   `json:"label,omitempty"`
+	Query     []string `json:"query,omitempty"`
+	Models    []string `json:"models"`
+}
+
 // AccessPointConnect is ready-to-paste configuration for a client. It never
 // contains a token or secret; snippets read $AIPLEX_TOKEN.
 type AccessPointConnect struct {
 	AccessPointID string            `json:"access_point_id"`
 	Client        string            `json:"client"`
 	BaseURLs      map[string]string `json:"base_urls"`
+	Endpoints     []ConnectEndpoint `json:"endpoints"`
 	Models        []ConnectModel    `json:"models"`
 	MCPURL        string            `json:"mcp_url,omitempty"`
 	MCPCatalogURL string            `json:"mcp_catalog_url,omitempty"`
@@ -313,6 +334,31 @@ type AccessPointConnect struct {
 	Auth          ConnectAuth       `json:"auth"`
 	Snippets      []ConnectSnippet  `json:"snippets"`
 	Notes         []string          `json:"notes"`
+}
+
+// OverviewAccessPointCounts are the resources an access point exposes.
+type OverviewAccessPointCounts struct {
+	Models int `json:"models"`
+	Tools  int `json:"tools"`
+	Skills int `json:"skills"`
+}
+
+// OverviewAccessPointSummary is one row of the access point list; it is built
+// without scanning the usage ledger.
+type OverviewAccessPointSummary struct {
+	ID            string                    `json:"id"`
+	DisplayName   string                    `json:"display_name,omitempty"`
+	CallerKinds   []string                  `json:"caller_kinds"`
+	QoSClass      string                    `json:"qos_class,omitempty"`
+	Counts        OverviewAccessPointCounts `json:"counts"`
+	QuotaCoverage OverviewQuotaCoverage     `json:"quota_coverage"`
+}
+
+// OverviewAccessPointList is one page of access point summaries.
+type OverviewAccessPointList struct {
+	AccessPoints   []OverviewAccessPointSummary `json:"access_points"`
+	NextCursor     string                       `json:"next_cursor,omitempty"`
+	SkippedInvalid int                          `json:"skipped_invalid,omitempty"`
 }
 
 // OverviewSubjectKinds are the values of OverviewSubjectsQuery.Kind.
@@ -372,6 +418,30 @@ func (c *Client) GetOverviewSubject(ctx context.Context, kind, id, since string)
 		path += "?" + query.Encode()
 	}
 	var out OverviewSubjectDetail
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListOverviewAccessPoints returns one page of access point summaries ordered
+// by id. limit 0 selects the server default; cursor is a previous next_cursor.
+func (c *Client) ListOverviewAccessPoints(ctx context.Context, limit int, cursor string) (*OverviewAccessPointList, error) {
+	v := url.Values{}
+	if limit < 0 {
+		return nil, fmt.Errorf("aiplex: limit must not be negative")
+	}
+	if limit > 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+	if cursor != "" {
+		v.Set("cursor", cursor)
+	}
+	path := "/api/v1/overview/access-points"
+	if len(v) > 0 {
+		path += "?" + v.Encode()
+	}
+	var out OverviewAccessPointList
 	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err
 	}
