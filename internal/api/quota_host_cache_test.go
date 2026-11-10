@@ -33,11 +33,17 @@ type tokenProfileCase struct {
 	// must stay unknown with every hold retained.
 	want map[string]int64
 	code int
+	// upstream replaces the canned success response.
+	upstream func(http.ResponseWriter)
 }
 
 func tokenProfileFixture(t *testing.T, test tokenProfileCase) *quotaHostModelFixture {
 	t.Helper()
 	f := quotaHostModelNew(t, true, func(w http.ResponseWriter, r *http.Request) {
+		if test.upstream != nil {
+			test.upstream(w)
+			return
+		}
 		media := test.media
 		if media == "" {
 			media = "application/json"

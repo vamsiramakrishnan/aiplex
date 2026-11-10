@@ -42,7 +42,13 @@ type Result struct {
 	StatusCode       int
 	ResponseComplete bool
 	Terminal         bool
-	Err              error
+	// Rejected means the provider refused the request with a status its
+	// documentation defines as not processed and not billed (rate limit,
+	// overload, authentication/permission or request validation before
+	// generation). The response body is complete. A receipt may settle it
+	// as one request with zero consumption instead of retaining exposure.
+	Rejected bool
+	Err      error
 }
 
 // Lease is prepared after authorization and payload validation. BeforeDispatch

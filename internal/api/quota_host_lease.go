@@ -358,6 +358,21 @@ func (l *quotaHostLease) Finish(ctx context.Context, result execution.Result) er
 	if l.binding.Profile == quotaProfileRequests && result.ResponseComplete {
 		return l.terminalLocked(bounded, map[string]int64{"requests": 1, "tool_calls": 1})
 	}
+	if result.Rejected && result.ResponseComplete && l.binding.Plane == "llmplex" {
+		// A documented not-processed rejection (see modelapi
+		// rejectedBeforeProcessing): one request, zero consumption. No model
+		// ran, so the pinned target version stands as the version proof.
+		zero := map[string]int64{"requests": 1}
+		for counter := range l.binding.Meters {
+			if counter != "requests" {
+				zero[counter] = 0
+			}
+		}
+		if l.modelVersion == "" {
+			l.modelVersion = l.binding.ModelVersion
+		}
+		return l.terminalLocked(bounded, zero)
+	}
 	info, err := l.engine.GetAttempt(bounded, l.demand.Context.TenantID, l.demand.AttemptID)
 	if err == nil && info.Decision.State == "settled" {
 		return nil
