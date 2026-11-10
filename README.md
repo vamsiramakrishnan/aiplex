@@ -196,7 +196,7 @@ AIPlex is **pre-1.0**. Interfaces, flags and output formats can change between r
 What has been validated, from the repository's own tests and CI:
 
 - Go unit and integration tests, an end-to-end suite that runs the real `aiplex-api` and `aiplex` binaries against local mock upstreams (`make e2e`), and a scripted first run (`make demo`).
-- Provider usage formats replayed from recorded fixtures.
+- Provider usage formats replayed from fixtures built from provider documentation.
 - Firestore transactions and recovery against the official Firestore emulator.
 - Console tests and build, Helm lint, Rust tests, and JSON schema checks.
 

@@ -21,7 +21,7 @@ There has been no tagged release yet. This section summarises what exists in the
 ### Models (LLMPlex)
 
 - Native provider surfaces for OpenAI, Anthropic, Azure OpenAI, Bedrock, Gemini Developer, Google Cloud and OpenAI-compatible endpoints, over HTTP, SSE and WebSocket, with credentials as references.
-- Usage and rate-limit observation per provider format, covered by a conformance harness over recorded fixtures (see the [coverage matrix](docs/reference/usage-formats/coverage.md)).
+- Usage and rate-limit observation per provider format, covered by a conformance harness over fixtures built from provider documentation (see the [coverage matrix](docs/reference/usage-formats/coverage.md)).
 - Media operations and model batches with settlement, provider-capacity cooldown and headroom gate, and Envoy `LLMRoute` generation for gateway routing.
 
 ### Tools, agents, skills and clients
