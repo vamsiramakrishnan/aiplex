@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -285,12 +286,25 @@ func RateLimit(requestsPerMinute int) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := extractOwner(r)
 			if key == "anonymous" {
-				key = r.RemoteAddr
+				// The peer address without its port: a new connection must not
+				// get a fresh bucket. Forwarded headers are not trusted here.
+				key = "addr:" + r.RemoteAddr
+				if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+					key = "addr:" + host
+				}
 			}
 
 			mu.Lock()
-			b, ok := buckets[key]
 			now := time.Now()
+			if len(buckets) > 100000 {
+				// Bound memory: drop buckets whose window has expired.
+				for k, old := range buckets {
+					if now.Sub(old.lastReset) > time.Minute {
+						delete(buckets, k)
+					}
+				}
+			}
+			b, ok := buckets[key]
 			if !ok || now.Sub(b.lastReset) > time.Minute {
 				b = &bucket{tokens: requestsPerMinute, lastReset: now}
 				buckets[key] = b
