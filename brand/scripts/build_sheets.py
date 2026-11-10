@@ -127,7 +127,7 @@ def lockup_h(x, y, s, lane, gate, ink, extra=""):
             f'<path transform="translate(40 4)" d="{WM}" fill="{ink}"/></g>')
 
 
-STACK_MARK_X = 19.5   # stacked lockup: mark centred geometrically
+STACK_MARK_X = 17.9   # stacked lockup: mark 1.6 units (0.8 at mark scale) left of geometric centre
 
 
 def lockup_s(x, y, s, lane, gate, ink):
@@ -212,7 +212,7 @@ def sheet(theme):
              "Live area x 2–30, y 4–28 (28 × 24)", "Butt caps, mitre joins, no rounding",
              "16 px: 1 unit = 0.5 px, lanes 2 px on whole pixels", "Wordmark: cap height 24, stem 4 = lane stroke",
              "Optical: e overshoots 0.4; horizontals 3.5–3.75",
-             "App icon: mark shifted 0.8 units left of centre"]
+             "Centred alone: mark 0.8 units left of centre"]
     for i, s in enumerate(notes):
         d.text(gx + 32 * u + 32, gy + 18 + i * 30, s, 14, tx if i < 8 else mu, bg)
 

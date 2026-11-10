@@ -13,7 +13,7 @@ Three lanes converge into one square gate and leave as one lane. The lanes are c
 - Lane centres at y = 6, 16, 26 (pitch 10). The outer lanes run 4 units horizontally from x = 2, then turn 45° and meet the gate.
 - Gate: 12 × 12 units (three lane widths) at x 14–26, y 10–22. Exit lane: x 26–30.
 - Every edge sits on a whole unit, so at 16 px (1 unit = 0.5 px) the horizontal edges land on whole pixels and the lanes are 2 px wide. `aiplex-favicon.svg` is the same drawing on a 16-unit grid with explicit 2 px strokes.
-- Optical corrections: the app icon shifts the mark 8 px (0.8 units) left of centre to offset the weight of the gate. Lockups use geometric centring.
+- Optical corrections: wherever the mark is centred on its own axis (app icon, stacked lockup) it sits 0.8 mark units left of geometric centre. The gate is the heaviest element and lies right of the mark's centre, so a geometrically centred mark looks pushed right. The horizontal lockup needs no correction.
 
 ### Wordmark
 
@@ -26,7 +26,7 @@ Three lanes converge into one square gate and leave as one lane. The lanes are c
 ### Lockups
 
 - Horizontal: the mark at 1:1 next to the wordmark. The mark's outer lanes align with the cap height and the baseline. The gap is 10 units.
-- Stacked: the mark at 2× is centred above the wordmark with a 12-unit gap.
+- Stacked: the mark at 2× sits above the wordmark with a 12-unit gap, optically centred: it is 1.6 lockup units (0.8 mark units) left of the geometric centre (`translate(17.9 -4)`). The first version centred it geometrically (`translate(19.5 -4)`), and at display sizes the mark looked right-heavy over the wordmark. The correction matches the app icon, so the geometric version was replaced, not kept as a second variant. It remains in git history.
 - Clear space: **G** = the gate width (12 units at the scale of the mark in use). Keep G clear on every side.
 
 ### Minimum sizes
@@ -35,7 +35,7 @@ Three lanes converge into one square gate and leave as one lane. The lanes are c
 |---|---|---|
 | Mark | 16 px | Use `aiplex-favicon.svg` from 16 to 23 px and the full mark from 24 px. |
 | Horizontal lockup | 20 px high (88 px wide) | Below this, use the mark alone. |
-| Stacked lockup | 40 px high | Unreadable at 16–24 px (see the render check below). |
+| Stacked lockup | 40 px high | The wordmark is half the mark's height, so below 40 px it is under 10 px tall and unreadable. Use the horizontal lockup or the mark alone below 40 px. |
 | Module icons | 16 px | Drawn for 24 px. They stay legible at 16 px but are not pixel-snapped at that size. |
 
 ## Colour
