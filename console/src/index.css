@@ -4,31 +4,23 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
- * The Console's `brand` colour scale, from the brand tokens (brand/tokens, copied to
- * src/brand/tokens.css by `npm run sync:brand`). The scale is static because
- * components pair bg-brand-600 with text-white, which needs the light Gate Blue in
- * both themes. Text links (text-brand-600) switch to the dark-mode Gate Blue below.
- */
-:root {
-  --console-brand-50: var(--aiplex-brand-mist-light);
-  --console-brand-300: color-mix(in srgb, var(--aiplex-brand-gate-light), white 55%);
-  --console-brand-500: color-mix(in srgb, var(--aiplex-brand-gate-light), white 12%);
-  --console-brand-600: var(--aiplex-brand-gate-light);
-  --console-brand-700: color-mix(in srgb, var(--aiplex-brand-gate-light), black 22%);
-}
-
-.dark .text-brand-600 {
-  color: var(--aiplex-brand-gate-dark);
-}
-
+/* Colours come from the brand tokens (src/brand/tokens.css): tailwind.config.js maps
+   brand-*, status-*-fg/bg to them, and the theme code sets data-theme with the dark class. */
 body {
-  @apply bg-gray-50 text-gray-900 antialiased;
+  background: var(--aiplex-color-bg);
+  color: var(--aiplex-color-text);
+  font-family: var(--aiplex-font-sans);
+  @apply antialiased;
+}
+.dark body { background: var(--aiplex-color-bg); }
+
+/* Every interactive control shows where keyboard focus is. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--aiplex-color-focus-ring);
+  outline-offset: 2px;
 }
 
-.dark body {
-  @apply bg-gray-950 text-gray-100;
-}
+.sr-only-focusable:not(:focus):not(:focus-within) { @apply sr-only; }
 
 /* Skeleton shimmer animation */
 @keyframes shimmer {
@@ -62,9 +54,3 @@ body {
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* Dark mode via media query fallback */
-@media (prefers-color-scheme: dark) {
-  :root:not(.light) body {
-    @apply bg-gray-950 text-gray-100;
-  }
-}

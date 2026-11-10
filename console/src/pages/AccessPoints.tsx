@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  deleteAccessPoint, errorStatus, getAccessPoint, isRevisionConflict, listAccessPoints, listModelSurfaces, putAccessPoint,
+  accessPointView, deleteAccessPoint, errorStatus, getAccessPoint, isRevisionConflict, listAccessPoints, listModelSurfaces, putAccessPoint,
   type AccessPointRecord, type AccessPointSpec,
 } from '../api/accessPoints'
 import { connectErrorMessage, getConnect } from '../api/overview'
@@ -13,6 +13,10 @@ import AccessPointUsagePanel from '../components/AccessPointUsagePanel'
 import CopyButton from '../components/CopyButton'
 import EndpointList from '../components/EndpointList'
 import QuotaPlanPanel from '../components/QuotaPlanPanel'
+import { useAccess, ADMIN_REASON } from '../hooks/useAccess'
+import { ForbiddenNotice } from '../components/Forbidden'
+import { ReducedConnect } from '../components/YourAccess'
+import { YourAccessPoints } from '../components/YourAccess'
 import SubjectTable, { type SubjectRow } from '../components/SubjectTable'
 
 const btn = 'px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -35,15 +39,36 @@ function LoadError({ error, what, onRetry }: { error: unknown; what: string; onR
 // ---- list ------------------------------------------------------------------
 
 function AccessPointList() {
+  const access = useAccess()
+  if (!access.isOperator) return <ReducedList />
+  return <OperatorList />
+}
+
+function ReducedList() {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-2xl font-bold">Access points</h1>
+        <p className="text-gray-600 dark:text-gray-400">The access points that admit you, with their endpoint URLs.</p>
+      </div>
+      <YourAccessPoints hideHeading />
+    </div>
+  )
+}
+
+function OperatorList() {
+  const access = useAccess()
   const list = useQuery({ queryKey: ['access-points'], queryFn: listAccessPoints })
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold">Access points</h2>
+          <h1 className="text-2xl font-bold">Access points</h1>
           <p className="text-gray-500">One stable URL per team, tool or client that enforces who can reach which models, tools and skills.</p>
         </div>
-        <Link to="/access-points/new" className={primary}>Create access point</Link>
+        {access.isAdmin
+          ? <Link to="/access-points/new" className={primary}>Create access point</Link>
+          : <span className="flex flex-col items-end"><button type="button" disabled aria-disabled="true" title={ADMIN_REASON} className={primary}>Create access point</button><span className="text-xs text-gray-600 dark:text-gray-400">{ADMIN_REASON}</span></span>}
       </div>
       {list.isLoading && <p role="status">Loading access points…</p>}
       {list.isError && <LoadError error={list.error} what="access points" onRetry={() => void list.refetch()} />}
@@ -74,6 +99,12 @@ function AccessPointList() {
 // ---- create / edit ---------------------------------------------------------
 
 function AccessPointEditor() {
+  const access = useAccess()
+  if (!access.isAdmin) return <ForbiddenNotice need="admin" what="Creating and editing access points" />
+  return <AccessPointEditorForm />
+}
+
+function AccessPointEditorForm() {
   const { id } = useParams()
   const editing = !!id
   const navigate = useNavigate()
@@ -120,7 +151,7 @@ function AccessPointEditor() {
   return (
     <div>
       <p className="mb-2 text-sm"><Link to={editing ? `/access-points/${encodeURIComponent(id!)}` : '/access-points'} className="text-brand-600 hover:underline">← Back</Link></p>
-      <h2 className="text-2xl font-bold mb-4">{title}</h2>
+      <h1 className="text-2xl font-bold mb-4">{title}</h1>
       {editing && record.isLoading && <p role="status">Loading access point…</p>}
       {editing && record.isError && <LoadError error={record.error} what="this access point" onRetry={() => void record.refetch()} />}
       {conflict && (
@@ -157,6 +188,29 @@ function subjectRows(spec: AccessPointSpec): SubjectRow[] {
 }
 
 function AccessPointDetail() {
+  const access = useAccess()
+  return access.isOperator ? <OperatorDetail /> : <ReducedDetail />
+}
+
+/** What a caller who is not an operator sees of one access point: server-built endpoints, how to connect, their own usage. */
+function ReducedDetail() {
+  const { id = '' } = useParams()
+  const record = useQuery({ queryKey: ['access-point', id], queryFn: () => getAccessPoint(id) })
+  if (record.isLoading) return <p role="status">Loading access point…</p>
+  if (record.isError) return <LoadError error={record.error} what="this access point" onRetry={() => void record.refetch()} />
+  const view = accessPointView(record.data as never)
+  return (
+    <div className="space-y-6">
+      <p className="text-sm"><Link to="/access-points" className="text-brand-600 hover:underline">← All access points</Link></p>
+      <h1 className="text-2xl font-bold">{view.display_name || view.id}</h1>
+      <ReducedConnect view={view} />
+      <AccessPointUsagePanel accessPointId={view.id} />
+    </div>
+  )
+}
+
+function OperatorDetail() {
+  const access = useAccess()
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -188,13 +242,16 @@ function AccessPointDetail() {
       <div>
         <p className="mb-2 text-sm"><Link to="/access-points" className="text-brand-600 hover:underline">← All access points</Link></p>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-2xl font-bold">{spec.display_name || spec.id}</h2>
+          <h1 className="text-2xl font-bold">{spec.display_name || spec.id}</h1>
           <div className="flex gap-2">
             <button type="button" className={btn} onClick={() => setConnecting(true)}>Connect a client</button>
-            <Link to={`/access-points/${encodeURIComponent(id)}/edit`} className={btn}>Edit</Link>
-            <button type="button" className={`${btn} text-red-600`} onClick={() => setConfirming(true)} disabled={confirming}>Delete</button>
+            {access.isAdmin
+              ? <Link to={`/access-points/${encodeURIComponent(id)}/edit`} className={btn}>Edit</Link>
+              : <button type="button" disabled title={ADMIN_REASON} className={`${btn} opacity-50`}>Edit</button>}
+            <button type="button" className={`${btn} text-status-denied-fg disabled:opacity-50`} onClick={() => setConfirming(true)} disabled={confirming || !access.isAdmin} title={access.reason('admin')}>Delete</button>
           </div>
         </div>
+        {!access.isAdmin && <p className="mt-1 text-xs text-gray-600 dark:text-gray-400 text-right">Editing and deleting need the admin role.</p>}
       </div>
 
       {connecting && <ConnectWizard accessPointId={id} onClose={() => setConnecting(false)} />}

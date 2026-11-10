@@ -12,7 +12,8 @@ interface ModuleState {
 const ModuleContext = createContext<ModuleState | null>(null)
 
 export function ModuleProvider({ children }: { children: ReactNode }) {
-  const { token, isAuthenticated } = useAuth()
+  const { user, token: bearer, isAuthenticated } = useAuth()
+  const token = bearer ?? user?.sub ?? null
   const [state, setState] = useState<ModuleState>({ descriptors: [], loading: true, error: null })
   // Scope the snapshot to the authenticated session. Never retain a previous
   // user's module visibility during a credential change or failed discovery.

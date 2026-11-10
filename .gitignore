@@ -36,6 +36,8 @@ credentials.json
 console/node_modules/
 console/build/
 console/dist/*
+console/built/*
+!console/built/.gitkeep
 !console/dist/.gitkeep
 !console/dist/index.html
 console/.env
@@ -66,3 +68,6 @@ docs-site/node_modules/
 docs-site/build/
 docs-site/.docusaurus/
 go.work
+
+# Console browser-check screenshots
+console/e2e/shots/

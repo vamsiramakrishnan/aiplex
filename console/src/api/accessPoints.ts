@@ -40,8 +40,27 @@ export async function listAccessPoints(): Promise<AccessPointRecord[]> {
   const records = await authenticatedRequest<AccessPointRecord[] | null>(`${base}/`)
   if (records == null) return []
   if (!Array.isArray(records)) throw new Error('Invalid access point list response')
+  // A caller without an operator role gets reduced views (no spec); those are not records.
+  return records.filter((r) => !!r && typeof r === 'object' && !!(r as Partial<AccessPointRecord>).spec)
+}
+/**
+ * What `GET /api/v1/access-points` returns to a caller who is not an operator:
+ * only the access points that admit them, as `{id, display_name, endpoints}`
+ * with server-built endpoint URLs and no configuration.
+ */
+export interface AccessPointView { id: string; display_name?: string; endpoints: { kind: string; url: string; label?: string }[] }
+
+/** The caller's access points in whichever shape the server returned: full records for operators, views for everyone else. */
+export async function listAccessPointViews(): Promise<(AccessPointRecord | AccessPointView)[]> {
+  const records = await authenticatedRequest<(AccessPointRecord | AccessPointView)[] | null>(`${base}/`)
+  if (records == null) return []
+  if (!Array.isArray(records)) throw new Error('Invalid access point list response')
   return records
 }
+export const isFullAccessPoint = (r: AccessPointRecord | AccessPointView): r is AccessPointRecord => 'spec' in r && !!(r as AccessPointRecord).spec
+export const accessPointView = (r: AccessPointRecord | AccessPointView): AccessPointView =>
+  isFullAccessPoint(r) ? { id: r.id, display_name: r.spec.display_name, endpoints: [] } : { id: r.id, display_name: r.display_name, endpoints: r.endpoints ?? [] }
+
 export const getAccessPoint = (id: string) => authenticatedRequest<AccessPointRecord>(`${base}/${encodeURIComponent(id)}`)
 /** revision 0 creates; any other value must be the current revision (409 otherwise). */
 export const putAccessPoint = (spec: AccessPointSpec, revision: number) =>

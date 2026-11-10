@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { consumeSSE } from '../sse'
 import { useSSE } from '../hooks/useSSE'
 
-vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ token: 'private-token' }) }))
+vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ token: 'private-token', isAuthenticated: true }) }))
 
 function chunks(...values: string[]) {
   return new ReadableStream<Uint8Array>({ start(controller) { for (const value of values) controller.enqueue(new TextEncoder().encode(value)); controller.close() } })

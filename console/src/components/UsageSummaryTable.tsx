@@ -44,7 +44,7 @@ export function UsageHeadline({ groups, label }: { groups: APSummaryGroup[]; lab
 /** One row per group: requests, tokens, cost (with currency and basis), unknown counts. */
 export default function UsageSummaryTable({ groups, keyField, heading }: {
   groups: APSummaryGroup[]
-  keyField: 'caller_kind' | 'model_id' | 'tool_name'
+  keyField: 'caller_kind' | 'model_id' | 'tool_name' | 'access_point_id'
   heading: string
 }) {
   const max = groups.reduce((m, g) => Math.max(m, Number(g.requests)), 0)

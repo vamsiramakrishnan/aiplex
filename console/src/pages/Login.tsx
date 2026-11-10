@@ -22,7 +22,7 @@ export default function Login() {
     try {
       await login(raw)
       const from = location.state?.from?.pathname as string | undefined
-      navigate(from?.startsWith('/') && !from.startsWith('//') ? from : '/dashboard', { replace: true })
+      navigate(from?.startsWith('/') && !from.startsWith('//') ? from : '/overview', { replace: true })
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Sign in failed.')
     }

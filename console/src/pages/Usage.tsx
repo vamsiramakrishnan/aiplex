@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { useQuery } from '@tanstack/react-query'
 import * as api from '../api/usage'
 import UsagePrices from './UsagePrices'
+import { useAccess } from '../hooks/useAccess'
 import { ErrorPanel } from '../components/UsageError'
 
 const field = 'w-full rounded border border-gray-300 bg-transparent px-3 py-2 text-sm dark:border-gray-700'
@@ -306,16 +307,17 @@ function RecordsSection({ filter }: { filter: api.UsageFilter }) {
 // ---- page ----------------------------------------------------------------
 
 export default function Usage() {
+  const access = useAccess()
   const [draft, setDraft] = useState<FilterDraft>(emptyDraft)
   const [applied, setApplied] = useState<api.UsageFilter>(() => buildFilter(emptyDraft))
   return <div className="space-y-8">
     <header>
       <h1 className="text-2xl font-semibold">Usage</h1>
-      <p className="mt-2 text-sm text-gray-500">What each request to any model or tool, by any client or agent, cost in requests, tokens and dollars. Unknown usage and cost are shown as “unknown”, never as zero. Administrators see every record in the tenant; other users see only requests where they are the principal or the agent.</p>
+      <p className="mt-2 text-sm text-gray-500">What each request to any model or tool, by any client or agent, cost in requests, tokens and dollars. Unknown usage and cost are shown as “unknown”, never as zero. {access.isAdmin ? 'You see every record in the tenant.' : 'You see only the requests where you are the principal or the agent.'}</p>
     </header>
     <FilterBar draft={draft} onChange={setDraft} onApply={() => setApplied(buildFilter(draft))} />
     <SummarySection filter={applied} />
     <RecordsSection filter={applied} />
-    <UsagePrices />
+    {access.isOperator && <UsagePrices />}
   </div>
 }
