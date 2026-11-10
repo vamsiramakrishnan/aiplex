@@ -44,6 +44,10 @@ const (
 	BasisSettled   = "settled"
 	BasisEstimated = "estimated"
 	BasisUnknown   = "unknown"
+	// BasisReported is a cost the harness itself reported (for example Claude
+	// Code's cost_usd). It is the sender's estimate, neither settled by a
+	// provider invoice nor computed from an AIPlex price.
+	BasisReported = "reported"
 
 	// MaxTextLength bounds every identifier stored on a record.
 	MaxTextLength = 512
@@ -231,8 +235,10 @@ type Record struct {
 	CallerKind    string `json:"caller_kind,omitempty"`
 	RequestID     string `json:"request_id,omitempty"`
 	// TraceID and SpanID are the W3C identifiers of the exchange's span (the
-	// CLIENT span of a managed exchange, the SERVER span of the request that
-	// reported a reported record). The trace continues the caller's
+	// CLIENT span of a managed exchange; for a record reported through the
+	// legacy usage report, the SERVER span of the request that reported it;
+	// for a record from harness telemetry, the ids on the harness's own log
+	// event, empty when the event carried none). The trace continues the caller's
 	// traceparent when it sent a valid one. They are generated whether or not
 	// telemetry export is on, so logs, traces and records correlate.
 	TraceID        string `json:"trace_id,omitempty"`
@@ -246,8 +252,21 @@ type Record struct {
 	HTTPStatus int    `json:"http_status,omitempty"`
 	ErrorClass string `json:"error_class,omitempty"`
 	Source     string `json:"source"`
-	Requests   int64  `json:"requests"`
-	Usage      *Usage `json:"usage"`
+	// Harness, HarnessVersion and SessionID describe a reported record (see
+	// telemetry_fields.go). They are labels the sender chose, never identity.
+	Harness         string `json:"harness,omitempty"`
+	HarnessVersion  string `json:"harness_version,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	ClientRequestID string `json:"client_request_id,omitempty"`
+	// CallerSpanID is the span id of the traceparent the caller sent with a
+	// managed request. It only correlates a reported record to this one.
+	CallerSpanID       string            `json:"caller_span_id,omitempty"`
+	ReportedAttributes map[string]string `json:"reported_attributes,omitempty"`
+	// Tags are experiment labels from trusted access point configuration and
+	// an operator-allowlisted request header (see telemetry_fields.go).
+	Tags     map[string]string `json:"tags,omitempty"`
+	Requests int64             `json:"requests"`
+	Usage    *Usage            `json:"usage"`
 	// UsageBound qualifies Usage when the exchange ended without final usage
 	// evidence: "lower_bound" (the counters are what was observed before the
 	// exchange ended), "ambiguous" (a resumed session whose counter
@@ -271,6 +290,10 @@ type Record struct {
 	// Hooks summarizes request-hook decisions on the exchange (hooks.go).
 	// It never holds content or matched text.
 	Hooks *HookSummary `json:"hooks,omitempty"`
+	// ToolPolicyRule is the identifier of the tool policy rule that refused
+	// the call (error_class tool_policy_denied or tool_policy_error). Empty
+	// for a default deny and when no rule decided. Never arguments.
+	ToolPolicyRule string `json:"tool_policy_rule,omitempty"`
 	// Attempts, Backend and RoutingStrategy describe a routed access-point
 	// exchange (routing.go): every attempt in order, the backend that
 	// served, and the strategy. Provider, model and cost are those of the
@@ -335,7 +358,7 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "span_id": r.SpanID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "span_id": r.SpanID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "tool_policy_rule": r.ToolPolicyRule, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}
@@ -381,6 +404,9 @@ func (r Record) Validate() error {
 			return err
 		}
 	}
+	if err := r.validateTelemetryFields(); err != nil {
+		return err
+	}
 	if err := r.Hooks.validate(); err != nil {
 		return err
 	}
@@ -400,7 +426,7 @@ func (c Cost) Validate() error {
 		return nil
 	case BasisCached:
 		return validateCachedCost(c)
-	case BasisSettled, BasisEstimated:
+	case BasisSettled, BasisEstimated, BasisReported:
 		if !ValidCurrency(c.Currency) || c.Scale > MaxScale {
 			return invalid("cost needs a three-letter currency and scale up to %d", MaxScale)
 		}
@@ -409,7 +435,7 @@ func (c Cost) Validate() error {
 		}
 		return nil
 	}
-	return invalid("cost basis must be settled, estimated, cached or unknown")
+	return invalid("cost basis must be settled, estimated, reported, cached or unknown")
 }
 
 // Clone returns a deep copy so stores never share counter pointers.
@@ -432,6 +458,7 @@ func (r Record) Clone() Record {
 		u.UnitUsage = r.Usage.UnitUsage.clone()
 		r.Usage = &u
 	}
+	r.ReportedAttributes, r.Tags = cloneLabels(r.ReportedAttributes), cloneLabels(r.Tags)
 	r.Hooks = cloneHooks(r.Hooks)
 	cloneRouting(&r)
 	return r

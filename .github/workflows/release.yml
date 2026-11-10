@@ -80,7 +80,9 @@ jobs:
 
       - uses: goreleaser/goreleaser-action@v6
         with:
-          version: "~> v2"
+          # Pinned to one version, shared with ci.yml, tools/release-smoke.sh and the Makefile.
+          # Bump all four deliberately, after `goreleaser check` passes on the new version.
+          version: "v2.20.0"
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

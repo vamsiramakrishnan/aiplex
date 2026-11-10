@@ -84,8 +84,31 @@ Also sets the client's own OpenTelemetry export, where it has one. Prompt text i
 The protocol is chosen from the endpoint: port `4317` is treated as gRPC, anything else as OTLP over HTTP. Whether the endpoint accepts that is not checked.
 
 This is the client's own telemetry. AIPlex's telemetry (its spans and metrics, and the
-collector a Helm install runs) is described in [observability](observability.md). Nothing
-here sends the client's telemetry into the usage ledger.
+collector a Helm install runs) is described in [observability](observability.md). Pointing it
+at a collector does not put it in the usage ledger; sending it to AIPlex itself does:
+
+### Telemetry into the usage ledger
+
+`--with-telemetry aiplex` is a shorthand for this deployment's own OTLP receiver
+(`<AIPlex URL>/otlp`, taken from the URLs the server advertises for the access point, else the
+URL the CLI is using). AIPlex reads the harness's log events into the usage ledger as
+`source=reported` records (see [observability](observability.md#harness-telemetry-received-over-otlp)
+for what is mapped, limits and idempotency), authenticating the sender with the AIPlex token.
+
+The token is never written to a file. Where the client can only take a literal header value in
+a file, the command writes nothing for the header and prints the step:
+
+| Client | Written | Printed, to run in the shell that starts the client |
+| --- | --- | --- |
+| `claude-code` | The usual `--with-telemetry` environment, with `OTEL_EXPORTER_OTLP_ENDPOINT` set to `<AIPlex URL>/otlp`. | `export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer $AIPLEX_TOKEN"`. Claude Code's settings `env` holds literal values, so the header is not written. |
+| `codex` | `[otel]` with an `otlp-http` exporter at `<AIPlex URL>/otlp/v1/logs` and `headers = { "Authorization" = "Bearer ${AIPLEX_TOKEN}" }`. Codex posts to the endpoint exactly as given, so the logs route is named. | Nothing extra. The `${...}` form is Codex's documented placeholder for header values; the combination `Bearer ${AIPLEX_TOKEN}` has not been run against a live Codex. If it does not expand, the export is refused with `401`, and nothing leaks. |
+| `gemini-cli` | `telemetry` with `otlpEndpoint` set to `<AIPlex URL>/otlp` and `otlpProtocol` `http`. | `export GEMINI_TELEMETRY_OTLP_HEADERS="Authorization=Bearer $AIPLEX_TOKEN"`. Whether Gemini CLI appends `/v1/logs` to the endpoint has not been checked. |
+
+`antigravity` is print-only for model traffic and writes only its MCP server list, so
+`--with-telemetry` (including `aiplex`) is refused for it; it has no documented telemetry export
+to point at AIPlex.
+
+Prompt text stays off, as with any `--with-telemetry` target.
 
 ## `aiplex mcp serve`
 
@@ -112,6 +135,47 @@ Protocol: the server answers `server/discover` and requests that carry the per-r
 
 A test walks the CLI's command tree and fails if any `aiplex` command or flag in these instruction files does not exist.
 
+## What was run against real clients
+
+Run on 2026-11-10 in the build environment, with the real Claude Code 2.1.322, an isolated
+home directory, a minimal environment (no provider keys) and `aiplex dev`:
+
+- `aiplex connect local --client claude-code --write --with-telemetry aiplex` wrote the
+  endpoint and the telemetry environment and printed the header step; no token reached a file.
+- Claude Code, with `OTEL_EXPORTER_OTLP_HEADERS` set from that step, exported logs and metrics
+  to `/otlp/v1/logs` and `/otlp/v1/metrics`. Both were accepted under the sender's verified
+  principal. Its `claude_code.api_error` event (an upstream refusal) and its
+  `claude_code.api_request` event (against a local mock Anthropic server, to get a successful
+  request) were stored as reported records with the harness version (`2.1.322`), session id,
+  prompt id, request id, token counts (`input_tokens` plus cache tokens as the ledger's total
+  input), cost basis `reported` from `cost_usd_micros`, and `query_source`, `speed`,
+  `terminal_type`. The attribute names in the Claude Code mapping were confirmed by these
+  events.
+- Claude Code did not send an `X-Client-Request-Id` or a `traceparent` to a gateway. With
+  `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1` and `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` it sent a
+  `traceparent`, and its log events carried the same trace id but a different span id from
+  the one it propagated. Trace-level correlation (see the
+  [usage ledger](usage-ledger.md#sources-in-summaries)) is therefore the key that can match
+  Claude Code's events to managed records, and only with those settings; by default a Claude
+  Code reported record has no key and stays in its own group.
+- Managed plus reported, after the dev surfaces' beta allowlist was fixed (rerun on the merged
+  branch): a headless Claude Code turn through `/ap/local` completed (a managed `anthropic.messages`
+  record) and the same turn's `claude_code.api_request` arrived at `/otlp` (a reported record).
+  By default the two have no shared key, so a summary shows them as separate groups
+  (`managed` 2 records including a `tools/list`, `reported` 1) and excludes nothing; the pair is
+  **not** de-duplicated, as designed. With `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1` and
+  `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`, the managed record's trace id equalled the reported
+  record's (the log event's span id differs from the one Claude Code propagated, so the
+  managed record's `caller_span_id` does not match), the trace-level fallback paired them, and
+  the summary left the reported record out (`excluded_correlated_reported` 1, no reported group).
+- Inside a hosted Claude Code session, host-managed provider variables (for example
+  `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`) override `ANTHROPIC_AUTH_TOKEN`; the run above used
+  `env -i` to avoid them.
+
+Not run: Codex and Gemini CLI telemetry (their mappings come from their documentation and
+Codex's source), the Codex header placeholder form, Gemini CLI's endpoint path handling, and
+any harness telemetry over gRPC (the receiver is OTLP/HTTP only).
+
 ## What has and has not been validated
 
 Config shapes were taken from the vendors' current documentation on 2026-11-10: Claude Code settings, MCP and monitoring pages (code.claude.com/docs/en/settings, /mcp, /monitoring-usage, /authentication, /plugins-reference), Codex config pages (learn.chatgpt.com/docs/config-file/config-advanced and config-reference), Gemini CLI MCP, configuration and extension references (google-gemini/gemini-cli, `docs/`), Antigravity's MCP page (antigravity.google/docs/mcp), and the MCP specification (modelcontextprotocol.io, revision 2026-07-28 and its versioning page).
@@ -137,4 +201,4 @@ Things the real clients showed that the mock-only tests did not:
 - Claude Code prints "doesn't recognize the model" for a gateway model name and assumes a 200k window; this is a warning only.
 - Codex warns that it has no metadata for a gateway model name, and prints an error for any other MCP server in your config that it cannot reach.
 
-Not validated: the `--with-telemetry` settings have not been checked against a client that exports, or received by a collector. `~/.claude.json` is also written by Claude Code itself; the command warns to run it while no session is open. `CLAUDE_CONFIG_DIR` is not supported: if it is set, the Claude Code write is refused rather than guessing.
+Telemetry: see "What was run against real clients" above for `--with-telemetry aiplex`; the settings for other collectors have not been checked against a client that exports, or received by an external collector. `~/.claude.json` is also written by Claude Code itself; the command warns to run it while no session is open. `CLAUDE_CONFIG_DIR` is not supported: if it is set, the Claude Code write is refused rather than guessing.

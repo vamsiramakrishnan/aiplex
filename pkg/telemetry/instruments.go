@@ -28,8 +28,11 @@ type Instruments struct {
 	unknownUsage        metric.Int64Counter
 	quotaDenials        metric.Int64Counter
 	upstreamErrors      metric.Int64Counter
+	otlpIngest          metric.Int64Counter
+	tagRejected         metric.Int64Counter
 	hooks               hookInstruments
 	routing             routingInstruments
+	toolPolicy          toolPolicyInstruments
 }
 
 func newInstruments(m metric.Meter) *Instruments {
@@ -68,9 +71,29 @@ func newInstruments(m metric.Meter) *Instruments {
 		unknownUsage:        counter(MetricUnknownUsage, "{exchange}", "Managed exchanges whose usage is unknown or not final (aiplex.usage.bound); their tokens are not in the token counters."),
 		quotaDenials:        counter(MetricQuotaDenials, "{exchange}", "Managed exchanges refused by quota admission."),
 		upstreamErrors:      counter(MetricUpstreamErrors, "{exchange}", "Managed exchanges that ended in an error or incomplete (upstream errors passed through included), by error.type."),
+		otlpIngest:          counter(MetricOTLPIngest, "{record}", "Records, data points and spans received over OTLP from harnesses, by signal, harness and outcome (recorded, duplicate, rejected, dropped, forwarded)."),
+		tagRejected:         counter(MetricTagRejected, "{tag}", "Record tags not stored, by reason (not_allowed, invalid, overflow)."),
 		hooks:               newHookInstruments(histogram, counter),
 		routing:             newRoutingInstruments(m, counter),
+		toolPolicy:          newToolPolicyInstruments(counter),
 	}
+}
+
+// RecordOTLP counts n received OTLP items. harness is a bounded label
+// (claude-code, codex, gemini-cli or unknown).
+func (in *Instruments) RecordOTLP(ctx context.Context, signal, harness, outcome string, n int64) {
+	if in == nil || n <= 0 {
+		return
+	}
+	in.otlpIngest.Add(ctx, n, metric.WithAttributes(attribute.String(AttrOTLPSignal, signal), attribute.String(AttrHarness, harness), attribute.String(AttrOTLPOutcome, outcome)))
+}
+
+// RecordTagRejected counts n tags that were not stored.
+func (in *Instruments) RecordTagRejected(ctx context.Context, reason string, n int64) {
+	if in == nil || n <= 0 {
+		return
+	}
+	in.tagRejected.Add(ctx, n, metric.WithAttributes(attribute.String(AttrTagReason, reason)))
 }
 
 // RecordHTTP records one HTTP server request. route is the mounted pattern

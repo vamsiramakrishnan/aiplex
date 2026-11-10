@@ -237,9 +237,19 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = lease.Finish(cleanup, execution.Result{StatusCode: uncertainStatus, Err: errors.New("tool execution did not establish terminal usage")})
 		}
 	}()
+	// The upstream sees the exchange's span context in params._meta as well as
+	// in the HTTP headers; the rest of the caller's request is relayed
+	// byte for byte. A transport retry (retry.go) re-sends exactly this
+	// patched body: policy rules and hooks have already run and do not run
+	// again.
+	upstreamBody, err := withTraceMeta(r.Context(), request.Body)
+	if err != nil {
+		http.Error(w, "invalid or oversized tool request", http.StatusBadRequest)
+		return
+	}
 	// The credential is checked before the dispatch claim; send acquires it
 	// again for each try.
-	if _, _, err = g.upstreamRequest(r.Context(), request.Body); err != nil {
+	if _, _, err = g.upstreamRequest(r.Context(), upstreamBody); err != nil {
 		http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -257,7 +267,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	claimed = true
 	repeatable := g.options.Retry != nil && g.options.Retry.Call != nil && g.options.Retry.Call(r.Context(), copyRequest(request))
-	credential, response, err := g.send(r.Context(), request.Body, repeatable)
+	credential, response, err := g.send(r.Context(), upstreamBody, repeatable)
 	if err != nil {
 		if _, ok := err.(errCredential); ok {
 			http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)

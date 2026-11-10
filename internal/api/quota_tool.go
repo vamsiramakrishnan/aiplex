@@ -173,6 +173,7 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 		return known && readOnly
 	}}
 	usage.instrumentTool(&opts)
+	h.installToolRules(r, tenant, record, connection, &opts, usage)
 	h.installToolHooks(r, tenant, id, &opts, usage)
 	gateway, err := toolexec.NewGateway(config, opts)
 	if err != nil {

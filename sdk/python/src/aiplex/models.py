@@ -66,6 +66,29 @@ def _opt_bool(obj: dict[str, Any], key: str) -> bool | None:
     return val
 
 
+def _str_map(obj: dict[str, Any], key: str) -> dict[str, str]:
+    val = obj.get(key)
+    if val is None:
+        return {}
+    if not isinstance(val, dict):
+        raise _decode_err(f"field '{key}' must be an object")
+    out: dict[str, str] = {}
+    for k, v in val.items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            raise _decode_err(f"entries of '{key}' must be strings")
+        out[k] = v
+    return out
+
+
+def _opt_float(obj: dict[str, Any], key: str) -> float | None:
+    val = obj.get(key)
+    if val is None:
+        return None
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise _decode_err(f"field '{key}' must be a number")
+    return float(val)
+
+
 def _opt_dict(obj: dict[str, Any], key: str) -> dict[str, Any] | None:
     val = obj.get(key)
     if val is None:
@@ -187,6 +210,12 @@ class UsageFilter:
     error_class: str | None = None
     usage_bound: str | None = None
     batch: bool | None = None
+    #: Reported records from one harness (claude-code, codex, gemini-cli).
+    harness: str | None = None
+    #: allow, deny, transform, error, skipped, or none.
+    hook_decision: str | None = None
+    #: Records carrying every tag pair, sent as tag.<key>=<value>.
+    tags: dict[str, str] | None = None
     since: str | None = None
     until: str | None = None
 
@@ -207,6 +236,8 @@ class UsageFilter:
             ("source", self.source),
             ("error_class", self.error_class),
             ("usage_bound", self.usage_bound),
+            ("harness", self.harness),
+            ("hook_decision", self.hook_decision),
             ("since", self.since),
             ("until", self.until),
         )
@@ -215,6 +246,8 @@ class UsageFilter:
                 params[name] = value
         if self.batch is not None:
             params["batch"] = "true" if self.batch else "false"
+        for key, value in (self.tags or {}).items():
+            params["tag." + key] = value
         return params
 
 
@@ -279,21 +312,85 @@ class Whoami:
 
 
 @dataclass(frozen=True)
+class RoutingBackend:
+    """One backend of a routed access-point model: a saved surface and the
+    native model it is asked for (docs/reliability-and-routing.md)."""
+
+    surface_ref: str | None = None
+    native_model: str | None = None
+    #: Share of first attempts under the weighted strategy (default 1).
+    weight: int | None = None
+    #: Order under the priority strategy (lower first, default 0).
+    priority: int | None = None
+
+    @classmethod
+    def from_wire(cls, data: Any) -> RoutingBackend:
+        d = _expect_dict(data, "backend")
+        return cls(
+            surface_ref=_opt_str(d, "surface_ref"),
+            native_model=_opt_str(d, "native_model"),
+            weight=_opt_int(d, "weight"),
+            priority=_opt_int(d, "priority"),
+        )
+
+    def to_wire(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key in ("surface_ref", "native_model", "weight", "priority"):
+            value = getattr(self, key)
+            if value is not None:
+                out[key] = value
+        return out
+
+
+@dataclass(frozen=True)
+class ResponseCacheConfig:
+    """Exact-match response cache of an access-point model (off unless set).
+    scope "access_point" shares answers between callers."""
+
+    ttl: str | None = None
+    scope: str | None = None
+    max_entry_bytes: int | None = None
+
+    @classmethod
+    def from_wire(cls, data: Any) -> ResponseCacheConfig:
+        d = _expect_dict(data, "cache")
+        return cls(ttl=_opt_str(d, "ttl"), scope=_opt_str(d, "scope"), max_entry_bytes=_opt_int(d, "max_entry_bytes"))
+
+    def to_wire(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key in ("ttl", "scope", "max_entry_bytes"):
+            value = getattr(self, key)
+            if value is not None:
+                out[key] = value
+        return out
+
+
+@dataclass(frozen=True)
 class AccessPointModel:
-    """Model route entry inside an access point specification."""
+    """Model route entry inside an access point specification: one
+    surface_ref/native_model pair, or backends with a routing block."""
 
     name: str | None = None
     surface_ref: str | None = None
     native_model: str | None = None
+    backends: list[RoutingBackend] = field(default_factory=list)
+    #: The routing block as sent on the wire (strategy, retry, fallback,
+    #: breaker, lowest_cost, deadline_ms).
+    routing: dict[str, Any] | None = None
+    cache: ResponseCacheConfig | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_wire(cls, data: Any) -> AccessPointModel:
         d = _expect_dict(data, "access_point.model")
+        backends = [RoutingBackend.from_wire(b) for b in _expect_list(d["backends"], "backends")] if d.get("backends") is not None else []
         return cls(
             name=_opt_str(d, "name"),
             surface_ref=_opt_str(d, "surface_ref"),
             native_model=_opt_str(d, "native_model"),
+            backends=backends,
+            routing=_opt_dict(d, "routing"),
+            cache=ResponseCacheConfig.from_wire(d["cache"]) if d.get("cache") is not None else None,
             raw=dict(d),
         )
 
@@ -305,6 +402,12 @@ class AccessPointModel:
             out["surface_ref"] = self.surface_ref
         if self.native_model is not None:
             out["native_model"] = self.native_model
+        if self.backends:
+            out["backends"] = [b.to_wire() for b in self.backends]
+        if self.routing is not None:
+            out["routing"] = dict(self.routing)
+        if self.cache is not None:
+            out["cache"] = self.cache.to_wire()
         return out
 
 
@@ -593,6 +696,65 @@ def _cost_total_list(obj: dict[str, Any], key: str = "cost") -> list[CostTotal]:
 
 
 @dataclass(frozen=True)
+class Feedback:
+    """One feedback entry on a usage record. Append-only; the newest is current."""
+
+    id: str | None = None
+    record_id: str | None = None
+    by: str | None = None
+    created_at: str | None = None
+    #: From -1 to 1. None means the field was absent, never "neutral".
+    score: float | None = None
+    label: str | None = None
+    comment: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> Feedback:
+        d = _expect_dict(data, "feedback")
+        return cls(
+            id=_opt_str(d, "id"),
+            record_id=_opt_str(d, "record_id"),
+            by=_opt_str(d, "by"),
+            created_at=_opt_str(d, "created_at"),
+            score=_opt_float(d, "score"),
+            label=_opt_str(d, "label"),
+            comment=_opt_str(d, "comment"),
+            raw=dict(d),
+        )
+
+
+@dataclass(frozen=True)
+class FeedbackTotals:
+    """Latest-feedback totals of a summary group.
+
+    ``average_score`` is None when no record has feedback; records without
+    feedback are counted in ``without_feedback`` and are not a neutral score.
+    """
+
+    records: int | None = None
+    without_feedback: int | None = None
+    positive: int | None = None
+    negative: int | None = None
+    neutral: int | None = None
+    average_score: float | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> FeedbackTotals:
+        d = _expect_dict(data, "feedback_totals")
+        return cls(
+            records=_opt_int(d, "records"),
+            without_feedback=_opt_int(d, "without_feedback"),
+            positive=_opt_int(d, "positive"),
+            negative=_opt_int(d, "negative"),
+            neutral=_opt_int(d, "neutral"),
+            average_score=_opt_float(d, "average_score"),
+            raw=dict(d),
+        )
+
+
+@dataclass(frozen=True)
 class UsageRecord:
     """Single usage ledger record."""
 
@@ -621,6 +783,30 @@ class UsageRecord:
     requests: int | None = None
     usage: UsageCounters | None = None
     cost: Cost | None = None
+    #: Reported records: the harness (claude-code, codex, gemini-cli), its
+    #: version and its own session id. Labels the sender chose, never identity.
+    harness: str | None = None
+    harness_version: str | None = None
+    session_id: str | None = None
+    client_request_id: str | None = None
+    caller_span_id: str | None = None
+    reported_attributes: dict[str, str] = field(default_factory=dict)
+    #: Experiment labels from access point labels and allowlisted headers.
+    tags: dict[str, str] = field(default_factory=dict)
+    #: Request-hook summary (decision, results); None when no hook ran.
+    hooks: dict[str, Any] | None = None
+    #: Latest feedback, present on a record fetched with get_usage_record.
+    feedback: Feedback | None = None
+    #: Routed access-point exchanges: every attempt in order, the backend
+    #: that served and the strategy.
+    attempts: list[RouteAttempt] = field(default_factory=list)
+    backend: RoutingBackend | None = None
+    routing_strategy: str | None = None
+    #: Response-cache outcome, when the model has a cache.
+    cache: CacheInfo | None = None
+    #: On a cache hit, the original exchange's usage; not provider usage of
+    #: this record (whose usage is zero and cost basis "cached").
+    cached_response_usage: UsageCounters | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -656,8 +842,64 @@ class UsageRecord:
             requests=_opt_int(d, "requests"),
             usage=usage,
             cost=cost,
+            harness=_opt_str(d, "harness"),
+            harness_version=_opt_str(d, "harness_version"),
+            session_id=_opt_str(d, "session_id"),
+            client_request_id=_opt_str(d, "client_request_id"),
+            caller_span_id=_opt_str(d, "caller_span_id"),
+            reported_attributes=_str_map(d, "reported_attributes"),
+            tags=_str_map(d, "tags"),
+            hooks=_opt_dict(d, "hooks"),
+            feedback=Feedback.from_wire(d["feedback"]) if d.get("feedback") is not None else None,
+            attempts=[RouteAttempt.from_wire(a) for a in _expect_list(d["attempts"], "attempts")] if d.get("attempts") is not None else [],
+            backend=RoutingBackend.from_wire(d["backend"]) if d.get("backend") is not None else None,
+            routing_strategy=_opt_str(d, "routing_strategy"),
+            cache=CacheInfo.from_wire(d["cache"]) if d.get("cache") is not None else None,
+            cached_response_usage=UsageCounters.from_wire(d["cached_response_usage"]) if d.get("cached_response_usage") is not None else None,
             raw=dict(d),
         )
+
+
+@dataclass(frozen=True)
+class RouteAttempt:
+    """One attempt of a routed exchange (no content)."""
+
+    surface_ref: str | None = None
+    native_model: str | None = None
+    outcome: str | None = None
+    upstream_status: int | None = None
+    retry_after_ms: int | None = None
+    duration_ms: int | None = None
+    breaker_state: str | None = None
+    reason: str | None = None
+
+    @classmethod
+    def from_wire(cls, data: Any) -> RouteAttempt:
+        d = _expect_dict(data, "attempt")
+        return cls(
+            surface_ref=_opt_str(d, "surface_ref"),
+            native_model=_opt_str(d, "native_model"),
+            outcome=_opt_str(d, "outcome"),
+            upstream_status=_opt_int(d, "upstream_status"),
+            retry_after_ms=_opt_int(d, "retry_after_ms"),
+            duration_ms=_opt_int(d, "duration_ms"),
+            breaker_state=_opt_str(d, "breaker_state"),
+            reason=_opt_str(d, "reason"),
+        )
+
+
+@dataclass(frozen=True)
+class CacheInfo:
+    """Response-cache outcome of an exchange: hit, miss or bypass."""
+
+    status: str | None = None
+    reason: str | None = None
+    scope: str | None = None
+
+    @classmethod
+    def from_wire(cls, data: Any) -> CacheInfo:
+        d = _expect_dict(data, "cache")
+        return cls(status=_opt_str(d, "status"), reason=_opt_str(d, "reason"), scope=_opt_str(d, "scope"))
 
 
 @dataclass(frozen=True)
@@ -701,6 +943,11 @@ class UsageSummaryGroup:
     tokens: dict[str, int] = field(default_factory=dict)
     tokens_unknown: dict[str, int] = field(default_factory=dict)
     cost: list[CostTotal] = field(default_factory=list)
+    #: Present when the summary asked for feedback.
+    feedback: FeedbackTotals | None = None
+    #: Answers served from the response cache (cost basis "cached"); not
+    #: provider usage and not unknown cost.
+    cached_response_records: int | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -733,6 +980,8 @@ class UsageSummaryGroup:
             tokens=_int_map(d, "tokens"),
             tokens_unknown=_int_map(d, "tokens_unknown"),
             cost=_cost_total_list(d, "cost"),
+            feedback=FeedbackTotals.from_wire(d["feedback"]) if d.get("feedback") is not None else None,
+            cached_response_records=_opt_int(d, "cached_response_records"),
             raw=dict(d),
         )
 
@@ -745,6 +994,13 @@ class UsageSummary:
     groups: list[UsageSummaryGroup] = field(default_factory=list)
     records_scanned: int | None = None
     truncated: bool | None = None
+    #: True when managed and reported records are separate groups.
+    source_split: bool | None = None
+    #: Reported records left out because they describe a request that has a
+    #: managed record. None when the server did not report it (zero is omitted).
+    excluded_correlated_reported: int | None = None
+    #: How sources were treated, in plain words.
+    notes: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -760,6 +1016,9 @@ class UsageSummary:
             groups=groups,
             records_scanned=_opt_int(d, "records_scanned"),
             truncated=_opt_bool(d, "truncated"),
+            source_split=_opt_bool(d, "source_split"),
+            excluded_correlated_reported=_opt_int(d, "excluded_correlated_reported"),
+            notes=_str_list(d, "notes"),
             raw=dict(d),
         )
 

@@ -27,6 +27,8 @@ type (
 	UsageHookResult    = usageledger.HookResult
 	UsageLedgerPage    = usageledger.Page
 	UsageLedgerSummary = usageledger.Summary
+	UsageFeedback      = usageledger.Feedback
+	UsageFeedbackTotal = usageledger.FeedbackTotals
 	UsageSummaryGroup  = usageledger.SummaryGroup
 	UsageCostTotal     = usageledger.CostTotal
 	ModelPrice         = usageledger.Price
@@ -52,16 +54,23 @@ type UsageFilter struct {
 	// deny, transform, error, skipped) or "none" (no hook ran).
 	HookDecision string
 	// Batch, when non-nil, selects batch (true) or non-batch (false) records.
-	Batch        *bool
+	Batch *bool
+	// Harness selects reported records from one harness (claude-code, codex,
+	// gemini-cli). Tags selects records carrying every key/value pair.
+	Harness      string
+	Tags         map[string]string
 	Since, Until time.Time
 }
 
 func (f UsageFilter) values() url.Values {
 	q := url.Values{}
-	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "hook_decision": f.HookDecision} {
+	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "harness": f.Harness, "hook_decision": f.HookDecision} {
 		if value != "" {
 			q.Set(name, value)
 		}
+	}
+	for key, value := range f.Tags {
+		q.Set("tag."+key, value)
 	}
 	if f.Batch != nil {
 		q.Set("batch", strconv.FormatBool(*f.Batch))
@@ -87,10 +96,18 @@ type UsageRecordsQuery struct {
 // client_id, access_point_id, caller_kind, status, source, error_class,
 // usage_bound, batch); NormalizeUsageGroupBy accepts friendly aliases and is
 // applied by SummarizeUsage.
+//
+// With no Source filter, managed and reported records are separate groups
+// (the "source" key is added) and reported records that share a correlation
+// key with a managed record are left out; see UsageLedgerSummary.Notes.
+// MergeSources adds them together instead. Feedback adds the latest-feedback
+// totals to every group.
 type UsageSummaryQuery struct {
 	UsageFilter
-	GroupBy []string
-	Bucket  string // "", "hour" or "day"
+	GroupBy      []string
+	Bucket       string // "", "hour" or "day"
+	MergeSources bool
+	Feedback     bool
 }
 
 var usageGroupAliases = map[string]string{
@@ -115,12 +132,12 @@ func NormalizeUsageGroupBy(fields []string) ([]string, error) {
 		if wire, ok := usageGroupAliases[field]; ok {
 			field = wire
 		}
-		valid := false
+		valid := strings.HasPrefix(field, usageledger.TagGroupPrefix) && usageledger.ValidTagKey(strings.TrimPrefix(field, usageledger.TagGroupPrefix))
 		for _, allowed := range usageledger.GroupByFields {
 			valid = valid || allowed == field
 		}
 		if !valid {
-			return nil, fmt.Errorf("aiplex: cannot group usage by %q (use %s)", raw, strings.Join(usageledger.GroupByFields, ", "))
+			return nil, fmt.Errorf("aiplex: cannot group usage by %q (use %s or tag:<key>)", raw, strings.Join(usageledger.GroupByFields, ", "))
 		}
 		if seen[field] {
 			return nil, fmt.Errorf("aiplex: usage group field %q repeated", field)
@@ -177,6 +194,80 @@ func (c *Client) GetUsageLedgerRecord(ctx context.Context, id string) (*UsageLed
 	return &out, nil
 }
 
+// UsageRecordDetail is a record with its latest feedback.
+type UsageRecordDetail struct {
+	UsageLedgerRecord
+	Feedback *UsageFeedback `json:"feedback,omitempty"`
+}
+
+// GetUsageRecordDetail returns one visible record with its latest feedback.
+func (c *Client) GetUsageRecordDetail(ctx context.Context, id string) (*UsageRecordDetail, error) {
+	if err := validateResourceID(id); err != nil {
+		return nil, err
+	}
+	var out UsageRecordDetail
+	if err := c.do(ctx, http.MethodGet, "/api/v1/usage/records/"+url.PathEscape(id), nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UsageFeedbackInput is feedback on a record. Score is required, between -1
+// and 1. Comment is accepted only when the operator enabled comments.
+type UsageFeedbackInput struct {
+	Score   float64 `json:"score"`
+	Label   string  `json:"label,omitempty"`
+	Comment string  `json:"comment,omitempty"`
+}
+
+// AddUsageFeedback adds feedback to a record the caller may see (its own, or
+// any record for an operator). Feedback is append-only; the newest entry is
+// the record's current feedback.
+func (c *Client) AddUsageFeedback(ctx context.Context, recordID string, in UsageFeedbackInput) (*UsageFeedback, error) {
+	if err := validateResourceID(recordID); err != nil {
+		return nil, err
+	}
+	if in.Score < -1 || in.Score > 1 || in.Score != in.Score {
+		return nil, fmt.Errorf("aiplex: feedback score must be between -1 and 1")
+	}
+	var out UsageFeedback
+	if err := c.do(ctx, http.MethodPost, "/api/v1/usage/records/"+url.PathEscape(recordID)+"/feedback", in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ListUsageFeedback returns a record's feedback history, newest first.
+func (c *Client) ListUsageFeedback(ctx context.Context, recordID string) ([]UsageFeedback, error) {
+	if err := validateResourceID(recordID); err != nil {
+		return nil, err
+	}
+	var out struct {
+		Feedback []UsageFeedback `json:"feedback"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/v1/usage/records/"+url.PathEscape(recordID)+"/feedback", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Feedback, nil
+}
+
+// UsageConfig is the deployment's usage settings the Console reads.
+type UsageConfig struct {
+	TraceURLTemplate string   `json:"trace_url_template"`
+	Feedback         bool     `json:"feedback"`
+	FeedbackComments bool     `json:"feedback_comments"`
+	TagKeysAllowed   []string `json:"tag_keys_allowed"`
+}
+
+// GetUsageConfig returns the deployment's usage settings.
+func (c *Client) GetUsageConfig(ctx context.Context) (*UsageConfig, error) {
+	var out UsageConfig
+	if err := c.do(ctx, http.MethodGet, "/api/v1/usage/config", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // SummarizeUsage aggregates ledger records. Check Truncated before treating
 // totals as complete.
 func (c *Client) SummarizeUsage(ctx context.Context, q UsageSummaryQuery) (*UsageLedgerSummary, error) {
@@ -193,6 +284,12 @@ func (c *Client) SummarizeUsage(ctx context.Context, q UsageSummaryQuery) (*Usag
 	}
 	if q.Bucket != "" {
 		values.Set("bucket", q.Bucket)
+	}
+	if q.MergeSources {
+		values.Set("merge_sources", "true")
+	}
+	if q.Feedback {
+		values.Set("feedback", "true")
 	}
 	var out UsageLedgerSummary
 	if err = c.do(ctx, http.MethodGet, withQuery("/api/v1/usage/summary", values), nil, &out); err != nil {
@@ -409,7 +506,7 @@ func FormatCost(c usageledger.Cost) string {
 	if c.Basis == usageledger.BasisCached {
 		return "0 (cached)"
 	}
-	if c.Basis != usageledger.BasisSettled && c.Basis != usageledger.BasisEstimated {
+	if c.Basis != usageledger.BasisSettled && c.Basis != usageledger.BasisEstimated && c.Basis != usageledger.BasisReported {
 		return "unknown"
 	}
 	return formatCostParts(c.Currency, c.Amount, c.Scale, c.Basis)

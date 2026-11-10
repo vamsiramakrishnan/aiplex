@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Iterator, Sequence
 from typing import Any
 from urllib.parse import quote
@@ -15,6 +16,7 @@ from .models import (
     AccessPointRecord,
     AccessPointSpec,
     ConnectConfig,
+    Feedback,
     ModelPrice,
     ModelPriceRecord,
     ModelSurface,
@@ -52,8 +54,12 @@ _VALID_GROUP_BY = frozenset(
         "error_class",
         "usage_bound",
         "batch",
+        "hook_decision",
+        "harness",
     }
 )
+
+_TAG_GROUP = re.compile(r"^tag:[a-z][a-z0-9_.-]{0,31}$")
 
 _VALID_BUCKETS = frozenset({"hour", "day"})
 
@@ -487,8 +493,16 @@ class Client:
         *,
         group_by: Sequence[str] = (),
         bucket: str | None = None,
+        merge_sources: bool = False,
+        feedback: bool = False,
     ) -> UsageSummary:
-        """Return aggregated usage summary statistics."""
+        """Return aggregated usage summary statistics.
+
+        With no ``source`` filter, managed and reported records are separate
+        groups; ``merge_sources=True`` adds them together. ``feedback=True``
+        adds latest-feedback totals to every group. Group by a record tag with
+        ``"tag:<key>"``.
+        """
         cleaned_groups: list[str] = []
         seen: set[str] = set()
         for g in group_by:
@@ -496,7 +510,7 @@ class Client:
                 raise ValueError("group_by entries must be strings")
             if g == "":
                 continue
-            if g not in _VALID_GROUP_BY:
+            if g not in _VALID_GROUP_BY and not _TAG_GROUP.match(g):
                 raise ValueError(f"invalid group_by field: {g!r}")
             if g in seen:
                 raise ValueError(f"duplicate group_by field: {g!r}")
@@ -512,9 +526,34 @@ class Client:
             params["group_by"] = ",".join(cleaned_groups)
         if bucket is not None and bucket != "":
             params["bucket"] = bucket
+        if merge_sources:
+            params["merge_sources"] = "true"
+        if feedback:
+            params["feedback"] = "true"
 
         data = self._request("GET", "/api/v1/usage/summary", params=params)
         return UsageSummary.from_wire(data)
+
+    def add_usage_feedback(
+        self,
+        record_id: str,
+        score: float,
+        *,
+        label: str | None = None,
+        comment: str | None = None,
+    ) -> Feedback:
+        """Add feedback (-1 to 1) to a record the caller may see. Append-only."""
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not -1 <= score <= 1:
+            raise ValueError("score must be a number between -1 and 1")
+        body: dict[str, Any] = {"score": score}
+        if label:
+            body["label"] = label
+        if comment:
+            body["comment"] = comment
+        data = self._request(
+            "POST", f"/api/v1/usage/records/{_quote_segment(record_id, 'record id')}/feedback", json_body=body
+        )
+        return Feedback.from_wire(data)
 
     def list_prices(self) -> list[ModelPriceRecord]:
         """List all configured model prices."""

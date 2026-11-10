@@ -69,6 +69,21 @@ function optBoolean(
   return val;
 }
 
+function optNumber(
+  obj: Record<string, unknown>,
+  key: string,
+  context: string,
+): number | null {
+  const val = obj[key];
+  if (val === undefined || val === null) {
+    return null;
+  }
+  if (typeof val !== "number" || !Number.isFinite(val)) {
+    throw decodeError(`${context}.${key}: expected number`);
+  }
+  return val;
+}
+
 function optInt(
   obj: Record<string, unknown>,
   key: string,
@@ -296,12 +311,61 @@ export function parseWhoami(value: unknown): Whoami {
 }
 
 /**
- * Model mapping entry within an access point specification.
+ * One backend of a routed access-point model (docs/reliability-and-routing.md).
+ */
+export interface RoutingBackend {
+  surfaceRef: string | null;
+  nativeModel: string | null;
+  /** Share of first attempts under the weighted strategy (default 1). */
+  weight?: number | null;
+  /** Order under the priority strategy (lower first, default 0). */
+  priority?: number | null;
+}
+
+/**
+ * Parses a {@link RoutingBackend}.
+ */
+export function parseRoutingBackend(value: unknown): RoutingBackend {
+  const obj = asObject(value, "RoutingBackend");
+  return {
+    surfaceRef: optString(obj, "surface_ref", "RoutingBackend"),
+    nativeModel: optString(obj, "native_model", "RoutingBackend"),
+    weight: optInt(obj, "weight", "RoutingBackend"),
+    priority: optInt(obj, "priority", "RoutingBackend"),
+  };
+}
+
+function toWireRoutingBackend(b: RoutingBackend): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (b.surfaceRef !== null && b.surfaceRef !== undefined) out["surface_ref"] = b.surfaceRef;
+  if (b.nativeModel !== null && b.nativeModel !== undefined) out["native_model"] = b.nativeModel;
+  if (b.weight !== null && b.weight !== undefined) out["weight"] = b.weight;
+  if (b.priority !== null && b.priority !== undefined) out["priority"] = b.priority;
+  return out;
+}
+
+/**
+ * Exact-match response cache of an access-point model (off unless set).
+ * scope "access_point" shares answers between callers.
+ */
+export interface ResponseCacheConfig {
+  ttl: string | null;
+  scope?: string | null;
+  maxEntryBytes?: number | null;
+}
+
+/**
+ * Model mapping entry within an access point specification: one
+ * surfaceRef/nativeModel pair, or backends with a routing block.
  */
 export interface AccessPointModel {
   name: string | null;
   surfaceRef: string | null;
   nativeModel: string | null;
+  backends?: RoutingBackend[];
+  /** The routing block as sent on the wire (strategy, retry, fallback, breaker, lowest_cost, deadline_ms). */
+  routing?: Record<string, unknown> | null;
+  cache?: ResponseCacheConfig | null;
   raw?: Record<string, unknown>;
 }
 
@@ -310,10 +374,21 @@ export interface AccessPointModel {
  */
 export function parseAccessPointModel(value: unknown): AccessPointModel {
   const obj = asObject(value, "AccessPointModel");
+  const cacheRaw = optObject(obj, "cache", "AccessPointModel");
   return {
     name: optString(obj, "name", "AccessPointModel"),
     surfaceRef: optString(obj, "surface_ref", "AccessPointModel"),
     nativeModel: optString(obj, "native_model", "AccessPointModel"),
+    backends: objectList(obj, "backends", "AccessPointModel").map((b) => parseRoutingBackend(b)),
+    routing: optObject(obj, "routing", "AccessPointModel"),
+    cache:
+      cacheRaw !== null
+        ? {
+            ttl: optString(cacheRaw, "ttl", "AccessPointModel.cache"),
+            scope: optString(cacheRaw, "scope", "AccessPointModel.cache"),
+            maxEntryBytes: optInt(cacheRaw, "max_entry_bytes", "AccessPointModel.cache"),
+          }
+        : null,
     raw: obj,
   };
 }
@@ -442,6 +517,19 @@ export function toWireAccessPointSpec(
       }
       if (m.nativeModel !== null && m.nativeModel !== undefined) {
         item["native_model"] = m.nativeModel;
+      }
+      if (m.backends && m.backends.length > 0) {
+        item["backends"] = m.backends.map((b) => toWireRoutingBackend(b));
+      }
+      if (m.routing !== null && m.routing !== undefined) {
+        item["routing"] = m.routing;
+      }
+      if (m.cache !== null && m.cache !== undefined) {
+        const cache: Record<string, unknown> = {};
+        if (m.cache.ttl !== null && m.cache.ttl !== undefined) cache["ttl"] = m.cache.ttl;
+        if (m.cache.scope !== null && m.cache.scope !== undefined) cache["scope"] = m.cache.scope;
+        if (m.cache.maxEntryBytes !== null && m.cache.maxEntryBytes !== undefined) cache["max_entry_bytes"] = m.cache.maxEntryBytes;
+        item["cache"] = cache;
       }
       return item;
     });
@@ -727,6 +815,68 @@ function parseCostTotalList(
 }
 
 /**
+ * One feedback entry on a usage record. Append-only; the newest is current.
+ * `score` is null only when the server omitted it; absence is never neutral.
+ */
+export interface Feedback {
+  id: string | null;
+  recordId: string | null;
+  by: string | null;
+  createdAt: string | null;
+  score: number | null;
+  label: string | null;
+  comment: string | null;
+  raw: Record<string, unknown>;
+}
+
+/**
+ * Parses a {@link Feedback}.
+ */
+export function parseFeedback(value: unknown): Feedback {
+  const obj = asObject(value, "Feedback");
+  return {
+    id: optString(obj, "id", "Feedback"),
+    recordId: optString(obj, "record_id", "Feedback"),
+    by: optString(obj, "by", "Feedback"),
+    createdAt: optString(obj, "created_at", "Feedback"),
+    score: optNumber(obj, "score", "Feedback"),
+    label: optString(obj, "label", "Feedback"),
+    comment: optString(obj, "comment", "Feedback"),
+    raw: obj,
+  };
+}
+
+/**
+ * Latest-feedback totals of a summary group. `averageScore` is null when no
+ * record has feedback; records without feedback are in `withoutFeedback`.
+ */
+export interface FeedbackTotals {
+  records: number | null;
+  withoutFeedback: number | null;
+  positive: number | null;
+  negative: number | null;
+  neutral: number | null;
+  averageScore: number | null;
+  raw: Record<string, unknown>;
+}
+
+/**
+ * Parses a {@link FeedbackTotals}.
+ */
+export function parseFeedbackTotals(value: unknown): FeedbackTotals {
+  const obj = asObject(value, "FeedbackTotals");
+  return {
+    records: optInt(obj, "records", "FeedbackTotals"),
+    withoutFeedback: optInt(obj, "without_feedback", "FeedbackTotals"),
+    positive: optInt(obj, "positive", "FeedbackTotals"),
+    negative: optInt(obj, "negative", "FeedbackTotals"),
+    neutral: optInt(obj, "neutral", "FeedbackTotals"),
+    averageScore: optNumber(obj, "average_score", "FeedbackTotals"),
+    raw: obj,
+  };
+}
+
+/**
  * Single usage ledger record.
  */
 export interface UsageRecord {
@@ -755,7 +905,66 @@ export interface UsageRecord {
   requests: number | null;
   usage: UsageCounters | null;
   cost: Cost | null;
+  /** Reported records: the harness, its version and its own session id. Labels, never identity. */
+  harness: string | null;
+  harnessVersion: string | null;
+  sessionId: string | null;
+  clientRequestId: string | null;
+  callerSpanId: string | null;
+  reportedAttributes: Record<string, string>;
+  /** Experiment labels from access point labels and allowlisted headers. */
+  tags: Record<string, string>;
+  /** Request-hook summary (decision, results); null when no hook ran. */
+  hooks: Record<string, unknown> | null;
+  /** Latest feedback, present on a record fetched with getUsageRecord. */
+  feedback: Feedback | null;
+  /** Routed access-point exchanges: every attempt in order. */
+  attempts: RouteAttempt[];
+  /** The backend that served a routed exchange. */
+  backend: RoutingBackend | null;
+  routingStrategy: string | null;
+  /** Response-cache outcome, when the model has a cache. */
+  cache: CacheInfo | null;
+  /** On a cache hit, the original exchange's usage; not provider usage of this record. */
+  cachedResponseUsage: UsageCounters | null;
   raw: Record<string, unknown>;
+}
+
+/**
+ * One attempt of a routed exchange (no content).
+ */
+export interface RouteAttempt {
+  surfaceRef: string | null;
+  nativeModel: string | null;
+  outcome: string | null;
+  upstreamStatus: number | null;
+  retryAfterMs: number | null;
+  durationMs: number | null;
+  breakerState: string | null;
+  reason: string | null;
+}
+
+/**
+ * Response-cache outcome of an exchange: hit, miss or bypass.
+ */
+export interface CacheInfo {
+  status: string | null;
+  reason: string | null;
+  scope: string | null;
+}
+
+function parseRouteAttempt(value: unknown): RouteAttempt {
+  const obj = asObject(value, "RouteAttempt");
+  return {
+    surfaceRef: optString(obj, "surface_ref", "RouteAttempt"),
+    nativeModel: optString(obj, "native_model", "RouteAttempt"),
+    outcome: optString(obj, "outcome", "RouteAttempt"),
+    upstreamStatus: optInt(obj, "upstream_status", "RouteAttempt"),
+    retryAfterMs: optInt(obj, "retry_after_ms", "RouteAttempt"),
+    durationMs: optInt(obj, "duration_ms", "RouteAttempt"),
+    breakerState: optString(obj, "breaker_state", "RouteAttempt"),
+    reason: optString(obj, "reason", "RouteAttempt"),
+  };
 }
 
 /**
@@ -791,6 +1000,31 @@ export function parseUsageRecord(value: unknown): UsageRecord {
     requests: optInt(obj, "requests", "UsageRecord"),
     usage: usageRaw !== null ? parseUsageCounters(usageRaw) : null,
     cost: costRaw !== null ? parseCost(costRaw) : null,
+    harness: optString(obj, "harness", "UsageRecord"),
+    harnessVersion: optString(obj, "harness_version", "UsageRecord"),
+    sessionId: optString(obj, "session_id", "UsageRecord"),
+    clientRequestId: optString(obj, "client_request_id", "UsageRecord"),
+    callerSpanId: optString(obj, "caller_span_id", "UsageRecord"),
+    reportedAttributes: stringMap(obj, "reported_attributes", "UsageRecord"),
+    tags: stringMap(obj, "tags", "UsageRecord"),
+    hooks: optObject(obj, "hooks", "UsageRecord"),
+    feedback:
+      optObject(obj, "feedback", "UsageRecord") !== null
+        ? parseFeedback(obj["feedback"])
+        : null,
+    attempts: objectList(obj, "attempts", "UsageRecord").map((a) => parseRouteAttempt(a)),
+    backend: optObject(obj, "backend", "UsageRecord") !== null ? parseRoutingBackend(obj["backend"]) : null,
+    routingStrategy: optString(obj, "routing_strategy", "UsageRecord"),
+    cache: (() => {
+      const c = optObject(obj, "cache", "UsageRecord");
+      return c !== null
+        ? { status: optString(c, "status", "UsageRecord.cache"), reason: optString(c, "reason", "UsageRecord.cache"), scope: optString(c, "scope", "UsageRecord.cache") }
+        : null;
+    })(),
+    cachedResponseUsage:
+      optObject(obj, "cached_response_usage", "UsageRecord") !== null
+        ? parseUsageCounters(obj["cached_response_usage"])
+        : null,
     raw: obj,
   };
 }
@@ -839,6 +1073,10 @@ export interface UsageSummaryGroup {
   tokens: Record<string, number>;
   tokensUnknown: Record<string, number>;
   cost: CostTotal[];
+  /** Present when the summary asked for feedback. */
+  feedback: FeedbackTotals | null;
+  /** Answers served from the response cache (cost basis "cached"); not provider usage, not unknown cost. */
+  cachedResponseRecords: number | null;
   raw: Record<string, unknown>;
 }
 
@@ -867,6 +1105,11 @@ export function parseUsageSummaryGroup(value: unknown): UsageSummaryGroup {
     tokens: intMap(obj, "tokens", "UsageSummaryGroup"),
     tokensUnknown: intMap(obj, "tokens_unknown", "UsageSummaryGroup"),
     cost: parseCostTotalList(obj, "cost", "UsageSummaryGroup"),
+    feedback:
+      optObject(obj, "feedback", "UsageSummaryGroup") !== null
+        ? parseFeedbackTotals(obj["feedback"])
+        : null,
+    cachedResponseRecords: optInt(obj, "cached_response_records", "UsageSummaryGroup"),
     raw: obj,
   };
 }
@@ -879,6 +1122,12 @@ export interface UsageSummary {
   groups: UsageSummaryGroup[];
   recordsScanned: number | null;
   truncated: boolean | null;
+  /** True when managed and reported records are separate groups. */
+  sourceSplit: boolean | null;
+  /** Reported records left out because they describe a request that has a managed record; null when the server omitted it (zero is omitted). */
+  excludedCorrelatedReported: number | null;
+  /** How sources were treated, in plain words. */
+  notes: string[];
   raw: Record<string, unknown>;
 }
 
@@ -900,6 +1149,13 @@ export function parseUsageSummary(value: unknown): UsageSummary {
     groups,
     recordsScanned: optInt(obj, "records_scanned", "UsageSummary"),
     truncated: optBoolean(obj, "truncated", "UsageSummary"),
+    sourceSplit: optBoolean(obj, "source_split", "UsageSummary"),
+    excludedCorrelatedReported: optInt(
+      obj,
+      "excluded_correlated_reported",
+      "UsageSummary",
+    ),
+    notes: stringList(obj, "notes", "UsageSummary"),
     raw: obj,
   };
 }

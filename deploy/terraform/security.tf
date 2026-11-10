@@ -91,7 +91,26 @@ resource "google_compute_security_policy" "aiplex" {
 
 # ── VPC Firewall Rules ──
 
-# Allow health checks from Google's health check ranges
+# INERT: this rule matches no node and changes nothing. It targets the network
+# tag "gke-aiplex", which GKE never assigns: it names node tags itself
+# (gke-<cluster>-<hash>-node), and on an Autopilot cluster (gke.tf) the node
+# tags cannot be set, so Terraform cannot know them. It is kept, not fixed,
+# because the load balancer's health checks do not depend on it: for a
+# cluster in the project that owns the network, GKE creates and maintains the
+# firewall rules that admit Google's health check probers (35.191.0.0/16 and
+# 130.211.0.0/22) itself. Google documents manual rules, with the node tag as
+# the target, only for when automatic firewall rule creation is disabled or
+# restricted, such as a Shared VPC service project:
+# https://cloud.google.com/kubernetes-engine/docs/how-to/deploying-gateways
+# (section "Configure IPv6 firewall rules for Shared VPC or manual firewall
+# management"), and for the Ingress controller:
+# https://cloud.google.com/kubernetes-engine/docs/how-to/container-native-load-balancing
+# The probe source ranges are listed in
+# https://cloud.google.com/load-balancing/docs/health-check-concepts#ip-ranges
+# If you disable automatic rules, replace target_tags with the real node tag
+# (gcloud compute instances list --format='value(tags.items)'), or drop it to
+# apply the rule to every instance in the network. Not applied or tested
+# against a live cluster. See docs/gcp-permissions.md.
 resource "google_compute_firewall" "allow_health_checks" {
   name    = "aiplex-allow-health-checks"
   network = google_compute_network.aiplex.name
@@ -107,8 +126,8 @@ resource "google_compute_firewall" "allow_health_checks" {
     "130.211.0.0/22",   # Google health check
   ]
 
-  target_tags = ["gke-aiplex"]
-  description = "Allow Google health check probes"
+  target_tags = ["gke-aiplex"] # matches no node; see the comment above
+  description = "Allow Google health check probes (inert: targets a tag GKE does not assign)"
 }
 
 # Allow internal cluster communication

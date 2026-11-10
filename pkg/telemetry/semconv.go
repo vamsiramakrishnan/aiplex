@@ -128,6 +128,38 @@ const (
 	MetricUpstreamErrors     = "aiplex.upstream.errors"
 )
 
+// Harness telemetry received over OTLP and record labels. All names here are
+// AIPlex's own (not part of any convention) except gen_ai.agent.id. Attributes
+// are bounded enumerations; no principal, session, request or trace identifier
+// is ever a metric attribute.
+const (
+	AttrAgentID = "gen_ai.agent.id"
+
+	MetricOTLPIngest  = "aiplex.otlp.ingest"
+	MetricTagRejected = "aiplex.usage.tags_rejected"
+
+	AttrOTLPSignal  = "aiplex.otlp.signal"
+	AttrOTLPOutcome = "aiplex.otlp.outcome"
+	AttrHarness     = "aiplex.harness"
+	AttrTagReason   = "aiplex.tag.reason"
+
+	// OTLP ingest outcomes.
+	OTLPRecorded      = "recorded"
+	OTLPDuplicate     = "duplicate"
+	OTLPRejected      = "rejected"
+	OTLPDropped       = "dropped"
+	OTLPForwarded     = "forwarded"
+	OTLPForwardFailed = "forward_failed"
+	OTLPRateLimited   = "rate_limited"
+	OTLPTooLarge      = "too_large"
+	OTLPMalformed     = "malformed"
+
+	// Tag rejection reasons.
+	TagNotAllowed = "not_allowed"
+	TagInvalid    = "invalid"
+	TagOverflow   = "overflow"
+)
+
 // Request hooks (AIPlex). Attributes and labels carry hook types,
 // decisions, phases and rule identifiers only, never content.
 const (

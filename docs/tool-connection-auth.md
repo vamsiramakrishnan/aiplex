@@ -117,7 +117,8 @@ with an empty `identity_ref`.
   "tools": {
     "allow": ["files.*", "search"],
     "deny": ["files.delete"],
-    "read_only": true
+    "read_only": true,
+    "rules": [{"id": "no-etc", "effect": "deny", "when": "path_under(args.path, '/etc')", "message": "files under /etc are off limits"}]
   }
 }
 ```
@@ -127,13 +128,14 @@ with an empty `identity_ref`.
 | `allow` | Exact tool names, or prefixes ending in one `*`. If empty or omitted, every tool the connection permits is allowed. Up to 1024 entries. |
 | `deny` | Same pattern syntax. Deny always wins. |
 | `read_only` | Only tools that the MCP server annotated `readOnlyHint: true` are callable. Unknown annotations are denied. |
+| `rules` | Up to 64 policy rules (CEL expressions over the tool, its arguments, the caller and the time) evaluated after the lists, the scope and `read_only`. See [policy rules on tool calls](tool-policy-rules.md). |
 
 `*` alone matches every tool name. The `tools` block requires managed execution.
 
 ## Check order
 
 For `tools/call` through `POST /api/v1/mcp/connections/{id}/invoke`, the checks run in
-this order. A failure at step 1 returns HTTP 400. A denial at steps 2 to 4 is a JSON-RPC
+this order. A failure at step 1 returns HTTP 400. A denial at steps 2 to 5 is a JSON-RPC
 error with code `-32001` that keeps the request ID.
 
 1. The request is a single valid JSON-RPC `tools/call` message. The tool name must be
@@ -147,11 +149,16 @@ error with code `-32001` that keeps the request ID.
    `readOnlyHint`. Other tools keep the time they were last listed, and a tool whose
    annotation is absent from the listing loses its hint. Otherwise the call is denied
    with `read_only_unknown`, and the caller is told to list tools through the gateway.
-5. Quota admission, when QuotaPlex covers the path.
-6. Credential acquisition for the auth type.
-7. The upstream call. The credential is applied only to the connection's configured origin.
+5. The connection's policy `rules`, then the access point's `rules` for calls that come
+   through an access point. The first matching `deny` refuses; with any `allow` rule, a call
+   that matches none is refused; a rule that cannot be evaluated refuses. See
+   [policy rules on tool calls](tool-policy-rules.md).
+6. Request hooks (see [request hooks](request-hooks.md)).
+7. Quota admission, when QuotaPlex covers the path.
+8. Credential acquisition for the auth type.
+9. The upstream call. The credential is applied only to the connection's configured origin.
 
-Every denial in steps 1 to 4 happens before quota is reserved and before any credential
+Every denial in steps 1 to 5 happens before quota is reserved and before any credential
 is acquired. Each `tools/call` is an independent request. A call never triggers a
 `tools/list` itself.
 
@@ -201,7 +208,10 @@ The `--allow` and `--deny` flags replace their lists. Pass `''` to empty one.
   connection revision. Any change to the connection invalidates the recorded hints.
   Each hint expires 24 hours after its tool was last listed with an annotation. An older
   hint is not used, even when other tools in the same listing are fresh.
-- The tools policy matches tool names only. It does not inspect arguments.
+- The `allow`, `deny` and `read_only` members match tool names and the read-only annotation only.
+  Decisions on arguments, annotations other than `readOnlyHint`, the caller or the time are
+  `rules`; they decide allow or deny and never change a call's content (see
+  [policy rules on tool calls](tool-policy-rules.md), including its limits).
 - The `auth` block applies to managed `tools/call` and `tools/list` through AIPlex.
   A tool server reached any other way is outside this policy.
 - Auth types are a closed set. Other upstream schemes (for example mTLS or HMAC

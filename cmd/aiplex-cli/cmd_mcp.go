@@ -37,7 +37,7 @@ callers may use. Expose it to callers by adding it to an access point:
 		Example: `  aiplex mcp connections list
   aiplex mcp connections add docs --url http://127.0.0.1:3000/mcp`,
 	}
-	cmd.AddCommand(mcpConnectionsCmd(), mcpServeCmd())
+	cmd.AddCommand(mcpConnectionsCmd(), mcpRegistryCmd(), mcpServeCmd())
 	return cmd
 }
 
@@ -50,7 +50,7 @@ func mcpConnectionsCmd() *cobra.Command {
 		Example: `  aiplex mcp connections list
   aiplex mcp connections test local-tools`,
 	}
-	cmd.AddCommand(mcpConnListCmd(), mcpConnGetCmd(), mcpConnAddCmd(), mcpConnDeleteCmd(), mcpConnTestCmd())
+	cmd.AddCommand(mcpConnListCmd(), mcpConnGetCmd(), mcpConnAddCmd(), mcpConnDeleteCmd(), mcpConnTestCmd(), mcpConnRulesCmd())
 	registerLister("mcp connections", func(ctx context.Context, c *aiplex.Client) ([]string, error) {
 		return resourceIDs(ctx, c, aiplex.ToolConnections)
 	})
@@ -151,7 +151,7 @@ func mcpConnListCmd() *cobra.Command {
 func toolCountCell(v toolConnView) string {
 	n := len(v.Execution.AllowedTools)
 	s := fmt.Sprintf("%d", n)
-	if v.Tools != nil && (len(v.Tools.Deny) > 0 || len(v.Tools.Allow) > 0 || v.Tools.ReadOnly) {
+	if v.Tools != nil && (len(v.Tools.Deny) > 0 || len(v.Tools.Allow) > 0 || v.Tools.ReadOnly || len(v.Tools.Rules) > 0) {
 		s += " (policy)"
 	}
 	return s
@@ -187,6 +187,12 @@ func mcpConnGetCmd() *cobra.Command {
 				}
 				if v.Tools.ReadOnly {
 					fmt.Fprintln(out, "  Read-only tools only")
+				}
+				if len(v.Tools.Rules) > 0 {
+					fmt.Fprintf(out, "  Rules:    %d, evaluated in order (aiplex mcp connections rules list %s)\n", len(v.Tools.Rules), r.ID)
+					for _, rule := range v.Tools.Rules {
+						fmt.Fprintf(out, "    %-5s %s: %s\n", rule.Effect, rule.ID, truncateRule(rule.When, 80))
+					}
 				}
 			}
 			fmt.Fprintf(out, "Next: aiplex mcp connections test %s\n", r.ID)
@@ -417,7 +423,16 @@ func buildToolConnectionSpec(ctx context.Context, id string, f mcpAddFlags, out 
 // discoverMCPTools calls initialize and tools/list on an MCP server directly
 // (no credential), accepting JSON or SSE responses.
 func discoverMCPTools(ctx context.Context, endpoint, version string) ([]string, error) {
+	return discoverMCPToolsWith(ctx, endpoint, version, false)
+}
+
+// discoverMCPToolsWith is discoverMCPTools; noRedirect refuses to follow a
+// redirect, for URLs that came from untrusted content.
+func discoverMCPToolsWith(ctx context.Context, endpoint, version string, noRedirect bool) ([]string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
+	if noRedirect {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	session := ""
 	call := func(id int, method string, params any) (json.RawMessage, error) {
 		msg := map[string]any{"jsonrpc": "2.0", "method": method}

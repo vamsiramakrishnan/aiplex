@@ -28,6 +28,8 @@ type usageFilterFlags struct {
 	accessPoint, callerKind                                           string
 	since, until                                                      string
 	errorClass, bound, batch                                          string
+	harness                                                           string
+	tags                                                              []string
 	hookDecision                                                      string
 }
 
@@ -45,6 +47,8 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.status, "status", "", "Status: ok, error, denied or unknown")
 	fl.StringVar(&f.source, "source", "", "Source: managed or reported")
 	fl.StringVar(&f.errorClass, "error-class", "", "Error class (error_class)")
+	fl.StringVar(&f.harness, "harness", "", "Reported records from one harness: claude-code, codex or gemini-cli")
+	fl.StringArrayVar(&f.tags, "tag", nil, "Records carrying a tag, key=value (repeatable)")
 	fl.StringVar(&f.bound, "bound", "", "Usage bound: lower_bound, ambiguous, partial or none (usage_bound)")
 	fl.StringVar(&f.hookDecision, "hook-decision", "", "Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)")
 	fl.StringVar(&f.batch, "batch", "", "Provider batch records only (true) or excluding them (false)")
@@ -56,6 +60,17 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 func (f *usageFilterFlags) filter(now time.Time) (aiplex.UsageFilter, error) {
 	out := aiplex.UsageFilter{Plane: f.plane, Provider: f.provider, ModelID: f.model, ToolName: f.tool, ActorID: f.agent, PrincipalID: f.user, ClientID: f.client, AccessPointID: f.accessPoint, CallerKind: f.callerKind, Status: f.status, Source: f.source}
 	out.ErrorClass, out.UsageBound, out.HookDecision = f.errorClass, f.bound, f.hookDecision
+	out.Harness = f.harness
+	for _, pair := range f.tags {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok || !usageledger.ValidTagKey(key) || !usageledger.ValidTagValue(value) {
+			return out, fmt.Errorf("--tag must be key=value with a lowercase key, got %q", pair)
+		}
+		if out.Tags == nil {
+			out.Tags = map[string]string{}
+		}
+		out.Tags[key] = value
+	}
 	if f.hookDecision != "" && !usageledger.ValidHookDecision(f.hookDecision) {
 		return out, fmt.Errorf("--hook-decision must be allow, deny, transform, error, skipped or none")
 	}
@@ -118,10 +133,16 @@ func usageCmd() *cobra.Command {
 		Short: "Usage ledger — what each request cost in requests, tokens and dollars",
 		Long: `Query the usage ledger: one record per managed request on any plane, by any
 client or agent. Unknown usage or cost is shown as "unknown", never as zero,
-and cost always carries its basis (settled or estimated). Non-administrators
-see only their own records.`,
+and cost always carries its basis (settled, estimated or reported). Non-administrators
+see only their own records.
+
+Records have a source. "managed" records are requests that went through an
+access point. "reported" records come from a harness's own telemetry
+(Claude Code, Codex, Gemini CLI) sent to AIPlex over OTLP; their cost, when the
+harness reported one, has the basis "reported". The two sources can describe the
+same request, so a summary keeps them apart and never adds them silently.`,
 	}
-	cmd.AddCommand(usageRecordsCmd(), usageGetCmd(), usageSummaryCmd(), usagePricesCmd())
+	cmd.AddCommand(usageRecordsCmd(), usageGetCmd(), usageSummaryCmd(), usageFeedbackCmd(), usagePricesCmd())
 	return cmd
 }
 
@@ -225,15 +246,17 @@ func usageGetCmd() *cobra.Command {
 		Example: "  aiplex usage get ul_0123456789abcdef",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			record, err := newClient().GetUsageLedgerRecord(cmd.Context(), args[0])
+			detail, err := newClient().GetUsageRecordDetail(cmd.Context(), args[0])
 			if err != nil {
 				return fmt.Errorf("get usage record: %w", err)
 			}
 			if usageMachineOutput() {
-				usagePrint(record)
+				usagePrint(detail)
 				return nil
 			}
-			for _, row := range usageRecordDetail(*record) {
+			rows := usageRecordDetail(detail.UsageLedgerRecord)
+			rows = append(rows, usageFeedbackRow(detail.Feedback))
+			for _, row := range rows {
 				fmt.Printf("%-20s %s\n", row[0]+":", row[1])
 			}
 			return nil
@@ -245,28 +268,38 @@ func usageSummaryCmd() *cobra.Command {
 	var flags usageFilterFlags
 	var by []string
 	var bucket string
+	var merge bool
 	cmd := &cobra.Command{
 		Use:   "summary",
 		Short: "Totals of requests, tokens and cost, optionally grouped",
 		Long: `Aggregate usage. --by takes plane, provider, model, tool, agent, user, client,
 access-point, caller-kind, status, source, error-class, bound (usage_bound)
-or batch (aliases: model=model_id, agent=actor_id,
+harness, batch or tag:<key> (a record tag, for example tag:experiment) (aliases: model=model_id, agent=actor_id,
 user=principal_id, client=client_id, tool=tool_name, access-point=access_point_id,
 caller-kind=caller_kind). Records whose usage is bounded (lower_bound, ambiguous
 or partial) are included in the sums and counted in the BOUNDED column; their
 totals are not final. Costs are never summed across currencies
 or bases. When the scan limit is reached the totals cover only the newest
-records and the command says so.`,
+records and the command says so.
+
+Managed and reported records are separate rows (a SOURCE column) unless you
+filter with --source. Reported records that share a trace, client request id
+or request id with a managed record are left out, because they describe the same
+request; the command says how many. --merge-sources adds the two together and
+says that it cannot rule out double counting. With -o wide the FEEDBACK column
+shows the average score of records that have feedback and how many do not.`,
 		Example: `  aiplex usage summary --by model,agent --since 7d
   aiplex usage summary --by access-point,caller-kind --since 7d
-  aiplex usage summary --by model --bucket day --since 30d -o json`,
+  aiplex usage summary --by model --bucket day --since 30d -o json
+  aiplex usage summary --by tag:experiment --since 7d -o wide
+  aiplex usage summary --source reported --by harness,model --since 7d`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			filter, err := flags.filter(time.Now())
 			if err != nil {
 				return err
 			}
-			summary, err := newClient().SummarizeUsage(cmd.Context(), aiplex.UsageSummaryQuery{UsageFilter: filter, GroupBy: by, Bucket: bucket})
+			summary, err := newClient().SummarizeUsage(cmd.Context(), aiplex.UsageSummaryQuery{UsageFilter: filter, GroupBy: by, Bucket: bucket, MergeSources: merge, Feedback: wideOutput() && !usageMachineOutput()})
 			if err != nil {
 				return fmt.Errorf("usage summary: %w", err)
 			}
@@ -287,6 +320,12 @@ records and the command says so.`,
 				defer usageCatalogHint(cmd.Context(), unpriced)
 			}
 			fmt.Printf("\n%d records scanned.\n", summary.RecordsScanned)
+			if summary.ExcludedCorrelatedReported > 0 {
+				fmt.Printf("%d reported records were left out because they describe a request that has a managed record.\n", summary.ExcludedCorrelatedReported)
+			}
+			for _, note := range summary.Notes {
+				fmt.Println("NOTE: " + note)
+			}
 			for _, g := range summary.Groups {
 				if g.BoundedUsageRecords > 0 {
 					fmt.Println("NOTE: some totals include bounded usage (lower_bound, ambiguous or partial); those counters are not final. See the BOUNDED column.")
@@ -300,9 +339,97 @@ records and the command says so.`,
 		},
 	}
 	flags.bind(cmd)
-	cmd.Flags().StringSliceVar(&by, "by", nil, "Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,status,source,error-class,bound,batch")
+	cmd.Flags().StringSliceVar(&by, "by", nil, "Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,status,source,error-class,bound,batch,harness,tag:<key>")
 	cmd.Flags().StringVar(&bucket, "bucket", "", "Time bucket: hour or day")
+	cmd.Flags().BoolVar(&merge, "merge-sources", false, "Add managed and reported records together (may count a request twice)")
 	return cmd
+}
+
+// usageFeedbackCmd adds or shows feedback on a record.
+func usageFeedbackCmd() *cobra.Command {
+	var score float64
+	var label, comment string
+	var history bool
+	cmd := &cobra.Command{
+		Use:   "feedback <record-id>",
+		Short: "Rate a usage record (append-only), or show its feedback history",
+		Long: `Add feedback to a usage record you can see: your own, or any record if you are
+an operator. --score is a number from -1 (worst) to 1 (best). Feedback is
+append-only: the newest entry is the record's current feedback and earlier ones
+stay in the history (--history). Free-text --comment is stored only when the
+operator enabled comments (AIPLEX_FEEDBACK_COMMENTS); otherwise it is refused.
+Summaries show feedback with -o wide.`,
+		Example: `  aiplex usage feedback ul_0123456789abcdef --score 1 --label helpful
+  aiplex usage feedback ul_0123456789abcdef --score -1
+  aiplex usage feedback ul_0123456789abcdef --history`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := newClient()
+			if history {
+				entries, err := client.ListUsageFeedback(cmd.Context(), args[0])
+				if err != nil {
+					return fmt.Errorf("usage feedback: %w", err)
+				}
+				if usageMachineOutput() {
+					usagePrint(map[string]any{"record_id": args[0], "feedback": entries})
+					return nil
+				}
+				if len(entries) == 0 {
+					fmt.Println("No feedback on this record.")
+					return nil
+				}
+				t := newTable(col("TIME"), col("SCORE"), col("LABEL"), col("BY").trunc(truncMiddle), wideCol("ID").trunc(truncNever), wideCol("COMMENT"))
+				for _, f := range entries {
+					t.add(relTime(f.CreatedAt), strconv.FormatFloat(f.Score, 'f', -1, 64), usageDash(f.Label), usageDash(f.By), f.ID, usageDash(f.Comment))
+				}
+				t.render(os.Stdout)
+				return nil
+			}
+			if !cmd.Flags().Changed("score") {
+				return fmt.Errorf("--score is required (a number from -1 to 1)")
+			}
+			saved, err := client.AddUsageFeedback(cmd.Context(), args[0], aiplex.UsageFeedbackInput{Score: score, Label: label, Comment: comment})
+			if err != nil {
+				return fmt.Errorf("usage feedback: %w", err)
+			}
+			if usageMachineOutput() {
+				usagePrint(saved)
+				return nil
+			}
+			fmt.Printf("Recorded feedback %s on %s: score %s\n", saved.ID, saved.RecordID, strconv.FormatFloat(saved.Score, 'f', -1, 64))
+			return nil
+		},
+	}
+	cmd.Flags().Float64Var(&score, "score", 0, "Score from -1 (worst) to 1 (best)")
+	cmd.Flags().StringVar(&label, "label", "", "Short label, lowercase (for example helpful)")
+	cmd.Flags().StringVar(&comment, "comment", "", "Free-text comment (only if the operator enabled comments)")
+	cmd.Flags().BoolVar(&history, "history", false, "Show the feedback history instead of adding feedback")
+	return cmd
+}
+
+// usageFeedbackRow renders a record's latest feedback.
+func usageFeedbackRow(f *aiplex.UsageFeedback) [2]string {
+	if f == nil {
+		return [2]string{"feedback", "none"}
+	}
+	text := strconv.FormatFloat(f.Score, 'f', -1, 64)
+	if f.Label != "" {
+		text += " (" + f.Label + ")"
+	}
+	return [2]string{"feedback", text + " by " + f.By + " " + relTime(f.CreatedAt)}
+}
+
+// usageFeedbackCell renders a group's feedback totals: the average of the
+// records that have feedback, and how many do not. No feedback is not a score.
+func usageFeedbackCell(g usageledger.SummaryGroup) string {
+	f := g.Feedback
+	if f == nil {
+		return "—"
+	}
+	if f.Records == 0 || f.AverageScore == nil {
+		return fmt.Sprintf("none (%d without)", f.Without)
+	}
+	return fmt.Sprintf("avg %+.2f (n=%d; +%d =%d -%d; %d without)", *f.AverageScore, f.Records, f.Positive, f.Neutral, f.Negative, f.Without)
 }
 
 // ---- rendering ----------------------------------------------------------
@@ -379,11 +506,21 @@ func usageExchangeLabel(operation string) string {
 // columns needed to answer "who used what, did it work, what did it cost";
 // -o wide adds identifiers and every counter.
 func usageRecordTable(records []usageledger.Record) *outTable {
-	t := newTable(
+	// Reported records have no access point; they are shown by harness. A
+	// SOURCE column appears only when some record is reported.
+	reported := false
+	for _, r := range records {
+		reported = reported || r.Source == usageledger.SourceReported
+	}
+	columns := []column{
 		wideCol("ID").trunc(truncNever), col("TIME"), wideCol("PLANE"), col("MODEL/TOOL"), col("CALLER").trunc(truncMiddle),
-		wideCol("AGENT"), wideCol("USER").trunc(truncNever), wideCol("PRINCIPAL ID").trunc(truncNever), wideCol("CLIENT"), col("ACCESS POINT"), wideCol("SESSION"), wideCol("BATCH"),
+		wideCol("AGENT"), wideCol("USER").trunc(truncNever), wideCol("PRINCIPAL ID").trunc(truncNever), wideCol("CLIENT"), col("ACCESS POINT"), wideCol("SESSION"), wideCol("BATCH"), wideCol("TAGS"),
 		col("STATUS"), wideCol("HOOKS"), wideCol("ATTEMPTS"), wideCol("BACKEND"), wideCol("CACHE"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST").trunc(truncNever), wideCol("LATENCY"),
-	)
+	}
+	if reported {
+		columns = append(columns[:4], append([]column{col("SOURCE")}, columns[4:]...)...)
+	}
+	t := newTable(columns...)
 	for _, r := range records {
 		cost := usageCost(r.Cost)
 		latency := humanDuration(r.LatencyMS)
@@ -392,13 +529,45 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 		} else {
 			cost = shortMoney(r.Cost.Currency, r.Cost.Amount, r.Cost.Scale, r.Cost.Basis)
 		}
-		t.add(r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalDisplay), usageDash(r.PrincipalID), usageDash(r.ClientID),
-			usageDash(r.AccessPointID), usageSessionCell(r), usageBatchCell(r), usageStatusCell(r), usageHooksCell(r),
+		row := []string{r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalDisplay), usageDash(r.PrincipalID), usageDash(r.ClientID),
+			usageDash(usageAccessPointCell(r)), usageSessionCell(r), usageBatchCell(r), usageTagsCell(r.Tags), usageStatusCell(r), usageHooksCell(r),
 			usageAttemptsCell(r), usageBackendCell(r), usageCacheCell(r),
 			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageRecordCounter(r, usageledger.CounterCacheWrite),
-			usageModalityCell(r), usageUnitsCell(r), cost, latency)
+			usageModalityCell(r), usageUnitsCell(r), cost, latency}
+		if reported {
+			row = append(row[:4], append([]string{usageSourceCell(r)}, row[4:]...)...)
+		}
+		t.add(row...)
 	}
 	return t
+}
+
+// usageSourceCell is the record's source; a reported record names its harness.
+func usageSourceCell(r usageledger.Record) string {
+	if r.Source == usageledger.SourceReported && r.Harness != "" {
+		return r.Source + " (" + r.Harness + ")"
+	}
+	return r.Source
+}
+
+// usageAccessPointCell is the access point of a managed exchange. A reported
+// record never entered through one.
+func usageAccessPointCell(r usageledger.Record) string {
+	if r.Source == usageledger.SourceReported && r.AccessPointID == "" {
+		return "n/a"
+	}
+	return r.AccessPointID
+}
+
+func usageTagsCell(tags map[string]string) string {
+	if len(tags) == 0 {
+		return "—"
+	}
+	parts := make([]string, 0, len(tags))
+	for _, k := range usageledger.SortedKeys(tags) {
+		parts = append(parts, k+"="+tags[k])
+	}
+	return strings.Join(parts, " ")
 }
 
 // usageAttemptsCell lists a routed exchange's attempt outcomes in order,
@@ -610,6 +779,9 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		{"usage_bound", usageDash(r.UsageBound)},
 		{"status", r.Status}, {"http_status", httpStatus}, {"error_class", usageDash(r.ErrorClass)}, {"source", r.Source},
 		{"requests", strconv.FormatInt(r.Requests, 10)},
+		{"harness", usageDash(r.Harness)}, {"harness_version", usageDash(r.HarnessVersion)}, {"session_id", usageDash(r.SessionID)},
+		{"client_request_id", usageDash(r.ClientRequestID)}, {"caller_span_id", usageDash(r.CallerSpanID)},
+		{"tags", usageTagsCell(r.Tags)}, {"reported_attributes", usageTagsCell(r.ReportedAttributes)},
 	}
 	rows = append(rows, [2]string{"batch", strconv.FormatBool(r.Batch)}, [2]string{"image_size", usageDash(r.ImageSize)}, [2]string{"image_quality", usageDash(r.ImageQuality)})
 	for _, name := range usageledger.TokenCounters {
@@ -751,7 +923,7 @@ func usageLimitRows(l *providerlimits.Limits) [][2]string {
 var usageGroupHeader = map[string]string{
 	"plane": "PLANE", "provider": "PROVIDER", "model_id": "MODEL", "tool_name": "TOOL", "actor_id": "AGENT",
 	"principal_id": "USER", "client_id": "CLIENT", "access_point_id": "ACCESS POINT", "caller_kind": "CALLER KIND", "status": "STATUS",
-	"source": "SOURCE", "error_class": "ERROR CLASS", "usage_bound": "BOUND", "batch": "BATCH", "hook_decision": "HOOKS",
+	"source": "SOURCE", "error_class": "ERROR CLASS", "usage_bound": "BOUND", "batch": "BATCH", "harness": "HARNESS", "hook_decision": "HOOKS",
 }
 
 // usageTokens renders one summed token counter. A counter no record reported
@@ -847,6 +1019,9 @@ func usageSummaryTable(s *usageledger.Summary) *outTable {
 	var cols []column
 	for _, field := range s.GroupBy {
 		name := usageGroupHeader[field]
+		if tag, ok := strings.CutPrefix(field, usageledger.TagGroupPrefix); ok {
+			name = "TAG " + strings.ToUpper(tag)
+		}
 		if name == "" {
 			name = strings.ToUpper(field)
 		}
@@ -860,6 +1035,13 @@ func usageSummaryTable(s *usageledger.Summary) *outTable {
 		cols = append(cols, col("BUCKET"))
 	}
 	cols = append(cols, col("REQUESTS"), col("ERRORS"), col("DENIED"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), wideCol("BATCH"), col("COST"), wideCol("UNKNOWN"), wideCol("BOUNDED"))
+	withFeedback := false
+	for _, g := range s.Groups {
+		withFeedback = withFeedback || g.Feedback != nil
+	}
+	if withFeedback {
+		cols = append(cols, wideCol("FEEDBACK"))
+	}
 	t := newTable(cols...)
 	for _, g := range s.Groups {
 		var row []string
@@ -892,6 +1074,9 @@ func usageSummaryTable(s *usageledger.Summary) *outTable {
 		row = append(row, strconv.FormatInt(g.Requests, 10), strconv.FormatInt(g.Errors, 10), strconv.FormatInt(g.Denied, 10),
 			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageTokens(g, usageledger.CounterCacheWrite),
 			usageGroupModality(g), usageGroupUnits(g), usageGroupBatch(g), usageCostTotals(g), usageUnknownCounts(g), usageBoundedCounts(g))
+		if withFeedback {
+			row = append(row, usageFeedbackCell(g))
+		}
 		t.add(row...)
 	}
 	return t

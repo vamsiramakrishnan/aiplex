@@ -25,6 +25,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/endpointpolicy"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/governance"
+	"github.com/vamsiramakrishnan/aiplex/pkg/mcpregistry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/networking"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
@@ -52,6 +53,9 @@ type ToolConnection struct {
 	// credential mode's existing behaviour. Tools is connection-level policy.
 	Auth  *toolcredential.Auth `json:"auth,omitempty"`
 	Tools *toolexec.ToolPolicy `json:"tools,omitempty"`
+	// Provenance records the MCP Registry entry the connection was imported
+	// from. It is informational and never read by authorization or dispatch.
+	Provenance *mcpregistry.Provenance `json:"provenance,omitempty"`
 }
 type ConnectedHandler struct {
 	ToolSessions    *toolauth.Runtime
@@ -79,6 +83,9 @@ type ConnectedHandler struct {
 	// (created on first use); nothing is shared between replicas.
 	Breakers      *routing.Breakers
 	ResponseCache routing.CacheStore
+	// Tags resolves record tags (access point labels and the allowlisted
+	// X-AIPlex-Tags header). Nil allows no caller-supplied tags.
+	Tags *TagPolicy
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {

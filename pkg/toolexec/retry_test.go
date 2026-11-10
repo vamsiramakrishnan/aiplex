@@ -78,3 +78,26 @@ func TestToolListRetriesTransportFailure(t *testing.T) {
 		t.Fatalf("tools/list retried: %d calls=%d %s", w.Code, calls.Load(), w.Body)
 	}
 }
+
+func TestToolRetryDoesNotReauthorizeOrReinspect(t *testing.T) {
+	var calls atomic.Int32
+	server := dropFirst(t, &calls)
+	authorized, inspected := 0, 0
+	opts := toolOptions(server, &recordingLease{})
+	inner := opts.Authorize
+	opts.Authorize = func(ctx context.Context, c contracts.RequestContext, conn Connection, r Request) error {
+		authorized++
+		return inner(ctx, c, conn, r)
+	}
+	opts.InspectRequest = func(_ context.Context, r Request) ([]byte, error) { inspected++; return r.Body, nil }
+	opts.Retry = &TransportRetry{Attempts: 2, Call: func(context.Context, Request) bool { return true }}
+	g, err := NewGateway(toolConnection(server), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	g.ServeHTTP(w, toolRequest(toolBody))
+	if w.Code != 200 || calls.Load() != 2 || authorized != 1 || inspected != 1 {
+		t.Fatalf("retry: %d sends=%d authorize=%d inspect=%d", w.Code, calls.Load(), authorized, inspected)
+	}
+}

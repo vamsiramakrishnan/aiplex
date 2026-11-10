@@ -7,7 +7,8 @@ const base = '/api/v1/usage'
 
 export type Plane = 'llmplex' | 'mcplex' | 'a2aplex'
 export type Status = 'ok' | 'error' | 'denied' | 'unknown'
-export type Basis = 'settled' | 'estimated' | 'unknown'
+/** reported is a cost the client's own telemetry reported (the sender's estimate); it is never a settled or an AIPlex-priced figure. */
+export type Basis = 'settled' | 'estimated' | 'reported' | 'unknown'
 // int64 counters beyond the browser-safe range arrive as decimal strings so
 // no digit is lost; everything else is a plain number.
 export type Count = number | string
@@ -69,8 +70,24 @@ export interface UsageRecord {
   access_point_id?: string
   caller_kind?: string
   request_id?: string
+  /** W3C trace id. For a managed record, the trace the request was part of; for a reported record, the id on the client's own log event. */
   trace_id?: string
+  /** W3C span id: the CLIENT span of a managed exchange, or the id on a reported event. */
+  span_id?: string
   quota_attempt_id?: string
+  /** Reported records only: the client that sent its telemetry (claude-code, codex, gemini-cli) and its version. Labels the client chose, not identity. */
+  harness?: string
+  harness_version?: string
+  session_id?: string
+  client_request_id?: string
+  /** Managed records: the span id of the traceparent the caller sent. */
+  caller_span_id?: string
+  /** A bounded, documented subset of the client's labels. Never identity. */
+  reported_attributes?: Record<string, string>
+  /** Experiment labels from access point configuration and allowlisted request headers. */
+  tags?: Record<string, string>
+  /** Request-hook summary; present only when a hook ran on the exchange. Never holds content or matched text. */
+  hooks?: UsageHooks
   streaming: boolean
   /** True for a WebSocket session record (one record per session; usage is advisory). Absent on older servers and on non-session records. */
   session?: boolean
@@ -90,6 +107,13 @@ export interface UsageRecord {
   requests: Count
   usage: UsageCounters | null
   cost: UsageCost
+}
+
+export interface UsageHooks {
+  decision: 'allow' | 'deny' | 'transform' | 'error' | 'skipped'
+  fail_open_used?: boolean
+  uninspected_parts?: Count
+  results?: { id: string; type: string; phase: string; decision: string; rules?: { id: string; count: Count }[]; duration_ms?: Count; fail_open_used?: boolean }[]
 }
 
 export interface UsagePage { records: UsageRecord[]; next_cursor?: string }
@@ -112,12 +136,17 @@ export interface UsageFilter {
   usage_bound?: string
   /** "true" for provider batch exchanges, "false" for everything else. */
   batch?: string
+  /** Reported records from one client. */
+  harness?: string
+  /** allow, deny, transform, error, skipped or none. */
+  hook_decision?: string
   since?: string
   until?: string
 }
 
-export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status', 'source', 'error_class', 'usage_bound', 'batch'] as const
-export type GroupField = (typeof GROUP_FIELDS)[number]
+export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status', 'source', 'error_class', 'usage_bound', 'batch', 'hook_decision', 'harness'] as const
+/** A record field, or a record tag written tag:<key>. */
+export type GroupField = (typeof GROUP_FIELDS)[number] | `tag:${string}`
 export type Bucket = '' | 'hour' | 'day'
 
 export interface CostTotal { currency: string; basis: Basis; amount: string; scale: number; amount_decimal?: string; records: number }
@@ -147,8 +176,24 @@ export interface SummaryGroup {
   unit_records?: Partial<Record<UnitCounter, Count>>
   /** Records of provider batch exchanges. Omitted when zero. */
   batch_records?: Count
+  /** Latest-feedback totals, when the summary asked for them. Records without feedback are counted in without_feedback; they are not a neutral score. */
+  feedback?: FeedbackTotals
 }
-export interface UsageSummary { group_by: GroupField[]; bucket?: string; groups: SummaryGroup[]; records_scanned: Count; truncated: boolean }
+export interface FeedbackTotals { records: Count; without_feedback: Count; positive: Count; negative: Count; neutral: Count; average_score: number | null }
+export interface UsageSummary {
+  group_by: GroupField[]; bucket?: string; groups: SummaryGroup[]; records_scanned: Count; truncated: boolean
+  /** True when managed and reported records are separate groups (the source key was added). */
+  source_split?: boolean
+  /** Reported records left out because they describe a request that has a managed record. */
+  excluded_correlated_reported?: Count
+  /** Plain-words notes on how managed and reported records were treated. */
+  notes?: string[]
+}
+
+export interface UsageFeedback { id: string; tenant_id: string; record_id: string; by: string; created_at: string; score: number; label?: string; comment?: string }
+export interface UsageRecordDetail extends UsageRecord { feedback?: UsageFeedback }
+/** Deployment settings the Console needs. */
+export interface UsageConfig { trace_url_template: string; feedback: boolean; feedback_comments: boolean; tag_keys_allowed: string[] }
 
 export const PRICE_METERS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'requests'] as const
 /** Modality meters price a split at its own rate and remove it from its parent token total. */
@@ -213,11 +258,16 @@ export const listUsageRecords = (filter: UsageFilter, limit = 50, cursor = '') =
   if (cursor) params.set('cursor', cursor)
   return usageRequest<UsagePage>(`/records?${params}`)
 }
-export const getUsageRecord = (id: string) => usageRequest<UsageRecord>(`/records/${encodeURIComponent(id)}`)
-export const usageSummary = (filter: UsageFilter, groupBy: readonly GroupField[], bucket: Bucket = '') => {
+export const getUsageRecord = (id: string) => usageRequest<UsageRecordDetail>(`/records/${encodeURIComponent(id)}`)
+export const getUsageConfig = () => usageRequest<UsageConfig>('/config')
+/** Adds feedback (append-only; the newest entry is the record's current feedback). score is between -1 and 1. */
+export const postFeedback = (id: string, score: number, label = '') =>
+  usageRequest<UsageFeedback>(`/records/${encodeURIComponent(id)}/feedback`, { method: 'POST', body: JSON.stringify(label ? { score, label } : { score }) })
+export const usageSummary = (filter: UsageFilter, groupBy: readonly GroupField[], bucket: Bucket = '', options: { feedback?: boolean } = {}) => {
   const params = filterParams(filter)
   if (groupBy.length) params.set('group_by', groupBy.join(','))
   if (bucket) params.set('bucket', bucket)
+  if (options.feedback) params.set('feedback', 'true')
   return usageRequest<UsageSummary>(`/summary?${params}`)
 }
 export const listPrices = () => usageRequest<PriceResource[]>('/prices/')
@@ -283,7 +333,7 @@ export function formatMoney(amount: string, scale: number): string {
 
 /** "USD 0.001135" with its basis, or "unknown". Never zero for unknown. */
 export function formatCost(cost: UsageCost | null | undefined): string {
-  if (!cost || (cost.basis !== 'settled' && cost.basis !== 'estimated')) return UNKNOWN
+  if (!cost || (cost.basis !== 'settled' && cost.basis !== 'estimated' && cost.basis !== 'reported')) return UNKNOWN
   try { return `${cost.currency ?? '?'} ${formatMoney(cost.amount ?? '', cost.scale ?? 0)}` } catch { return 'invalid amount' }
 }
 
@@ -386,4 +436,29 @@ export interface TokenHeadline { reported: boolean; total: bigint; unknownRecord
 export function tokenHeadline(groups: readonly SummaryGroup[], name: TokenCounter): TokenHeadline {
   const reported = groups.some((g) => g.tokens[name] !== undefined)
   return { reported, total: sumCounts(groups.map((g) => g.tokens[name])), unknownRecords: sumCounts(groups.map((g) => g.tokens_unknown[name])) }
+}
+
+// ---- trace links ----------------------------------------------------------
+
+/**
+ * The operator's trace viewer link for a trace id, or undefined. The template
+ * comes from the server (AIPLEX_TRACE_URL_TEMPLATE) and must contain
+ * {trace_id}; only http and https links are ever produced, so a template
+ * (or a trace id) can never yield a javascript: or data: URL.
+ */
+export function traceURL(template: string | undefined, traceId: string | undefined): string | undefined {
+  if (!template || !traceId || !/^[0-9a-f]{32}$/.test(traceId) || !template.includes('{trace_id}')) return undefined
+  try {
+    const url = new URL(template.split('{trace_id}').join(traceId))
+    return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password ? url.toString() : undefined
+  } catch { return undefined }
+}
+
+/** Mean feedback of the records that have some, and how many have none. No feedback is not a neutral score. */
+export function feedbackText(f: FeedbackTotals | undefined): string {
+  if (!f) return '—'
+  const without = `${formatCount(f.without_feedback)} without`
+  if (f.average_score === null || toBig(f.records) === 0n) return `none (${without})`
+  const sign = f.average_score > 0 ? '+' : ''
+  return `avg ${sign}${f.average_score.toFixed(2)} (n=${formatCount(f.records)}; ${without})`
 }

@@ -14,13 +14,20 @@ There has been no tagged release yet. This section summarises what exists in the
 - Tool calls: one retry after a transport failure for `tools/list` and for tools annotated `readOnlyHint: true`.
 - Not measured for performance and not run against real providers' failures.
 
+### Tool policy rules and the MCP Registry
+
+- Policy rules on tool calls: `tools.rules` on a tool connection (and `tools[].rules` on an access point's tool entry, which can only add restrictions) are CEL expressions over `tool` (name, connection, MCP annotations), `args`, `caller` (kind, principal, groups with `groups_known`, agent, client), `access_point` and `request.time`, with `effect` `deny` or `allow`. They run after the name lists, the `mcp:tools` scope and `read_only`: the first matching deny refuses, and once a set has an allow rule a call matching none is refused. Expressions are type-checked when saved (unknown fields, non-boolean results and oversize expressions are rejected) and limited in size, cost and arguments (64 KiB); a rule that cannot be evaluated refuses the call (`tool_policy_error`), as do unknown group membership read without a guard, an absent annotation and damaged saved rules. Helpers: `path_under`, `url_host`, `any_in`, `lower` and RE2 `matches` with a literal pattern. `tools/list` hides a tool only when every call would be refused without arguments or time. Refusals are JSON-RPC `-32001` with `data.reason` and `data.rule`, and record `error_class` `tool_policy_denied` or `tool_policy_error` with `tool_policy_rule` in the ledger, the span attributes `aiplex.tool_policy.*` and the `aiplex.tool_policy.decisions` metric; arguments are never recorded. `POST /api/v1/mcp/connections/{id}/rules/test` is an operator-only dry run with a per-rule trace. `aiplex mcp connections rules list|add|remove|set|test`; `get` shows the rules. The engine adds about 6.2 MB (19%) to `aiplex-api`. See `docs/tool-policy-rules.md`.
+- MCP Registry import: `aiplex mcp registry search|show|import` read the official registry (or `--registry` / `AIPLEX_MCP_REGISTRY`) from the CLI and import a `streamable-http` remote as an ordinary tool connection with a proposed auth block (secret headers become secret references you create; the command prints which), a `provenance` block (registry, name, version, retrieval time, SHA-256 of the server.json) and a read-only default. Local packages and legacy SSE remotes are listed as not importable. Registry content is validated strictly, redirects are not followed, and import never approves the server's origin. Tools come from `--allow-tools` or an explicit `--probe`. See `docs/mcp-registry-import.md`.
+- `GET /ap/{id}/v0.1/servers` also answers in the MCP Registry response shape (`servers[]` of `{server, _meta}`, server.json schema 2025-12-11) next to the existing catalog members.
+- Deployment notes: how to build and push the `aiplex-authz` image (the release pipeline does not build it), the dashboard denials route documented as `admin`-only, and the health-check firewall rule documented as inert (it targets a node tag GKE never assigns; GKE manages those rules itself).
+
 ### SDKs
 
 - Unpublished Python (`sdk/python`, package `aiplex`) and TypeScript (`sdk/typescript`, `@aiplex/sdk`) clients for the HTTP API, mirroring the Go SDK's covered routes; tested with `make sdk-test`.
 
 ### Packaging and install
 
-- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew formula to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`. The images are distroless, run as a non-root user and carry OCI labels.
+- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew cask for macOS to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`, built with GoReleaser `dockers_v2`. GoReleaser is pinned to v2.20.0. The images are distroless, run as a non-root user and carry OCI labels.
 - The release also produces an SBOM and signs `checksums.txt` and the images keyless with the workflow's GitHub identity. The signing and the SBOM have not been run against a real release.
 - `install.sh` refuses an archive when `checksums.txt` cannot be downloaded or does not list it, rejects a malformed `--version`, and names the missing platform asset when a release has no build for it.
 - None of this has been published yet: no release is tagged, and the tap, the images and the signatures have not been produced.
@@ -43,6 +50,14 @@ There has been no tagged release yet. This section summarises what exists in the
 - `aiplex auth print-token` for client credential helpers.
 - `integrations/claude-code` (plugin with three skills), `integrations/gemini-cli` (extension) and a root `AGENTS.md`; a test checks that every `aiplex` command in them exists.
 - Gemini CLI's base URL and Antigravity's configuration are printed as remaining steps, not written: Gemini CLI has no settings key for the base URL, and Antigravity's config location is not documented.
+
+### Harness telemetry, tags and feedback
+
+- An OTLP/HTTP receiver (`POST /otlp/v1/logs`, `/metrics`, `/traces`; protobuf or JSON, gzip, bounded) records a coding harness's usage events as `source=reported` ledger records under the sender's verified identity: Claude Code `api_request` and `api_error`, Codex `response.completed`, Gemini CLI `api_response` and `api_error`. Metrics and traces are accepted and not recorded, so a request is not counted twice. Retries are idempotent; unmapped signals can be forwarded to your collector (`AIPLEX_OTLP_FORWARD`). `aiplex connect --write --with-telemetry aiplex` points a client at it without writing the token to a file. Mappings come from the harnesses' documentation; only Claude Code was run against a real client.
+- Cost basis `reported` for a cost a harness reported. Summaries keep managed and reported records in separate groups, leave out reported records that share an explicit key with a managed record, and say so (`source_split`, `excluded_correlated_reported`, `notes`); `merge_sources=true` adds them together. The dashboard and overview roll-ups count managed records only.
+- Record `tags` from access point `labels` and an operator-allowlisted `X-AIPlex-Tags` header (`tag.<key>` filter, `tag:<key>` grouping, a per-key cap with an `(other)` bucket). Append-only record feedback (`POST /api/v1/usage/records/{id}/feedback`, `aiplex usage feedback`), shown in the record and in summaries (`feedback=true`, `-o wide`) with "without feedback" counted apart.
+- The Console shows trace and span ids with copy buttons, a trace viewer link (`AIPLEX_TRACE_URL_TEMPLATE`), a source badge and the harness.
+- Managed `tools/call` requests carry the exchange's trace context in `params._meta` as well as the HTTP headers; the rest of the request is relayed byte for byte. Agent exchanges with known final usage are counted in the GenAI token counters.
 
 ### Request hooks
 

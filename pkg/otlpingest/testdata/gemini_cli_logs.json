@@ -1,0 +1,49 @@
+{
+  "_comment": "Built by hand from the Gemini CLI telemetry reference (google-gemini/gemini-cli docs/cli/telemetry.md, read 2026-11-10). Not captured from a real client.",
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "gemini-cli"}},
+          {"key": "service.version", "value": {"stringValue": "0.40.0"}}
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {"name": "gemini-cli"},
+          "logRecords": [
+            {
+              "timeUnixNano": "1794312020000000000",
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "gemini_cli.api_response"}},
+                {"key": "session.id", "value": {"stringValue": "gem-session-1"}},
+                {"key": "installation.id", "value": {"stringValue": "install-untrusted"}},
+                {"key": "user.email", "value": {"stringValue": "gem@example.com"}},
+                {"key": "model", "value": {"stringValue": "gemini-2.5-pro"}},
+                {"key": "status_code", "value": {"intValue": "200"}},
+                {"key": "duration_ms", "value": {"intValue": "1800"}},
+                {"key": "input_token_count", "value": {"intValue": "900"}},
+                {"key": "output_token_count", "value": {"intValue": "250"}},
+                {"key": "cached_content_token_count", "value": {"intValue": "300"}},
+                {"key": "thoughts_token_count", "value": {"intValue": "75"}},
+                {"key": "tool_token_count", "value": {"intValue": "0"}},
+                {"key": "total_token_count", "value": {"intValue": "1225"}},
+                {"key": "prompt_id", "value": {"stringValue": "gem-prompt-9"}},
+                {"key": "response_text", "value": {"stringValue": "the model said this and it must not be stored"}}
+              ]
+            },
+            {
+              "timeUnixNano": "1794312021000000000",
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "gemini_cli.tool_call"}},
+                {"key": "session.id", "value": {"stringValue": "gem-session-1"}},
+                {"key": "function_name", "value": {"stringValue": "read_file"}},
+                {"key": "success", "value": {"boolValue": true}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

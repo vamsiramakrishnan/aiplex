@@ -339,7 +339,7 @@ func shortMoney(currency, amount string, scale uint8, basis string) string {
 	if basis == "cached" {
 		return "0 (cached)"
 	}
-	if basis != "settled" && basis != "estimated" {
+	if basis != "settled" && basis != "estimated" && basis != "reported" {
 		return usageUnknown
 	}
 	value, err := formatFixed(amount, scale)
