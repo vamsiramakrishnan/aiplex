@@ -1,6 +1,6 @@
 # Closing the gateway gaps
 
-Status: plan, in execution. Date: 2026-11-10. Follows
+Status: implemented, with the deviations below. Date: 2026-11-10. Nothing here has been run against a live cloud project or a real collector (see [project status](../../README.md#project-status)). Follows
 [harness onboarding, telemetry, price catalogue and least-privilege setup](2026-11-10-onboarding-telemetry-least-privilege.md).
 
 The existing invariants hold for all of it: fail closed, unknown is never zero,
@@ -30,6 +30,33 @@ policy entry, and docs say what was not validated.
 
 Work delegated to outside models runs in its own worktree without repository
 credentials, and is reviewed and tested before it is merged.
+
+## What landed
+
+| Work | Where it is written up |
+| --- | --- |
+| Request hooks: redact, size limit, HTTP sidecar (`aiplex.hooks.v1`), Presidio and LLM Guard adapter shapes | [request hooks](../request-hooks.md) |
+| Reliability and routing: priority, weighted and lowest-cost order; retries and fallback; circuit breakers; exact-match response cache, off by default | [reliability and routing](../reliability-and-routing.md) |
+| Budgets: team and project limits above per-caller quota | [budgets](../budgets.md) |
+| Tool policy expressions and MCP Registry import | [policy rules on tool calls](../tool-policy-rules.md), [MCP Registry import](../mcp-registry-import.md) |
+| Harness telemetry over OTLP into the ledger as `source=reported`; span ids; trace context in MCP `_meta`; feedback and tags | [observability](../observability.md), [harness onboarding](../harness-onboarding.md), [usage ledger](../usage-ledger.md) |
+| Price catalogue from two pinned sources; context-length tiers; service tiers; backfill | [usage ledger](../usage-ledger.md) |
+| Kubernetes deploys through the API; idempotent `aiplex apply`; Gateway in the Helm chart | [Google Cloud permissions](../gcp-permissions.md) |
+| Python and TypeScript SDKs, unpublished | [Python](../../sdk/python/README.md), [TypeScript](../../sdk/typescript/README.md) |
+| Homebrew cask (macOS) in the release workflow; container images built by the release workflow, none published yet | [README](../../README.md#install) |
+| Order of checks, written once | [request lifecycle](../request-lifecycle.md) |
+
+## Deviations from the plan
+
+- **Homebrew is a cask for macOS only.** Casks do not install on Linux; Linux uses the install script or the archive.
+- **Kubernetes deploys use a small built-in REST client,** not `client-go`, and find resource names through API discovery.
+- **CEL adds about 6.2 MB (19%)** to the `aiplex-api` binary.
+- **Rolling budget windows are not offered.** QuotaPlex refuses them; use calendar or tumbling windows.
+- **The response cache is in memory, per process.** It is not shared between replicas.
+- **Response hooks buffer streams for two wires only** (OpenAI Chat and Anthropic Messages SSE). Other streams under a response hook are refused, or pass uninspected only where the policy says so.
+- **Price tiers for Azure OpenAI, Bedrock, xAI, Gemini and Vertex Claude are not imported** because their threshold rules were not confirmed.
+- **Antigravity gets MCP configuration only.** Model and gateway settings stay print-only.
+- **Live validation is narrower than planned.** The Gemini Developer API and z.ai were run; OpenAI and Anthropic first-party endpoints were not (the OpenAI key had no credit). Codex was run against the mock only.
 
 ## Not planned here
 
