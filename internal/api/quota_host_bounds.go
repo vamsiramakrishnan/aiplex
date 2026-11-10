@@ -270,7 +270,9 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 			return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "partial responses and unknown query options are unsupported")
 		}
 	}
-	if (in.OperationID == "models.streamGenerateContent" && query.Get("alt") != "sse") || (in.OperationID == "models.generateContent" && query.Get("alt") == "sse") {
+	// streamGenerateContent is admitted with alt=sse (SSE frames) or without
+	// it (one JSON array, buffered and observed whole before delivery).
+	if (in.OperationID == "models.generateContent" || in.OperationID == "endpoints.generateContent") && query.Get("alt") == "sse" {
 		return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "request transport does not match protected native response semantics")
 	}
 	var output int64
@@ -298,13 +300,29 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 		copyBounds[key] = value
 	}
 	proof.NativeBounds = copyBounds
-	// This profile encodes the shared input ceiling in both disjoint input
-	// reservations and the enforced combined-output limit in both output subsets.
-	if copyBounds["uncached_input_tokens"] <= 0 || copyBounds["cached_tokens"] != copyBounds["uncached_input_tokens"] || copyBounds["output_tokens"] != output || ((binding.Profile == quotaProfileGemini || binding.Profile == quotaProfileInteraction) && copyBounds["thought_tokens"] != output) {
+	// The proof attests one provider-enforced input ceiling (keyed by the
+	// first input subset) and the requested output cap. Every disjoint input
+	// subset (uncached, cache read, each mapped cache-write meter) reserves
+	// that whole ceiling; every output subset reserves the output cap.
+	inputs := quotaProfileInputCounters(binding)
+	ceiling, attested := copyBounds["uncached_input_tokens"]
+	if !attested {
+		ceiling = copyBounds["input_tokens"]
+	}
+	if ceiling <= 0 || copyBounds["output_tokens"] != output || ((binding.Profile == quotaProfileGemini || binding.Profile == quotaProfileInteraction) && copyBounds["thought_tokens"] != output) {
 		return nil, nil, quotaStatus(503, "QUOTA_BOUNDS_UNAVAILABLE", "provider exposure proof omits a conservative token bound")
 	}
-	for _, native := range quotaProfileCounters(binding.Profile) {
-		counts[native] = copyBounds[native]
+	for _, native := range inputs {
+		if value, present := copyBounds[native]; present && value != ceiling {
+			return nil, nil, quotaStatus(503, "QUOTA_BOUNDS_UNAVAILABLE", "provider exposure proof omits a conservative token bound")
+		}
+		copyBounds[native] = ceiling
+	}
+	proof.NativeBounds = copyBounds
+	for native := range binding.Meters {
+		if native != "requests" {
+			counts[native] = copyBounds[native]
+		}
 	}
 	return counts, &proof, nil
 }

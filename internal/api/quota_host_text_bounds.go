@@ -19,7 +19,11 @@ func quotaTextValue(raw json.RawMessage) bool {
 	var text string
 	return raw != nil && json.Unmarshal(raw, &text) == nil
 }
-func quotaMessages(raw json.RawMessage) bool {
+func quotaMessages(raw json.RawMessage) bool { return quotaMessagesWith(raw, false) }
+
+// quotaMessagesWith accepts inline text messages. With cacheBlocks, Anthropic
+// text content blocks carrying a cache_control breakpoint are accepted too.
+func quotaMessagesWith(raw json.RawMessage, cacheBlocks bool) bool {
 	var messages []map[string]json.RawMessage
 	if json.Unmarshal(raw, &messages) != nil || len(messages) == 0 || len(messages) > 1024 {
 		return false
@@ -29,11 +33,107 @@ func quotaMessages(raw json.RawMessage) bool {
 			return false
 		}
 		var role string
-		if json.Unmarshal(m["role"], &role) != nil || (role != "user" && role != "system" && role != "developer" && role != "assistant") || !quotaTextValue(m["content"]) {
+		if json.Unmarshal(m["role"], &role) != nil || (role != "user" && role != "system" && role != "developer" && role != "assistant") {
+			return false
+		}
+		if !quotaTextValue(m["content"]) && !(cacheBlocks && quotaAnthropicTextBlocks(m["content"])) {
 			return false
 		}
 	}
 	return true
+}
+
+// quotaAnthropicCacheControl accepts the documented ephemeral breakpoint with
+// an optional 5m or 1h TTL.
+func quotaAnthropicCacheControl(raw json.RawMessage) bool {
+	var control map[string]json.RawMessage
+	var kind, ttl string
+	if json.Unmarshal(raw, &control) != nil || !quotaOnlyFields(control, "type", "ttl") || json.Unmarshal(control["type"], &kind) != nil || kind != "ephemeral" {
+		return false
+	}
+	if control["ttl"] != nil && (json.Unmarshal(control["ttl"], &ttl) != nil || (ttl != "5m" && ttl != "1h")) {
+		return false
+	}
+	return true
+}
+
+// quotaAnthropicTextBlocks accepts a bounded array of text blocks, each with
+// an optional cache_control breakpoint. Media, documents and tool blocks are
+// still refused.
+func quotaAnthropicTextBlocks(raw json.RawMessage) bool {
+	var blocks []map[string]json.RawMessage
+	if json.Unmarshal(raw, &blocks) != nil || len(blocks) == 0 || len(blocks) > 1024 {
+		return false
+	}
+	for _, block := range blocks {
+		var kind string
+		if !quotaOnlyFields(block, "type", "text", "cache_control") || json.Unmarshal(block["type"], &kind) != nil || kind != "text" || !quotaTextValue(block["text"]) {
+			return false
+		}
+		if block["cache_control"] != nil && !quotaAnthropicCacheControl(block["cache_control"]) {
+			return false
+		}
+	}
+	return true
+}
+
+// quotaConverseTextOutput bounds a Bedrock Converse request: inline text
+// content blocks (and, when cache writes are metered, cachePoint blocks), an
+// optional text system prompt and an explicit inferenceConfig.maxTokens.
+// Tools, guardrails, documents, images and additional model fields are refused.
+func quotaConverseTextOutput(body []byte, cache bool) (int64, error) {
+	object, err := quotaJSONObject(body)
+	if err != nil {
+		return 0, err
+	}
+	if !quotaOnlyFields(object, "messages", "system", "inferenceConfig") {
+		return 0, fmt.Errorf("unsupported Converse exposure feature")
+	}
+	blocks := func(raw json.RawMessage) bool {
+		var items []map[string]json.RawMessage
+		if json.Unmarshal(raw, &items) != nil || len(items) == 0 || len(items) > 1024 {
+			return false
+		}
+		for _, item := range items {
+			if len(item) != 1 {
+				return false
+			}
+			if text := item["text"]; text != nil {
+				if !quotaTextValue(text) {
+					return false
+				}
+				continue
+			}
+			point := item["cachePoint"]
+			var fields map[string]json.RawMessage
+			var kind, ttl string
+			if !cache || point == nil || json.Unmarshal(point, &fields) != nil || !quotaOnlyFields(fields, "type", "ttl") || json.Unmarshal(fields["type"], &kind) != nil || kind != "default" {
+				return false
+			}
+			if fields["ttl"] != nil && (json.Unmarshal(fields["ttl"], &ttl) != nil || (ttl != "5m" && ttl != "1h")) {
+				return false
+			}
+		}
+		return true
+	}
+	var messages []map[string]json.RawMessage
+	if json.Unmarshal(object["messages"], &messages) != nil || len(messages) == 0 || len(messages) > 1024 {
+		return 0, fmt.Errorf("inline text messages required")
+	}
+	for _, m := range messages {
+		var role string
+		if !quotaOnlyFields(m, "role", "content") || json.Unmarshal(m["role"], &role) != nil || (role != "user" && role != "assistant") || !blocks(m["content"]) {
+			return 0, fmt.Errorf("inline text messages required")
+		}
+	}
+	if raw := object["system"]; raw != nil && !blocks(raw) {
+		return 0, fmt.Errorf("inline text system prompt required")
+	}
+	var config map[string]json.RawMessage
+	if json.Unmarshal(object["inferenceConfig"], &config) != nil || !quotaOnlyFields(config, "maxTokens", "temperature", "topP", "stopSequences") {
+		return 0, fmt.Errorf("explicit inference configuration required")
+	}
+	return quotaPositiveInteger(config["maxTokens"])
 }
 func quotaProviderTextOutput(binding QuotaBinding, body []byte) (int64, error) {
 	object, err := quotaJSONObject(body)
@@ -55,8 +155,33 @@ func quotaProviderTextOutput(binding QuotaBinding, body []byte) (int64, error) {
 			return 0, fmt.Errorf("invalid stream selection")
 		}
 	}
+	writes, _ := quotaBindingCacheWrites(binding)
+	cache := len(writes) > 0
 	switch binding.Profile {
-	case quotaProfileOpenAI:
+	case quotaProfileBedrockConverse:
+		return quotaConverseTextOutput(body, cache)
+	case quotaProfileOpenAI, quotaProfileVertexOpenAI:
+		// Prompt-cache routing hints (prompt_cache_key, prompt_cache_options)
+		// change cache placement, not exposure; they are accepted only when
+		// cache writes are metered, because they can cause billed writes.
+		if raw := object["prompt_cache_key"]; raw != nil && (!cache || !quotaTextValue(raw)) {
+			return 0, fmt.Errorf("prompt cache key requires metered cache writes")
+		}
+		if raw := object["prompt_cache_options"]; raw != nil {
+			var options map[string]json.RawMessage
+			var mode, ttl string
+			if !cache || json.Unmarshal(raw, &options) != nil || !quotaOnlyFields(options, "mode", "ttl") {
+				return 0, fmt.Errorf("prompt cache options require metered cache writes")
+			}
+			if options["mode"] != nil && (json.Unmarshal(options["mode"], &mode) != nil || (mode != "implicit" && mode != "explicit")) {
+				return 0, fmt.Errorf("unsupported prompt cache mode")
+			}
+			if options["ttl"] != nil && (json.Unmarshal(options["ttl"], &ttl) != nil || ttl == "") {
+				return 0, fmt.Errorf("unsupported prompt cache TTL")
+			}
+		}
+		delete(object, "prompt_cache_key")
+		delete(object, "prompt_cache_options")
 		if modelapi.ResponsesOperation(binding.OperationID) {
 			if !quotaOnlyFields(object, "model", "input", "instructions", "max_output_tokens", "stream", "store", "background", "temperature", "top_p", "reasoning", "text") || !quotaFalse(object, "store", true) {
 				return 0, fmt.Errorf("stateless text responses required")
@@ -103,11 +228,17 @@ func quotaProviderTextOutput(binding QuotaBinding, body []byte) (int64, error) {
 		}
 		return quotaPositiveInteger(object["max_completion_tokens"])
 	case quotaProfileAnthropic:
-		if !quotaOnlyFields(object, "model", "messages", "system", "max_tokens", "stream", "anthropic_version", "temperature", "top_p", "top_k", "stop_sequences", "thinking") || !quotaMessages(object["messages"]) {
+		if !quotaOnlyFields(object, "model", "messages", "system", "max_tokens", "stream", "anthropic_version", "temperature", "top_p", "top_k", "stop_sequences", "thinking", "cache_control") || !quotaMessagesWith(object["messages"], cache) {
 			return 0, fmt.Errorf("inline text messages required")
 		}
-		if raw := object["system"]; raw != nil && !quotaTextValue(raw) {
+		if raw := object["system"]; raw != nil && !quotaTextValue(raw) && !(cache && quotaAnthropicTextBlocks(raw)) {
 			return 0, fmt.Errorf("inline text system prompt required")
+		}
+		// Top-level cache_control is automatic caching: Claude places the
+		// breakpoint on the last cacheable block. Breakpoints only change
+		// which input is written or read, never the input ceiling.
+		if raw := object["cache_control"]; raw != nil && (!cache || !quotaAnthropicCacheControl(raw)) {
+			return 0, fmt.Errorf("cache controls require metered cache writes")
 		}
 		maximum, e := quotaPositiveInteger(object["max_tokens"])
 		if e != nil {

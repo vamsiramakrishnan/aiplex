@@ -326,11 +326,11 @@ func usageRoutes() []fixtureRoute {
 	const sessionReason = "WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous"
 	routes := []fixtureRoute{
 		// ---------------- OpenAI ----------------
-		exact("openai", "chat.json", "chat-completions", "json", callOpenAIChat, convOpenAI, natOpenAI, true, strictRefuses, cwRefuse),
+		exact("openai", "chat.json", "chat-completions", "json", callOpenAIChat, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "chat.sse", "chat-completions", "sse", callOpenAIChatS, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "chat.interrupted.sse", "chat-completions", "sse", callOpenAIChatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai", "chat.nousage.sse", "chat-completions", "sse", callOpenAIChatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
-		exact("openai", "responses.json", "responses", "json", callResponses, convOpenAI, natOpenAI, true, strictRefuses, cwRefuse),
+		exact("openai", "responses.json", "responses", "json", callResponses, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "responses.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "responses.failed.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai", "responses.incomplete.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""),
@@ -354,27 +354,27 @@ func usageRoutes() []fixtureRoute {
 
 		// ---------------- Anthropic ----------------
 		exact("anthropic", "messages.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
-		exact("anthropic", "messages.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
+		exact("anthropic", "messages.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "messages-server-tool.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictRefuses, toolRefuse),
 		exact("anthropic", "messages-usage-absent.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, false, strictUnknown, ""),
 		exact("anthropic", "messages-interrupted.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, false, strictUnknown, ""),
 		exact("anthropic", "messages-error-midstream.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, false, strictUnknown, ""),
-		exact("anthropic", "messages-iterations.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
+		exact("anthropic", "messages-iterations.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "messages-code-execution.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, toolRefuse),
 		unsupported("anthropic", "count-tokens.json", "count-tokens", "json", "no /v1/messages/count_tokens operation (an estimate, never consumption)"),
 		unsupported("anthropic", "batch-results.jsonl", "message-batches", "jsonl-file", "no Message Batches operation; results files are downloaded artifacts"),
 		unsupported("anthropic", "batch-results-partial.jsonl", "message-batches", "jsonl-file", "no Message Batches operation; results files are downloaded artifacts"),
 		unsupported("anthropic", "managed-agents-session.json", "managed-agents", "json", "no Managed Agents operation"),
 		unsupported("anthropic", "ratelimit.json", "rate-limit-metadata", "json", "documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits"),
-		exact("anthropic", "vertex-raw.json", "vertex-rawPredict", "json", callVertexClaude, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
-		exact("anthropic", "vertex-raw.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
+		exact("anthropic", "vertex-raw.json", "vertex-rawPredict", "json", callVertexClaude, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "vertex-raw.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "vertex-raw-interrupted.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convAnthropic, natAnthropic, false, strictUnknown, ""),
-		advisory("anthropic", "bedrock-invoke.json", "bedrock-invoke", "json", callInvoke, convAnthropic, natAnthropic, true, requestCount+"; the InvokeModel body is model-native and its Messages shape is UNCONFIRMED by AWS"),
-		advisory("anthropic", "bedrock-invoke-stream.jsonl", "bedrock-invoke-stream", "aws-eventstream", callInvokeS, convAnthropic, natAnthropic, true, requestCount+"; decoded chunk shape UNCONFIRMED by AWS"),
-		advisory("anthropic", "bedrock-invoke-stream-interrupted.jsonl", "bedrock-invoke-stream", "aws-eventstream", callInvokeS, convAnthropic, natAnthropic, false, requestCount),
-		withAllow(advisory("anthropic", "bedrock-converse.json", "bedrock-converse", "json", callConverse, convAnthropic, natAnthropic, true, requestCount+"; inputTokens/cache composition UNCONFIRMED (observer proves exclusivity only when inputTokens < cache counters)"), nil),
-		advisory("anthropic", "bedrock-converse-stream.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, true, requestCount),
-		advisory("anthropic", "bedrock-converse-stream-interrupted.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, false, requestCount),
+		exact("anthropic", "bedrock-invoke.json", "bedrock-invoke", "json", callInvoke, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "bedrock-invoke-stream.jsonl", "bedrock-invoke-stream", "aws-eventstream", callInvokeS, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "bedrock-invoke-stream-interrupted.jsonl", "bedrock-invoke-stream", "aws-eventstream", callInvokeS, convAnthropic, natAnthropic, false, strictUnknown, ""),
+		exact("anthropic", "bedrock-converse.json", "bedrock-converse", "json", callConverse, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "bedrock-converse-stream.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "bedrock-converse-stream-interrupted.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, false, strictUnknown, ""),
 		formatOnly(exact("anthropic", "bedrock-mantle.sse", "bedrock-mantle-messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictNotApplicable, ""), statusUnsupported, "no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer"),
 
 		// ---------------- Google ----------------
@@ -401,30 +401,25 @@ func usageRoutes() []fixtureRoute {
 		exact("google", "vertex-generate.sse", "vertex-streamGenerateContent", "sse", callVertexStream, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-cumulative.sse", "vertex-streamGenerateContent", "sse", callVertexStream, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-interrupted.sse", "vertex-streamGenerateContent", "sse", callVertexStream, convGemini, natGemini, false, strictUnknown, ""),
-		func() fixtureRoute {
-			// Observed and settled exactly by the gateway, but the quota host
-			// admits protected Gemini streaming only with alt=sse, so the token
-			// profile is not reachable on this framing: advisory in practice.
-			r := exact("google", "vertex-generate.stream.json", "vertex-streamGenerateContent", "json-array", with(callVertexStream, func(c *fixtureCall) { c.media = "application/json" }), convGemini, natGemini, true, strictSettles, "")
-			r.status, r.reason = statusAdvisory, "JSON-array framing (no alt=sse) is observed exactly, but the quota host admits protected Gemini streaming only with alt=sse; usage is ledger telemetry"
-			return r
-		}(),
+		// JSON-array framing (no alt=sse) is buffered under a lease, observed
+		// exactly and settled before delivery; the quota host admits it.
+		exact("google", "vertex-generate.stream.json", "vertex-streamGenerateContent", "json-array", with(callVertexStream, func(c *fixtureCall) { c.media = "application/json" }), convGemini, natGemini, true, strictSettles, ""),
 		advisory("google", "vertex-count-tokens.json", "vertex-countTokens", "json", callVertexCount, convNoConsumption, natGemini, false, "countTokens is an input-size estimate, never consumption; only the request is counted"),
 		advisory("google", "vertex-embed-predict.json", "vertex-predict", "json", callVertexPredict, convGemini, natGemini, true, requestCount),
 		unsupported("google", "vertex-batch-gcs.jsonl", "vertex-batch", "jsonl-file", "batch output rows are Cloud Storage artifacts, not gateway responses; batch.create counts the submission only"),
-		exact("google", "vertex-openai-chat.json", "vertex-openai-chat", "json", callVertexChat, convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
+		exact("google", "vertex-openai-chat.json", "vertex-openai-chat", "json", callVertexChat, convVertexOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("google", "vertex-openai-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
 			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
-		}), convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
+		}), convVertexOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("google", "vertex-openai-chat-interrupted.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
 			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
 		}), convVertexOpenAI, natOpenAI, false, strictUnknown, ""),
-		exact("google", "vertex-maas-chat.json", "vertex-openai-chat", "json", callVertexChat, convOpenAI, natOpenAI, true, strictRefuses, noCached),
+		exact("google", "vertex-maas-chat.json", "vertex-openai-chat", "json", callVertexChat, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("google", "vertex-maas-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
 			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
-		}), convOpenAI, natOpenAI, true, strictRefuses, noCached),
-		exact("google", "vertex-claude-rawpredict.json", "vertex-rawPredict", "json", callVertexClaude, convGoogleClaude, natAnthropic, true, strictRefuses, cwRefuse),
-		exact("google", "vertex-claude-streamrawpredict.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convGoogleClaude, natAnthropic, true, strictRefuses, cwRefuse),
+		}), convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("google", "vertex-claude-rawpredict.json", "vertex-rawPredict", "json", callVertexClaude, convGoogleClaude, natAnthropic, true, strictSettles, ""),
+		exact("google", "vertex-claude-streamrawpredict.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convGoogleClaude, natAnthropic, true, strictSettles, ""),
 		exact("google", "vertex-claude-streamrawpredict-interrupted.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convGoogleClaude, natAnthropic, false, strictUnknown, ""),
 		exact("google", "vertex-interactions.json", "vertex-interactions", "json", callInteraction, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-interactions.sse", "vertex-interactions", "sse", callInteraction, convGemini, natGemini, true, strictSettles, ""),

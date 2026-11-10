@@ -47,18 +47,20 @@ func bedrockInvoke(op Operation) bool {
 
 // bedrockUsageCounters maps the Bedrock Converse TokenUsage object.
 //
-// Documented: inputTokens ("tokens sent in the request"), outputTokens,
-// totalTokens ("input tokens and tokens generated"), optional
-// cacheReadInputTokens, cacheWriteInputTokens and cacheDetails (per-TTL
-// cache-write breakdown). Whether inputTokens and totalTokens include
-// cache-read/write tokens is not stated by the reference. An inclusive count
-// can never be smaller than the cache counters it would contain, so
-// inputTokens < cacheRead + cacheWrite proves the exclusive (Messages-style)
-// composition, and input_tokens is then reported with exclusive semantics,
-// like the Anthropic Messages counter. Otherwise, with positive cache
-// counters, input and total stay unknown rather than guessed. The reported
-// totalTokens is kept only when no cache counter is positive. Bedrock reports
-// no reasoning breakdown, so none is invented.
+// AWS documents (Bedrock user guide, "Prompt caching for faster model
+// inference", https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html):
+// "When prompt caching is enabled, the inputTokens field represents only the
+// non-cached input tokens (tokens that were not read from or written to the
+// cache)" and "total input tokens = inputTokens + cacheReadInputTokens +
+// cacheWriteInputTokens". inputTokens is therefore exclusive, like the
+// Anthropic Messages counter, and is normalized to uncached_input_tokens with
+// input_tokens = all input. cacheDetails is "Detailed breakdown of cache
+// writes by TTL", ttl one of 5m | 1h (API_runtime_CacheDetail); it is mapped to
+// cache_write_5m_tokens / cache_write_1h_tokens. Absent cache counters
+// (Required: No) mean no cache activity was reported. Whether totalTokens
+// includes cache tokens is still not stated, so it is kept only when it equals
+// all input + output; otherwise it stays unknown (never used for settlement).
+// Bedrock reports no reasoning breakdown, so none is invented.
 func bedrockUsageCounters(raw json.RawMessage) (map[string]int64, error) {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil {
@@ -93,35 +95,46 @@ func bedrockUsageCounters(raw json.RawMessage) (map[string]int64, error) {
 	}
 	if known["cacheWriteInputTokens"] {
 		counters["cache_write_tokens"] = values["cacheWriteInputTokens"]
-	} else if raw := fields["cacheDetails"]; raw != nil {
+	}
+	if raw := fields["cacheDetails"]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		var details []struct {
 			InputTokens *int64 `json:"inputTokens"`
+			TTL         string `json:"ttl"`
 		}
 		if json.Unmarshal(raw, &details) != nil {
 			return nil, fmt.Errorf("invalid Bedrock cache details")
 		}
+		buckets := map[string]int64{"cache_write_5m_tokens": 0, "cache_write_1h_tokens": 0}
 		var sum int64
 		for _, d := range details {
 			if d.InputTokens == nil || *d.InputTokens < 0 || *d.InputTokens > 1<<53 {
 				return nil, fmt.Errorf("invalid Bedrock cache detail")
 			}
 			sum += *d.InputTokens
+			switch d.TTL {
+			case "5m":
+				buckets["cache_write_5m_tokens"] += *d.InputTokens
+			case "1h":
+				buckets["cache_write_1h_tokens"] += *d.InputTokens
+			default:
+				return nil, fmt.Errorf("undocumented Bedrock cache TTL")
+			}
+		}
+		if known["cacheWriteInputTokens"] && sum != values["cacheWriteInputTokens"] {
+			return nil, fmt.Errorf("Bedrock cache details conflict with cache writes")
 		}
 		counters["cache_write_tokens"] = sum
-		values["cacheWriteInputTokens"] = sum
+		for meter, n := range buckets {
+			counters[meter] = n
+		}
 	}
-	cache := values["cacheReadInputTokens"] + counters["cache_write_tokens"]
-	if cache > 0 && known["inputTokens"] && values["inputTokens"] < cache {
+	cache := counters["cached_tokens"] + counters["cache_write_tokens"]
+	if known["inputTokens"] {
 		// Normalized vocabulary: input_tokens is total input including cache
 		// reads and writes; uncached_input_tokens is the fresh remainder.
 		counters["uncached_input_tokens"] = values["inputTokens"]
 		counters["input_tokens"] = values["inputTokens"] + cache
-	}
-	if cache == 0 {
-		if known["inputTokens"] {
-			counters["input_tokens"] = values["inputTokens"]
-		}
-		if known["totalTokens"] && known["inputTokens"] && known["outputTokens"] && values["totalTokens"] == values["inputTokens"]+values["outputTokens"] {
+		if known["totalTokens"] && known["outputTokens"] && values["totalTokens"] == counters["input_tokens"]+values["outputTokens"] {
 			counters["total_tokens"] = values["totalTokens"]
 		}
 	}

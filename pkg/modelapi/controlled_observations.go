@@ -30,7 +30,16 @@ func normalizeGeminiFinal(value *UsageObservation) error {
 	if explicit, exists := value.Counters["thought_tokens"]; exists && explicit != thought {
 		return fmt.Errorf("Gemini thought usage conflicts with total")
 	}
-	cached := value.Counters["cached_tokens"] // Protobuf integer fields omit their zero default.
+	// An omitted cachedContentTokenCount is 0. Google's REST pages state no
+	// default, but both service definitions declare it as a plain proto3
+	// scalar without field presence: `int32 cached_content_token_count = 5`
+	// (google/cloud/aiplatform/v1/prediction_service.proto, UsageMetadata) and
+	// `int32 cached_content_token_count = 4`
+	// (google/ai/generativelanguage/v1beta/generative_service.proto), and the
+	// proto3 JSON mapping omits fields holding their default value
+	// (https://protobuf.dev/programming-guides/json/). Absence therefore
+	// encodes 0, never "not reported".
+	cached := value.Counters["cached_tokens"]
 	if cached < 0 || cached > input || value.Counters["tool_use_tokens"] != 0 {
 		return fmt.Errorf("unsupported Gemini usage composition")
 	}
@@ -95,6 +104,7 @@ func (g *Gateway) observeControlledJSON(owner Owner, op Operation, data []byte, 
 		return false, nil
 	}
 	value.usage.Terminal = value.nativeTerminal
+	run.modelIdentity(value.usage)
 	if value.nativeTerminal {
 		if err = normalizeForRun(op, value.usage, run); err != nil {
 			if observeErr := observeVersionMetadata(run, value); observeErr != nil {

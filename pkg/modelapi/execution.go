@@ -87,6 +87,18 @@ type executionRun struct {
 	ctx     context.Context
 	claimed bool
 	closed  bool
+	// dispatchedModel is the exact model the request was dispatched to, for
+	// protocols whose responses carry no model identifier (Bedrock Converse:
+	// the versioned modelId is the URL path selector and is not echoed).
+	dispatchedModel string
+}
+
+// modelIdentity fills an observation's model version from the dispatched
+// model when the native response reports none.
+func (r *executionRun) modelIdentity(value *UsageObservation) {
+	if r != nil && value != nil && value.ModelVersion == "" && r.dispatchedModel != "" && !requestCountRun(r) {
+		value.ModelVersion = r.dispatchedModel
+	}
 }
 
 func (r *executionRun) beforeDispatch(ctx context.Context) error {

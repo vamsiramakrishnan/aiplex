@@ -242,7 +242,9 @@ func TestQuotaHostModelUnboundOperationRejectsBeforeCredentialLookup(t *testing.
 func TestQuotaHostModelStreamingShapeRejectsBeforeCredentialLookup(t *testing.T) {
 	f := quotaHostModelNew(t, true, func(http.ResponseWriter, *http.Request) { t.Error("unsupported stream shape reached provider") }, nil)
 	t.Setenv("QUOTA_HOST_MODEL_TOKEN", "")
-	for _, query := range []string{"", "alt=json", "alt=sse&alt=sse"} {
+	// No alt (the JSON-array form) is admitted under the token profile; see
+	// TestManagedGoogleCompositionProfilesSettle.
+	for _, query := range []string{"alt=json", "alt=sse&alt=sse", "alt=proto"} {
 		t.Run(query, func(t *testing.T) {
 			r := f.request("streamGenerateContent", "unsupported-stream", quotaHostModelBody, false)
 			r.URL.RawQuery = query

@@ -135,8 +135,11 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 		}
 		if input.Operation.ID == "models.streamGenerateContent" || input.Operation.ID == "endpoints.streamGenerateContent" {
 			query, err := url.ParseQuery(input.RawQuery)
-			if err != nil || len(query["alt"]) != 1 || query.Get("alt") != "sse" {
-				return nil, quotaStatus(400, "QUOTA_STREAM_SHAPE_UNSUPPORTED", "protected Gemini streaming requires alt=sse")
+			// alt=sse streams frames; without alt the response is one JSON
+			// array, which a lease buffers (bounded by the body limit),
+			// observes whole and settles before delivery.
+			if err != nil || len(query["alt"]) > 1 || (len(query["alt"]) == 1 && query.Get("alt") != "sse") {
+				return nil, quotaStatus(400, "QUOTA_STREAM_SHAPE_UNSUPPORTED", "protected Gemini streaming requires alt=sse or the JSON-array form")
 			}
 		}
 		protocolHeaders := http.Header{}

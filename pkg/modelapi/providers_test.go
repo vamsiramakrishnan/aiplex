@@ -527,27 +527,28 @@ func TestBedrockConverseUsageJSONAndEventStream(t *testing.T) {
 
 func bytesEqual(a, b []byte) bool { return string(a) == string(b) }
 
-func TestBedrockUsageCacheCompositionStaysUnknown(t *testing.T) {
-	// inputTokens >= the cache counters: inclusive and exclusive readings are
-	// both possible, so input and total stay unknown.
+func TestBedrockUsageCacheCompositionIsExclusive(t *testing.T) {
+	// AWS: inputTokens is only the non-cached input; total input =
+	// inputTokens + cacheReadInputTokens + cacheWriteInputTokens.
 	counters, err := bedrockUsageCounters([]byte(`{"inputTokens":1013,"outputTokens":52,"totalTokens":1065,"cacheReadInputTokens":0,"cacheWriteInputTokens":1000}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, known := counters["input_tokens"]; known {
-		t.Fatal("ambiguous input composition reported as known", counters)
-	}
-	if _, known := counters["total_tokens"]; known || counters["cache_write_tokens"] != 1000 || counters["cached_tokens"] != 0 || counters["output_tokens"] != 52 {
-		t.Fatal(counters)
-	}
-	// inputTokens < the cache counters cannot include them: exclusive is
-	// proven and the normalized total input includes cache reads and writes.
-	counters, _ = bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"totalTokens":1065,"cacheReadInputTokens":0,"cacheWriteInputTokens":1000}`))
-	if counters["input_tokens"] != 1013 || counters["uncached_input_tokens"] != 13 || counters["cache_write_tokens"] != 1000 {
-		t.Fatal("proven exclusive composition not normalized", counters)
+	if counters["input_tokens"] != 2013 || counters["uncached_input_tokens"] != 1013 || counters["cache_write_tokens"] != 1000 || counters["cached_tokens"] != 0 || counters["output_tokens"] != 52 {
+		t.Fatal("exclusive composition not normalized", counters)
 	}
 	if _, known := counters["total_tokens"]; known {
-		t.Fatal("total with cache composition reported", counters)
+		t.Fatal("total of undocumented cache composition reported", counters)
+	}
+	counters, _ = bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"totalTokens":1065,"cacheReadInputTokens":0,"cacheWriteInputTokens":1000}`))
+	if counters["input_tokens"] != 1013 || counters["uncached_input_tokens"] != 13 || counters["cache_write_tokens"] != 1000 || counters["total_tokens"] != 1065 {
+		t.Fatal("exclusive composition not normalized", counters)
+	}
+	if _, err := bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"totalTokens":65,"cacheDetails":[{"inputTokens":600,"ttl":"2h"}]}`)); err == nil {
+		t.Fatal("undocumented TTL accepted")
+	}
+	if _, err := bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"cacheWriteInputTokens":5,"cacheDetails":[{"inputTokens":600,"ttl":"1h"}]}`)); err == nil {
+		t.Fatal("conflicting cache details accepted")
 	}
 	counters, _ = bedrockUsageCounters([]byte(`{"inputTokens":13,"outputTokens":52,"totalTokens":65,"cacheDetails":[{"inputTokens":600,"ttl":"1h"},{"inputTokens":400,"ttl":"5m"}]}`))
 	if counters["cache_write_tokens"] != 1000 || counters["input_tokens"] != 1013 {

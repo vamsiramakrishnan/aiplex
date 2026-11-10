@@ -173,7 +173,8 @@ func (l *quotaHostLease) Observe(ctx context.Context, observation execution.Obse
 }
 
 // Missing partial counters do not assert zero. A known subset beyond its bound
-// or a complete pair beyond a shared ceiling is already sufficient evidence.
+// or known disjoint subsets whose sum exceeds a shared ceiling is already
+// sufficient evidence.
 func (l *quotaHostLease) exceedsExposure(native map[string]int64) bool {
 	for counter, meter := range l.binding.Meters {
 		if value, known := native[counter]; known && value > l.demand.Bounds[meter] {
@@ -183,42 +184,83 @@ func (l *quotaHostLease) exceedsExposure(native map[string]int64) bool {
 	if l.proof == nil {
 		return false
 	}
-	inputLimit := l.proof.NativeBounds["uncached_input_tokens"]
+	inputLimit, attested := l.proof.NativeBounds["uncached_input_tokens"]
+	if !attested {
+		inputLimit = l.proof.NativeBounds["input_tokens"]
+	}
 	if value, known := native["input_tokens"]; known && value > inputLimit {
 		return true
 	}
-	pairs := []struct {
-		first, second string
-		limit         int64
-	}{
-		{"uncached_input_tokens", "cached_tokens", inputLimit},
-		{"output_tokens", "thought_tokens", l.proof.NativeBounds["output_tokens"]},
-	}
-	if l.binding.Profile == quotaProfileOpenAI || l.binding.Profile == quotaProfileAnthropic {
-		pairs = pairs[:1]
-	}
-	if l.binding.Profile == quotaProfileAnthropic {
-		if _, normalized := native["uncached_input_tokens"]; !normalized {
-			input, iok := native["input_tokens"]
-			cached, cok := native["cached_tokens"]
-			if iok && cok && (cached > inputLimit || input > inputLimit-cached) {
+	exceeds := func(counters []string, limit int64) bool {
+		var sum int64
+		for _, counter := range counters {
+			value, known := native[counter]
+			if !known {
+				continue
+			}
+			if value > limit || sum > limit-value {
 				return true
 			}
+			sum += value
+		}
+		return false
+	}
+	inputs := []string{"uncached_input_tokens", "cached_tokens", "cache_write_tokens"}
+	if quotaExclusiveInputProfile(l.binding.Profile) {
+		if _, normalized := native["uncached_input_tokens"]; !normalized {
+			inputs[0] = "input_tokens"
 		}
 	}
-	for _, pair := range pairs {
-		first, firstKnown := native[pair.first]
-		second, secondKnown := native[pair.second]
-		if (firstKnown && first > pair.limit) || (secondKnown && second > pair.limit) || (firstKnown && secondKnown && first > pair.limit-second) {
-			return true
-		}
+	if exceeds(inputs, inputLimit) {
+		return true
+	}
+	if l.binding.Profile == quotaProfileGemini || l.binding.Profile == quotaProfileInteraction {
+		return exceeds([]string{"output_tokens", "thought_tokens"}, l.proof.NativeBounds["output_tokens"])
 	}
 	return false
+}
+
+func quotaExclusiveInputProfile(profile string) bool {
+	return profile == quotaProfileAnthropic || profile == quotaProfileBedrockConverse
+}
+
+// quotaUnmeteredCacheWrites fails closed when a terminal report carries a
+// positive cache write that the binding has no meter for, or a per-TTL
+// mapping whose buckets do not add up to the reported total.
+func (l *quotaHostLease) quotaUnmeteredCacheWrites(native map[string]int64) error {
+	if !quotaStrictProfile(l.binding.Profile) {
+		return nil
+	}
+	write := native["cache_write_tokens"]
+	mapped, _ := quotaBindingCacheWrites(l.binding)
+	if write > 0 && len(mapped) == 0 {
+		return quotaStatus(502, "QUOTA_USAGE_UNMETERED", "positive cache writes have no configured meter")
+	}
+	if len(mapped) > 1 {
+		var sum int64
+		for _, counter := range mapped {
+			value, present := native[counter]
+			if !present {
+				return quotaStatus(502, "QUOTA_USAGE_INCOMPLETE", "terminal usage omits the cache-write breakdown")
+			}
+			sum += value
+		}
+		if sum != write {
+			return quotaStatus(502, "QUOTA_USAGE_INVALID", "cache-write breakdown conflicts with its total")
+		}
+	}
+	if native["server_tool_calls"] != 0 {
+		return quotaStatus(502, "QUOTA_USAGE_UNMETERED", "server-tool quantities have no token meter")
+	}
+	return nil
 }
 
 func (l *quotaHostLease) terminalLocked(ctx context.Context, native map[string]int64) error {
 	if l.claim == nil {
 		return quotaplex.ErrDispatchNotClaimed
+	}
+	if err := l.quotaUnmeteredCacheWrites(native); err != nil {
+		return err
 	}
 	usage := quotaplex.Vector{}
 	for counter, meter := range l.binding.Meters {

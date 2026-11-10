@@ -48,27 +48,27 @@ cannot hold).
 
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
-| anthropic | 4 | 4 | 5 |
-| google | 8 | 4 | 12 |
+| anthropic | 8 | 0 | 5 |
+| google | 9 | 3 | 12 |
 | openai | 4 | 2 | 11 |
 
 ## Matrix
 
 | Provider | Surface | Transport | Status | Fixtures | Notes |
 | --- | --- | --- | --- | --- | --- |
-| anthropic | bedrock-converse | json | advisory | `bedrock-converse.json` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry; inputTokens/cache composition UNCONFIRMED (observer proves exclusivity only when inputTokens < cache counters) |
-| anthropic | bedrock-converse-stream | aws-eventstream | advisory | `bedrock-converse-stream-interrupted.jsonl`<br>`bedrock-converse-stream.jsonl` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry |
-| anthropic | bedrock-invoke | json | advisory | `bedrock-invoke.json` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry; the InvokeModel body is model-native and its Messages shape is UNCONFIRMED by AWS |
-| anthropic | bedrock-invoke-stream | aws-eventstream | advisory | `bedrock-invoke-stream-interrupted.jsonl`<br>`bedrock-invoke-stream.jsonl` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry; decoded chunk shape UNCONFIRMED by AWS<br>operation coverage is request-count; token usage is recorded as advisory ledger telemetry |
+| anthropic | bedrock-converse | json | exact | `bedrock-converse.json` |  |
+| anthropic | bedrock-converse-stream | aws-eventstream | exact | `bedrock-converse-stream-interrupted.jsonl`<br>`bedrock-converse-stream.jsonl` |  |
+| anthropic | bedrock-invoke | json | exact | `bedrock-invoke.json` |  |
+| anthropic | bedrock-invoke-stream | aws-eventstream | exact | `bedrock-invoke-stream-interrupted.jsonl`<br>`bedrock-invoke-stream.jsonl` |  |
 | anthropic | bedrock-mantle-messages | sse | unsupported | `bedrock-mantle.sse (format-checked)` | no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer |
 | anthropic | count-tokens | json | unsupported | `count-tokens.json` | no /v1/messages/count_tokens operation (an estimate, never consumption) |
 | anthropic | managed-agents | json | unsupported | `managed-agents-session.json` | no Managed Agents operation |
 | anthropic | message-batches | jsonl-file | unsupported | `batch-results-partial.jsonl`<br>`batch-results.jsonl` | no Message Batches operation; results files are downloaded artifacts |
 | anthropic | messages | json | exact | `messages-code-execution.json`<br>`messages-iterations.json`<br>`messages.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed)<br>observation exact; strict settlement fails closed for this fixture: server-tool quantities are outside the output-inclusive token profile (fail closed) |
-| anthropic | messages | sse | exact | `messages-error-midstream.sse`<br>`messages-interrupted.sse`<br>`messages-server-tool.sse`<br>`messages-usage-absent.sse`<br>`messages.sse` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed)<br>observation exact; strict settlement fails closed for this fixture: server-tool quantities are outside the output-inclusive token profile (fail closed) |
+| anthropic | messages | sse | exact | `messages-error-midstream.sse`<br>`messages-interrupted.sse`<br>`messages-server-tool.sse`<br>`messages-usage-absent.sse`<br>`messages.sse` | observation exact; strict settlement fails closed for this fixture: server-tool quantities are outside the output-inclusive token profile (fail closed) |
 | anthropic | rate-limit-metadata | json | unsupported | `ratelimit.json` | documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits |
-| anthropic | vertex-rawPredict | json | exact | `vertex-raw.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
-| anthropic | vertex-streamRawPredict | sse | exact | `vertex-raw-interrupted.sse`<br>`vertex-raw.sse` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
+| anthropic | vertex-rawPredict | json | exact | `vertex-raw.json` |  |
+| anthropic | vertex-streamRawPredict | sse | exact | `vertex-raw-interrupted.sse`<br>`vertex-raw.sse` |  |
 | google | gemini-batch | json | unsupported | `gemini-batch-inlined.json` | no Developer API batch operation; job resources carry no token totals |
 | google | gemini-cachedContents | json | unsupported | `gemini-cachedcontent-create.json` | no Gemini Developer API surface and not replayed: DA cache names (cachedContents/{id}) are outside the Vertex resource scope, and how cache creation is billed is UNCONFIRMED (cache.create is request-count; usageMetadata.totalTokenCount is not mapped to cache writes) |
 | google | gemini-countTokens | json | unsupported | `gemini-count-tokens.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it; countTokens is an estimate and must never be recorded as usage |
@@ -86,18 +86,18 @@ cannot hold).
 | google | vertex-interactions | json | exact | `vertex-interactions.json` |  |
 | google | vertex-interactions | sse | exact | `vertex-interactions-interrupted.sse`<br>`vertex-interactions.sse` |  |
 | google | vertex-live | websocket | advisory | `vertex-live-interrupted.ws.jsonl`<br>`vertex-live.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous; snapshot semantics (cumulative) and Vertex field names are UNCONFIRMED; resumed sessions are labelled ambiguous<br>WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
-| google | vertex-openai-chat | json | exact | `vertex-maas-chat.json`<br>`vertex-openai-chat.json` | observation exact; strict settlement fails closed for this fixture: openai-text requires a cached-input breakdown that this endpoint does not report (fail closed) |
-| google | vertex-openai-chat | sse | exact | `vertex-maas-chat.sse`<br>`vertex-openai-chat-interrupted.sse`<br>`vertex-openai-chat.sse` | observation exact; strict settlement fails closed for this fixture: openai-text requires a cached-input breakdown that this endpoint does not report (fail closed) |
+| google | vertex-openai-chat | json | exact | `vertex-maas-chat.json`<br>`vertex-openai-chat.json` |  |
+| google | vertex-openai-chat | sse | exact | `vertex-maas-chat.sse`<br>`vertex-openai-chat-interrupted.sse`<br>`vertex-openai-chat.sse` |  |
 | google | vertex-predict | json | advisory | `vertex-embed-predict.json` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry |
-| google | vertex-rawPredict | json | exact | `vertex-claude-rawpredict.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
-| google | vertex-streamGenerateContent | json-array | advisory | `vertex-generate.stream.json` | JSON-array framing (no alt=sse) is observed exactly, but the quota host admits protected Gemini streaming only with alt=sse; usage is ledger telemetry |
+| google | vertex-rawPredict | json | exact | `vertex-claude-rawpredict.json` |  |
+| google | vertex-streamGenerateContent | json-array | exact | `vertex-generate.stream.json` |  |
 | google | vertex-streamGenerateContent | sse | exact | `vertex-generate-cumulative.sse`<br>`vertex-generate-interrupted.sse`<br>`vertex-generate.sse` |  |
-| google | vertex-streamRawPredict | sse | exact | `vertex-claude-streamrawpredict-interrupted.sse`<br>`vertex-claude-streamrawpredict.sse` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
+| google | vertex-streamRawPredict | sse | exact | `vertex-claude-streamrawpredict-interrupted.sse`<br>`vertex-claude-streamrawpredict.sse` |  |
 | openai | audio-transcriptions | json | unsupported | `transcription.duration.json`<br>`transcription.json` | no /v1/audio/transcriptions operation; duration-billed variants report seconds |
 | openai | audio-transcriptions | sse | unsupported | `transcription.interrupted.sse`<br>`transcription.sse` | no /v1/audio/transcriptions operation |
 | openai | batch | json | unsupported | `batch.object.json` | no /v1/batches operation |
 | openai | batch | jsonl-file | unsupported | `batch.errors.jsonl`<br>`batch.output.jsonl` | batch output files are downloaded artifacts, not gateway responses; no /v1/batches operation<br>batch error files are downloaded artifacts, not gateway responses |
-| openai | chat-completions | json | exact | `chat.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
+| openai | chat-completions | json | exact | `chat.json` |  |
 | openai | chat-completions | sse | exact | `chat.interrupted.sse`<br>`chat.nousage.sse`<br>`chat.sse` |  |
 | openai | embeddings | json | unsupported | `embeddings.json` | no /v1/embeddings operation on the OpenAI provider surface |
 | openai | images | json | unsupported | `images.json` | no /v1/images operation; non-GPT image models bill per image |
@@ -105,7 +105,7 @@ cannot hold).
 | openai | live-voice-sessions | websocket | unsupported | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens |
 | openai | moderations | json | unsupported | `moderation.json` | no /v1/moderations operation (no usage documented) |
 | openai | realtime | websocket | advisory | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous; input-transcription usage is a separate transcription_* meter (ASR model) not merged into the session tokens; duration-billed transcription seconds are not captured by the token ledger (session labelled partial)<br>WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
-| openai | responses | json | exact | `responses.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
+| openai | responses | json | exact | `responses.json` |  |
 | openai | responses | sse | exact | `responses.error.sse`<br>`responses.failed.sse`<br>`responses.incomplete.sse`<br>`responses.sse` |  |
 | openai | responses | websocket | advisory | `responses.interrupted.ws.jsonl`<br>`responses.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
 | openai | responses-cancel | json | unsupported | `responses.background.cancelled.json (format-checked)` | POST /v1/responses/{id}/cancel is not an OpenAI provider operation; response body checked through the Responses observer |

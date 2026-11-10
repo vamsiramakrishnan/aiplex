@@ -194,14 +194,25 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		}
 	}
 	for _, key := range []string{"input_tokens_details", "prompt_tokens_details"} {
-		if raw := usage[key]; raw != nil {
+		if raw := usage[key]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 			var detail map[string]json.RawMessage
 			if json.Unmarshal(raw, &detail) != nil {
 				return result, fmt.Errorf("invalid input usage details")
 			}
-			if n := detail["cache_write_tokens"]; n != nil {
+			if n := detail["cache_write_tokens"]; n != nil && !bytes.Equal(bytes.TrimSpace(n), []byte("null")) {
 				if err := setCounter("cache_write_tokens", n); err != nil {
 					return result, err
+				}
+			}
+			// Responses: cache_write_tokens_details.ttl_30m_tokens and
+			// ttl_12h_tokens "do not overlap and sum to cache_write_tokens".
+			if n := detail["cache_write_tokens_details"]; n != nil && !bytes.Equal(bytes.TrimSpace(n), []byte("null")) {
+				buckets, err := cacheWriteBuckets(n, map[string]string{"ttl_30m_tokens": "cache_write_30m_tokens", "ttl_12h_tokens": "cache_write_12h_tokens"})
+				if err != nil {
+					return result, err
+				}
+				for meter, value := range buckets {
+					counters[meter] = value
 				}
 			}
 		}
@@ -211,10 +222,20 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		if json.Unmarshal(raw, &calls) != nil {
 			return result, fmt.Errorf("invalid native server-tool usage")
 		}
-		for _, quantity := range calls {
+		// Server-tool requests are billed per request, not per token. Each
+		// documented counter is kept as ledger telemetry under its own name;
+		// server_tool_calls marks any positive quantity so that every strict
+		// token profile fails closed (see serverToolMetering).
+		for key, quantity := range calls {
+			if bytes.Equal(bytes.TrimSpace(quantity), []byte("null")) {
+				continue
+			}
 			var n int64
 			if json.Unmarshal(quantity, &n) != nil || n < 0 {
 				return result, fmt.Errorf("invalid native server-tool quantity")
+			}
+			if meter, known := serverToolCounters[key]; known {
+				counters[meter] = n
 			}
 			if n > 0 {
 				counters["server_tool_calls"] = 1
@@ -242,26 +263,21 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 			}
 		}
 	}
-	if _, scalar := counters["cache_write_tokens"]; !scalar && g.anthropicWire(op) {
-		// Cache writes may be reported only as the per-TTL breakdown, whose
-		// buckets do not overlap and sum to the scalar.
+	if g.anthropicWire(op) {
+		// Per-TTL cache-write breakdown: ephemeral_5m/1h buckets do not overlap
+		// and sum to cache_creation_input_tokens (each documented default 0).
 		if raw := usage["cache_creation"]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			var buckets map[string]json.RawMessage
-			if json.Unmarshal(raw, &buckets) != nil {
-				return result, fmt.Errorf("invalid cache creation breakdown")
+			buckets, err := cacheWriteBuckets(raw, map[string]string{"ephemeral_5m_input_tokens": "cache_write_5m_tokens", "ephemeral_1h_input_tokens": "cache_write_1h_tokens"})
+			if err != nil {
+				return result, err
 			}
-			var sum int64
-			for _, value := range buckets {
-				var n int64
-				if json.Unmarshal(value, &n) != nil || n < 0 || n > int64(^uint64(0)>>2) {
-					return result, fmt.Errorf("invalid cache creation bucket")
-				}
-				sum += n
-			}
-			if len(buckets) > 0 {
-				counters["cache_write_tokens"] = sum
+			for meter, value := range buckets {
+				counters[meter] = value
 			}
 		}
+	}
+	if err := reconcileCacheWriteBuckets(counters); err != nil {
+		return result, err
 	}
 	if op.ID == "openai.chat-completions" && g.surface.Provider == nil {
 		vertexCompletionComposition(counters)
@@ -299,6 +315,62 @@ func vertexCompletionComposition(counters map[string]int64) {
 		delete(counters, "output_tokens")
 		delete(counters, "total_tokens")
 	}
+}
+
+// cacheWriteBuckets maps a per-TTL cache-write breakdown object. Every key
+// must be a known bucket: an unrecognized bucket would leave the documented
+// sum incomplete, so it is rejected rather than ignored. A missing known
+// bucket is its documented default 0.
+func cacheWriteBuckets(raw json.RawMessage, names map[string]string) (map[string]int64, error) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return nil, fmt.Errorf("invalid cache-write breakdown")
+	}
+	out := map[string]int64{}
+	for _, meter := range names {
+		out[meter] = 0
+	}
+	for key, value := range fields {
+		meter, known := names[key]
+		if !known {
+			return nil, fmt.Errorf("unrecognized cache-write bucket %q", key)
+		}
+		var n int64
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			continue
+		}
+		if json.Unmarshal(value, &n) != nil || n < 0 || n > 1<<53 {
+			return nil, fmt.Errorf("invalid cache-write bucket")
+		}
+		out[meter] = n
+	}
+	return out, nil
+}
+
+// cacheWriteFamilies are the per-TTL cache-write meters of each provider.
+var cacheWriteFamilies = [][]string{{"cache_write_5m_tokens", "cache_write_1h_tokens"}, {"cache_write_30m_tokens", "cache_write_12h_tokens"}}
+
+// reconcileCacheWriteBuckets derives the scalar from a complete breakdown and
+// rejects a breakdown that contradicts a reported scalar.
+func reconcileCacheWriteBuckets(counters map[string]int64) error {
+	for _, family := range cacheWriteFamilies {
+		var sum int64
+		present := false
+		for _, meter := range family {
+			if n, ok := counters[meter]; ok {
+				present = true
+				sum += n
+			}
+		}
+		if !present {
+			continue
+		}
+		if scalar, ok := counters["cache_write_tokens"]; ok && scalar != sum {
+			return fmt.Errorf("cache-write breakdown conflicts with its total")
+		}
+		counters["cache_write_tokens"] = sum
+	}
+	return nil
 }
 
 func jsonArray(data []byte) bool {

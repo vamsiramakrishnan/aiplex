@@ -156,7 +156,7 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 		if len(binding.Limits) > 0 {
 			return nil, fmt.Errorf("binding limits are not an exposure authority; configure provider-limit evidence")
 		}
-		if len(binding.Meters) == 0 || len(binding.Meters) > 8 || binding.Meters["requests"] == "" {
+		if len(binding.Meters) == 0 || len(binding.Meters) > 12 || binding.Meters["requests"] == "" {
 			return nil, fmt.Errorf("quota binding requires a request meter and bounded mappings")
 		}
 		policy := tenant.policy.Policy()
@@ -170,13 +170,9 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 				if binding.Plane == "mcplex" {
 					unit = "calls"
 				}
-			case "uncached_input_tokens", "cached_tokens", "output_tokens", "thought_tokens":
-				if quotaStrictProfile(binding.Profile) {
-					for _, required := range quotaProfileCounters(binding.Profile) {
-						if native == required {
-							unit = "tokens"
-						}
-					}
+			default:
+				if quotaStrictProfile(binding.Profile) && quotaProfileTokenCounter(binding.Profile, native) {
+					unit = "tokens"
 				}
 			}
 			meter, known := policy.Meters[meterID]
@@ -190,6 +186,9 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 				if binding.Meters[native] == "" {
 					return nil, fmt.Errorf("Gemini profile requires complete disjoint token mappings")
 				}
+			}
+			if _, ok := quotaBindingCacheWrites(binding); !ok {
+				return nil, fmt.Errorf("cache-write meters must map either the total or the complete per-TTL breakdown")
 			}
 		}
 		if binding.FundingAccountID != "" {

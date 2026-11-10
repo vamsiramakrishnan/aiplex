@@ -20,7 +20,16 @@ func Coverage(op Operation) ExecutionCoverage {
 	// implemented and tested for the operation's native format.
 	case "openai.v1.chat-completions", "openai.v1.responses", "azure.v1.chat-completions", "azure.v1.responses", "azure.deployments.chat-completions":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "openai-text"}
-	case "compat.chat-completions", "bedrock.converse", "bedrock.converse-stream", "bedrock.invoke", "bedrock.invoke-stream":
+	case "bedrock.converse", "bedrock.converse-stream":
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "bedrock-converse-text"}
+	case "bedrock.invoke", "bedrock.invoke-stream":
+		// Anthropic Messages bodies only; other model-native bodies report no
+		// usage the gateway understands and stay request-count.
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}
+	case "compat.chat-completions":
+		// No provider usage contract: request-count unless the surface
+		// declares OpenAI usage semantics (Provider.UsageSemantics), which
+		// the quota host checks per invocation.
 		return ExecutionCoverage{RequestCount: true}
 	case "anthropic.messages", "models.rawPredict", "models.streamRawPredict":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}
