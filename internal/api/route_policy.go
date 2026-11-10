@@ -201,3 +201,8 @@ func privilegedOrDevelopment(r *http.Request, development bool, roles ...models.
 	}
 	return HasRole(access, roles...)
 }
+
+// VerifyDryRunsPerMinute bounds token verification dry runs per caller. They
+// answer whether a presented token verifies, so they are an oracle and are
+// limited well below the general per-caller rate.
+const VerifyDryRunsPerMinute = 20
