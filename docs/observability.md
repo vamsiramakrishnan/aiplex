@@ -97,6 +97,8 @@ is `0`.
 | `aiplex.hooks.count` | The number of hook runs on the exchange (both phases). |
 | `aiplex.hooks.denied_rule` | The rule identifier of a denying hook (an operator-chosen identifier such as `private_key`, never the matched text). |
 | `aiplex.hooks.fail_open_used` | `true` when a `fail_open` hook failed and the exchange continued without its decision. |
+| `aiplex.tool_policy.decision` | `tool_policy_denied` or `tool_policy_error`, on a tool call a [policy rule](tool-policy-rules.md) refused. |
+| `aiplex.tool_policy.rule` | The identifier of the rule that decided (an operator-chosen identifier, never arguments); absent for the default deny. |
 
 The span ends after the cost is resolved (settlement or price), on the ledger's
 background writer, with the exchange's own finish time. It can therefore arrive
@@ -173,6 +175,7 @@ trace ID is ever a metric attribute**, and exemplars are off.
 | `aiplex.upstream.errors` | counter | `{exchange}` | Exchanges that ended in `error` or `unknown`, by `error.type`. This includes upstream errors passed through to the caller. |
 | `aiplex.hooks.decisions` | counter | `{decision}` | One per [request-hook](request-hooks.md) run, by `aiplex.hook.type` (`redact`, `size_limit`, `http`, `policy`), `aiplex.hook.phase` (`request`, `response`) and `aiplex.hook.decision` (`allow`, `deny`, `transform`, `error`, `skipped`). No policy, hook or rule identifier is a label. |
 | `aiplex.hooks.duration` | histogram | s | Duration of one hook run, with the same three attributes. |
+| `aiplex.tool_policy.decisions` | counter | `{decision}` | One per rule-set evaluation on a tool call (the connection's and the access point's are separate evaluations), by `aiplex.tool_policy.decision` (`allow`, `deny`, `error`). No rule, tool, principal or connection is a label. |
 
 `GET /metrics` serves one replica's view. Scrape every replica, or use OTLP
 metrics export (each replica pushes its own).

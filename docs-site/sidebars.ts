@@ -47,6 +47,8 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'guides/mcplex'},
           items: [
             L('tool-connection-auth', 'Tool connection auth'),
+            L('tool-policy-rules', 'Policy rules on tool calls'),
+            L('mcp-registry-import', 'Import from the MCP Registry'),
             L('mcp-runtime-authorization', 'Owned MCP OAuth execution'),
           ],
         },

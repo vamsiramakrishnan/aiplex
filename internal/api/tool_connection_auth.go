@@ -461,6 +461,7 @@ func (h *ConnectedHandler) ToolAuthTypes(w http.ResponseWriter, r *http.Request)
 			{Name: "allow", Type: "string[]", Description: "Exact tool names or prefixes ending in '*'. When present, only matching tools are callable."},
 			{Name: "deny", Type: "string[]", Description: "Exact tool names or prefixes ending in '*'. Deny wins over allow."},
 			{Name: "read_only", Type: "boolean", Description: "Only tools whose gateway-observed MCP annotation readOnlyHint is true are callable; unknown annotations are denied."},
+			{Name: "rules", Type: "object[]", Description: "Up to 64 policy rules {id, when, effect, message, description}: CEL expressions over the tool, its arguments, the caller and the time, evaluated after the lists, the scope and read_only. The first matching deny refuses; with an allow rule, a call matching none is refused; a rule that cannot be evaluated refuses."},
 		},
 	})
 }

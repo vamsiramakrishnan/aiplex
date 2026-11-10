@@ -82,7 +82,7 @@ not flags: use `aiplex access-points apply -f <file>` for them, and the [specifi
 | `caller_kinds` | One to three of `agent`, `user`, `client`. Unknown kinds are rejected. |
 | `subjects` | Narrows who may call. An empty block admits every caller of an allowed kind. See [admission](#admission). |
 | `models[]` | `name` is the client-facing name, `surface_ref` a saved model surface, `native_model` the model the surface lists. Names are unique. |
-| `tools[]` | `connection_ref` names a saved tool connection. `expose` is an optional list of tool names or prefixes ending in `*`. Omitted means every tool the connection permits. |
+| `tools[]` | `connection_ref` names a saved tool connection. `expose` is an optional list of tool names or prefixes ending in `*`. Omitted means every tool the connection permits. `rules` is an optional list of [policy rules](tool-policy-rules.md) for calls through this access point; they run in addition to the connection's own rules, so an access point can only add restrictions. Rules are compiled when the access point is saved. |
 | `skills[]` | `instance_ref` names a deployed skill instance. Requires the `skillsplex` module. |
 | `qos` | `class` (lower-case, up to 63 characters), `weight`, `limits` (`requests_per_minute`, `tokens_per_minute`, `concurrency`) and `budget_refs`. Rendered into QuotaPlex controls. See [QoS and quota](#qos-and-quota). |
 
@@ -140,7 +140,7 @@ caller's own bearer token. A request without a verified identity is refused.
 | `GET /v1beta/models` | Google GenAI list | Only models reachable through that protocol. |
 | `POST /mcp` | MCP Streamable HTTP | Aggregates every exposed tool as `{connection}__{tool}`. See [aggregate tools/list](#aggregate-toolslist). |
 | `POST /mcp/{connection}` | MCP Streamable HTTP | One connection, with original tool names. |
-| `GET /v0.1/servers` | MCP registry listing | For clients that take a catalog URL. |
+| `GET /v0.1/servers` | MCP registry listing | For clients that take a catalog URL. Served in the MCP Registry response shape (`servers[]` of `{server, _meta}`, `metadata.count`; server.json schema 2025-12-11) next to the AIPlex catalog members (`templates`, `total`, `page`, `page_size`). See [MCP Registry import](mcp-registry-import.md#related-the-access-points-own-registry-shaped-listing). |
 | `GET /skills` | Skill manifest | Exposed skills. Requires `skillsplex`. |
 | `GET /.well-known/oauth-protected-resource`, `…/mcp`, `…/mcp/{connection}` | RFC 9728 metadata | Public. Points at the operator's authorization server. |
 
@@ -366,8 +366,10 @@ resource that cannot be read returns `503 RESOURCE_STORE_UNAVAILABLE`, not a fie
 ## Tool requests
 
 Each `tools/call` goes through the managed tool path: connection policy, the caller's
-`mcp:tools:` grant, quota, the upstream credential and the usage ledger. See
-[tool connection auth](tool-connection-auth.md).
+`mcp:tools:` grant, policy rules (the connection's, then the access point's), quota, the
+upstream credential and the usage ledger. See
+[tool connection auth](tool-connection-auth.md) and
+[policy rules on tool calls](tool-policy-rules.md).
 
 The MCP endpoints accept `POST` only (other methods return `405`). The body must be
 `application/json`. Browser origins are checked against the public URL's own origin

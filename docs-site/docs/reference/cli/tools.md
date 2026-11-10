@@ -111,7 +111,7 @@ Flags:
       --auth-prefix string            api_key: scheme before the key in a header, e.g. Token
       --auth-type string              Auth type (see 'aiplex tools auth-types')
       --clear-auth                    Remove the auth block (restores the credential mode's default behaviour)
-      --clear-tools                   Remove the tools policy
+      --clear-tools                   Remove the tools policy, including its policy rules
       --client-auth-method string     client_secret_basic or client_secret_post
       --client-id string              OAuth client identifier
       --client-secret-ref string      Client secret REFERENCE name; never a secret value
