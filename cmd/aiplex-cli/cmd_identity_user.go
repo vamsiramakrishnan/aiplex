@@ -144,8 +144,14 @@ func uipApplyCmd() *cobra.Command {
 
   id: okta
   preset: okta
-  inputs: { domain: acme.okta.com }
   display_name: Acme Okta
+  inputs:
+    issuer: https://acme.okta.com/oauth2/default
+    jwks_url: https://acme.okta.com/oauth2/default/v1/keys
+    audience: api://aiplex
+    groups_from: claim
+
+Each preset's inputs are listed by: aiplex identity user-providers presets
 
 Fields this CLI does not know about are sent to the server unchanged; for
 example "acknowledge_overlap: true" saves a provider even though an agent

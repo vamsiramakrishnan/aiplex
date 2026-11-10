@@ -159,6 +159,7 @@ Start here (no Docker, no cloud account):
 		}
 	}
 	applyShortDescriptions(root)
+	applyExamples(root)
 	rejectUnknownSubcommands(root)
 	return root
 }
