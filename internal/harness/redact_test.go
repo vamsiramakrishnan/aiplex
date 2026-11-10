@@ -55,6 +55,22 @@ func TestRedactTOML(t *testing.T) {
 	}
 }
 
+// Observed writing Codex's provider table: requires_openai_auth = false was
+// displayed as [redacted] although booleans are documented as never redacted.
+func TestRedactTOMLKeepsBooleansAndNumbersUnderSensitiveNames(t *testing.T) {
+	in := "[model_providers.aiplex]\nrequires_openai_auth = false\nauth_retries = 3\ntoken = \"live-secret-9\"\n"
+	out, ok := Redact("config.toml", []byte(in))
+	if !ok {
+		t.Fatal("should be shown")
+	}
+	mustNotContain(t, "redacted TOML", out, "live-secret-9")
+	for _, keep := range []string{"requires_openai_auth = false", "auth_retries = 3"} {
+		if !strings.Contains(out, keep) {
+			t.Errorf("should keep %q:\n%s", keep, out)
+		}
+	}
+}
+
 func TestRedactUnparseableFallsBackToLines(t *testing.T) {
 	in := "{ // not json\n  \"password\": \"pw-secret-1\",\n  'x' : 'sk-ABCDEFGH1234'\n  token = ghp_ABCDEFGH1234\n"
 	out, ok := Redact("f.json", []byte(in))

@@ -143,9 +143,18 @@ func TestConnectWriteRefusesInvalidFilesAndAntigravity(t *testing.T) {
 	if r.Code == 0 || fileText(t, settings) != "{ not json" {
 		t.Fatalf("an invalid file must be refused untouched:\n%s", r)
 	}
-	r = e.cli("connect", "local", "--client", "antigravity", "--write", "--yes")
+	r = e.cli("connect", "local", "--client", "antigravity-acp", "--write", "--yes")
 	if r.Code != 2 || !strings.Contains(r.Err, "print-only") {
-		t.Fatalf("antigravity is print-only:\n%s", r)
+		t.Fatalf("antigravity-acp is print-only:\n%s", r)
+	}
+	// antigravity: only the secret-free stdio MCP server is written.
+	r = e.cli("connect", "local", "--client", "antigravity", "--write", "--yes")
+	if r.Code != 0 {
+		t.Fatalf("antigravity MCP write failed:\n%s", r)
+	}
+	got := fileText(t, filepath.Join(e.home, ".gemini", "config", "mcp_config.json"))
+	if !strings.Contains(got, `"command": "aiplex"`) || strings.Contains(got, "AIPLEX_TOKEN") {
+		t.Fatalf("unexpected antigravity file:\n%s", got)
 	}
 }
 

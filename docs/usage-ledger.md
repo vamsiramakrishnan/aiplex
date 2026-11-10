@@ -210,6 +210,8 @@ A price may carry an optional `source` object (`catalog`, `commit`, `retrieved_a
 `source_url`). It records where an imported price came from and has no effect on matching
 or cost.
 
+The Gemini Developer API omits `cachedContentTokenCount` and `thoughtsTokenCount` when they are zero (observed on the live API, 2026-11-10), so for `gemini-developer` generation a record that reports prompt, candidate and total counts gets `cache_read_tokens` 0 and `reasoning_tokens` equal to the total minus prompt, candidates and tool-use prompt tokens. Gemini reports thinking tokens apart from output tokens and bills them as output, so catalogue imports for `gemini-developer` price `reasoning_tokens` at the output rate.
+
 If a priced meter's quantity is not reported for a record (for example `cache_read_tokens`
 on a provider that omits cached tokens), that record's cost stays `unknown`; the ledger does
 not treat the missing count as zero.

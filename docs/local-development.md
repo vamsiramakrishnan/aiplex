@@ -119,6 +119,8 @@ Auth wiring per provider, as the seeded surface sets it:
 | `anthropic` | Anthropic Messages | `x-api-key` |
 | `gemini` | Gemini GenAI | `x-goog-api-key` |
 
+The seeded Anthropic surfaces list the `anthropic-beta` values Claude Code 2.1.322 sent when observed (a surface refuses betas it does not list), so a real Claude Code session works against them; a later Claude Code version may need more. To use z.ai or another server with your own path prefix, add `--allow-origin` for its origin and create a surface with `aiplex llm surfaces create` (an `openai-compatible` surface takes `base_path`; the `anthropic` provider does not).
+
 With a real provider, no price is seeded. The summary says so. Set contracted rates with
 `aiplex usage prices set <model> --input-per-mtok <price> --output-per-mtok <price>`, or with a full
 specification from a file, `aiplex usage prices set -f <price.json>`. To start from public list prices instead,

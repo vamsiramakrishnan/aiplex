@@ -442,7 +442,8 @@ Snippets read the token from $AIPLEX_TOKEN; no token or secret is printed.
 
 With --write, the configuration is merged into the client's own config file
 instead of only being printed. Supported for claude-code (settings.json and the
-MCP server list), codex (config.toml) and gemini-cli (settings.json). Each file
+MCP server list), codex (config.toml), gemini-cli (settings.json) and antigravity
+(its MCP server list only: ~/.gemini/config/mcp_config.json). Each file
 is shown as a diff and needs confirmation (--yes without a terminal). A copy of
 the original goes to ~/.aiplex/connect-backups first, existing keys are never
 replaced wholesale, and a file that is not valid JSON or TOML is refused rather
@@ -450,7 +451,7 @@ than overwritten. A token value is never written: files refer to $AIPLEX_TOKEN,
 or, with --token-helper, to "aiplex --context NAME auth print-token" for the context in
 effect (which must have a stored token, since the client runs the helper later). Parts a file cannot hold
 (an environment variable for the shell) are printed as remaining steps.
-antigravity has no documented config file location, so it stays print-only.
+antigravity's model and gateway settings, and antigravity-acp, stay print-only.
 
 --undo restores the most recent backup for --client (or the most recent one).
 --dry-run shows the diff and writes nothing. aiplex does not install the client.`,
