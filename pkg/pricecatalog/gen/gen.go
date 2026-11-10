@@ -98,41 +98,6 @@ var modalityFields = map[string]bool{
 	"output_cost_per_audio_token": true, "output_cost_per_image_token": true,
 }
 
-// modalityProviders report per-modality token usage that the ledger holds
-// (OpenAI and Azure *_tokens_details, Gemini promptTokensDetails).
-var modalityProviders = map[string]bool{"openai": true, "azure-openai": true, "gemini-developer": true, "google": true}
-
-// serviceTierProviders report the service tier a request was served on, so a
-// priority or flex price can be selected by what actually happened (OpenAI
-// service_tier; Gemini usageMetadata.serviceTier).
-var serviceTierProviders = map[string]bool{"openai": true, "gemini-developer": true, "google": true}
-
-// confirmedTiers lists, per catalogue provider, the long-context thresholds
-// (input tokens) whose billing rule was confirmed from the provider's own
-// documentation: the higher rates apply to the WHOLE request once the total
-// input exceeds the threshold, and cached tokens count toward it.
-//
-//   - anthropic: "a request whose prompt is over 100,000 tokens pays higher
-//     prices. A request's prompt length counts all of its input tokens,
-//     including cache reads and cache writes. Each request is priced on its
-//     own" (https://platform.claude.com/docs/en/about-claude/pricing#long-context-pricing,
-//     Claude Haiku 5.5).
-//   - openai: "prompts with >272K input tokens are priced at 2x input and 1.5x
-//     output for the full session" (https://developers.openai.com/api/docs/models/gpt-5.5).
-//     272K is read as 272,000 (the 400K window splits as 272K input + 128K
-//     output).
-//
-// Not confirmed, so tier fields stay unimported for these (the entry then
-// needs --accept-partial): Gemini (the pricing page labels "prompts <= 200k
-// tokens" and "> 200k" but does not say whether the higher rate covers the
-// whole prompt or whether cached tokens count), xAI ("reaches the listed
-// threshold" against the catalogue's "above"), Azure OpenAI, Bedrock and
-// Vertex-hosted Claude (their own pages were not confirmed).
-var confirmedTiers = map[string][]int64{
-	"anthropic": {100_000},
-	"openai":    {272_000},
-}
-
 var (
 	tierRE    = regexp.MustCompile(`^(.*)_above_([0-9]+)k_tokens(_batches|_priority|_flex)?$`)
 	variantRE = regexp.MustCompile(`^(.*?)(_batches|_priority|_flex)?$`)
@@ -256,7 +221,7 @@ func buildEntry(provider, model, key string, raw map[string]any) (pricecatalog.E
 		}
 		base, variant, above := parseField(field)
 		setter, scalar := scalarFields[base]
-		if !scalar || (modalityFields[base] && !modalityProviders[provider]) {
+		if !scalar || (modalityFields[base] && !pricecatalog.ModalityProviders[provider]) {
 			unconsumed = append(unconsumed, field)
 			continue
 		}
@@ -303,12 +268,8 @@ func buildEntry(provider, model, key string, raw map[string]any) (pricecatalog.E
 			thresholds = append(thresholds, above)
 		}
 		sort.Slice(thresholds, func(i, j int) bool { return thresholds[i] < thresholds[j] })
-		confirmed := map[int64]bool{}
-		for _, above := range confirmedTiers[provider] {
-			confirmed[above] = true
-		}
 		for _, above := range thresholds {
-			if !confirmed[above] || scalarKeys(*vr.tiers[above]) != scalarKeys(vr.base) {
+			if !pricecatalog.TierConfirmed(provider, above) || scalarKeys(*vr.tiers[above]) != scalarKeys(vr.base) {
 				return false
 			}
 		}
@@ -327,7 +288,7 @@ func buildEntry(provider, model, key string, raw map[string]any) (pricecatalog.E
 	// tier fields are carried only when the provider's rule is confirmed.
 	usableTier := func(name string) bool {
 		vr := variants[name]
-		if vr == nil || vr.base.Empty() || !tiersOK[name] || !serviceTierProviders[provider] || scalarKeys(vr.base) != scalarKeys(std.base) {
+		if vr == nil || vr.base.Empty() || !tiersOK[name] || !pricecatalog.ServiceTierProviders[provider] || scalarKeys(vr.base) != scalarKeys(std.base) {
 			return false
 		}
 		if len(std.tiers) > 0 && !tiersOK[vStandard] {
@@ -395,7 +356,7 @@ func buildEntry(provider, model, key string, raw map[string]any) (pricecatalog.E
 // models do not report calls, and Gemini grounding has monthly free requests
 // and per-prompt billing on older models.
 func serverToolPrice(provider string, v any) (string, bool) {
-	if provider != "anthropic" {
+	if !pricecatalog.WebSearchPerCallProviders[provider] {
 		return "", false
 	}
 	sizes, ok := v.(map[string]any)

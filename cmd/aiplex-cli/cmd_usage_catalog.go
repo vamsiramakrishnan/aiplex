@@ -20,26 +20,81 @@ const catalogDisclaimer = "Catalogue prices are a third-party snapshot of public
 func usagePricesCatalogCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "catalog",
-		Short: "Look up list prices in the bundled catalogue and import the ones you choose",
-		Long: `The binary carries a pinned snapshot of a third-party price list (LiteLLM's
-model_prices_and_context_window.json, MIT licence). Nothing is priced from it
-automatically: a model stays unknown until you import its price, which creates
-an ordinary price resource marked with its source and snapshot date. The cost
-basis stays "estimated": these are list prices, not invoices.`,
+		Short: "Look up list prices in the bundled catalogues and import the ones you choose",
+		Long: `The binary carries pinned snapshots of two third-party price lists: LiteLLM's
+model_prices_and_context_window.json (the default) and the models.dev model
+database (both MIT licence). Nothing is priced from them automatically: a model
+stays unknown until you import its price, which creates an ordinary price
+resource marked with its source and snapshot date. The cost basis stays
+"estimated": these are list prices, not invoices.
+
+When the two sources state different values for the same model and meter, search
+and show flag it, and an import needs --source to say which one to believe.`,
 		Example: `  aiplex usage prices catalog search claude --provider anthropic
   aiplex usage prices catalog show openai/gpt-4o-mini
-  aiplex usage prices catalog import openai/gpt-4o-mini --dry-run`,
+  aiplex usage prices catalog import openai/gpt-4o-mini --dry-run
+  aiplex usage prices catalog import mistral/open-mistral-nemo --source models.dev --dry-run`,
 	}
 	cmd.AddCommand(usageCatalogSearchCmd(), usageCatalogShowCmd(), usageCatalogImportCmd())
 	return cmd
 }
 
 func loadCatalogue() (*pricecatalog.Catalog, error) {
-	c, err := pricecatalog.Embedded()
+	return loadCatalogueSource(pricecatalog.SourceLiteLLM)
+}
+
+func loadCatalogueSource(name string) (*pricecatalog.Catalog, error) {
+	c, err := pricecatalog.EmbeddedSource(name)
 	if err != nil {
-		return nil, fmt.Errorf("price catalogue unavailable: %w", err)
+		return nil, fmt.Errorf("price catalogue %s unavailable: %w", name, err)
 	}
 	return c, nil
+}
+
+// catalogueSet is the embedded snapshots of every source.
+type catalogueSet struct {
+	byName map[string]*pricecatalog.Catalog
+}
+
+func loadCatalogues() (*catalogueSet, error) {
+	set := &catalogueSet{byName: map[string]*pricecatalog.Catalog{}}
+	for _, name := range pricecatalog.SourceNames {
+		c, err := loadCatalogueSource(name)
+		if err != nil {
+			return nil, err
+		}
+		set.byName[name] = c
+	}
+	return set, nil
+}
+
+// entries returns the entry of an id from every source that lists it.
+func (s *catalogueSet) entries(id string) map[string]pricecatalog.Entry {
+	out := map[string]pricecatalog.Entry{}
+	for name, c := range s.byName {
+		if e, ok := c.Get(id); ok {
+			out[name] = e
+		}
+	}
+	return out
+}
+
+// disagreements compares the two sources' entries for an id.
+func disagreementsOf(found map[string]pricecatalog.Entry) []pricecatalog.Disagreement {
+	a, okA := found[pricecatalog.SourceLiteLLM]
+	b, okB := found[pricecatalog.SourceModelsDev]
+	if !okA || !okB {
+		return nil
+	}
+	return pricecatalog.Disagreements(a, b)
+}
+
+func formatDisagreement(d pricecatalog.Disagreement) string {
+	meter := d.Meter
+	if d.Above > 0 {
+		meter += fmt.Sprintf(" (input over %d tokens)", d.Above)
+	}
+	return fmt.Sprintf("%s: %s says %s, %s says %s (USD per 1M tokens)", meter, pricecatalog.SourceLiteLLM, d.A, pricecatalog.SourceModelsDev, d.B)
 }
 
 func catalogueStamp(c *pricecatalog.Catalog) string {
@@ -48,6 +103,14 @@ func catalogueStamp(c *pricecatalog.Catalog) string {
 		commit = commit[:8]
 	}
 	return fmt.Sprintf("%s snapshot %s (commit %s)", c.Meta.Catalog, c.Meta.RetrievedAt, commit)
+}
+
+func cataloguesStamp(s *catalogueSet) string {
+	var parts []string
+	for _, name := range pricecatalog.SourceNames {
+		parts = append(parts, catalogueStamp(s.byName[name]))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func catRate(v string) string {
@@ -64,8 +127,10 @@ func usageCatalogSearchCmd() *cobra.Command {
 		Use:   "search <text> [--provider p]",
 		Short: "Search catalogue models by id",
 		Long: `Lists catalogue models whose <provider>/<model> contains every word of the
-text (case-insensitive substring match only). Prices are USD per million tokens.
-Providers: ` + strings.Join(pricecatalog.ProviderNames(), ", ") + `.`,
+text (case-insensitive substring match only), from both sources. Prices are USD
+per million tokens, from LiteLLM when it lists the model, otherwise from
+models.dev. A model both sources list with different values for the same meter
+is flagged. Providers: ` + strings.Join(pricecatalog.ProviderNames(), ", ") + `.`,
 		Example: `  aiplex usage prices catalog search gpt-4o
   aiplex usage prices catalog search claude --provider anthropic
   aiplex usage prices catalog search "gemini flash" -o json`,
@@ -74,28 +139,62 @@ Providers: ` + strings.Join(pricecatalog.ProviderNames(), ", ") + `.`,
 			if provider != "" && pricecatalog.LedgerProvider(provider) == "" {
 				return usageError(fmt.Sprintf("unknown catalogue provider %q", provider), "Providers: "+strings.Join(pricecatalog.ProviderNames(), ", "))
 			}
-			c, err := loadCatalogue()
+			set, err := loadCatalogues()
 			if err != nil {
 				return err
 			}
-			found := c.Search(strings.Join(args, " "), provider)
+			text := strings.Join(args, " ")
+			ids := map[string]bool{}
+			bySource := map[string][]pricecatalog.Entry{}
+			for _, name := range pricecatalog.SourceNames {
+				found := set.byName[name].Search(text, provider)
+				bySource[name] = found
+				for _, e := range found {
+					ids[e.ID()] = true
+				}
+			}
+			ordered := make([]string, 0, len(ids))
+			for id := range ids {
+				ordered = append(ordered, id)
+			}
+			sort.Strings(ordered)
+			var all []pricecatalog.Disagreement
+			for _, id := range ordered {
+				all = append(all, disagreementsOf(set.entries(id))...)
+			}
 			if usageMachineOutput() {
-				usagePrint(map[string]any{"meta": c.Meta, "entries": found})
+				sources := map[string]any{}
+				for _, name := range pricecatalog.SourceNames {
+					sources[name] = map[string]any{"meta": set.byName[name].Meta, "entries": bySource[name]}
+				}
+				usagePrint(map[string]any{"meta": set.byName[pricecatalog.SourceLiteLLM].Meta, "entries": bySource[pricecatalog.SourceLiteLLM], "sources": sources, "disagreements": all})
 				return nil
 			}
-			if len(found) == 0 {
+			if len(ordered) == 0 {
 				fmt.Println("No catalogue model matches. A model the catalogue does not list stays unknown; set its price with aiplex usage prices set.")
 				return nil
 			}
-			shown := found
+			shown := ordered
 			if limit > 0 && len(shown) > limit {
 				shown = shown[:limit]
 			}
-			t := newTable(keyCol("MODEL"), col("INPUT"), col("OUTPUT"), col("CACHE READ"), wideCol("CACHE WRITE"), wideCol("BATCH IN/OUT"), wideCol("CONTEXT"), col("NOTE"))
-			for _, e := range shown {
-				note := ""
+			t := newTable(keyCol("MODEL"), col("INPUT"), col("OUTPUT"), col("CACHE READ"), wideCol("CACHE WRITE"), wideCol("BATCH IN/OUT"), wideCol("CONTEXT"), col("SOURCES"), col("NOTE"))
+			for _, id := range shown {
+				found := set.entries(id)
+				e, listed := found[pricecatalog.SourceLiteLLM]
+				if !listed {
+					e = found[pricecatalog.SourceModelsDev]
+				}
+				var notes []string
 				if len(e.Blocking) > 0 {
-					note = "partial: needs --accept-partial"
+					notes = append(notes, "partial: needs --accept-partial")
+				}
+				if d := disagreementsOf(found); len(d) > 0 {
+					meters := []string{}
+					for _, x := range d {
+						meters = append(meters, x.Meter)
+					}
+					notes = append(notes, "sources disagree: "+strings.Join(meters, ","))
 				}
 				batch := "—"
 				if e.Batch != nil {
@@ -105,14 +204,20 @@ Providers: ` + strings.Join(pricecatalog.ProviderNames(), ", ") + `.`,
 				if e.ContextWindow > 0 {
 					ctx = fmt.Sprint(e.ContextWindow)
 				}
-				t.add(e.ID(), catRate(e.Rates.Input), catRate(e.Rates.Output), catRate(e.Rates.CacheRead), catRate(e.Rates.CacheWrite), batch, ctx, note)
+				var names []string
+				for _, name := range pricecatalog.SourceNames {
+					if _, ok := found[name]; ok {
+						names = append(names, name)
+					}
+				}
+				t.add(id, catRate(e.Rates.Input), catRate(e.Rates.Output), catRate(e.Rates.CacheRead), catRate(e.Rates.CacheWrite), batch, ctx, strings.Join(names, ", "), strings.Join(notes, "; "))
 			}
 			t.render(os.Stdout)
-			if len(shown) < len(found) {
-				fmt.Printf("\n%d more match; narrow the search or raise --limit.\n", len(found)-len(shown))
+			if len(shown) < len(ordered) {
+				fmt.Printf("\n%d more match; narrow the search or raise --limit.\n", len(ordered)-len(shown))
 			}
-			fmt.Printf("\nUSD per million tokens; unknown means the catalogue does not state it. %s\n%s\n", catalogueStamp(c), catalogDisclaimer)
-			fmt.Println("Details: aiplex usage prices catalog show <provider>/<model>. Import: aiplex usage prices catalog import <provider>/<model>")
+			fmt.Printf("\nUSD per million tokens; unknown means the catalogue does not state it. %s\n%s\n", cataloguesStamp(set), catalogDisclaimer)
+			fmt.Println("Details: aiplex usage prices catalog show <provider>/<model>. Import: aiplex usage prices catalog import <provider>/<model> [--source litellm|models.dev]")
 			return nil
 		},
 	}
@@ -123,30 +228,78 @@ Providers: ` + strings.Join(pricecatalog.ProviderNames(), ", ") + `.`,
 
 func usageCatalogShowCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "show <provider>/<model>",
-		Short:   "Show one catalogue model and what importing it would write",
+		Use:   "show <provider>/<model>",
+		Short: "Show one catalogue model in each source and what importing it would write",
+		Long: `Shows the model as each bundled source states it, what importing it would
+write, and every meter on which the two sources disagree.`,
 		Example: "  aiplex usage prices catalog show openai/gpt-4o-mini\n  aiplex usage prices catalog show bedrock/anthropic.claude-sonnet-4-6 -o json",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := loadCatalogue()
+			set, err := loadCatalogues()
 			if err != nil {
 				return err
 			}
-			entry, err := lookupEntry(c, args[0])
+			found, err := lookupEntries(set, args[0])
 			if err != nil {
 				return err
 			}
-			plan, err := c.Convert(entry, pricecatalog.Options{})
-			if err != nil {
-				return fmt.Errorf("%s: %w", entry.ID(), err)
+			plans := map[string]pricecatalog.Plan{}
+			for name, entry := range found {
+				plan, err := set.byName[name].Convert(entry, pricecatalog.Options{})
+				if err != nil {
+					if len(found) == 1 {
+						return fmt.Errorf("%s: %w", entry.ID(), err)
+					}
+					continue
+				}
+				plans[name] = plan
 			}
+			d := disagreementsOf(found)
 			if usageMachineOutput() {
-				usagePrint(map[string]any{"meta": c.Meta, "entry": entry, "prices": plan.Prices})
+				sources := map[string]any{}
+				for name, plan := range plans {
+					sources[name] = map[string]any{"meta": set.byName[name].Meta, "entry": found[name], "prices": plan.Prices}
+				}
+				primary := pricecatalog.SourceLiteLLM
+				if _, ok := plans[primary]; !ok {
+					primary = pricecatalog.SourceModelsDev
+				}
+				usagePrint(map[string]any{"meta": set.byName[primary].Meta, "entry": found[primary], "prices": plans[primary].Prices, "sources": sources, "disagreements": d})
 				return nil
 			}
-			printPlan(os.Stdout, c, plan, nil)
-			fmt.Printf("\nImport it with: aiplex usage prices catalog import %s", entry.ID())
-			if len(entry.Blocking) > 0 {
+			var first pricecatalog.Entry
+			for _, name := range pricecatalog.SourceNames {
+				plan, ok := plans[name]
+				if !ok {
+					continue
+				}
+				if first.Model == "" {
+					first = found[name]
+				}
+				fmt.Printf("== %s ==\n", name)
+				printPlan(os.Stdout, set.byName[name], plan, nil, false)
+			}
+			if len(found) < len(pricecatalog.SourceNames) {
+				for _, name := range pricecatalog.SourceNames {
+					if _, ok := found[name]; !ok {
+						fmt.Printf("\n%s does not list this model.\n", name)
+					}
+				}
+			}
+			if len(d) > 0 {
+				fmt.Println("\nSOURCES DISAGREE on a value both state:")
+				for _, x := range d {
+					fmt.Println("  " + formatDisagreement(x))
+				}
+				fmt.Printf("An import needs --source to choose one: aiplex usage prices catalog import %s --source litellm|models.dev\n", first.ID())
+			}
+			fmt.Printf("\nImport it with: aiplex usage prices catalog import %s", first.ID())
+			if len(d) > 0 {
+				fmt.Print(" --source <litellm|models.dev>")
+			} else if _, ok := found[pricecatalog.SourceLiteLLM]; !ok {
+				fmt.Print(" --source " + pricecatalog.SourceModelsDev)
+			}
+			if len(first.Blocking) > 0 {
 				fmt.Print(" --accept-partial")
 			}
 			fmt.Println()
@@ -155,29 +308,35 @@ func usageCatalogShowCmd() *cobra.Command {
 	}
 }
 
-func lookupEntry(c *pricecatalog.Catalog, id string) (pricecatalog.Entry, error) {
+// lookupEntries resolves an exact <provider>/<model> id in every source.
+func lookupEntries(set *catalogueSet, id string) (map[string]pricecatalog.Entry, error) {
 	provider, model, err := pricecatalog.SplitID(id)
 	if err != nil {
-		return pricecatalog.Entry{}, usageError(err.Error(), "Find the id with: aiplex usage prices catalog search <text>")
+		return nil, usageError(err.Error(), "Find the id with: aiplex usage prices catalog search <text>")
 	}
-	entry, ok := c.Lookup(provider, model)
-	if !ok {
-		return pricecatalog.Entry{}, usageError(fmt.Sprintf("%s is not in the catalogue", id),
+	found := set.entries(provider + "/" + model)
+	if len(found) == 0 {
+		return nil, usageError(fmt.Sprintf("%s is not in the catalogue", id),
 			"Matching is exact (no fuzzy matching). Search with: aiplex usage prices catalog search "+model,
 			"A model the catalogue does not list stays unknown; set its price with: aiplex usage prices set")
 	}
-	return entry, nil
+	return found, nil
 }
 
 // printPlan shows exactly what an import writes: per price and per meter, the
 // exact decimal, the stored rational, and everything that is not imported.
-func printPlan(w *os.File, c *pricecatalog.Catalog, plan pricecatalog.Plan, labels []string) {
+// accepted is true when the import goes ahead despite NOT EXPRESSIBLE fields
+// because --accept-partial was given.
+func printPlan(w *os.File, c *pricecatalog.Catalog, plan pricecatalog.Plan, labels []string, accepted bool) {
 	e := plan.Entry
 	fmt.Fprintf(w, "%s\n", e.ID())
 	for i, p := range plan.Prices {
 		kind := "standard"
-		if p.Batch != nil && *p.Batch {
+		switch {
+		case p.Batch != nil && *p.Batch:
 			kind = "batch"
+		case p.ServiceTier != "":
+			kind = p.ServiceTier + " service tier"
 		}
 		fmt.Fprintf(w, "  price %q (%s)", p.ID, kind)
 		if i < len(labels) && labels[i] != "" {
@@ -187,14 +346,17 @@ func printPlan(w *os.File, c *pricecatalog.Catalog, plan pricecatalog.Plan, labe
 		if p.Batch != nil && *p.Batch {
 			fmt.Fprint(w, ", batch exchanges only")
 		}
+		if p.ServiceTier != "" {
+			fmt.Fprintf(w, ", service_tier %q only (without a service_tier selector a price covers standard-tier exchanges)", p.ServiceTier)
+		}
 		fmt.Fprintln(w)
-		for _, m := range plan.Meters[i] {
-			rate := p.Meters[m.Name]
-			if strings.HasPrefix(m.Mtok, "0 (") {
-				fmt.Fprintf(w, "    %-20s %s\n", m.Name, m.Mtok)
-				continue
+		printMeters(w, p, plan.Meters[i], "    ")
+		for _, tier := range plan.Tiers[i] {
+			fmt.Fprintf(w, "    when a request's total input is over %d tokens, the whole request is priced at:\n", tier.Above)
+			for _, m := range tier.Meters {
+				rate := tierRate(p, tier.Above, m.Name)
+				printMeter(w, p, m, rate, "      ")
 			}
-			fmt.Fprintf(w, "    %-20s %s %s per 1M tokens   (stored %d/%d per token at scale %d)\n", m.Name, p.Currency, m.Mtok, rate.Numerator, rate.Denominator, p.Scale)
 		}
 		var unset []string
 		for _, name := range []string{usageledger.MeterInput, usageledger.MeterOutput, usageledger.MeterCacheRead, usageledger.MeterCacheWrite} {
@@ -210,8 +372,12 @@ func printPlan(w *os.File, c *pricecatalog.Catalog, plan pricecatalog.Plan, labe
 		fmt.Fprintf(w, "  context window: %d tokens\n", e.ContextWindow)
 	}
 	if len(plan.Blocking) > 0 {
-		fmt.Fprintf(w, "  NOT EXPRESSIBLE, changes what a request costs (importing needs --accept-partial): %s\n", strings.Join(plan.Blocking, ", "))
-		fmt.Fprintln(w, "    The rates above are only the base rates; requests the fields above apply to are mispriced.")
+		if accepted {
+			fmt.Fprintf(w, "  NOT EXPRESSIBLE, changes what a request costs (imported anyway: --accept-partial was given): %s\n", strings.Join(plan.Blocking, ", "))
+		} else {
+			fmt.Fprintf(w, "  NOT EXPRESSIBLE, changes what a request costs (importing needs --accept-partial): %s\n", strings.Join(plan.Blocking, ", "))
+		}
+		fmt.Fprintln(w, "    The rates above leave these out; requests the fields above apply to are mispriced.")
 	}
 	if len(plan.LeftOut) > 0 {
 		fmt.Fprintf(w, "  not imported: %s\n", strings.Join(plan.LeftOut, ", "))
@@ -221,6 +387,32 @@ func printPlan(w *os.File, c *pricecatalog.Catalog, plan pricecatalog.Plan, labe
 		src = c.Meta.SourceURL
 	}
 	fmt.Fprintf(w, "  source: %s\n  catalogue: %s; retrieved from %s\n", src, catalogueStamp(c), c.Meta.SourceURL)
+}
+
+func tierRate(p usageledger.Price, above int64, name string) usageledger.Rational {
+	for _, t := range p.Tiers {
+		if t.AboveInputTokens == above {
+			return t.Meters[name]
+		}
+	}
+	return usageledger.Rational{}
+}
+
+func printMeters(w *os.File, p usageledger.Price, meters []pricecatalog.Meter, indent string) {
+	for _, m := range meters {
+		printMeter(w, p, m, p.Meters[m.Name], indent)
+	}
+}
+
+func printMeter(w *os.File, p usageledger.Price, m pricecatalog.Meter, rate usageledger.Rational, indent string) {
+	switch {
+	case strings.HasPrefix(m.Mtok, "0 ("), m.Unit == "call" && !strings.ContainsAny(m.Mtok, "0123456789"):
+		fmt.Fprintf(w, "%s%-24s %s\n", indent, m.Name, m.Mtok)
+	case m.Unit == "call":
+		fmt.Fprintf(w, "%s%-24s %s %s per call   (stored %d/%d per call at scale %d)\n", indent, m.Name, p.Currency, m.Mtok, rate.Numerator, rate.Denominator, p.Scale)
+	default:
+		fmt.Fprintf(w, "%s%-24s %s %s per 1M tokens   (stored %d/%d per token at scale %d)\n", indent, m.Name, p.Currency, m.Mtok, rate.Numerator, rate.Denominator, p.Scale)
+	}
 }
 
 type catalogResult struct {
@@ -233,26 +425,33 @@ type catalogResult struct {
 
 type importItem struct {
 	plan     pricecatalog.Plan
+	cat      *pricecatalog.Catalog
+	source   string
 	statuses []string // per price: new, replace, exists, conflict
 	revision []uint64 // per price: current revision when replacing
 	detail   []string
 }
 
 func usageCatalogImportCmd() *cobra.Command {
-	var allForAP, currency string
+	var allForAP, currency, source string
 	var dryRun, yes, replace, acceptPartial, reasoningIncluded bool
 	cmd := &cobra.Command{
 		Use:   "import <provider>/<model>... [--all-for-access-point <ap>]",
 		Short: "Create price resources from catalogue models (shows exactly what is written first)",
 		Long: `Creates ordinary model-price resources from catalogue entries, marked with
-their source (catalogue, commit, snapshot date, source URL). It shows every meter
+their source (catalogue, commit, snapshot date, source URL). The default source
+is litellm; --source models.dev imports from the models.dev snapshot instead.
+When both sources list a model and state different values for the same meter,
+the import is refused until --source names the one to use, and both values are
+printed. It shows every meter
 as an exact decimal before writing anything, and never overwrites an existing
 price unless --replace is given. Cost from these prices has the basis "estimated".
 
 Meters the catalogue does not state stay unset, so cost for usage of that kind
 stays unknown. Fields an AIPlex price cannot express are listed. When one of
-them changes what a request costs (context-length tiers, audio or image token
-rates), the import is refused unless you pass --accept-partial. Reasoning tokens
+them changes what a request costs (context-length tiers whose billing rule is
+not confirmed for the provider, token rates for modalities the ledger does not
+hold), the import is refused unless you pass --accept-partial. Reasoning tokens
 are never priced from the catalogue; add --reasoning-included only when you know
 the provider's output tokens already include them (OpenAI, Anthropic), otherwise
 records that report reasoning tokens stay unknown cost.
@@ -262,7 +461,8 @@ and native model and imports those the catalogue lists; the rest are listed.`,
 		Example: `  aiplex usage prices catalog import openai/gpt-4o-mini --dry-run
   aiplex usage prices catalog import anthropic/claude-haiku-4-5 --reasoning-included --yes
   aiplex usage prices catalog import --all-for-access-point team --yes
-  aiplex usage prices catalog import gemini-developer/gemini-2.5-flash --accept-partial --replace`,
+  aiplex usage prices catalog import gemini-developer/gemini-2.5-flash --accept-partial --replace
+  aiplex usage prices catalog import mistral/open-mistral-nemo --source models.dev --yes`,
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.ToUpper(currency) != pricecatalog.Currency {
@@ -272,36 +472,41 @@ and native model and imports those the catalogue lists; the rest are listed.`,
 			if len(args) == 0 && allForAP == "" {
 				return usageError("name at least one <provider>/<model>, or use --all-for-access-point <ap>", "Find ids with: aiplex usage prices catalog search <text>")
 			}
-			c, err := loadCatalogue()
+			set, err := loadCatalogues()
 			if err != nil {
 				return err
 			}
+			if _, ok := set.byName[source]; !ok {
+				return usageError(fmt.Sprintf("unknown catalogue source %q", source), "Sources: "+strings.Join(pricecatalog.SourceNames, ", "))
+			}
+			explicit := cmd.Flags().Changed("source")
 			ctx := cmd.Context()
 			client := newClient()
 			opts := pricecatalog.Options{ReasoningIncluded: reasoningIncluded}
-			var entries []pricecatalog.Entry
+			var ids []string
 			seen := map[string]bool{}
 			for _, id := range args {
-				entry, err := lookupEntry(c, id)
+				found, err := lookupEntries(set, id)
 				if err != nil {
 					return err
 				}
-				if !seen[entry.ID()] {
-					seen[entry.ID()] = true
-					entries = append(entries, entry)
+				_ = found
+				if !seen[id] {
+					seen[id] = true
+					ids = append(ids, id)
 				}
 			}
 			var notFound []string
 			if allForAP != "" {
-				found, missing, err := catalogEntriesForAccessPoint(ctx, client, c, allForAP)
+				found, missing, err := catalogEntriesForAccessPoint(ctx, client, set, allForAP)
 				if err != nil {
 					return err
 				}
 				notFound = missing
-				for _, entry := range found {
-					if !seen[entry.ID()] {
-						seen[entry.ID()] = true
-						entries = append(entries, entry)
+				for _, id := range found {
+					if !seen[id] {
+						seen[id] = true
+						ids = append(ids, id)
 					}
 				}
 			}
@@ -311,7 +516,17 @@ and native model and imports those the catalogue lists; the rest are listed.`,
 			}
 			var items []importItem
 			var skipped []catalogResult
-			for _, entry := range entries {
+			for _, id := range ids {
+				found := set.entries(id)
+				entry, from, problem := chooseSource(found, source, explicit)
+				if problem != nil {
+					if allForAP == "" {
+						return usageError(fmt.Sprintf("%s: %s", id, strings.Join(problem.detail, "\n  ")), problem.hints...)
+					}
+					skipped = append(skipped, catalogResult{Catalog: id, Status: problem.status, Detail: strings.Join(problem.detail, "; ")})
+					continue
+				}
+				c := set.byName[from]
 				plan, err := c.Convert(entry, opts)
 				if err != nil {
 					skipped = append(skipped, catalogResult{Catalog: entry.ID(), Status: "not-importable", Detail: err.Error()})
@@ -319,22 +534,24 @@ and native model and imports those the catalogue lists; the rest are listed.`,
 				}
 				if len(plan.Blocking) > 0 && !acceptPartial {
 					if allForAP == "" {
-						printPlan(os.Stderr, c, plan, []string{"refused", "refused"})
+						printPlan(os.Stderr, c, plan, make([]string, len(plan.Prices)), false)
 						return usageError(fmt.Sprintf("%s has pricing an AIPlex price cannot express; importing only its base rates would misstate cost", entry.ID()),
 							"Nothing was written.", "Review it with: aiplex usage prices catalog show "+entry.ID(), "Import the base rates anyway with --accept-partial")
 					}
 					skipped = append(skipped, catalogResult{Catalog: entry.ID(), Status: "needs-accept-partial", Detail: strings.Join(plan.Blocking, ", ")})
 					continue
 				}
-				items = append(items, classifyImport(plan, existing, replace))
+				item := classifyImport(plan, existing, replace)
+				item.cat, item.source = c, from
+				items = append(items, item)
 			}
 			if usageMachineOutput() && dryRun {
-				usagePrint(map[string]any{"dry_run": true, "meta": c.Meta, "items": importJSON(items), "skipped": skipped, "not_found": notFound})
+				usagePrint(map[string]any{"dry_run": true, "items": importJSON(items), "skipped": skipped, "not_found": notFound})
 				return nil
 			}
 			if !usageMachineOutput() {
 				for _, it := range items {
-					printPlan(os.Stdout, c, it.plan, importLabels(it))
+					printPlan(os.Stdout, it.cat, it.plan, importLabels(it), acceptPartial)
 				}
 				for _, s := range skipped {
 					fmt.Printf("%s  [skipped: %s] %s\n", s.Catalog, s.Status, s.Detail)
@@ -417,6 +634,7 @@ and native model and imports those the catalogue lists; the rest are listed.`,
 	fl := cmd.Flags()
 	fl.StringVar(&allForAP, "all-for-access-point", "", "Import every model of this access point that the catalogue lists")
 	fl.StringVar(&currency, "currency", pricecatalog.Currency, "Currency (the catalogue is USD only)")
+	fl.StringVar(&source, "source", pricecatalog.SourceLiteLLM, "Catalogue source: "+strings.Join(pricecatalog.SourceNames, ", ")+" (needed when the two disagree on a model)")
 	fl.BoolVar(&dryRun, "dry-run", false, "Show what would be written and write nothing")
 	fl.BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
 	fl.BoolVar(&replace, "replace", false, "Replace an existing price with the same id (never done without this flag)")
@@ -425,11 +643,48 @@ and native model and imports those the catalogue lists; the rest are listed.`,
 	return cmd
 }
 
+// resolveProblem says why a model cannot be imported without more input.
+type resolveProblem struct {
+	status string
+	detail []string // first line is the headline
+	hints  []string
+}
+
+// chooseSource picks the entry an import uses. An explicit --source decides.
+// Without one, the default source (litellm) is used, but never when the other
+// source states a different value for the same meter, and never for a model
+// only the other source lists: the person says which to believe.
+func chooseSource(found map[string]pricecatalog.Entry, source string, explicit bool) (pricecatalog.Entry, string, *resolveProblem) {
+	if explicit {
+		if e, ok := found[source]; ok {
+			return e, source, nil
+		}
+		var others []string
+		for _, name := range pricecatalog.SourceNames {
+			if _, ok := found[name]; ok {
+				others = append(others, name)
+			}
+		}
+		return pricecatalog.Entry{}, "", &resolveProblem{status: "not-in-source", detail: []string{fmt.Sprintf("it is not in the %s catalogue", source)}, hints: []string{"It is listed by: " + strings.Join(others, ", ")}}
+	}
+	if d := disagreementsOf(found); len(d) > 0 {
+		lines := []string{"the two catalogue sources disagree, so choose which to import with --source litellm or --source models.dev"}
+		for _, x := range d {
+			lines = append(lines, formatDisagreement(x))
+		}
+		return pricecatalog.Entry{}, "", &resolveProblem{status: "sources-disagree", detail: lines, hints: []string{"Nothing was written.", "Import one explicitly: --source litellm or --source models.dev (review both with: aiplex usage prices catalog show <id>)"}}
+	}
+	if e, ok := found[pricecatalog.SourceLiteLLM]; ok {
+		return e, pricecatalog.SourceLiteLLM, nil
+	}
+	return pricecatalog.Entry{}, "", &resolveProblem{status: "only-in-models.dev", detail: []string{"only the models.dev catalogue lists it (the default source is litellm)"}, hints: []string{"Import it from models.dev with: --source models.dev"}}
+}
+
 func importJSON(items []importItem) []map[string]any {
 	out := []map[string]any{}
 	for _, it := range items {
 		for i, p := range it.plan.Prices {
-			out = append(out, map[string]any{"catalog_id": it.plan.Entry.ID(), "status": it.statuses[i], "detail": it.detail[i], "price": p, "blocking": it.plan.Blocking, "left_out": it.plan.LeftOut})
+			out = append(out, map[string]any{"catalog_id": it.plan.Entry.ID(), "source": it.source, "status": it.statuses[i], "detail": it.detail[i], "price": p, "blocking": it.plan.Blocking, "left_out": it.plan.LeftOut})
 		}
 	}
 	return out
@@ -465,7 +720,7 @@ func classifyImport(plan pricecatalog.Plan, existing []aiplex.ModelPriceResource
 		if status == "new" {
 			for _, ex := range existing {
 				q := ex.Price
-				if q.ModelID == p.ModelID && q.Provider == p.Provider && sameBatch(q.Batch, p.Batch) && q.ImageSize == "" && q.ImageQuality == "" {
+				if q.ModelID == p.ModelID && q.Provider == p.Provider && sameBatch(q.Batch, p.Batch) && q.ServiceTier == p.ServiceTier && q.ImageSize == "" && q.ImageQuality == "" {
 					status, detail = "conflict", fmt.Sprintf("price %q already covers %s/%s; delete or edit it instead", ex.ID, p.Provider, p.ModelID)
 					break
 				}
@@ -503,7 +758,7 @@ func confirmImport(cmd *cobra.Command, yes bool, question string) error {
 
 // catalogEntriesForAccessPoint resolves every model of an access point to the
 // provider and native model its usage records carry, and looks each up exactly.
-func catalogEntriesForAccessPoint(ctx context.Context, client *aiplex.Client, c *pricecatalog.Catalog, apID string) (found []pricecatalog.Entry, notFound []string, err error) {
+func catalogEntriesForAccessPoint(ctx context.Context, client *aiplex.Client, set *catalogueSet, apID string) (found []string, notFound []string, err error) {
 	ap, err := client.GetAccessPoint(ctx, apID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read access point %s: %w", apID, err)
@@ -533,14 +788,14 @@ func catalogEntriesForAccessPoint(ctx context.Context, client *aiplex.Client, c 
 			notFound = append(notFound, label+": "+reason)
 			continue
 		}
-		entry, ok := c.Lookup(provider, model)
-		if !ok {
-			notFound = append(notFound, fmt.Sprintf("%s: %s/%s is not in the catalogue", label, provider, model))
+		id := provider + "/" + model
+		if len(set.entries(id)) == 0 {
+			notFound = append(notFound, fmt.Sprintf("%s: %s is not in the catalogue", label, id))
 			continue
 		}
-		if !seen[entry.ID()] {
-			seen[entry.ID()] = true
-			found = append(found, entry)
+		if !seen[id] {
+			seen[id] = true
+			found = append(found, id)
 		}
 	}
 	sort.Strings(notFound)

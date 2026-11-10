@@ -334,9 +334,18 @@ func EstimateWith(p Price, r Record) Cost {
 			}
 		}
 		if inputModalityPriced {
+			// Cached tokens can only be audio, image or video when the request
+			// carried some; with every non-text input modality known to be zero
+			// they are text and priced exactly at the cache rate.
+			nonText := false
+			for _, name := range InputModalityCounters {
+				if q := quantities[name]; !textModality(name) && q != nil && *q > 0 {
+					nonText = true
+				}
+			}
 			for _, cache := range []string{MeterCacheRead, MeterCacheWrite} {
 				if _, priced := meters[cache]; priced {
-					if q := quantities[cache]; q == nil || *q != 0 {
+					if q := quantities[cache]; q == nil || (*q != 0 && nonText) {
 						return UnknownCost()
 					}
 				}
