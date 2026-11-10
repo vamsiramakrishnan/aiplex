@@ -140,7 +140,7 @@ When settled consumption reaches a configured threshold, QuotaPlex records a thr
 | `unknown_cost_requests`, `on_unknown_cost` (cost budgets), `thresholds`, `threshold_events`, `children` (each child's own counters), `notes` | operators |
 | `top_spenders` (principals by ledger usage in the window) | admins |
 
-A member is a caller who matches the budget's own members; reaching a budget only through a child does not make a caller a member of it. Anyone else gets `404`, the same answer as a missing budget. `spent` plus `reserved` plus `remaining` equals `limit` while the budget is under its limit. Amounts are exact decimal strings: whole numbers, or the cost in the currency at the money meter's scale.
+A member is a caller who matches the budget's own members; reaching a budget only through a child does not make a caller a member of it. The ledger is written asynchronously, so `top_spenders` can lag the counters by moments. Anyone else gets `404`, the same answer as a missing budget. `spent` plus `reserved` plus `remaining` equals `limit` while the budget is under its limit. Amounts are exact decimal strings: whole numbers, or the cost in the currency at the money meter's scale.
 
 ### What a refusal reveals
 

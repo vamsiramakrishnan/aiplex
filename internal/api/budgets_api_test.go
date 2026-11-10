@@ -210,6 +210,8 @@ func TestBudgetStatusScopesWhatMembersAndOperatorsSee(t *testing.T) {
 	if w = b.call("GET", "/api/v1/budgets/team/status", ""); w.Code != 404 {
 		t.Fatalf("non-member: %d", w.Code)
 	}
+	// The ledger is written asynchronously: wait for the member's records.
+	b.h.Ledger.Flush()
 	// Operators: everything, including children and threshold events.
 	b.verified("root", "admins")
 	b.role(models.RoleAdmin)
