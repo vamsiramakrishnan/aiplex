@@ -697,3 +697,51 @@ func TestAccessPointCatalogListing(t *testing.T) {
 		t.Fatalf("anonymous catalog: %d", w.Code)
 	}
 }
+
+// The listing also has the shape of the MCP Registry API (server.json schema
+// 2025-12-11): servers[] of {server, _meta}, metadata.count, names that match
+// the schema's pattern, descriptions within its limit and remotes of a known
+// transport type with an http(s) URL.
+func TestAccessPointCatalogIsRegistryShaped(t *testing.T) {
+	f := newAPFixture(t)
+	w := f.do("GET", "/ap/ide/v0.1/servers", "")
+	var got struct {
+		Servers []struct {
+			Server struct {
+				Schema      string `json:"$schema"`
+				Name        string `json:"name"`
+				Title       string `json:"title"`
+				Description string `json:"description"`
+				Version     string `json:"version"`
+				Remotes     []struct {
+					Type string `json:"type"`
+					URL  string `json:"url"`
+				} `json:"remotes"`
+			} `json:"server"`
+			Meta map[string]any `json:"_meta"`
+		} `json:"servers"`
+		Metadata struct {
+			Count int `json:"count"`
+		} `json:"metadata"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != 200 || len(got.Servers) != 4 || got.Metadata.Count != 4 {
+		t.Fatalf("registry listing: %d %s", w.Code, w.Body.String())
+	}
+	seen := map[string]bool{}
+	for _, e := range got.Servers {
+		s := e.Server
+		if s.Schema != "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json" || !registryServerName.MatchString(s.Name) || seen[s.Name] || strings.Count(s.Name, "/") != 1 {
+			t.Errorf("name or schema: %+v", s)
+		}
+		seen[s.Name] = true
+		if s.Description == "" || len([]rune(s.Description)) > 100 || len([]rune(s.Title)) > 100 || s.Version == "" || len(s.Remotes) != 1 || s.Remotes[0].Type != "streamable-http" || !strings.HasPrefix(s.Remotes[0].URL, "https://gateway.example/ap/ide/mcp") {
+			t.Errorf("entry: %+v", s)
+		}
+		if e.Meta == nil || len(e.Meta) != 0 {
+			t.Errorf("_meta must be an empty object (this is not the official registry): %v", e.Meta)
+		}
+	}
+	if !seen["example.gateway/ap-ide"] {
+		t.Errorf("names are not reverse-DNS of the public host: %v", seen)
+	}
+}
