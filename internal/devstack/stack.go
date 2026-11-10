@@ -84,6 +84,7 @@ type Stack struct {
 	exitErr   error
 	exitMu    sync.Mutex
 	providerE string // env var the API reads the provider secret from
+	env       []string
 }
 
 // Listen starts an HTTP server on a free loopback port and returns its URL.
@@ -221,24 +222,10 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 		env = append(env, s.providerE+"="+os.Getenv(opts.APIKeyEnv))
 	}
 	env = append(env, opts.Env...)
-	s.cmd = exec.Command(opts.APIBinary)
-	s.cmd.Env = env
-	s.cmd.Dir = s.Dir
-	out := opts.Log
-	if out == nil {
-		out = io.Discard
+	s.env = env
+	if err = s.launch(); err != nil {
+		return nil, err
 	}
-	s.cmd.Stdout, s.cmd.Stderr = out, out
-	if err = s.cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start %s: %w", opts.APIBinary, err)
-	}
-	go func() {
-		e := s.cmd.Wait()
-		s.exitMu.Lock()
-		s.exitErr = e
-		s.exitMu.Unlock()
-		close(s.exited)
-	}()
 	if err = s.WaitReady(ctx, 60*time.Second); err != nil {
 		return nil, err
 	}
@@ -247,6 +234,41 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	}
 	ok = true
 	return s, nil
+}
+
+func (s *Stack) launch() error {
+	s.cmd = exec.Command(s.opts.APIBinary)
+	s.cmd.Env = s.env
+	s.cmd.Dir = s.Dir
+	out := s.opts.Log
+	if out == nil {
+		out = io.Discard
+	}
+	s.cmd.Stdout, s.cmd.Stderr = out, out
+	if err := s.cmd.Start(); err != nil {
+		return fmt.Errorf("start %s: %w", s.opts.APIBinary, err)
+	}
+	exited := make(chan struct{})
+	s.exited = exited
+	cmd := s.cmd
+	go func() {
+		e := cmd.Wait()
+		s.exitMu.Lock()
+		s.exitErr = e
+		s.exitMu.Unlock()
+		close(exited)
+	}()
+	return nil
+}
+
+// Restart stops the API process and starts it again with the same
+// configuration (same port, issuer and upstreams). In-memory state is lost.
+func (s *Stack) Restart(ctx context.Context) error {
+	s.StopAPI()
+	if err := s.launch(); err != nil {
+		return err
+	}
+	return s.WaitReady(ctx, 60*time.Second)
 }
 
 func portFree(port int) error {

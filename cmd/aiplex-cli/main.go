@@ -164,7 +164,12 @@ Get started:
 	)
 	registerModuleCommands(root)
 
+	root.SilenceErrors = true
 	if err := root.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		for _, hint := range errorHints(err) {
+			fmt.Fprintf(os.Stderr, "  %s\n", hint)
+		}
 		os.Exit(1)
 	}
 }
