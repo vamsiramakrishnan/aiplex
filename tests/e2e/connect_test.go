@@ -99,7 +99,7 @@ func TestWhoAndConnect(t *testing.T) {
 			case r.Code == 0:
 				contains(t, r.Out, "/ap/local", profile+" output")
 				notContains(t, r.Out, e.stack.Token, profile+" output leaks the token")
-			case strings.Contains(r.Err, "CLIENT_NOT_APPLICABLE") || strings.Contains(r.Err, "does not serve"):
+			case strings.Contains(r.Err, "CLIENT_NOT_APPLICABLE") || strings.Contains(r.Err, "does not serve") || strings.Contains(r.Err, "this access point offers"):
 				contains(t, r.Err, "openai-chat", profile+" refusal names what the access point offers")
 			default:
 				t.Fatalf("connect --client %s: %s", profile, r)

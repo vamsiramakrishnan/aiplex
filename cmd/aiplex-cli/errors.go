@@ -341,7 +341,8 @@ func registerLister(parent string, l lister) { listers[parent] = l }
 
 func explainNotFound(cmd *cobra.Command, args []string, apiErr *aiplex.Error, local bool, what func(string) string) *cliError {
 	kind, id := "", ""
-	if cmd != nil && cmd.HasParent() && len(args) > 0 {
+	generic := strings.HasSuffix(apiErr.Message, "not found") && len(apiErr.Message) <= 40
+	if cmd != nil && cmd.HasParent() && len(args) > 0 && generic {
 		kind = kindName(cmd.Parent())
 		id = args[0]
 	}

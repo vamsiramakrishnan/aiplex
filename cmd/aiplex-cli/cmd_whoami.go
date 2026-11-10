@@ -67,6 +67,10 @@ that token is: subject, email, roles and grants.
 				for _, h := range ce.hints {
 					fmt.Fprintln(out, "  "+h)
 				}
+				if ce.code == exitAuth && t.Token == "" {
+					// Not signed in is an answer, not a failure.
+					return nil
+				}
 				return &cliError{msg: "could not confirm your identity with the API", code: ce.code, err: err}
 			}
 			id := identity.Identity

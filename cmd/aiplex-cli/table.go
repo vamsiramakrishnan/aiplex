@@ -336,8 +336,8 @@ func moneySymbol(currency string) string {
 	return currency + " "
 }
 
-// shortMoney renders a fixed-point amount for a table: "$0.000006 est.",
-// "$12.40". Unknown stays "unknown"; it is never shown as 0.
+// shortMoney renders a fixed-point amount for a table: "USD 0.000006 est.",
+// "USD 12.40". Unknown stays "unknown"; it is never shown as 0.
 func shortMoney(currency, amount string, scale uint8, basis string) string {
 	if basis != "settled" && basis != "estimated" {
 		return usageUnknown
@@ -346,7 +346,7 @@ func shortMoney(currency, amount string, scale uint8, basis string) string {
 	if err != nil {
 		return "invalid"
 	}
-	s := moneySymbol(currency) + value
+	s := currency + " " + value
 	if basis == "estimated" {
 		s += " est."
 	}

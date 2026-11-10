@@ -76,7 +76,7 @@ func TestHumanValues(t *testing.T) {
 			t.Errorf("formatFixed(%v) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	if got := shortMoney("USD", "6", 6, "estimated"); got != "$0.000006 est." {
+	if got := shortMoney("USD", "6", 6, "estimated"); got != "USD 0.000006 est." {
 		t.Errorf("shortMoney = %q", got)
 	}
 	if got := shortMoney("", "", 0, "unknown"); got != "unknown" {

@@ -88,7 +88,7 @@ echo "$out"
 step "aiplex usage records"
 out=$(aiplex usage records) || fail "usage records"
 echo "$out"
-[[ "$out" == *"mock-gpt"* && "$out" == *"(estimated)"* && "$out" == *"add"* ]] || fail "usage records lack the model, its estimated cost or the tool call"
+[[ "$out" == *"mock-gpt"* && "$out" == *"est."* && "$out" == *"add"* ]] || fail "usage records lack the model, its estimated cost or the tool call"
 
 step "aiplex usage summary --by model"
 aiplex usage summary --by model || fail "usage summary"
