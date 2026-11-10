@@ -52,13 +52,13 @@ The default (`generic`) output above is the MCP configuration to use. Named clie
 bash examples/mcp-tools/mcp.sh
 ```
 
-Output (the `tools/list` result is shortened):
+Output on a fresh `aiplex dev` (copied as printed):
 
 ```text
 # initialize
 {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"aiplex-access-point/local","title":"Local development","version":"1.0.0"}}}
 # tools/list
-{"id":2,"jsonrpc":"2.0","result":{"tools":[{"annotations":{"readOnlyHint":true},"description":"Echo the given text back.", ... }]}}
+{"id":2,"jsonrpc":"2.0","result":{"tools":[{"annotations":{"readOnlyHint":true},"description":"Echo the given text back.","inputSchema":{"properties":{"text":{"type":"string"}},"required":["text"],"type":"object"},"name":"local-tools__echo"},{"annotations":{"readOnlyHint":true},"description":"Add two numbers.","inputSchema":{"properties":{"a":{"type":"number"},"b":{"type":"number"}},"required":["a","b"],"type":"object"},"name":"local-tools__add"},{"annotations":{"destructiveHint":true,"readOnlyHint":false},"description":"Reset the server's call counter.","inputSchema":{"type":"object"},"name":"local-tools__reset_counter"}]}}
 # tools/call local-tools__add {a:2, b:40}
 {"id":3,"jsonrpc":"2.0","result":{"content":[{"text":"42","type":"text"}],"isError":false}}
 ```

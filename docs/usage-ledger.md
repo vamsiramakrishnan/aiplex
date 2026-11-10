@@ -225,7 +225,9 @@ The capacity rejections are status `denied`, with HTTP 429 and a `Retry-After` h
 ## Worked example
 
 ```sh
-# Save the price, then read it back
+# Set a price from the command line: dollars per million tokens (currency defaults to USD)
+aiplex usage prices set gpt-4o-mini --input-per-mtok 0.15 --output-per-mtok 0.60
+# Or save a full price specification from a file (JSON or YAML)
 aiplex usage prices set -f example-flash.json
 aiplex usage prices list
 aiplex usage prices get example-flash
@@ -291,27 +293,45 @@ not change the response to the client.
 `7d`, measured back from now. `--until` is exclusive. `records` also takes
 `--limit`, `--cursor` and `--all`. `summary` takes `--by` and `--bucket` (`hour` or `day`).
 
-`aiplex usage records` prints one row per record with these columns:
+`aiplex usage records` prints one row per record. Tables fit the terminal width (from `$COLUMNS`, then the
+terminal size). When standard output is not a terminal, nothing is shortened. `-o wide` prints every column,
+untruncated. The default columns are:
 
 | Column | Shows |
 | --- | --- |
-| `ID`, `TIME`, `PLANE`, `MODEL/TOOL`, `AGENT`, `USER`, `CLIENT` | Identity and target. |
-| `SESSION` | `session` for a WebSocket session. |
-| `BATCH` | `batch` for a batch exchange. |
+| `TIME` | When the exchange started, relative (`just now`) in the default table. |
+| `MODEL/TOOL` | The model, or the tool name for an MCP call. |
+| `CALLER` | The readable caller: the user's display name (the verified email or subject), with the agent in front of it when the call was made by an agent for a user, as `agent (user)`. |
+| `ACCESS POINT` | The access point the call came through. |
 | `STATUS` | The status. A capacity rejection shows its reason, for example `denied (capacity_cooldown)`. |
-| `IN`, `OUT`, `CACHE-W` | `input_tokens`, `output_tokens` and `cache_write_tokens`. Unknown counters show `—`. |
-| `MODALITY` | The modality splits. `in` lists input splits and `out` lists output splits. |
-| `UNITS` | Units the record reported: `audio-in`, `voice-session`, `video-out` (milliseconds) and `images`. |
-| `COST`, `LATENCY` | Cost and duration. |
+| `IN`, `OUT` | `input_tokens` and `output_tokens`. Unknown counters show `unknown`. |
+| `COST` | The cost and its basis, `(settled)` or `(estimated)`. Unknown cost shows `unknown`. |
 
-`aiplex usage get <id>` prints every field of one record, including `http_status`,
-`error_class`, `usage_bound`, `batch`, `image_size` and `image_quality`.
+`-o wide` adds the columns the default table leaves out: `ID` (the record ID), `PLANE`, `AGENT`, `USER`
+(the principal ID, the key the caller is recorded under), `CLIENT`, `SESSION`, `BATCH`, `CACHE-W`, `MODALITY`,
+`UNITS` and `LATENCY`. Use `-o json` for every field of each record.
 
-`aiplex usage summary` prints one row per group, with these columns after the group keys:
-`REQUESTS`, `ERRORS`, `DENIED`, `IN`, `OUT`, `CACHE-W`, `MODALITY`, `UNITS`, `BATCH`, `COST`,
-`UNKNOWN` and `BOUNDED`. `BATCH` counts batch records. `BOUNDED` counts records with
-`lower_bound`, `ambiguous` or `partial` usage. The summary prints a note when any total
-includes bounded usage.
+A record carries two readable names for the caller, set by the server from the verified identity when it
+verified it: `principal_display` for the user (or client) and `actor_display` for the agent. The CLI shows the
+display name in `CALLER`, and falls back to a shortened principal ID when none is recorded. The display name is
+for people to read and is not a key. It can be an email address, so do not publish a ledger export without
+checking it. `principal_id` and `actor_id` are the keys that `--user` and `--agent` filter on.
+
+`aiplex usage get <id>` prints every field of one record, including `principal_display`, `actor_display`,
+`http_status`, `error_class`, `usage_bound`, `batch`, `image_size` and `image_quality`.
+
+`aiplex usage summary` prints one row per group, with the group keys first. The default columns are
+`REQUESTS`, `ERRORS`, `DENIED`, `IN`, `OUT` and `COST`. `-o wide` adds `CACHE-W`, `MODALITY`, `UNITS`,
+`BATCH`, `UNKNOWN` and `BOUNDED`. `BATCH` counts batch records. `BOUNDED` counts records with `lower_bound`,
+`ambiguous` or `partial` usage. The summary prints a note when any total includes bounded usage.
+
+```text
+$ aiplex usage summary --by model
+MODEL     REQUESTS  ERRORS  DENIED  IN  OUT  COST
+mock-gpt  1         0       0       1   9    USD 0.000006 (estimated)
+
+1 records scanned.
+```
 
 ## Limits
 

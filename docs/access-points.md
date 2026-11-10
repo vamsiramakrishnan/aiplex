@@ -14,6 +14,39 @@ Quota controls are described in [managed QuotaPlex execution](quotaplex-integrat
 Usage records carry `access_point_id` and `caller_kind`; see [usage ledger](usage-ledger.md).
 Client profiles are described in [ClientPlex](clientplex.md).
 
+## Create one with the CLI
+
+`aiplex access-points create <id>` builds the access point from flags, so a reader does not need a
+spec file for the common case. `--model name=surface[:native]` exposes a model of a saved model surface
+under a client-facing name. `--tool <connection>` exposes every permitted tool of a tool connection, named
+`<connection>__<tool>` to callers. Give at least one of them.
+
+Who may call: with no `--allow-*` flag, every verified caller of the kinds in `--callers` (default
+`user,agent,client`) is admitted. Otherwise a caller must match one of `--allow-users` (a subject, an email
+the usage ledger knows, or a `principal-…` ID), `--allow-groups`, `--allow-agents` or `--allow-clients`.
+
+```sh
+aiplex access-points create team --model mock-gpt=local-models --tool local-tools
+aiplex access-points create ide --model gpt-4o-mini=openai --model claude=claude:claude-sonnet-4-5 --allow-groups eng
+aiplex access-points create ci --model gpt-4o-mini=openai --callers agent --allow-agents ci-bot
+aiplex access-points create bob-only --model mock-gpt=local-models --allow-users bob --update
+```
+
+The output of the first command on `aiplex dev`, which has the `local-models` surface and the `local-tools`
+connection seeded:
+
+```text
+Created access point team (revision 1): http://127.0.0.1:8080/ap/team
+
+Next:
+  aiplex connect team                 # client configuration
+  aiplex access-points get team
+```
+
+The access point is created new. `--update` replaces an existing one; the CLI reads the current revision for you
+and writes against it. `--name` sets the display name. QoS classes and expose lists are
+not flags: use `aiplex access-points apply -f <file>` for them, and the [specification](#specification) below for the fields.
+
 ## Specification
 
 ```json
@@ -476,8 +509,8 @@ The snippets read the bearer token from the `AIPLEX_TOKEN` environment variable.
 snippet contains a token or secret value. The caller still needs a token that the
 access point admits.
 
-`aiplex access-points` also has `list`, `get`, `apply -f <file>` (JSON or YAML), and
-`delete <id>`. `apply` creates or replaces the access point.
+`aiplex access-points` also has `list`, `get`, `create` (see [Create one with the CLI](#create-one-with-the-cli)),
+`apply -f <file>` (JSON or YAML), and `delete <id>`. `apply` creates or replaces the access point from the full specification.
 
 ## Limits
 
