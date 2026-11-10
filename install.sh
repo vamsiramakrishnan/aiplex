@@ -5,19 +5,25 @@
 #   curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash
 #   curl -fsSL ... | bash -s -- --version v0.2.0   # specific version
 #
-# Installs the pre-built aiplex CLI (and aiplex-api, used by `aiplex dev`,
-# when the release archive carries it) to ~/.local/bin (AIPLEX_INSTALL_DIR).
+# Installs the pre-built aiplex CLI and aiplex-api (used by `aiplex dev`) to
+# ~/.local/bin (AIPLEX_INSTALL_DIR), after checking the archive against the
+# release's checksums.txt. AIPLEX_RELEASE_BASE overrides where archives are
+# fetched from (for mirrors and for testing with a local build:
+# AIPLEX_RELEASE_BASE=file:///path/to/dist ./install.sh --version v0.0.0).
 
 set -euo pipefail
 
 REPO="vamsiramakrishnan/aiplex"
 INSTALL_DIR="${AIPLEX_INSTALL_DIR:-$HOME/.local/bin}"
+RELEASE_BASE="${AIPLEX_RELEASE_BASE:-}"
 VERSION="latest"
+TMPDIR_INSTALL=""
+trap '[[ -z "$TMPDIR_INSTALL" ]] || rm -rf "$TMPDIR_INSTALL"' EXIT
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version) [[ $# -ge 2 ]] || { echo "--version needs a value, e.g. --version v0.2.0" >&2; exit 1; }; VERSION="$2"; shift 2 ;;
         --version=*) VERSION="${1#--version=}"; shift ;;
-        -h|--help) sed -n '2,10p' "$0" 2>/dev/null || true; exit 0 ;;
+        -h|--help) sed -n '2,13p' "$0" 2>/dev/null || true; exit 0 ;;
         v[0-9]*) VERSION="$1"; shift ;;  # bare version, as before
         *) echo "unknown argument: $1 (use --version vX.Y.Z)" >&2; exit 1 ;;
     esac
@@ -65,15 +71,31 @@ install() {
     [[ "$OS" == "windows" ]] && ext="zip"
 
     local filename="aiplex_${VERSION_NUM}_${OS}_${ARCH}.${ext}"
-    local url="https://github.com/${REPO}/releases/download/${VERSION}/${filename}"
+    local base="${RELEASE_BASE:-https://github.com/${REPO}/releases/download/${VERSION}}"
+    local url="${base}/${filename}"
 
     info "Downloading aiplex ${VERSION} for ${OS}/${ARCH}..."
 
-    local tmpdir
-    tmpdir="$(mktemp -d)"
-    trap 'rm -rf "$tmpdir"' EXIT
+    TMPDIR_INSTALL="$(mktemp -d)"
+    local tmpdir="$TMPDIR_INSTALL"
 
-    curl -fsSL "$url" -o "${tmpdir}/${filename}" || err "Download failed. Check version: $VERSION"
+    curl -fsSL "$url" -o "${tmpdir}/${filename}" || err "Download failed: ${url}. Check the version (releases: https://github.com/${REPO}/releases)"
+
+    # Verify the archive against the release checksums.
+    if curl -fsSL "${base}/checksums.txt" -o "${tmpdir}/checksums.txt" 2>/dev/null; then
+        local want got
+        want="$(awk -v f="$filename" '$2 == f || $2 == "*"f {print $1}' "${tmpdir}/checksums.txt")"
+        [[ -n "$want" ]] || err "checksums.txt does not list ${filename}"
+        if command -v sha256sum >/dev/null; then
+            got="$(sha256sum "${tmpdir}/${filename}" | awk '{print $1}')"
+        else
+            got="$(shasum -a 256 "${tmpdir}/${filename}" | awk '{print $1}')"
+        fi
+        [[ "$want" == "$got" ]] || err "checksum mismatch for ${filename} (expected ${want}, got ${got})"
+        ok "Checksum verified"
+    else
+        info "No checksums.txt next to the archive; skipping checksum verification"
+    fi
 
     info "Installing to ${INSTALL_DIR}..."
     mkdir -p "$INSTALL_DIR"
@@ -84,12 +106,14 @@ install() {
         tar -xzf "${tmpdir}/${filename}" -C "$tmpdir"
     fi
 
-    [[ -f "${tmpdir}/aiplex" ]] || err "archive ${filename} does not contain the aiplex binary"
-    mv "${tmpdir}/aiplex" "${INSTALL_DIR}/aiplex"
-    chmod +x "${INSTALL_DIR}/aiplex"
-    if [[ -f "${tmpdir}/aiplex-api" ]]; then
-        mv "${tmpdir}/aiplex-api" "${INSTALL_DIR}/aiplex-api"
-        chmod +x "${INSTALL_DIR}/aiplex-api"
+    local exe=""
+    [[ "$OS" == "windows" ]] && exe=".exe"
+    [[ -f "${tmpdir}/aiplex${exe}" ]] || err "archive ${filename} does not contain the aiplex binary"
+    mv "${tmpdir}/aiplex${exe}" "${INSTALL_DIR}/aiplex${exe}"
+    chmod +x "${INSTALL_DIR}/aiplex${exe}"
+    if [[ -f "${tmpdir}/aiplex-api${exe}" ]]; then
+        mv "${tmpdir}/aiplex-api${exe}" "${INSTALL_DIR}/aiplex-api${exe}"
+        chmod +x "${INSTALL_DIR}/aiplex-api${exe}"
         HAVE_API=1
     fi
 }
@@ -119,17 +143,22 @@ main() {
     install
 
     ok "aiplex ${VERSION} installed → ${INSTALL_DIR}/aiplex"
+    "${INSTALL_DIR}/aiplex" version 2>/dev/null | sed 's/^/  /' || true
     check_path
 
     echo ""
     info "Get started:"
     if [[ "${HAVE_API:-0}" == "1" ]]; then
-        echo "  aiplex dev               # run locally: mock model, tools, usage (no cloud account)"
+        echo "  aiplex dev               # run locally: mock model, tools, Console (no cloud account)"
     else
         echo "  (this release has no aiplex-api binary; for local mode build from source: make build && bin/aiplex dev)"
     fi
-    echo "  aiplex init              # configure your GCP project"
-    echo "  aiplex quickstart        # zero to running platform"
+    echo "  aiplex --help            # every command, grouped by task"
+    echo ""
+    info "Shell completion (optional):"
+    echo "  bash: echo 'source <(aiplex completion bash)' >> ~/.bashrc"
+    echo "  zsh:  echo 'source <(aiplex completion zsh)' >> ~/.zshrc"
+    echo "  fish: aiplex completion fish > ~/.config/fish/completions/aiplex.fish"
     echo ""
 }
 

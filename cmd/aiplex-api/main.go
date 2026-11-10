@@ -20,6 +20,7 @@ import (
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	ctx = watchParent(ctx)
 
 	// Config
 	cfg, err := config.Load(ctx)
@@ -110,4 +111,33 @@ func parseDurationEnv(name string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+// watchParent stops the server when the process that started it goes away.
+// `aiplex dev` sets AIPLEX_EXIT_WITH_PARENT=<its pid> so a local API never
+// outlives a killed `aiplex dev` (SIGKILL cannot be trapped, and macOS has no
+// parent-death signal); the API is re-parented and notices within a second.
+func watchParent(ctx context.Context) context.Context {
+	want, err := strconv.Atoi(os.Getenv("AIPLEX_EXIT_WITH_PARENT"))
+	if err != nil || want <= 1 {
+		return ctx
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if os.Getppid() != want {
+					log.Warn().Int("parent", want).Msg("parent process exited; shutting down")
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return ctx
 }
