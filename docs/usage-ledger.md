@@ -26,7 +26,7 @@ deployer gets the overview's configuration view with usage withheld (see
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `hook_decision`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
+| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `budget_id`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `hook_decision`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
 | `GET /api/v1/usage/records/{id}` | One record. |
 | `GET /api/v1/usage/summary` | Totals. Accepts the same filters, except `limit` and `cursor`, plus `group_by` and `bucket=hour\|day`. Returns requests, errors, token sums, records with unknown usage and cost per currency. |
 | `GET /api/v1/usage/prices` | List model-price resources. |
@@ -69,6 +69,7 @@ unknown. Any other value is matched exactly.
 | `principal_id`, `actor_id` | Verified principal and delegated actor, when present. |
 | `client_id` | The verified token's authorized party (`azp`). A public OAuth client ID is attribution, not a security boundary. |
 | `access_point_id`, `caller_kind` | Set only when the exchange entered through an [access point](access-points.md). `caller_kind` is `agent`, `user` or `client`. |
+| `budget_ids` | The [tenant budgets](budgets.md) the exchange drew from (its own and every ancestor), sorted. Set only when QuotaPlex dispatched the attempt: a request refused or released before dispatch has none. `group_by=budget` counts a record in every budget it drew from, so budget groups overlap. |
 | `status` | `ok`, `error`, `denied` (HTTP 401, 403, 407 or 429), or `unknown` (the response began but did not complete, or the client disconnected). |
 | `source` | `managed` for records captured on AIPlex paths, `reported` for `POST /api/v1/llm/usage`. |
 | `http_status` | The HTTP status the caller received. Omitted when the exchange had none. |
@@ -378,7 +379,7 @@ not change the response to the client.
 
 `aiplex usage records` and `aiplex usage summary` take the same filters: `--plane`,
 `--provider`, `--model`, `--tool`, `--agent`, `--user`, `--client`, `--access-point`,
-`--caller-kind`, `--status`, `--source`, `--error-class`, `--bound`, `--batch`, `--hook-decision`, `--since` and `--until`.
+`--caller-kind`, `--budget`, `--status`, `--source`, `--error-class`, `--bound`, `--batch`, `--hook-decision`, `--since` and `--until`.
 `--error-class` and `--bound` pass through to `error_class` and `usage_bound`. `--bound` accepts
 `lower_bound`, `ambiguous`, `partial` or `none`. `--batch` takes `true` or `false`. Given alone,
 `--batch` means `--batch=true`. `--since` and `--until` also accept a duration such as `24h` or

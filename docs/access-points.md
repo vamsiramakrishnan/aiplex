@@ -84,6 +84,7 @@ not flags: use `aiplex access-points apply -f <file>` for them, and the [specifi
 | `models[]` | `name` is the client-facing name, `surface_ref` a saved model surface, `native_model` the model the surface lists. Names are unique. |
 | `tools[]` | `connection_ref` names a saved tool connection. `expose` is an optional list of tool names or prefixes ending in `*`. Omitted means every tool the connection permits. |
 | `skills[]` | `instance_ref` names a deployed skill instance. Requires the `skillsplex` module. |
+| `project` | Optional label, `[A-Za-z0-9._-]` up to 128 characters, set by an administrator. A [tenant budget](budgets.md) may select it in `members.projects`. It is trusted because only an administrator can set it; it is never read from a request. |
 | `qos` | `class` (lower-case, up to 63 characters), `weight`, `limits` (`requests_per_minute`, `tokens_per_minute`, `concurrency`) and `budget_refs`. Rendered into QuotaPlex controls. See [QoS and quota](#qos-and-quota). |
 
 Unknown fields are rejected. The API returns a validation error for any reference that
@@ -474,7 +475,10 @@ Notes from the rendering code:
   binding without that meter is denied.
 - A QoS block with no limits and no matching quota control fails closed for requests.
 - Re-rendering replaces this access point's earlier rate and concurrency rules.
-- `budget_refs` select budgets that already exist in the active quota policy.
+- `budget_refs` select budgets that already exist in the active quota policy. They are the operator's
+  QuotaPlex budget rules. [Tenant budgets](budgets.md) (team and project limits saved with
+  `aiplex budgets`) are separate: they select an access point through their `members.access_points`
+  or its `project`, need no `budget_refs`, and are enforced by QuotaPlex in the same admission.
 
 **Fail-closed rule.** A request through an access point with a `qos` block is refused
 when no active quota control matches the access point and the target:

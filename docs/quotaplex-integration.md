@@ -176,6 +176,17 @@ billable retry/fallback uses a new key. `X-Aiplex-Operation-Id` links logical wo
 without combining separate provider charges. These headers are not forwarded as
 provider authority. The response exposes the opaque `X-Aiplex-Attempt-ID`.
 
+## Tenant budgets
+
+Saved [tenant budgets](budgets.md) (team and project limits with a parent/child tree) are not rules in the
+operator policy file. The quota host resolves the budgets a request draws from, from the verified token's
+groups, the principal, the actor, the access point and its administrator-set `project`, and passes them in
+the demand as `budgets`. QuotaPlex checks and reserves them in the same admission transaction as the policy's
+budgets, rates and concurrency, and settles them with the same terminal usage. The operator policy must still
+define the meters a budget counts (a `requests` meter, token meters through the binding profile, and a money
+meter with a price book for cost budgets) and every operation still needs its binding. Budget counters are
+QuotaPlex counters in the configured store.
+
 ## Acknowledgement and recovery
 
 Dispatch, observation and finish use the shared acknowledged execution lifecycle.

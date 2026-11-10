@@ -78,6 +78,7 @@ const sidebars: SidebarsConfig = {
             L('quotaplex-execution-coverage', 'Execution coverage'),
             L('quotaplex-prerequisites', 'Prerequisites and readiness'),
             L('quotaplex-foundation-design', 'Foundation design'),
+            L('budgets', 'Budgets'),
             L('usage-ledger', 'Usage ledger'),
           ],
         },
@@ -150,6 +151,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'api/usage',
             'api/hooks',
+            'api/budgets',
             'api/access-points',
             'api/overview-pane',
             'api/identity-agents',
