@@ -11,6 +11,11 @@ Facts every draft relies on, and where they come from:
 | A usage record per call: caller, model or tool, tokens, estimated cost; unknown stays unknown | [docs/usage-ledger.md](../usage-ledger.md); the README quickstart output |
 | Tested against local mocks, fixtures built from provider documentation and the Firestore emulator | CI, [production qualification](../production-qualification.md) |
 | Not run against live providers, not compared with an invoice, no recorded cloud deployment | README "Project status" |
+| OpenTelemetry traces and metrics, sent only to an OTLP endpoint you set; a record carries `trace_id` and `span_id` | [docs/observability.md](../observability.md); tested against an in-process receiver only |
+| `aiplex connect --write` shows a diff, keeps a backup and can be undone; never writes a token | [docs/harness-onboarding.md](../harness-onboarding.md); tested with isolated homes, not loaded by an installed client |
+| A pinned third-party price list you import from by choice; imported cost stays estimated | [usage ledger, price catalogue](../usage-ledger.md#price-catalogue); snapshot dated 2026-11-10 |
+| `aiplex platform preflight` checks deployer permissions before apply | [docs/gcp-permissions.md](../gcp-permissions.md); not run against a live project |
+| Not run against an installed coding client, a real OTLP collector or a live Google Cloud project | README "Project status" and each guide's limits section |
 | Pre-1.0 | README, CHANGELOG |
 
 Avoid adding claims about speed, scale, customers or cost savings; none is measured or recorded.
