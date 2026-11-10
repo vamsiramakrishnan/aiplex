@@ -29,7 +29,8 @@ api:
   extraVolumeMounts: []  # name, mountPath, optional subPath; always read-only
   # Namespaced RBAC for the API's in-cluster deploy engine (internal/deploy):
   # one Role + RoleBinding per namespace it deploys into, with exactly the
-  # kinds it renders and the verbs kubectl server-side apply and delete use.
+  # kinds it renders and the verbs its Kubernetes client uses (create, patch,
+  # delete).
   rbac:
     create: true
     namespaces: [aiplex-system, mcplex, a2aplex, llmplex, skillsplex]
@@ -60,6 +61,24 @@ console:
     limits:
       cpu: 200m
       memory: 128Mi
+
+# ─── Gateway (GKE Gateway API) ───
+# The load balancer, listeners, routes and Cloud Armor attachment
+# (templates/gateway.yaml). Needs the Terraform-created address, certificate
+# map and security policy named below, and a cluster with the Gateway API on.
+# Set enabled: false on clusters that are not GKE.
+gateway:
+  enabled: true
+  className: gke-l7-global-external-managed
+  addressName: aiplex-ip          # google_compute_global_address (gateway.tf)
+  certMap: aiplex-cert-map        # google_certificate_manager_certificate_map (gateway.tf)
+  cloudArmorPolicy: aiplex-waf    # google_compute_security_policy (security.tf); "" skips the attachment
+  # Hostnames the routes answer for. Empty: [global.domain].
+  hostnames: []
+  # Also render the Envoy Gateway SecurityPolicy (ext_authz through OPA) and
+  # rate-limit policy, and attach the SecurityPolicy to the /mcp/ route. Only
+  # for clusters running Envoy Gateway; the GKE Gateway controller ignores them.
+  envoyGatewayPolicies: false
 
 # ─── OPA ext_authz ───
 opa:

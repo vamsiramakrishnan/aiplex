@@ -84,6 +84,10 @@ includedPermissions:
 - compute.networks.get
 - compute.networks.updatePolicy
 - compute.regionOperations.get
+- compute.routers.create
+- compute.routers.delete
+- compute.routers.get
+- compute.routers.update
 - compute.securityPolicies.create
 - compute.securityPolicies.delete
 - compute.securityPolicies.get
@@ -91,7 +95,9 @@ includedPermissions:
 - compute.subnetworks.create
 - compute.subnetworks.delete
 - compute.subnetworks.get
+- compute.subnetworks.setPrivateIpGoogleAccess
 - compute.subnetworks.update
+- compute.subnetworks.use
 - container.clusters.create
 - container.clusters.delete
 - container.clusters.get
@@ -125,6 +131,10 @@ includedPermissions:
 - container.services.delete
 - container.services.get
 - container.services.update
+- container.thirdPartyObjects.create
+- container.thirdPartyObjects.delete
+- container.thirdPartyObjects.get
+- container.thirdPartyObjects.update
 - containeranalysis.notes.attachOccurrence
 - containeranalysis.notes.create
 - containeranalysis.notes.delete
