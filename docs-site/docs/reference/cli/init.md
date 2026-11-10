@@ -12,7 +12,8 @@ prerequisites, generates Terraform variables, and configures the CLI.
 
 What it does:
   1. Detects gcloud auth and active account
-  2. Validates GCP project, billing, and required APIs
+  2. Validates GCP project, billing, required APIs and the IAM permissions
+     the Terraform needs (the same check as aiplex platform preflight)
   3. Validates prerequisites (terraform, helm, kubectl)
   4. Generates terraform.tfvars for your environment
   5. Configures CLI context and credentials

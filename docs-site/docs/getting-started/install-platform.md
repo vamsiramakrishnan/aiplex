@@ -19,14 +19,25 @@ make build
 export PATH="$PWD/bin:$PATH"
 ```
 
-## 3. Initialize and apply
+## 3. Check permissions
+
+You do not need Owner or Editor. The account that deploys needs the IAM permissions the Terraform uses for the features your `terraform.tfvars` turns on, `cloudresourcemanager` and `serviceusage` APIs enabled, and billing. Check with:
+
+```bash
+gcloud auth application-default login       # the credentials Terraform uses
+aiplex platform preflight --project my-project
+```
+
+It lists, per feature, the permissions you are missing, the narrowest predefined role that grants each, and the `gcloud` command that grants it. `aiplex platform preflight --print-bindings` prints the predefined roles for every enabled feature; `--print-role` prints an optional custom deployer role. The check is advisory (organization policy, deny policies and VPC Service Controls can still block an apply) and has not been run against a live project. See [Google Cloud permissions](../library/gcp-permissions.md) for the full table, what the running platform is granted, and the upgrade notes.
+
+## 4. Initialize and apply
 
 ```bash
 aiplex init
 aiplex platform apply --values operator-values.yaml
 ```
 
-`aiplex platform apply` runs the whole pipeline: it creates a GCS bucket for Terraform state if needed, runs Terraform init and apply, configures the kubectl context, runs Helm install or upgrade, waits for certificate provisioning and runs a health check. `--skip-infra` runs only Helm and `--skip-deploy` runs only Terraform.
+`aiplex platform apply` runs the preflight first and stops if a required permission, API or billing is missing (`--skip-preflight` overrides it, with a warning). It then runs the whole pipeline: it creates a GCS bucket for Terraform state if needed, runs Terraform init and apply, configures the kubectl context, runs Helm install or upgrade, waits for certificate provisioning and runs a health check. `--skip-infra` runs only Helm and `--skip-deploy` runs only Terraform.
 
 ```bash
 aiplex platform status     # infrastructure and deployment status

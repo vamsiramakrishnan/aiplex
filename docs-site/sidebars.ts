@@ -118,6 +118,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'operations/index'},
       items: [
         'operations/configuration',
+        L('gcp-permissions', 'Google Cloud permissions'),
         L('helm-identity-config', 'Identity configuration (Helm)'),
         'operations/authorization-policy',
         L('modules', 'Independent modules'),
