@@ -11,6 +11,7 @@ package agentfederation
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"strings"
@@ -237,9 +238,15 @@ func validAudience(aud string) error {
 // validHTTPSURL requires an absolute https URL without credentials, query or
 // fragment. Issuers additionally have no trailing slash normalisation: they are
 // compared byte-for-byte with the token's iss claim.
+//
+// A JWKS URL (never an issuer) may also be plain http on a loopback host.
+// Whether that host is reachable is the outbound endpoint policy's decision:
+// it refuses loopback unless the operator opted in, which the API permits only
+// in development mode, both when the URL is saved and when keys are fetched.
 func validHTTPSURL(raw, label string, issuer bool) error {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || strings.ContainsAny(raw, "*\\ \r\n\t") {
+	scheme := err == nil && (u.Scheme == "https" || (!issuer && u.Scheme == "http" && loopbackHost(u.Hostname())))
+	if err != nil || !scheme || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || strings.ContainsAny(raw, "*\\ \r\n\t") {
 		return fmt.Errorf("%s must be an exact https URL without credentials, query, fragment or wildcards", label)
 	}
 	if issuer && strings.Contains(u.Path, "//") {
@@ -533,4 +540,13 @@ func k8sSubject(in map[string]string) (string, error) {
 		return "", fmt.Errorf("namespace and service_account must be Kubernetes names")
 	}
 	return "system:serviceaccount:" + in["namespace"] + ":" + in["service_account"], nil
+}
+
+// loopbackHost reports a literal loopback address or localhost.
+func loopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

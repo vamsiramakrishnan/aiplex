@@ -120,7 +120,15 @@ func main() {
 	// Handlers
 	catalogH := api.NewCatalogHandler(aggregator, store)
 	instanceH := api.NewInstanceHandler(store, engine)
-	agentH := api.NewAgentHandler(store, hydraClient)
+	// Development mode without an explicitly configured Hydra keeps agent
+	// registrations in the local registry only (no OAuth client is issued);
+	// otherwise every registration fails against the default in-cluster URL.
+	agentHydra := hydraClient
+	if cfg.DevelopmentMode && os.Getenv("HYDRA_ADMIN_URL") == "" {
+		agentHydra = nil
+		log.Info().Msg("development mode without HYDRA_ADMIN_URL: agent registrations are local only")
+	}
+	agentH := api.NewAgentHandler(store, agentHydra)
 	authH := api.NewAuthHandler(hydraClient, store)
 	llmH := api.NewLLMHandler(store, k8sClient, cfg.GatewayName, sm)
 	a2aH := api.NewA2AHandler(store)
