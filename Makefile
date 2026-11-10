@@ -231,8 +231,8 @@ deps: ## Check the tools each workflow needs
 release-check: ## Validate .goreleaser.yaml
 	goreleaser check
 
-release-dry: ## Build release archives locally into dist/ (no publish)
-	goreleaser release --snapshot --clean --skip=publish
+release-dry: ## Build release archives locally into dist/ (no publish, docker, signing, SBOM)
+	goreleaser release --snapshot --clean --skip=publish,docker,sign,sbom
 
 release: ## Publish a release from the current tag (CI does this on a v* tag; requires GITHUB_TOKEN)
 	goreleaser release --clean
