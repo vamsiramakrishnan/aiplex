@@ -51,8 +51,27 @@ From the cobra definitions in `cmd/aiplex-cli/cmd_dev.go`:
 | `--no-console` | off | Do not serve the Console. |
 | `--open` | off | Open the Console in a browser. |
 | `--no-tools` | off | Do not create the tool connection. |
+| `-d`, `--detach` | off | Run in the background. Output goes to `~/.aiplex/dev.log`. Stop it with `aiplex dev stop`. |
+| `--allow-origin` | none | Extra upstream origin the local API may call, for example `https://mcp.example.com`. Repeatable. The loopback mock upstreams and the public OpenAI, Anthropic and Gemini APIs are always allowed. |
 
-`aiplex dev env` takes no flags.
+`aiplex dev` has three subcommands. They take no flags beyond the global ones:
+
+| Command | What it does |
+| --- | --- |
+| `aiplex dev env` | Prints shell exports for the running local API, for `eval "$(aiplex dev env)"`. |
+| `aiplex dev status` | Shows whether `aiplex dev` is running, its pid, the API URL, the access point, the model, the Console and the API log. Exits 1 when none is running. |
+| `aiplex dev stop` | Stops the running `aiplex dev` and its local API. Exits 1 when none is running. |
+
+Only one `aiplex dev` runs at a time. A second start is refused, and it exits with code 5 (conflict):
+
+```text
+Error: aiplex dev is already running (pid 13956) at http://127.0.0.1:18571
+  Use it: eval "$(aiplex dev env)"
+  Or stop it first: aiplex dev stop
+```
+
+When the default port is taken by another process, the start stops with
+`port 18080 on 127.0.0.1 is already in use; stop what is using it or pass --port`.
 
 ### Finding `aiplex-api`
 
@@ -96,7 +115,8 @@ Auth wiring per provider, as the seeded surface sets it:
 | `gemini` | Gemini GenAI | `x-goog-api-key` |
 
 With a real provider, no price is seeded. The summary says so. Set contracted rates with
-`aiplex usage prices set -f <price.json>`.
+`aiplex usage prices set <model> --input-per-mtok <price> --output-per-mtok <price>`, or with a full
+specification from a file, `aiplex usage prices set -f <price.json>`.
 
 ## The developer identity
 
@@ -183,8 +203,39 @@ After the stack is ready, `aiplex dev` prints a summary. Its lines are:
 | `API log` | The log file path. |
 | `WARNING` | Development mode serves unauthenticated requests as admin. Do not expose, tunnel or proxy the API. |
 
-The summary then lists the `aiplex dev env` command, example requests for the seeded wire, and
-`aiplex usage records`, `aiplex usage summary --by model` and `aiplex connect local`.
+After the summary, `Ready in 0.1s. Try next` lists three numbered steps, each with real commands:
+
+1. Send a chat request through the access point, after `eval "$(aiplex dev env)"`. The request is the
+   seeded wire's example (OpenAI Chat Completions).
+2. `aiplex usage records`, to see what it cost and who made it.
+3. `aiplex connect local` for client configuration, and `aiplex dev status` to see the Console address.
+
+A background run (`--detach`) prints the same summary, then `Running in the background`, the pid and the log file.
+The summary states the Console line in one of two ways. When the binary carries a built Console, it gives the
+Console URL. When it does not (a source build without Node), it says so and gives the `make console && make build` command.
+
+The guided commands used after the summary are `aiplex access-points create` (a model and a tool, exposed on one URL) and
+`aiplex usage prices set <model> --input-per-mtok <price> --output-per-mtok <price>`. See [access points](access-points.md)
+and [the usage ledger](usage-ledger.md#cli).
+
+### Output of a background run
+
+```text
+  Running in the background. Stop it with: aiplex dev stop
+  Background pid 14557; its output goes to /root/.aiplex/dev.log
+```
+
+### Errors in the local stack
+
+```text
+Error: access point "locl" not found
+  Did you mean: local
+  List them with: aiplex access-points list
+  aiplex dev keeps state in memory: anything created before it restarted is gone.
+```
+
+Each CLI error names the cause, gives a hint and exits with a fixed code. The codes are in [the CLI reference](cli.md#exit-codes).
+With `--debug`, the raw API error is printed too.
 
 ## Where state and logs live
 
@@ -193,6 +244,7 @@ Everything is under `~/.aiplex/` (`cliconfig.Dir`), except the generated configu
 | Path | Contents | Lifetime |
 | --- | --- | --- |
 | `~/.aiplex/dev.json` | URL, context, access point, model, protocol, process ID, Console URL. No secrets. | Written at start, removed on stop. |
+| `~/.aiplex/dev.log` | The output of a `--detach` run: the summary and the background pid. | Truncated at each start. Kept after stop. |
 | `~/.aiplex/dev-api.log` | The API's output. | Truncated at each start. Kept after stop. |
 | `~/.aiplex/credentials.json` | The developer token, encrypted, under the context name. | Removed on stop. |
 | `~/.aiplex/config.json` | CLI contexts. | Context restored on stop. |
@@ -272,8 +324,11 @@ covers its absence.
 ## Limits
 
 - Local state is lost on stop. Nothing is written back to a cloud or to a database.
-- A second `aiplex dev` on the same API port fails at startup, with a message to stop the other process or
-  pass `--port`. A busy console port is reported in the summary, with a hint to pass `--console-port`.
-- The Console runs only when built into the binary.
+- A second `aiplex dev` is refused while one is running (exit 5). Stop the first with `aiplex dev stop`, or
+  use `aiplex dev env` to reach the running one. A default port held by another process is reported with a
+  message to stop that process or pass `--port`.
+- The Console runs only when built into the binary. Without it, `--console-port` has no effect.
+- `aiplex dev` keeps no state after a stop, so an access point or price created before a restart is gone.
+  Run the guided commands again after `aiplex dev` starts.
 - The mock model is for testing wiring, not for quality or behavior of a real model.
 - The developer token expires after 12 hours, and the API that issued it stops with the command.
