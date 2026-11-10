@@ -60,8 +60,8 @@ function FilterBar({ draft, onChange, onApply }: { draft: FilterDraft; onChange:
   const submit = (e: FormEvent) => { e.preventDefault(); onApply() }
   const [expanded, setExpanded] = useState(false)
   const active = activeMoreFilters(draft)
-  // A hidden filter that is set is still applied; open the group so it is visible.
-  const showMore = expanded || active > 0
+  // Collapsed filters that hold a value are still applied; the count stays on the toggle.
+  const showMore = expanded
   return <form aria-label="Usage filters" onSubmit={submit} className={`${card} grid gap-3 sm:grid-cols-2 lg:grid-cols-4`}>
     <Field label="Time range"><select className={field} value={draft.preset} onChange={set('preset')}>{api.TIME_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select></Field>
     <Field label="Plane"><select className={field} value={draft.plane} onChange={set('plane')}><option value="">All planes</option><option value="llmplex">LLMPlex (models)</option><option value="mcplex">MCPlex (tools)</option><option value="a2aplex">A2APlex (agents)</option></select></Field>
