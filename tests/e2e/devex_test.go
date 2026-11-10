@@ -47,6 +47,13 @@ func TestGuidedCreationWithoutFiles(t *testing.T) {
 		if r.Code != 2 || strings.Contains(r.Err, "sk-live") {
 			t.Fatalf("secret value accepted or echoed: %s", r)
 		}
+		// With no terminal, a delete without --yes is refused (exit 2) and
+		// nothing is deleted.
+		r = e.cli("mcp", "connections", "delete", "tools2")
+		if r.Code != 2 || !strings.Contains(r.Err, "--yes") {
+			t.Fatalf("delete without --yes and without a terminal: %s", r)
+		}
+		e.mustCLI("mcp", "connections", "get", "tools2")
 		e.mustCLI("mcp", "connections", "delete", "tools2", "--yes")
 	})
 

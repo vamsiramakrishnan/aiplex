@@ -45,7 +45,12 @@ func TestBasicsHealthDoctorWhoamiAndContexts(t *testing.T) {
 			t.Fatalf("use-context of a missing context succeeded: %s", r)
 		}
 		contains(t, r.Err, `context "missing" not found`, "use-context missing")
+		// Destructive commands need --yes when there is no terminal to ask on.
 		r = e.cliEnv(nil, "config", "delete-context", "other")
+		if r.Code != 2 || !strings.Contains(r.Err, "--yes") {
+			t.Fatalf("delete-context without --yes and without a terminal: %s", r)
+		}
+		r = e.cliEnv(nil, "config", "delete-context", "other", "--yes")
 		if r.Code != 0 {
 			t.Fatal(r)
 		}
