@@ -1,8 +1,8 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  CALLER_KINDS, fieldForError, surfaceOptionLabel, surfaceUnroutableReason, wiresForProtocol, WIRES, listAgents, listClientRegistrations, listModelSurfaces, listToolConnections, parseList,
-  type AccessPointSpec, type CallerKind, type GroupRef,
+  CALLER_KINDS, parseFieldPath, surfaceOptionLabel, surfaceUnroutableReason, wiresForProtocol, WIRES, listAgents, listClientRegistrations, listModelSurfaces, listToolConnections, parseList,
+  type AccessPointSpec, type CallerKind, type FieldIssue, type GroupRef, type QoSScope,
 } from '../api/accessPoints'
 import { listInstances } from '../api/client'
 
@@ -27,6 +27,7 @@ interface Draft {
   qosOn: boolean
   qosClass: string
   qosWeight: string
+  qosScope: '' | QoSScope
   rpm: string
   tpm: string
   concurrency: string
@@ -48,6 +49,7 @@ export function draftFromSpec(spec: AccessPointSpec): Draft {
     qosOn: !!spec.qos,
     qosClass: spec.qos?.class ?? '',
     qosWeight: spec.qos?.weight ? String(spec.qos.weight) : '',
+    qosScope: spec.qos?.scope ?? '',
     rpm: spec.qos?.limits?.requests_per_minute ? String(spec.qos.limits.requests_per_minute) : '',
     tpm: spec.qos?.limits?.tokens_per_minute ? String(spec.qos.limits.tokens_per_minute) : '',
     concurrency: spec.qos?.limits?.concurrency ? String(spec.qos.limits.concurrency) : '',
@@ -86,10 +88,12 @@ export function specFromDraft(d: Draft, original?: AccessPointSpec): AccessPoint
       ...original?.qos,
       class: d.qosClass.trim(),
       ...(num(d.qosWeight) !== undefined ? { weight: num(d.qosWeight) } : {}),
+      ...(d.qosScope ? { scope: d.qosScope } : {}),
       ...(Object.keys(present).length ? { limits: present } : {}),
       ...(budgets.length ? { budget_refs: budgets } : {}),
     }
     if (num(d.qosWeight) === undefined) delete spec.qos.weight
+    if (!d.qosScope) delete spec.qos.scope
     if (!Object.keys(present).length) delete spec.qos.limits
     if (!budgets.length) delete spec.qos.budget_refs
   } else {
@@ -99,14 +103,14 @@ export function specFromDraft(d: Draft, original?: AccessPointSpec): AccessPoint
 }
 
 function FieldError({ id, message }: { id: string; message?: string }) {
-  return message ? <p id={id} role="alert" className="text-xs text-red-600 mt-1">{message}</p> : null
+  return message ? <p id={id} role="alert" className="text-xs text-status-denied-fg mt-1">{message}</p> : null
 }
 
 function Section({ title, hint, error, errorId, children }: { title: string; hint?: ReactNode; error?: string; errorId: string; children: ReactNode }) {
   return (
     <fieldset className="border border-gray-200 dark:border-gray-800 rounded p-3 space-y-2" aria-describedby={error ? errorId : undefined}>
       <legend className="text-sm font-semibold px-1">{title}</legend>
-      {hint && <p className="text-xs text-gray-500">{hint}</p>}
+      {hint && <p className="text-xs text-gray-600 dark:text-gray-400">{hint}</p>}
       {children}
       <FieldError id={errorId} message={error} />
     </fieldset>
@@ -123,11 +127,11 @@ function CheckList({ legend, options, selected, onChange, loading, error, empty 
   error?: Error | null
   empty: string
 }) {
-  if (loading) return <p role="status" className="text-xs text-gray-500">Loading {legend.toLowerCase()}…</p>
-  if (error) return <p role="alert" className="text-xs text-red-600">Could not load {legend.toLowerCase()}: {error.message}</p>
+  if (loading) return <p role="status" className="text-xs text-gray-600 dark:text-gray-400">Loading {legend.toLowerCase()}…</p>
+  if (error) return <p role="alert" className="text-xs text-status-denied-fg">Could not load {legend.toLowerCase()}: {error.message}</p>
   const known = new Set(options.map(o => o.id))
   const all = [...options, ...selected.filter(s => !known.has(s)).map(s => ({ id: s, label: `${s} (not found)` }))]
-  if (all.length === 0) return <p className="text-xs text-gray-500">{empty}</p>
+  if (all.length === 0) return <p className="text-xs text-gray-600 dark:text-gray-400">{empty}</p>
   const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter(s => s !== id) : [...selected, id])
   return (
     <div role="group" aria-label={legend} className="flex flex-wrap gap-x-4 gap-y-1">
@@ -144,8 +148,8 @@ export interface AccessPointFormProps {
   /** Existing spec when editing; omitted to create. */
   initial?: AccessPointSpec
   saving: boolean
-  /** Server error message for the last save attempt (non-conflict). */
-  serverError?: string
+  /** Server error for the last save attempt (non-conflict): its message and the field it names. */
+  serverError?: FieldIssue
   /** Disables saving while a revision conflict is unresolved. */
   locked?: boolean
   onSubmit: (spec: AccessPointSpec) => void
@@ -166,10 +170,14 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
 
   const managedConnections = (connections.data ?? []).filter(c => !!c.spec.execution && Object.keys(c.spec.execution).length > 0)
 
-  // The server returns one message; attach it to the field it names, else show it at the form level.
-  const serverField = serverError ? fieldForError(serverError) : undefined
-  const fieldMsg = (field: string) => (serverField === field ? serverError : undefined)
-  const formLevel = serverError && !serverField ? serverError : undefined
+  // The server names the field in details.field (for example models/1/surface_ref); show the
+  // message there, and at the form level when it names none.
+  const where = parseFieldPath(serverError?.field)
+  const rowMsg = (section: string, index: number, leaf?: string) => (where?.section === section && where.index === index && (leaf === undefined || where.leaf === leaf) ? serverError?.message : undefined)
+  const sectionMsg = (section: string) => (where?.section === section ? serverError?.message : undefined)
+  const wholeSectionMsg = (section: string) => (where?.section === section && where.index === undefined ? serverError?.message : undefined)
+  const serverField = where?.section
+  const formLevel = serverError && !where ? serverError.message : undefined
 
   const idValid = ID_PATTERN.test(d.id)
   const kindsOk = d.caller_kinds.length > 0
@@ -192,22 +200,22 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
     <form onSubmit={submit} aria-label={editing ? `Edit access point ${initial!.id}` : 'Create access point'} className="space-y-4 max-w-3xl">
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label htmlFor={`${uid}-id`} className="block text-xs font-medium mb-1">Access point ID <span aria-hidden="true" className="text-red-600">*</span></label>
+          <label htmlFor={`${uid}-id`} className="block text-xs font-medium mb-1">Access point ID <span aria-hidden="true" className="text-status-denied-fg">*</span></label>
           <input id={`${uid}-id`} value={d.id} required aria-required="true" readOnly={editing}
             aria-invalid={(!!d.id && !idValid) || serverField === 'id'} aria-describedby={`${uid}-id-err`}
             onChange={e => patch({ id: e.target.value })} placeholder="ide-platform-team" className={`${input} font-mono ${editing ? 'opacity-70' : ''}`} />
-          <p className="text-xs text-gray-500 mt-1">Becomes the URL prefix <code>/ap/{d.id || '{id}'}</code>. Cannot be changed after creation.</p>
-          {d.id && !idValid && <p role="alert" className="text-xs text-red-600">Use letters, digits, dots, hyphens and underscores, starting with a letter or digit.</p>}
-          <FieldError id={`${uid}-id-err`} message={fieldMsg('id')} />
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Becomes the URL prefix <code>/ap/{d.id || '{id}'}</code>. Cannot be changed after creation.</p>
+          {d.id && !idValid && <p role="alert" className="text-xs text-status-denied-fg">Use letters, digits, dots, hyphens and underscores, starting with a letter or digit.</p>}
+          <FieldError id={`${uid}-id-err`} message={sectionMsg('id')} />
         </div>
         <div>
           <label htmlFor={`${uid}-name`} className="block text-xs font-medium mb-1">Display name</label>
           <input id={`${uid}-name`} value={d.display_name} onChange={e => patch({ display_name: e.target.value })} aria-invalid={serverField === 'display_name'} aria-describedby={`${uid}-name-err`} className={input} />
-          <FieldError id={`${uid}-name-err`} message={fieldMsg('display_name')} />
+          <FieldError id={`${uid}-name-err`} message={sectionMsg('display_name')} />
         </div>
       </div>
 
-      <Section title="Caller kinds" errorId={`${uid}-kinds-err`} error={fieldMsg('caller_kinds') ?? (!kindsOk ? 'Choose at least one caller kind.' : undefined)}
+      <Section title="Caller kinds" errorId={`${uid}-kinds-err`} error={sectionMsg('caller_kinds') ?? (!kindsOk ? 'Choose at least one caller kind.' : undefined)}
         hint="Which kinds of caller may use this access point. The kind is derived from the verified identity, never from the request.">
         <div className="flex gap-4">
           {CALLER_KINDS.map(k => (
@@ -220,12 +228,12 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
       </Section>
 
       <Section title="Who may call (subject constraints)" errorId={`${uid}-subj-err`}
-        error={fieldMsg('subjects.groups') ?? fieldMsg('subjects.principals') ?? fieldMsg('subjects.agents') ?? fieldMsg('subjects.client_registrations')}
+        error={sectionMsg('subjects')}
         hint={<>Leave everything empty to admit every caller of an allowed kind. <strong>Principals, groups and agents are one identity constraint</strong>: a caller matching any one of them passes it. <strong>Client registrations are a separate constraint</strong>: when both are set, a caller must satisfy <strong>both</strong> (they are AND-ed). A registration identified only by a public OAuth client id is attribution, not a security boundary.</>}>
         <div>
           <label htmlFor={`${uid}-principals`} className="block text-xs font-medium mb-1">Principals (one per line)</label>
           <textarea id={`${uid}-principals`} rows={2} value={d.principals} onChange={e => patch({ principals: e.target.value })} className={`${input} font-mono`} />
-          <p className="text-xs text-gray-400">Canonical principal IDs. There is no directory to pick from, so these are typed.</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">Canonical principal IDs. There is no directory to pick from, so these are typed.</p>
         </div>
         <div>
           <span className="block text-xs font-medium mb-1">Groups (source and ID)</span>
@@ -252,15 +260,15 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
         </div>
       </Section>
 
-      <Section title="Models" errorId={`${uid}-models-err`} error={fieldMsg('models')}
+      <Section title="Models" errorId={`${uid}-models-err`} error={wholeSectionMsg('models')}
         hint={`Each entry maps a client-facing model name to a saved model surface and the provider-native model. A model is reachable only through the wire protocols its surface speaks natively. Wires an access point can serve: ${WIRES.map(w => w.label).join(', ')}.`}>
-        {surfaces.isLoading && <p role="status" className="text-xs text-gray-500">Loading model surfaces…</p>}
-        {surfaces.error && <p role="alert" className="text-xs text-red-600">Could not load model surfaces: {(surfaces.error as Error).message}</p>}
+        {surfaces.isLoading && <p role="status" className="text-xs text-gray-600 dark:text-gray-400">Loading model surfaces…</p>}
+        {surfaces.error && <p role="alert" className="text-xs text-status-denied-fg">Could not load model surfaces: {(surfaces.error as Error).message}</p>}
         {d.models.map((m, i) => (
           <div key={i} role="group" aria-label={`Model ${i + 1}`} className="grid gap-2 sm:grid-cols-[1fr,1fr,1fr,auto] items-end">
             <div>
               <label htmlFor={`${uid}-m${i}-surface`} className="block text-xs mb-1">Model surface</label>
-              <select id={`${uid}-m${i}-surface`} value={m.surface_ref} onChange={e => updateModel(i, { surface_ref: e.target.value })} className={input}>
+              <select id={`${uid}-m${i}-surface`} aria-invalid={!!rowMsg('models', i, 'surface_ref')} value={m.surface_ref} onChange={e => updateModel(i, { surface_ref: e.target.value })} className={input}>
                 <option value="">Choose a surface…</option>
                 {(surfaces.data ?? []).map(s => <option key={s.id} value={s.id} disabled={!!surfaceUnroutableReason(s.spec.surface)}>{surfaceOptionLabel(s.spec.surface)}</option>)}
                 {m.surface_ref && !(surfaces.data ?? []).some(s => s.id === m.surface_ref) && <option value={m.surface_ref}>{m.surface_ref} (not found)</option>}
@@ -268,32 +276,33 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
             </div>
             <div>
               <label htmlFor={`${uid}-m${i}-native`} className="block text-xs mb-1">Native model</label>
-              <input id={`${uid}-m${i}-native`} list={`${uid}-m${i}-list`} value={m.native_model} onChange={e => updateModel(i, { native_model: e.target.value, ...(m.name === '' || m.name === m.native_model ? { name: e.target.value } : {}) })} className={`${input} font-mono`} />
+              <input id={`${uid}-m${i}-native`} aria-invalid={!!rowMsg('models', i, 'native_model')} list={`${uid}-m${i}-list`} value={m.native_model} onChange={e => updateModel(i, { native_model: e.target.value, ...(m.name === '' || m.name === m.native_model ? { name: e.target.value } : {}) })} className={`${input} font-mono`} />
               <datalist id={`${uid}-m${i}-list`}>{surfaceModels(m.surface_ref).filter(x => !x.includes('*')).map(x => <option key={x} value={x} />)}</datalist>
             </div>
             <div>
               <label htmlFor={`${uid}-m${i}-name`} className="block text-xs mb-1">Name clients use</label>
-              <input id={`${uid}-m${i}-name`} value={m.name} onChange={e => updateModel(i, { name: e.target.value })} className={`${input} font-mono`} />
+              <input id={`${uid}-m${i}-name`} aria-invalid={!!rowMsg('models', i, 'name')} value={m.name} onChange={e => updateModel(i, { name: e.target.value })} className={`${input} font-mono`} />
             </div>
-            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); return surf && !surfaceUnroutableReason(surf.spec.surface) ? <p className="text-xs text-gray-500 sm:col-span-4">Reachable through: {wiresForProtocol(surf.spec.surface.protocol).map(w => w.label).join(', ')}.</p> : null })()}
-            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); const why = surf && surfaceUnroutableReason(surf.spec.surface); return why ? <p role="alert" className="text-xs text-red-600 sm:col-span-4">Surface {m.surface_ref} is unavailable for access points: {why}. Choose another surface.</p> : null })()}
+            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); return surf && !surfaceUnroutableReason(surf.spec.surface) ? <p className="text-xs text-gray-600 dark:text-gray-400 sm:col-span-4">Reachable through: {wiresForProtocol(surf.spec.surface.protocol).map(w => w.label).join(', ')}.</p> : null })()}
+            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); const why = surf && surfaceUnroutableReason(surf.spec.surface); return why ? <p role="alert" className="text-xs text-status-denied-fg sm:col-span-4">Surface {m.surface_ref} is unavailable for access points: {why}. Choose another surface.</p> : null })()}
+            {rowMsg('models', i) && <p role="alert" className="text-xs text-status-denied-fg sm:col-span-4">{rowMsg('models', i)}</p>}
             <button type="button" className={btn} aria-label={`Remove model ${i + 1}`} onClick={() => patch({ models: d.models.filter((_, j) => j !== i) })}>Remove</button>
           </div>
         ))}
         <button type="button" className={btn} onClick={() => patch({ models: [...d.models, { name: '', surface_ref: '', native_model: '' }] })}>Add model</button>
       </Section>
 
-      <Section title="Tools" errorId={`${uid}-tools-err`} error={fieldMsg('tools')}
+      <Section title="Tools" errorId={`${uid}-tools-err`} error={wholeSectionMsg('tools')}
         hint="Expose saved tool connections (managed execution connections only). Expose patterns narrow the tools: names or prefixes ending in *, one per line. Empty exposes every tool the connection itself permits.">
-        {connections.isLoading && <p role="status" className="text-xs text-gray-500">Loading tool connections…</p>}
-        {connections.error && <p role="alert" className="text-xs text-red-600">Could not load tool connections: {(connections.error as Error).message}</p>}
+        {connections.isLoading && <p role="status" className="text-xs text-gray-600 dark:text-gray-400">Loading tool connections…</p>}
+        {connections.error && <p role="alert" className="text-xs text-status-denied-fg">Could not load tool connections: {(connections.error as Error).message}</p>}
         {d.tools.map((t, i) => {
           const taken = new Set(d.tools.filter((_, j) => j !== i).map(x => x.connection_ref))
           return (
             <div key={i} role="group" aria-label={`Tool ${i + 1}`} className="grid gap-2 sm:grid-cols-[1fr,2fr,auto] items-start">
               <div>
                 <label htmlFor={`${uid}-t${i}-conn`} className="block text-xs mb-1">Tool connection</label>
-                <select id={`${uid}-t${i}-conn`} value={t.connection_ref} onChange={e => updateTool(i, { connection_ref: e.target.value })} className={input}>
+                <select id={`${uid}-t${i}-conn`} aria-invalid={!!rowMsg('tools', i, 'connection_ref')} value={t.connection_ref} onChange={e => updateTool(i, { connection_ref: e.target.value })} className={input}>
                   <option value="">Choose a connection…</option>
                   {managedConnections.filter(c => !taken.has(c.id)).map(c => <option key={c.id} value={c.id}>{c.id}</option>)}
                   {t.connection_ref && !managedConnections.some(c => c.id === t.connection_ref) && <option value={t.connection_ref}>{t.connection_ref} (not found)</option>}
@@ -303,6 +312,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
                 <label htmlFor={`${uid}-t${i}-expose`} className="block text-xs mb-1">Expose patterns (optional)</label>
                 <textarea id={`${uid}-t${i}-expose`} rows={2} value={t.expose} onChange={e => updateTool(i, { expose: e.target.value })} placeholder="search*" className={`${input} font-mono`} />
               </div>
+              {rowMsg('tools', i) && <p role="alert" className="text-xs text-status-denied-fg sm:col-span-3">{rowMsg('tools', i)}</p>}
               <button type="button" className={`${btn} mt-5`} aria-label={`Remove tool ${i + 1}`} onClick={() => patch({ tools: d.tools.filter((_, j) => j !== i) })}>Remove</button>
             </div>
           )
@@ -310,28 +320,36 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
         <button type="button" className={btn} onClick={() => patch({ tools: [...d.tools, { connection_ref: '', expose: '' }] })}>Add tool connection</button>
       </Section>
 
-      <Section title="Skills" errorId={`${uid}-skills-err`} error={fieldMsg('skills')} hint="Deployed skill servers. Each must carry the aiplex.tenant label for this tenant.">
+      <Section title="Skills" errorId={`${uid}-skills-err`} error={sectionMsg('skills')} hint="Deployed skill servers. Each must carry the aiplex.tenant label for this tenant.">
         <CheckList legend="Skill instances" selected={d.skills} onChange={s => patch({ skills: s })} loading={skillInstances.isLoading} error={skillInstances.error}
           options={(skillInstances.data ?? []).map(i => ({ id: i.id, label: i.display_name && i.display_name !== i.id ? `${i.display_name} (${i.id})` : i.id }))}
           empty="No skill instances are deployed." />
       </Section>
-      {fieldMsg('resources') && <FieldError id={`${uid}-res-err`} message={fieldMsg('resources')} />}
-      {resources === 0 && <p className="text-xs text-gray-500">Add at least one model, tool connection or skill.</p>}
+            {resources === 0 && <p className="text-xs text-gray-600 dark:text-gray-400">Add at least one model, tool connection or skill.</p>}
 
       <Section title="Quality of service" errorId={`${uid}-qos-err`}
-        error={fieldMsg('qos.class') ?? fieldMsg('qos.weight') ?? fieldMsg('qos.limits') ?? fieldMsg('qos.budget_refs')}
+        error={sectionMsg('qos')}
         hint="A QoS block is rendered into a QuotaPlex policy fragment for review. With a QoS block, requests are rejected until a matching quota binding is active.">
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={d.qosOn} onChange={e => patch({ qosOn: e.target.checked })} /> Set a QoS class for this access point</label>
         {d.qosOn && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label htmlFor={`${uid}-qclass`} className="block text-xs mb-1">Class <span aria-hidden="true" className="text-red-600">*</span></label>
+              <label htmlFor={`${uid}-qclass`} className="block text-xs mb-1">Class <span aria-hidden="true" className="text-status-denied-fg">*</span></label>
               <input id={`${uid}-qclass`} value={d.qosClass} required aria-required="true" aria-invalid={!!d.qosClass && !CLASS_PATTERN.test(d.qosClass)} onChange={e => patch({ qosClass: e.target.value })} placeholder="interactive" className={`${input} font-mono`} />
-              {d.qosClass && !CLASS_PATTERN.test(d.qosClass) && <p role="alert" className="text-xs text-red-600">Lower-case letters, digits and hyphens, starting with a letter.</p>}
+              {d.qosClass && !CLASS_PATTERN.test(d.qosClass) && <p role="alert" className="text-xs text-status-denied-fg">Lower-case letters, digits and hyphens, starting with a letter.</p>}
             </div>
             <div>
               <label htmlFor={`${uid}-qweight`} className="block text-xs mb-1">Weight (1-1000)</label>
               <input id={`${uid}-qweight`} type="number" min={1} max={1000} value={d.qosWeight} onChange={e => patch({ qosWeight: e.target.value })} className={input} />
+            </div>
+            <div>
+              <label htmlFor={`${uid}-qscope`} className="block text-xs mb-1">Limit scope</label>
+              <select id={`${uid}-qscope`} value={d.qosScope} onChange={e => patch({ qosScope: e.target.value as '' | QoSScope })} className={input}>
+                <option value="">Server default</option>
+                <option value="principal">Per caller: each principal gets the full limits</option>
+                <option value="access_point">Shared pool: every caller draws from one set of limits</option>
+              </select>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Applies to the rate and concurrency limits.</p>
             </div>
             <div>
               <label htmlFor={`${uid}-rpm`} className="block text-xs mb-1">Requests per minute</label>
@@ -348,15 +366,15 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
             <div>
               <label htmlFor={`${uid}-budgets`} className="block text-xs mb-1">Budget references (one per line)</label>
               <textarea id={`${uid}-budgets`} rows={2} value={d.budgets} onChange={e => patch({ budgets: e.target.value })} className={`${input} font-mono`} />
-              <p className="text-xs text-gray-400">IDs of budgets in the tenant&apos;s quota policy; the server checks they exist.</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">IDs of budgets in the tenant&apos;s quota policy; the server checks they exist.</p>
             </div>
           </div>
         )}
       </Section>
 
-      {formLevel && <p role="alert" className="text-sm text-red-600">{formLevel}</p>}
+      {formLevel && <p role="alert" className="text-sm text-status-denied-fg">{formLevel}</p>}
       <div className="flex gap-2">
-        <button type="submit" disabled={!canSave} className="px-4 py-2 text-sm bg-brand-600 text-white rounded disabled:opacity-50">{saving ? 'Saving…' : editing ? 'Save changes' : 'Create access point'}</button>
+        <button type="submit" disabled={!canSave} className="px-4 py-2 text-sm bg-brand-600 text-brand-contrast rounded disabled:opacity-50">{saving ? 'Saving…' : editing ? 'Save changes' : 'Create access point'}</button>
         <button type="button" onClick={onCancel} className={btn}>Cancel</button>
       </div>
     </form>

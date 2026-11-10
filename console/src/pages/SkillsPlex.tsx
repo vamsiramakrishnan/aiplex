@@ -51,23 +51,23 @@ export default function SkillsPlex() {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-2xl font-bold">SkillsPlex</h2>
+        <h1 className="text-2xl font-bold">SkillsPlex</h1>
         <button
           onClick={() => navigate('/deploy?plane=skillsplex')}
-          className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+          className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
         >
           Deploy Skill Server
         </button>
       </div>
-      <p className="text-gray-500 mb-6">Agent &harr; Skill (skill bundles served by skill servers)</p>
+      <p className="text-gray-600 dark:text-gray-400 mb-6">Agent &harr; Skill (skill bundles served by skill servers)</p>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {(['servers', 'catalog', 'invocations'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`px-4 py-2 rounded text-sm capitalize ${
-              tab === t ? 'bg-brand-600 text-white' : 'bg-gray-100'
+              tab === t ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'
             }`}
           >
             {t === 'servers'
@@ -80,7 +80,7 @@ export default function SkillsPlex() {
       </div>
 
       {activeQuery.isLoading && <p role="status">Loading module data…</p>}
-      {activeQuery.error && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeQuery.error.message}</p>}
+      {activeQuery.error && <p role="alert" className="text-status-denied-fg mb-4">Could not load module data: {activeQuery.error.message}</p>}
 
       {tab === 'servers' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
@@ -88,7 +88,7 @@ export default function SkillsPlex() {
           <div className="mb-4">
             <input
               type="text"
-              placeholder="Search skill servers..."
+              aria-label="Search skill servers" placeholder="Search skill servers..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm"
@@ -97,14 +97,14 @@ export default function SkillsPlex() {
           {filteredServers.length > 0 ? (
             <div className="grid grid-cols-2 gap-4">
               {filteredServers.map((s) => (
-                <div key={s.instance_id} className="bg-white rounded-lg shadow p-4">
+                <div key={s.instance_id} className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-semibold">{s.name || s.instance_id}</h4>
                     <StatusBadge status={s.status} />
                   </div>
-                  <p className="text-xs text-gray-400 mb-2 font-mono">{s.url}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 font-mono">{s.url}</p>
                   {s.skill_bundle && (
-                    <p className="text-xs text-gray-500 mb-2">
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">
                       Bundle: <span className="font-mono">{s.skill_bundle}</span>
                     </p>
                   )}
@@ -114,7 +114,7 @@ export default function SkillsPlex() {
                       return (
                         <span
                           key={scope}
-                          className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-xs rounded"
+                          className="px-1.5 py-0.5 bg-status-warning-bg text-status-warning-fg text-xs rounded"
                         >
                           {label}
                         </span>
@@ -131,13 +131,13 @@ export default function SkillsPlex() {
               ))}
             </div>
           ) : (
-            <div className="text-gray-500 text-sm">
+            <div className="text-gray-600 dark:text-gray-400 text-sm">
               {servers.data?.length === 0 ? (
-                <div className="bg-white rounded-lg shadow p-6 text-center">
+                <div className="bg-white rounded-lg shadow p-6 text-center dark:bg-gray-900">
                   <p className="mb-3">No skill servers deployed yet.</p>
                   <button
                     onClick={() => setTab('catalog')}
-                    className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                    className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
                   >
                     Browse catalog
                   </button>
@@ -153,15 +153,15 @@ export default function SkillsPlex() {
       {tab === 'catalog' && !activeQuery.isLoading && !activeQuery.error && (
         <div className="grid grid-cols-2 gap-4">
           {catalog.data?.templates?.map((t: { id: string; name: string; description?: string; verified?: boolean }) => (
-            <div key={t.id} className="bg-white rounded-lg shadow p-4">
+            <div key={t.id} className="bg-white rounded-lg shadow p-4 dark:bg-gray-900">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold">{t.name}</h3>
-                {t.verified && <span className="text-xs text-green-600">Verified</span>}
+                {t.verified && <span className="text-xs text-status-ok-fg">Verified</span>}
               </div>
-              <p className="text-sm text-gray-500 mb-3">{t.description}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{t.description}</p>
               <button
                 onClick={() => navigate(`/deploy?plane=skillsplex&template=${t.id}`)}
-                className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
+                className="px-3 py-1.5 bg-brand-600 text-brand-contrast text-sm rounded hover:bg-brand-700"
               >
                 Deploy
               </button>
@@ -174,9 +174,9 @@ export default function SkillsPlex() {
         <div>
           <h3 className="font-semibold text-lg mb-3">Recent Invocations</h3>
           {invocations.data && invocations.data.length > 0 ? (
-            <div className="bg-white rounded-lg shadow">
+            <div className="bg-white rounded-lg shadow dark:bg-gray-900">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 dark:bg-gray-900">
                   <tr>
                     <th className="text-left px-4 py-3">Agent</th>
                     <th className="text-left px-4 py-3">Skill</th>
@@ -192,7 +192,7 @@ export default function SkillsPlex() {
                     <tr key={inv.id} className="border-t">
                       <td className="px-4 py-3 font-mono text-xs">{inv.agent_id}</td>
                       <td className="px-4 py-3">
-                        <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 text-xs rounded">
+                        <span className="px-1.5 py-0.5 bg-status-warning-bg text-status-warning-fg text-xs rounded">
                           {inv.skill_name}
                         </span>
                       </td>
@@ -200,20 +200,20 @@ export default function SkillsPlex() {
                       <td className="px-4 py-3">
                         <StatusBadge status={inv.status} />
                       </td>
-                      <td className="px-4 py-3 text-gray-500">
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
                         {inv.duration_ms ? `${inv.duration_ms}ms` : '-'}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">
                         {inv.trace_id ? inv.trace_id.slice(0, 8) : '-'}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{inv.user_id ?? '-'}</td>
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{inv.user_id ?? '-'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">No skill invocations recorded.</p>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">No skill invocations recorded.</p>
           )}
         </div>
       )}

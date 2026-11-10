@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"sort"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
@@ -40,7 +41,17 @@ type FetchResult struct {
 // If plane is empty, all planes are fetched. Partial failures are reported in Errors.
 func (a *Aggregator) Fetch(ctx context.Context, plane models.Plane) FetchResult {
 	var result FetchResult
-	for p, srcs := range a.sources {
+	// A template can come from more than one source (the built-in providers are
+	// also stored locally), so each plane/id pair is listed once, first source
+	// wins. Planes are visited in a fixed order so listings are stable.
+	planes := make([]models.Plane, 0, len(a.sources))
+	for p := range a.sources {
+		planes = append(planes, p)
+	}
+	sort.Slice(planes, func(i, j int) bool { return planes[i] < planes[j] })
+	seen := map[string]bool{}
+	for _, p := range planes {
+		srcs := a.sources[p]
 		if plane != "" && p != plane {
 			continue
 		}
@@ -53,7 +64,14 @@ func (a *Aggregator) Fetch(ctx context.Context, plane models.Plane) FetchResult 
 				})
 				continue
 			}
-			result.Templates = append(result.Templates, templates...)
+			for _, t := range templates {
+				key := string(t.Plane) + "\x00" + t.ID
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				result.Templates = append(result.Templates, t)
+			}
 		}
 	}
 	return result

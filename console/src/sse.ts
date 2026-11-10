@@ -36,9 +36,9 @@ export async function consumeSSE(stream: ReadableStream<Uint8Array>, onEvent: (e
 
 // One connection; callers own reconnect and polling policies. Credentials never
 // enter URLs, and a late response from a canceled session cannot emit events.
-export async function authenticatedSSE(path: string, token: string, signal: AbortSignal, onEvent: (event: string, data: string) => void): Promise<'closed' | 'denied'> {
-  if (!path.startsWith('/') || path.startsWith('//') || !token) throw new Error('An authenticated local stream is required')
-  const response = await fetch(path, { headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' }, signal, redirect: 'error' })
+export async function authenticatedSSE(path: string, token: string | null, signal: AbortSignal, onEvent: (event: string, data: string) => void): Promise<'closed' | 'denied'> {
+  if (!path.startsWith('/') || path.startsWith('//') || (token !== null && !token)) throw new Error('An authenticated local stream is required')
+  const response = await fetch(path, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), Accept: 'text/event-stream' }, signal, redirect: 'error' })
   if (signal.aborted) { await response.body?.cancel().catch(() => {}); return 'closed' }
   if (response.status === 401 || response.status === 403) {
     if (response.status === 401) window.dispatchEvent(new CustomEvent('aiplex:session-invalid', { detail: { token } }))

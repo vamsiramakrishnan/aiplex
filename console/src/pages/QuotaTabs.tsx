@@ -7,7 +7,7 @@ import Usage from './Usage'
 function QuotaTabs({ active, children }: { active: 'overview' | 'usage'; children: ReactNode }) {
   const tab = (id: 'overview' | 'usage', to: string, label: string) => (
     <Link to={to} aria-current={active === id ? 'page' : undefined}
-      className={`border-b-2 px-1 pb-2 text-sm ${active === id ? 'border-brand-600 font-medium' : 'border-transparent text-gray-500 hover:text-gray-900 dark:hover:text-gray-200'}`}>{label}</Link>
+      className={`border-b-2 px-1 pb-2 text-sm ${active === id ? 'border-brand-600 font-medium' : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}`}>{label}</Link>
   )
   return <div>
     <nav aria-label="QuotaPlex sections" className="mb-6 flex gap-6 border-b border-gray-200 dark:border-gray-800">

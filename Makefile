@@ -150,7 +150,7 @@ docker-clean: ## Stop and remove all local data
 
 console: ## Build React console
 	cd console && npm ci && npm run build
-	@echo "Console built: console/dist/ (run make build-cli to embed it in bin/aiplex)"
+	@echo "Console built: console/built/ (run make build-cli to embed it in bin/aiplex)"
 
 console-dev: ## Start React dev server
 	cd console && npm start

@@ -47,7 +47,7 @@ export default function InstanceDetail() {
   if (instance.error) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-600 dark:text-red-400">
+        <p className="text-status-denied-fg">
           Failed to load instance: {(instance.error as Error).message}
         </p>
       </div>
@@ -61,17 +61,17 @@ export default function InstanceDetail() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
             {inst.display_name || inst.id}
-          </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 font-mono">{inst.id}</p>
+          </h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-mono">{inst.id}</p>
         </div>
         <div className="flex items-center gap-3">
           <StatusBadge status={inst.status} />
           <button
             onClick={() => undeploy.mutate()}
             disabled={undeploy.isPending}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+            className="px-4 py-2 bg-status-denied-fg hover:bg-status-denied-fg disabled:opacity-50 text-status-denied-bg text-sm rounded-lg transition-colors"
           >
             {undeploy.isPending ? 'Undeploying...' : 'Undeploy'}
           </button>
@@ -100,7 +100,7 @@ export default function InstanceDetail() {
               <InfoRow label="Latency" value={`${inst.health.latency_ms}ms`} />
             </>
           ) : (
-            <p className="text-sm text-gray-400 dark:text-gray-500">No health data available.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-500">No health data available.</p>
           )}
         </Section>
       </div>
@@ -112,14 +112,14 @@ export default function InstanceDetail() {
             {inst.scopes.map((scope) => (
               <span
                 key={scope}
-                className="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded font-mono"
+                className="px-2 py-1 bg-brand-50 text-brand-700 text-xs rounded font-mono"
               >
                 {scope}
               </span>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-400 dark:text-gray-500">No scopes registered.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-500">No scopes registered.</p>
         )}
       </Section>
 
@@ -141,28 +141,28 @@ export default function InstanceDetail() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800">
                 <tr>
-                  <th className="text-left px-4 py-3 text-gray-500 dark:text-gray-400">Time</th>
-                  <th className="text-left px-4 py-3 text-gray-500 dark:text-gray-400">Action</th>
-                  <th className="text-left px-4 py-3 text-gray-500 dark:text-gray-400">Actor</th>
-                  <th className="text-left px-4 py-3 text-gray-500 dark:text-gray-400">Details</th>
+                  <th className="text-left px-4 py-3 text-gray-600 dark:text-gray-400">Time</th>
+                  <th className="text-left px-4 py-3 text-gray-600 dark:text-gray-400">Action</th>
+                  <th className="text-left px-4 py-3 text-gray-600 dark:text-gray-400">Actor</th>
+                  <th className="text-left px-4 py-3 text-gray-600 dark:text-gray-400">Details</th>
                 </tr>
               </thead>
               <tbody>
                 {history.data.map((entry, i) => (
                   <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
                       {new Date(entry.timestamp).toLocaleString()}
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{entry.action}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">{entry.actor}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">{entry.details ?? '-'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">{entry.details ?? '-'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <p className="text-sm text-gray-400 dark:text-gray-500">No history entries.</p>
+          <p className="text-sm text-gray-600 dark:text-gray-500">No history entries.</p>
         )}
       </Section>
     </div>
@@ -181,7 +181,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-start py-1.5">
-      <span className="text-sm text-gray-500 dark:text-gray-400 w-32 shrink-0">{label}</span>
+      <span className="text-sm text-gray-600 dark:text-gray-400 w-32 shrink-0">{label}</span>
       <span className={`text-sm text-gray-900 dark:text-gray-100 break-all ${mono ? 'font-mono text-xs' : ''}`}>
         {value}
       </span>

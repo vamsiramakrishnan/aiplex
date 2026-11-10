@@ -17,7 +17,7 @@ export default function AccessPointStrip() {
   const [connecting, setConnecting] = useState<string | null>(null)
 
   if (list.isLoading) return <p role="status">Loading access points…</p>
-  if (list.isError) return <p role="alert" className="text-sm text-red-600">Could not load access points: {(list.error as Error).message}</p>
+  if (list.isError) return <p role="alert" className="text-sm text-status-denied-fg">Could not load access points: {(list.error as Error).message}</p>
 
   const uncovered = aps.filter(r => coverageById.get(r.id)?.state === 'uncovered')
   return (
@@ -27,11 +27,11 @@ export default function AccessPointStrip() {
         <Link to="/access-points" className="text-sm text-brand-600 hover:underline">Manage access points</Link>
       </div>
       {uncovered.length > 0 && (
-        <p role="alert" className="rounded border-2 border-red-600 bg-red-50 dark:bg-red-950 p-3 text-sm text-red-900 dark:text-red-100">
+        <p role="alert" className="rounded border-2 border-status-denied-fg bg-status-denied-bg p-3 text-sm text-status-denied-fg">
           <strong>{uncovered.length === 1 ? '1 access point rejects' : `${uncovered.length} access points reject`} requests</strong> because no active quota binding covers {uncovered.length === 1 ? 'it' : 'them'}: {uncovered.map(r => r.id).join(', ')}.
         </p>
       )}
-      {aps.length === 0 && <p className="text-sm text-gray-500">No access points yet.</p>}
+      {aps.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-400">No access points yet.</p>}
       <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {aps.map(r => {
           const cov = coverageById.get(r.id)
@@ -39,9 +39,9 @@ export default function AccessPointStrip() {
             <li key={r.id}>
               <AccessPointSummaryCard spec={r.spec} revision={r.revision} footer={
                 <div className="space-y-2">
-                  {coverageList.isLoading && <p role="status" className="text-xs text-gray-500">Checking quota coverage…</p>}
-                  {coverageList.isError && <p className="text-xs text-amber-700">Quota coverage unknown: {(coverageList.error as Error).message}</p>}
-                  {coverageList.isSuccess && !cov && <p className="text-xs text-amber-700">Quota coverage unknown: access point is not in the overview list.</p>}
+                  {coverageList.isLoading && <p role="status" className="text-xs text-gray-600 dark:text-gray-400">Checking quota coverage…</p>}
+                  {coverageList.isError && <p className="text-xs text-status-warning-fg">Quota coverage unknown: {(coverageList.error as Error).message}</p>}
+                  {coverageList.isSuccess && !cov && <p className="text-xs text-status-warning-fg">Quota coverage unknown: access point is not in the overview list.</p>}
                   {cov && <div aria-label={`Quota coverage for ${r.id}`}><CoverageBadge coverage={cov} /><p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{cov.detail}</p></div>}
                   <div className="flex gap-3 text-sm">
                     <Link to={`/access-points/${encodeURIComponent(r.id)}`} className="text-brand-600 hover:underline" aria-label={`Open ${r.spec.display_name || r.id}`}>Open</Link>

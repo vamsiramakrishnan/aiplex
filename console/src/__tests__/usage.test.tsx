@@ -6,7 +6,7 @@ import Usage, { buildFilter, emptyDraft } from '../pages/Usage'
 import { blankDraft, priceFromDraft } from '../pages/UsagePrices'
 import { QuotaOverview } from '../pages/QuotaTabs'
 
-vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { sub: 'principal-a' } }) }))
+vi.mock('../hooks/useAuth', () => { const session = { user: { sub: 'principal-a', roles: ['admin'], scopes: [] } }; return { useAuth: () => session, useOptionalAuth: () => session } })
 vi.mock('../api/quota', () => ({ quotaPolicy: vi.fn().mockResolvedValue({ policy: { tenant_id: 't', id: 'team', revision: 1 }, reference: { digest: 'd' }, active: { digest: 'd' }, as_of: new Date().toISOString() }), quotaInventory: vi.fn().mockResolvedValue({ kind: 'budgets', records: [], done: true, as_of: new Date().toISOString() }), quotaAttempt: vi.fn(), quotaReconciliation: vi.fn(), quotaMutation: vi.fn(), validateQuotaPolicy: vi.fn(), quotaOperationKey: vi.fn(), safeQuotaJSON: (s: string) => JSON.parse(s) }))
 
 const base = { tenant_id: 't', finished_at: '2026-11-09T10:00:01Z', latency_ms: 1200, streaming: false, source: 'managed', requests: 1 }

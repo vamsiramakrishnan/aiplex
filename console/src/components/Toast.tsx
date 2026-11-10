@@ -66,8 +66,8 @@ function ToastMessage({ toast, onDismiss }: { toast: ToastItem; onDismiss: () =>
 
   const bg =
     toast.type === 'success'
-      ? 'bg-green-600 dark:bg-green-700'
-      : 'bg-red-600 dark:bg-red-700'
+      ? 'bg-status-ok-fg bg-status-ok-bg'
+      : 'bg-status-denied-fg bg-status-denied-bg'
 
   const enterClass = visible && !toast.exiting
     ? 'translate-x-0 opacity-100'

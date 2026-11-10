@@ -1,18 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useModules } from '../hooks/useModules'
+import { useAccess, ADMIN_REASON } from '../hooks/useAccess'
+import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useDarkMode } from '../theme'
 import logoReversed from '../brand/aiplex-lockup-horizontal-reversed.svg'
 
-const navItems = [
-  { to: '/overview', label: 'Overview' },
-  { to: '/dashboard', label: 'Dashboard' },
-  { to: '/agents', label: 'Agents' },
-  { to: '/access-points', label: 'Access points' },
-  { to: '/identity/users', label: 'User identity' },
-  { to: '/runs', label: 'Runs' },
-  { to: '/permissions', label: 'Permissions' },
-]
+type Need = 'operator' | 'admin' | undefined
+interface NavItem { to: string; label: string; need?: Need }
 
 const routeLabels: Record<string, string> = {
   overview: 'Overview',
@@ -21,6 +17,7 @@ const routeLabels: Record<string, string> = {
   a2aplex: 'A2APlex',
   llmplex: 'LLMPlex',
   skillsplex: 'SkillsPlex',
+  clientplex: 'ClientPlex',
   quotaplex: 'QuotaPlex',
   usage: 'Usage',
   agents: 'Agents',
@@ -33,54 +30,20 @@ const routeLabels: Record<string, string> = {
   instances: 'Instances',
 }
 
-function useDarkMode() {
-  const [dark, setDark] = useState(() => {
-    try {
-      const stored = localStorage.getItem('aiplex_dark_mode')
-      if (stored !== null) return stored === 'true'
-      return window.matchMedia('(prefers-color-scheme: dark)').matches
-    } catch {
-      return false
-    }
-  })
-
-  useEffect(() => {
-    const root = document.documentElement
-    if (dark) {
-      root.classList.add('dark')
-    } else {
-      root.classList.remove('dark')
-    }
-    localStorage.setItem('aiplex_dark_mode', String(dark))
-  }, [dark])
-
-  return [dark, () => setDark((d) => !d)] as const
-}
-
 function Breadcrumbs() {
   const location = useLocation()
   const segments = location.pathname.split('/').filter(Boolean)
-
   if (segments.length === 0) return null
-
-  const crumbs = segments.map((seg, i) => {
-    const path = '/' + segments.slice(0, i + 1).join('/')
-    const label = routeLabels[seg] ?? seg
-    const isLast = i === segments.length - 1
-    return { path, label, isLast }
-  })
-
+  const crumbs = segments.map((seg, i) => ({ path: '/' + segments.slice(0, i + 1).join('/'), label: routeLabels[seg] ?? decodeURIComponent(seg), isLast: i === segments.length - 1 }))
   return (
-    <nav className="flex items-center text-sm text-gray-500 dark:text-gray-400 mb-4">
+    <nav aria-label="Breadcrumb" className="flex flex-wrap items-center text-sm text-gray-600 dark:text-gray-400 mb-4">
       {crumbs.map((crumb, i) => (
         <span key={crumb.path} className="flex items-center">
-          {i > 0 && <span className="mx-2">/</span>}
+          {i > 0 && <span className="mx-2" aria-hidden="true">/</span>}
           {crumb.isLast ? (
-            <span className="text-gray-900 dark:text-white font-medium">{crumb.label}</span>
+            <span aria-current="page" className="text-gray-900 dark:text-white font-medium">{crumb.label}</span>
           ) : (
-            <NavLink to={crumb.path} className="hover:text-gray-700 dark:hover:text-gray-200">
-              {crumb.label}
-            </NavLink>
+            <NavLink to={crumb.path} className="hover:text-gray-900 dark:hover:text-gray-200 underline-offset-2 hover:underline">{crumb.label}</NavLink>
           )}
         </span>
       ))}
@@ -88,93 +51,106 @@ function Breadcrumbs() {
   )
 }
 
+const linkBase = 'block px-4 py-2 text-sm focus-visible:outline-offset-[-2px]'
+
 export default function Layout() {
-  const { user, logout } = useAuth()
+  const { user, logout, ambient } = useAuth()
   const { enabled, error } = useModules()
-  const navigation = [...navItems.slice(0, 2), ...enabled.map((module) => ({ to: module.path, label: module.label })), ...navItems.slice(2)]
+  const access = useAccess()
   const [dark, toggleDark] = useDarkMode()
+  const [open, setOpen] = useState(false)
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // A phone shows the navigation as a drawer: modal while open, closed after navigating.
+  useEffect(() => { setOpen(false) }, [location.pathname])
+  const drawerRef = useFocusTrap<HTMLElement>(open, () => setOpen(false))
+
+  const items: NavItem[] = [
+    { to: '/overview', label: 'Overview' },
+    { to: '/dashboard', label: 'Dashboard', need: 'admin' },
+    ...enabled.map((module) => ({ to: module.path, label: module.label, need: 'operator' as const })),
+    { to: '/usage', label: 'Usage' },
+    { to: '/agents', label: 'Agents', need: 'operator' },
+    { to: '/access-points', label: 'Access points' },
+    { to: '/identity/users', label: 'User identity', need: 'operator' },
+    { to: '/runs', label: 'Runs', need: 'operator' },
+    { to: '/permissions', label: 'Permissions', need: 'admin' },
+  ]
+  const shown = items.filter((item) => item.need !== 'operator' || access.isOperator)
+  const hiddenForRole = items.length - shown.length
 
   function handleLogout() {
     logout()
     navigate('/login', { replace: true })
   }
 
-  const initials = user?.email
-    ? user.email.substring(0, 2).toUpperCase()
-    : '??'
+  const who = user?.display_name || user?.email || 'Unknown'
+  const initials = who.substring(0, 2).toUpperCase()
 
   return (
-    <div className="min-h-screen flex bg-gray-50 dark:bg-gray-950">
-      {/* Sidebar */}
-      <nav className="w-56 bg-gray-900 text-white flex flex-col shrink-0">
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold">
-            {/* The sidebar is always dark, so it uses the reversed lockup in both themes. */}
-            <img src={logoReversed} alt="AIPlex" className="h-8 w-auto" />
-          </h1>
-          <p className="text-xs text-gray-400 mt-1">Unified AI Control Plane</p>
-        </div>
-        <div className="flex-1 py-4">
-          {navigation.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `block px-4 py-2 text-sm ${
-                  isActive
-                    ? 'bg-brand-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800'
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
+    <div className="min-h-screen md:flex">
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-brand-600 focus:px-3 focus:py-2 focus:text-brand-contrast">Skip to content</a>
+      {/* Phone top bar */}
+      <header className="md:hidden flex items-center justify-between bg-gray-900 text-white px-4 py-2 sticky top-0 z-30">
+        <img src={logoReversed} alt="AIPlex" className="h-7 w-auto" />
+        <button type="button" aria-expanded={open} aria-controls="primary-nav" onClick={() => setOpen((v) => !v)} className="rounded border border-gray-600 px-3 py-1.5 text-sm">
+          {open ? 'Close menu' : 'Menu'}
+        </button>
+      </header>
+      {open && <div className="md:hidden fixed inset-0 z-30 bg-black/50" aria-hidden="true" onClick={() => setOpen(false)} />}
 
-        {/* User section */}
+      <aside
+        id="primary-nav"
+        ref={drawerRef}
+        tabIndex={-1}
+        aria-label="Primary"
+        className={`${open ? 'flex fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto' : 'hidden'} md:flex md:sticky md:top-0 md:h-screen md:w-56 md:z-auto bg-gray-900 text-white flex-col shrink-0`}
+      >
+        <div className="p-4 border-b border-gray-700">
+          {/* The sidebar is always dark, so it uses the reversed lockup in both themes. */}
+          <img src={logoReversed} alt="AIPlex" className="h-8 w-auto" />
+          <p className="text-xs text-gray-300 mt-1">Unified AI Control Plane</p>
+        </div>
+        <nav aria-label="Main" className="flex-1 py-4 overflow-y-auto">
+          {shown.map((item) => {
+            const blocked = item.need === 'admin' && !access.isAdmin
+            if (blocked) {
+              return (
+                <span key={item.to} role="link" aria-disabled="true" title={ADMIN_REASON} className={`${linkBase} text-gray-300 cursor-not-allowed`}>
+                  {item.label}<span className="block text-xs text-gray-300">Admin only</span>
+                </span>
+              )
+            }
+            return (
+              <NavLink key={item.to} to={item.to} className={({ isActive }) => `${linkBase} ${isActive ? 'bg-brand-600 text-brand-contrast' : 'text-gray-200 hover:bg-gray-800'}`}>
+                {item.label}
+              </NavLink>
+            )
+          })}
+          {hiddenForRole > 0 && <p className="px-4 pt-3 text-xs text-gray-300">Configuration screens need the admin or deployer role.</p>}
+        </nav>
+
         <div className="border-t border-gray-700 p-4 space-y-3">
-          <button
-            onClick={toggleDark}
-            className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors w-full"
-            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {dark ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-              </svg>
-            )}
+          <button type="button" onClick={toggleDark} className="flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors w-full">
+            <span aria-hidden="true">{dark ? '☀' : '☾'}</span>
             <span>{dark ? 'Light mode' : 'Dark mode'}</span>
           </button>
-
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
-              {initials}
-            </div>
+            <div aria-hidden="true" className="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-brand-contrast shrink-0">{initials}</div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-white truncate">{user?.email ?? 'Unknown'}</p>
+              <p className="text-sm text-white truncate" title={user?.email}>{who}</p>
+              <p className="text-xs text-gray-300 truncate">{access.roles.length ? access.roles.join(', ') : 'no role'}</p>
             </div>
           </div>
-
-          <button
-            onClick={handleLogout}
-            className="w-full text-left text-sm text-gray-400 hover:text-red-400 transition-colors"
-          >
-            Sign out
-          </button>
+          {ambient
+            ? <p className="text-xs text-gray-300">Signed in by this server.</p>
+            : <button type="button" onClick={handleLogout} className="w-full text-left text-sm text-gray-300 hover:text-white underline-offset-2 hover:underline">Sign out</button>}
         </div>
-      </nav>
+      </aside>
 
-      {/* Main content */}
-      <main className="flex-1 p-6 overflow-auto">
-        {error && <p role="alert" className="mb-4 text-red-600">Module discovery unavailable. Module navigation is hidden.</p>}
+      <main id="main" tabIndex={-1} className="flex-1 min-w-0 p-4 md:p-6 focus:outline-none">
+        {error && <p role="alert" className="mb-4 text-status-denied-fg">Module discovery unavailable. Module navigation is hidden.</p>}
         <Breadcrumbs />
         <Outlet />
       </main>

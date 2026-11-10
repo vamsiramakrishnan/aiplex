@@ -106,11 +106,17 @@ export interface UsageFilter {
   caller_kind?: string
   status?: string
   source?: string
+  /** Failure class of an error record, for example rate_limited or invalid_request. */
+  error_class?: string
+  /** lower_bound, ambiguous or partial for records whose counters are not final; none for exact ones. */
+  usage_bound?: string
+  /** "true" for provider batch exchanges, "false" for everything else. */
+  batch?: string
   since?: string
   until?: string
 }
 
-export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status'] as const
+export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status', 'source', 'error_class', 'usage_bound', 'batch'] as const
 export type GroupField = (typeof GROUP_FIELDS)[number]
 export type Bucket = '' | 'hour' | 'day'
 

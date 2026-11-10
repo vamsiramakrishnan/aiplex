@@ -457,8 +457,9 @@ export interface RunsHealth {
 export const getRunsHealth = () => request<RunsHealth>('/runs/_health')
 
 export interface ResolvedAccess {
-  identity: { principal_id: string; subject: string; email: string; actor_id?: string; authorized_party?: string }
-  roles: string[]
+  identity: { principal_id: string; subject: string; email: string; display_name?: string; groups?: string[]; actor_id?: string; authorized_party?: string }
+  /** null for a caller with no role. */
+  roles: string[] | null
   scopes: string[]
   group_scopes?: string[]
   manual_scopes?: string[]

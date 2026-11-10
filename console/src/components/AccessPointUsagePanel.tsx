@@ -10,13 +10,13 @@ function Section({ accessPointId, groupBy, heading, since, headline }: { accessP
     queryKey: ['access-point-usage', accessPointId, groupBy, since ?? ''],
     queryFn: () => accessPointUsageSummary(accessPointId, [groupBy], since ? { since } : {}),
   })
-  if (query.isPending) return <p role="status" className="text-sm text-gray-500">Loading usage by {heading.toLowerCase()}…</p>
+  if (query.isPending) return <p role="status" className="text-sm text-gray-600 dark:text-gray-400">Loading usage by {heading.toLowerCase()}…</p>
   if (query.isError) return <ErrorPanel error={query.error} what="usage for this access point" onRetry={() => void query.refetch()} />
   const { groups, truncated, records_scanned } = query.data
   return (
     <div className="space-y-2">
-      {truncated && <p role="alert" className="rounded border border-amber-400 p-2 text-sm text-amber-800 dark:text-amber-300">Truncated: totals cover only the newest {formatCount(records_scanned)} records scanned. Choose a shorter window for complete totals.</p>}
-      {groups.length === 0 ? <p className="text-sm text-gray-500">No {heading.toLowerCase()} usage recorded in this window.</p> : (
+      {truncated && <p role="alert" className="rounded border border-status-warning-fg p-2 text-sm text-status-warning-fg">Truncated: totals cover only the newest {formatCount(records_scanned)} records scanned. Choose a shorter window for complete totals.</p>}
+      {groups.length === 0 ? <p className="text-sm text-gray-600 dark:text-gray-400">No {heading.toLowerCase()} usage recorded in this window.</p> : (
         <>
           {headline && <UsageHeadline groups={groups} label="Access point usage totals" />}
           <UsageSummaryTable groups={groups} keyField={groupBy} heading={heading} />
@@ -37,14 +37,14 @@ export default function AccessPointUsagePanel({ accessPointId }: { accessPointId
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h3 className="text-lg font-medium">Usage</h3>
         <div>
-          <label htmlFor={`${uid}-range`} className="block text-xs text-gray-500 mb-1">Time range</label>
+          <label htmlFor={`${uid}-range`} className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Time range</label>
           <select id={`${uid}-range`} value={preset} onChange={e => { const p = e.target.value as TimePreset; setPreset(p); setSince(presetSince(p)) }}
             className="rounded border border-gray-300 bg-transparent px-2 py-1 text-sm dark:border-gray-700">
             {TIME_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
         </div>
       </div>
-      <p className="text-xs text-gray-500">Unknown usage and cost are shown as &quot;unknown&quot;, never as zero. Costs are shown per currency and basis and never added across currencies.</p>
+      <p className="text-xs text-gray-600 dark:text-gray-400">Unknown usage and cost are shown as &quot;unknown&quot;, never as zero. Costs are shown per currency and basis and never added across currencies.</p>
       <h4 className="text-sm font-semibold">By caller kind</h4>
       <Section accessPointId={accessPointId} groupBy="caller_kind" heading="Caller kind" since={since} headline />
       <h4 className="text-sm font-semibold">By model</h4>
