@@ -365,7 +365,7 @@ func (x *extendedExchange) serveBatchCreate() {
 		err = x.run.resource(Resource{providerBatchResource, id})
 	}
 	if err == nil && x.g.options.Batches != nil {
-		record := BatchRecord{Owner: x.owner, Provider: x.spec.provider, BatchID: id, CreateOperation: x.op.ID, Model: x.metadata.Model, Expected: -1}
+		record := BatchRecord{Owner: x.owner, Provider: x.spec.provider, BatchID: id, CreateOperation: x.op.ID, Model: x.metadata.Model, Expected: -1, CreatedAt: x.g.batchNow()}
 		if x.run != nil {
 			if receipt, ok := x.run.lease.(execution.Receipt); ok {
 				record.AttemptID = receipt.AttemptID()
@@ -675,6 +675,9 @@ func (g *Gateway) advanceBatch(parent context.Context, owner Owner, provider, ba
 		}
 		if complete {
 			record.Settled, record.Usage = true, settlement.Counters
+			if record.SettledAt.IsZero() {
+				record.SettledAt = g.batchNow()
+			}
 		}
 		if _, err = g.options.Batches.SaveBatch(ctx, record, revision); errors.Is(err, ErrBatchConflict) {
 			continue
