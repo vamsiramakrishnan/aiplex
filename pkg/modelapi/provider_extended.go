@@ -122,6 +122,7 @@ func withExtendedOperations(catalog map[string][]providerOp) map[string][]provid
 		op("anthropic.message-batches-list", "GET", "/v1/messages/batches", HTTP, List, providerBatchResource, true, anthropicRef, FormatAnthropicBatch, ProtocolAnthropicBatches),
 		op("anthropic.message-batches-results", "GET", "/v1/messages/batches/{id}/results", HTTP, Read, providerBatchResource, true, "https://platform.claude.com/docs/en/api/messages/batches/results", FormatAnthropicBatch, ProtocolAnthropicBatches),
 	)
+	catalog[ProviderGeminiDeveloper] = append(catalog[ProviderGeminiDeveloper], geminiExtendedOperations()...)
 	return catalog
 }
 
@@ -139,7 +140,7 @@ func extendedCoverage(op Operation) ExecutionCoverage {
 		return ExecutionCoverage{}
 	}
 	switch spec.kind {
-	case kindBatchCreate, kindBatchRead, kindBatchList, kindBatchResults, kindFileContent, kindFileUpload:
+	case kindBatchCreate, kindBatchRead, kindBatchList, kindBatchResults, kindFileContent, kindFileUpload, kindPredictLongRunning, kindOperationRead:
 		return ExecutionCoverage{RequestCount: true, Asynchronous: true}
 	}
 	return ExecutionCoverage{RequestCount: true}
@@ -158,7 +159,7 @@ func MediaQuotaOperation(id string) bool {
 // BatchCreateOperation reports batch-create operations a batch-usage quota
 // profile may bind.
 func BatchCreateOperation(id string) bool {
-	return id == "openai.v1.batches-create" || id == "anthropic.message-batches-create"
+	return id == "openai.v1.batches-create" || id == "anthropic.message-batches-create" || id == "gemini.models.batchGenerateContent"
 }
 
 // ExtendedOperation reports whether an operation is served by this file.
@@ -183,6 +184,13 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 		return false
 	}
 	metadata := Metadata{Transport: op.Transport}
+	if model := params["model"]; model != "" {
+		if !g.allowedModel(model) {
+			http.Error(w, "model is not allowed", http.StatusForbidden)
+			return true
+		}
+		metadata.Model = model
+	}
 	if id := params["id"]; id != "" {
 		if !validSegment(id) {
 			http.Error(w, "invalid resource identifier", http.StatusBadRequest)
@@ -204,7 +212,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 	var err error
 	images := int64(1)
 	switch spec.kind {
-	case kindMediaJSON, kindSpeech, kindBatchCreate:
+	case kindMediaJSON, kindSpeech, kindBatchCreate, kindPredictLongRunning:
 		body, err = io.ReadAll(io.LimitReader(r.Body, g.options.MaxBodyBytes+1))
 		if err != nil || int64(len(body)) > g.options.MaxBodyBytes {
 			http.Error(w, "invalid or oversized request body", http.StatusBadRequest)
@@ -276,7 +284,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 			return true
 		}
 		length = upload.size
-	case spec.kind != kindMediaJSON && spec.kind != kindSpeech && spec.kind != kindBatchCreate:
+	case spec.kind != kindMediaJSON && spec.kind != kindSpeech && spec.kind != kindBatchCreate && spec.kind != kindPredictLongRunning:
 		reader, length = http.NoBody, 0
 	}
 	request, err := http.NewRequestWithContext(r.Context(), r.Method, upstream.String(), reader)
@@ -328,6 +336,10 @@ func (g *Gateway) validateExtendedJSON(ctx context.Context, owner Owner, op Oper
 				return 0, forbidden("ambiguous security field spelling")
 			}
 		}
+	}
+	if spec.provider == ProviderGeminiDeveloper {
+		// The model is the path segment; every model named in the body must be it.
+		return 1, g.geminiBatchModels(body, metadata.Model)
 	}
 	if spec.kind == kindBatchCreate {
 		return 1, g.validateBatchCreate(ctx, owner, spec, metadata, doc)
@@ -529,6 +541,9 @@ func (x *extendedExchange) serve() {
 	}
 	switch x.spec.kind {
 	case kindBatchCreate, kindBatchRead, kindBatchList, kindBatchResults, kindFileContent, kindFileUpload:
+		if x.spec.provider == ProviderGeminiDeveloper && x.spec.kind != kindBatchCreate && x.spec.kind != kindBatchRead {
+			break
+		}
 		// Every batch exchange is labelled batch on the ledger, whatever its outcome.
 		if err := x.batchMarker(); err != nil {
 			x.fail(err, http.StatusBadGateway, "upstream response could not be acknowledged")
@@ -564,6 +579,10 @@ func (x *extendedExchange) serve() {
 		x.serveResults(x.op.ID, x.metadata.Resource.ID, extendedResultsPartResults)
 	case kindFileContent:
 		x.serveFileContent()
+	case kindPredictLongRunning:
+		x.servePrediction()
+	case kindOperationRead:
+		x.serveJSONPassthrough()
 	}
 }
 

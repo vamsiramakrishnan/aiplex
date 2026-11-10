@@ -357,7 +357,7 @@ func (x *extendedExchange) serveBatchCreate() {
 		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
 		return
 	}
-	id, object, err := objectID(data)
+	id, object, err := batchObjectID(x.spec.provider, data)
 	if err == nil {
 		err = x.g.options.Ownership.Bind(x.r.Context(), x.owner, Resource{providerBatchResource, id})
 	}
@@ -420,6 +420,8 @@ func applyBatchObject(provider string, object map[string]json.RawMessage, record
 			}
 			record.Ended = true
 		}
+	case ProviderGeminiDeveloper:
+		applyGeminiBatchObject(object, record)
 	case ProviderAnthropic:
 		var status string
 		_ = json.Unmarshal(object["processing_status"], &status)
@@ -446,6 +448,33 @@ func applyBatchObject(provider string, object map[string]json.RawMessage, record
 	}
 }
 
+// servePrediction binds a long-running prediction operation to its owner
+// before the caller learns its name. The operation reports no usage.
+func (x *extendedExchange) servePrediction() {
+	data, err := x.readBounded()
+	if err != nil {
+		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
+		return
+	}
+	id, err := operationID(data, x.metadata.Model)
+	if err == nil {
+		err = x.g.options.Ownership.Bind(x.r.Context(), x.owner, Resource{x.op.ResourceKind, id})
+	}
+	if err == nil {
+		err = x.run.resource(Resource{x.op.ResourceKind, id})
+	}
+	if err != nil {
+		x.fail(err, http.StatusBadGateway, "resource ownership could not be persisted")
+		return
+	}
+	if err = x.run.finish(execution.Result{StatusCode: x.response.StatusCode, ResponseComplete: true}); err != nil {
+		writeExecutionError(x.w, err)
+		return
+	}
+	x.writeHeaders()
+	_, _ = x.w.Write(data)
+}
+
 // serveBatchRead relays a batch object (retrieve or cancel), records its
 // status, and binds its results files to the batch owner.
 func (x *extendedExchange) serveBatchRead() {
@@ -454,7 +483,7 @@ func (x *extendedExchange) serveBatchRead() {
 		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
 		return
 	}
-	id, object, err := objectID(data)
+	id, object, err := batchObjectID(x.spec.provider, data)
 	if err != nil || id != x.metadata.Resource.ID {
 		x.fail(fmt.Errorf("batch object identity mismatch"), http.StatusBadGateway, "upstream batch object is invalid")
 		return

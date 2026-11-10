@@ -382,8 +382,6 @@ func usageRoutes() []fixtureRoute {
 		formatOnly(exact("google", "gemini-count-tokens.json", "gemini-countTokens", "json", callVertexCount, convNoConsumption, natGemini, false, strictNotApplicable, ""), statusUnsupported, noDA+"; countTokens is an estimate and must never be recorded as usage"),
 		formatOnly(exact("google", "gemini-embed.json", "gemini-embedContent", "json", callVertexEmbed, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		unsupported("google", "gemini-cachedcontent-create.json", "gemini-cachedContents", "json", "no Gemini Developer API surface and not replayed: DA cache names (cachedContents/{id}) are outside the Vertex resource scope, and how cache creation is billed is UNCONFIRMED (cache.create is request-count; usageMetadata.totalTokenCount is not mapped to cache writes)"),
-		unsupported("google", "gemini-veo-operation.json", "gemini-predictLongRunning", "json", "no Developer API surface; video is billed per output second and the operation result carries no usage"),
-		unsupported("google", "gemini-batch-inlined.json", "gemini-batch", "json", "no Developer API batch operation; job resources carry no token totals"),
 		formatOnly(exact("google", "gemini-interactions.json", "gemini-interactions", "json", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions-interrupted.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, false, strictNotApplicable, ""), statusUnsupported, noDA),
@@ -406,7 +404,6 @@ func usageRoutes() []fixtureRoute {
 		}(),
 		advisory("google", "vertex-count-tokens.json", "vertex-countTokens", "json", callVertexCount, convNoConsumption, natGemini, false, "countTokens is an input-size estimate, never consumption; only the request is counted"),
 		advisory("google", "vertex-embed-predict.json", "vertex-predict", "json", callVertexPredict, convGemini, natGemini, true, requestCount),
-		unsupported("google", "vertex-batch-gcs.jsonl", "vertex-batch", "jsonl-file", "batch output rows are Cloud Storage artifacts, not gateway responses; batch.create counts the submission only"),
 		exact("google", "vertex-openai-chat.json", "vertex-openai-chat", "json", callVertexChat, convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
 		exact("google", "vertex-openai-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
 			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`

@@ -283,6 +283,24 @@ func nativeBodyCounters(provider string, body json.RawMessage) (map[string]int64
 			counters[key] = n
 		}
 	}
+	if provider == ProviderGeminiDeveloper {
+		// Same rule as strict Gemini settlement (normalizeGeminiFinal):
+		// proto3 omits zero counters, so an absent cachedContentTokenCount is
+		// 0, and thoughts are total - prompt - candidates - tool-use prompt
+		// when the documented total is consistent; otherwise left unknown.
+		input, inputOK := counters["input_tokens"]
+		output, outputOK := counters["output_tokens"]
+		total, totalOK := counters["total_tokens"]
+		if inputOK && outputOK && totalOK {
+			if _, ok := counters["cached_tokens"]; !ok {
+				counters["cached_tokens"] = 0
+			}
+			thought := total - input - output - counters["tool_use_tokens"]
+			if explicit, ok := counters["thought_tokens"]; thought >= 0 && (!ok || explicit == thought) {
+				counters["thought_tokens"] = thought
+			}
+		}
+	}
 	if provider == ProviderAnthropic {
 		if input, ok := counters["input_tokens"]; ok {
 			counters["uncached_input_tokens"] = input
@@ -423,6 +441,11 @@ func batchSettlement(record BatchRecord) (BatchSettlement, bool, error) {
 	var required []string
 	switch record.Provider {
 	case ProviderAnthropic:
+		required = []string{"results"}
+	case ProviderGeminiDeveloper:
+		if !record.Ended {
+			return BatchSettlement{}, false, nil
+		}
 		required = []string{"results"}
 	case ProviderOpenAI:
 		if !record.Ended {

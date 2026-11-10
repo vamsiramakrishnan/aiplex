@@ -26,6 +26,7 @@ import (
 var (
 	openAIExtendedClientPath    = regexp.MustCompile(`^/(audio/(transcriptions|translations|speech)|images/(generations|edits)|files|files/[A-Za-z0-9][A-Za-z0-9._-]*/content|batches|batches/[A-Za-z0-9][A-Za-z0-9._-]*(/cancel)?)$`)
 	anthropicExtendedClientPath = regexp.MustCompile(`^/v1/messages/batches(/[A-Za-z0-9][A-Za-z0-9._-]*(/cancel|/results)?)?$`)
+	geminiExtendedClientPath    = regexp.MustCompile(`^/v1beta/(models/[A-Za-z0-9][A-Za-z0-9._-]*:(batchGenerateContent|predictLongRunning)|batches/[A-Za-z0-9][A-Za-z0-9._-]*(:cancel)?|models/[A-Za-z0-9][A-Za-z0-9._-]*/operations/[A-Za-z0-9][A-Za-z0-9._-]*)$`)
 )
 
 // extendedClientNativePath maps a facade path to a media or batch native path.
@@ -41,6 +42,10 @@ func extendedClientNativePath(s modelapi.Surface, r *http.Request, path string) 
 		}
 	case modelapi.ProviderAnthropic:
 		if anthropicExtendedClientPath.MatchString(path) {
+			return path, true
+		}
+	case modelapi.ProviderGeminiDeveloper:
+		if geminiExtendedClientPath.MatchString(path) {
 			return path, true
 		}
 	}

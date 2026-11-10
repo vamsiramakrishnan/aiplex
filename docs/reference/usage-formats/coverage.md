@@ -52,7 +52,7 @@ and must settle only when complete.
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
 | anthropic | 5 | 5 | 3 |
-| google | 8 | 12 | 4 |
+| google | 9 | 13 | 2 |
 | openai | 10 | 7 | 0 |
 
 ## Matrix
@@ -72,7 +72,7 @@ and must settle only when complete.
 | anthropic | rate-limit-metadata | json | unsupported | `ratelimit.json` | documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits |
 | anthropic | vertex-rawPredict | json | exact | `vertex-raw.json` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
 | anthropic | vertex-streamRawPredict | sse | exact | `vertex-raw-interrupted.sse`<br>`vertex-raw.sse` | observation exact; strict settlement fails closed for this fixture: positive cache writes are outside the output-inclusive token profile (fail closed) |
-| google | gemini-batch | json | unsupported | `gemini-batch-inlined.json` | no Developer API batch operation; job resources carry no token totals |
+| google | gemini-batch | json | exact | `gemini-batch-inlined.json` | batch-usage binding: admitted at batchGenerateContent; the retrieve that first sees a terminal batch whose inline responses account for batchStats.requestCount settles it once (succeeded items only); a responsesFile output (per-line wrapper UNCONFIRMED) never settles and keeps its exposure |
 | google | gemini-cachedContents | json | advisory | `gemini-cachedcontent-create.json` | cachedContents create/get/list/update/delete are request-count and never read for usage: usageMetadata.totalTokenCount is the cache size, repeated on every get/list, and how creation is billed is UNCONFIRMED |
 | google | gemini-countTokens | json | advisory | `gemini-count-tokens.json` | countTokens: an input-size estimate, never consumption; only the request is counted and the response is never read for usage |
 | google | gemini-embedContent | json | advisory | `gemini-embed.json` | input tokens only (usageMetadata.promptTokenCount); operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
@@ -80,10 +80,10 @@ and must settle only when complete.
 | google | gemini-interactions | json | advisory | `gemini-interactions.json` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
 | google | gemini-interactions | sse | advisory | `gemini-interactions-interrupted.sse`<br>`gemini-interactions.sse` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
 | google | gemini-live | websocket | unsupported | `gemini-live-interrupted.ws.jsonl (format-checked)`<br>`gemini-live.ws.jsonl (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it (Live messages replayed through the Vertex Live relay) |
-| google | gemini-predictLongRunning | json | unsupported | `gemini-veo-operation.json` | no Developer API surface; video is billed per output second and the operation result carries no usage |
+| google | gemini-predictLongRunning | json | advisory | `gemini-veo-operation.json` | predictLongRunning and the operation poll are request-count exchanges; the done result reports no usage and no duration, so video_output_milliseconds stays unknown (billed per output second by the provider) |
 | google | gemini-streamGenerateContent | json-array | advisory | `gemini-generate.stream.json` | JSON-array framing (no alt=sse) is observed exactly; operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
 | google | gemini-streamGenerateContent | sse | advisory | `gemini-generate-interrupted.sse`<br>`gemini-generate.sse` | operation coverage is request-count; usage is recorded as advisory ledger telemetry (no token profile is installed for this operation) |
-| google | vertex-batch | jsonl-file | unsupported | `vertex-batch-gcs.jsonl` | batch output rows are Cloud Storage artifacts, not gateway responses; batch.create counts the submission only |
+| google | vertex-batch | jsonl-file | unsupported | `vertex-batch-gcs.jsonl (format-checked)` | output rows are Cloud Storage (or BigQuery) artifacts the gateway does not fetch, so a Vertex batch cannot settle through it; batch.create stays request-count. Rows are format-checked with the batch aggregation rules (succeeded rows only, proto3 zero omission) |
 | google | vertex-countTokens | json | advisory | `vertex-count-tokens.json` | countTokens is an input-size estimate, never consumption; only the request is counted |
 | google | vertex-generateContent | json | exact | `vertex-generate-error-429.json`<br>`vertex-generate-flex.json`<br>`vertex-generate-image.json`<br>`vertex-generate.json` |  |
 | google | vertex-interactions | json | exact | `vertex-interactions.json` |  |

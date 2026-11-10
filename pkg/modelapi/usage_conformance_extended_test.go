@@ -2,6 +2,8 @@ package modelapi
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -106,7 +108,65 @@ func extendedUsageRoutes() []fixtureRoute {
 	}
 	const liveNote = "WebSocket session: one request-count admission and one settlement per session (token-metered leases refused before the dial); voice seconds are the primary meter, observed as voice_session_milliseconds from cumulative session.usage.updated snapshots (never summed) and final only with session.closed; nested Responses/decision token usage is advisory, counted once per response"
 	callLive := &fixtureCall{surface: providerSurfaceFor(openAIMediaProvider, ProtocolOpenAILive, []string{"fixture-model-live"}, openAILiveOperation), path: "/v1/live/sessions?model=fixture-model-live", body: `{"type":"session.start","session":{"model":"fixture-model-live"}}`, ws: "openai-live"}
+	geminiBatch := func(t *testing.T, data []byte, want canonical) {
+		h := newBatchHarness(t, Provider{ID: ProviderGeminiDeveloper}, ProtocolGoogleGenAI, []string{"model-a"}, "gemini.models.batchGenerateContent", "gemini.batches.get")
+		h.route("POST", "/v1beta/models/model-a:batchGenerateContent", 200, "application/json", []byte(`{"name":"batches/synthbatch0001","state":"BATCH_STATE_PENDING"}`))
+		body := []byte(`{"batch":{"model":"models/model-a","displayName":"x","inputConfig":{"requests":{"requests":[{"request":{"model":"models/model-a","contents":[]}}]}}}}`)
+		if w := h.do(h.gateway(nil), "POST", "/v1beta/models/model-a:batchGenerateContent", "application/json", body); w.Code != 200 {
+			t.Fatalf("create: %d %s", w.Code, w.Body)
+		}
+		if w := h.do(h.gateway(nil), "POST", "/v1beta/models/model-a:batchGenerateContent", "application/json", bytes.Replace(body, []byte(`"models/model-a","contents"`), []byte(`"models/model-b","contents"`), 1)); w.Code != 403 {
+			t.Fatalf("batch item with another model accepted: %d", w.Code)
+		}
+		h.route("GET", "/v1beta/batches/synthbatch0001", 200, "application/json", data)
+		for i := 0; i < 2; i++ {
+			if w := h.do(h.gateway(nil), "GET", "/v1beta/batches/synthbatch0001", "", nil); w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) {
+				t.Fatalf("get: %d %s", w.Code, w.Body)
+			}
+		}
+		if _, records := h.settler.counts(); records != 1 {
+			t.Fatalf("inline batch recorded %d times", records)
+		}
+		counters := h.settler.records[0].Counters
+		delete(counters, "batch_requests")
+		got := observedCanonical(natGemini, counters)
+		if diffs := compareCanonical(want, got, nil); len(diffs) > 0 {
+			t.Errorf("inline batch settlement: %v\n want %s\n got  %s", diffs, describe(want), describe(got))
+		}
+	}
+	callVeo := &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderGeminiDeveloper}, ProtocolGoogleGenAI, []string{"model-a"}, "gemini.operations.get"), path: "/v1beta/models/model-a/operations/op-0001", method: "GET", bind: []Resource{{"prediction-operation", "op-0001"}}}
+	vertexRows := func(t *testing.T, data []byte, want canonical) {
+		var lines []batchLine
+		for i, raw := range bytes.Split(data, []byte("\n")) {
+			if len(bytes.TrimSpace(raw)) == 0 {
+				continue
+			}
+			var row struct {
+				Status   string          `json:"status"`
+				Response json.RawMessage `json:"response"`
+			}
+			if err := json.Unmarshal(raw, &row); err != nil {
+				t.Fatal(err)
+			}
+			line := batchLine{id: fmt.Sprint(i)}
+			if row.Status == "" {
+				counters, model, err := nativeBodyCounters(ProviderGeminiDeveloper, row.Response)
+				if err != nil {
+					t.Fatal(err)
+				}
+				line = batchLine{id: line.id, succeeded: true, counters: counters, model: model}
+			}
+			lines = append(lines, line)
+		}
+		got := observedCanonical(natGemini, aggregateBatchLines(lines).Usage)
+		if diffs := compareCanonical(want, got, nil); len(diffs) > 0 {
+			t.Errorf("Vertex batch rows: %v", diffs)
+		}
+	}
 	return []fixtureRoute{
+		{provider: "google", file: "vertex-batch-gcs.jsonl", surface: "vertex-batch", transport: "jsonl-file", status: statusUnsupported, formatOnly: true, reason: "output rows are Cloud Storage (or BigQuery) artifacts the gateway does not fetch, so a Vertex batch cannot settle through it; batch.create stays request-count. Rows are format-checked with the batch aggregation rules (succeeded rows only, proto3 zero omission)", conv: convGemini, native: natGemini, check: vertexRows},
+		{provider: "google", file: "gemini-batch-inlined.json", surface: "gemini-batch", transport: "json", status: statusExact, reason: "batch-usage binding: admitted at batchGenerateContent; the retrieve that first sees a terminal batch whose inline responses account for batchStats.requestCount settles it once (succeeded items only); a responsesFile output (per-line wrapper UNCONFIRMED) never settles and keeps its exposure", conv: convGemini, native: natGemini, check: geminiBatch},
+		{provider: "google", file: "gemini-veo-operation.json", surface: "gemini-predictLongRunning", transport: "json", status: statusAdvisory, reason: "predictLongRunning and the operation poll are request-count exchanges; the done result reports no usage and no duration, so video_output_milliseconds stays unknown (billed per output second by the provider)", call: callVeo, conv: convGemini, native: natGemini, final: true},
 		{provider: "openai", file: "live.ws.jsonl", surface: "live-voice-sessions", transport: "websocket", status: statusAdvisory, reason: liveNote, call: callLive, conv: convOpenAI, native: natOpenAI, final: true},
 		{provider: "openai", file: "live.interrupted.ws.jsonl", surface: "live-voice-sessions", transport: "websocket", status: statusAdvisory, reason: liveNote, call: callLive, conv: convOpenAI, native: natOpenAI, final: false},
 		media("transcription.json", "audio-transcriptions", "json", callTranscription, true, unitNote),
