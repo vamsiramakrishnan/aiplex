@@ -140,7 +140,7 @@ def wordmark(x, y, cap, ink):
 
 
 # ---------------------------------------------------------------- social card
-def social(show_url=True):
+def social():
     W, H, bg = 1200, 630, N["950"]
     d = Doc("aiplex-social", W, H, "AIPlex",
             "AIPlex social card: the reversed lockup, a one-line description and the six Plex modules with their names.")
@@ -151,10 +151,8 @@ def social(show_url=True):
     d.text(80, 396, "between agents, models, tools and skills.", 38, INKD, bg, 600)
     for i, n in enumerate(ICON_NAMES[:6]):
         x = 80 + i * 178
-        d.icon(n, x, 474 if show_url else 494, 32, P.MODULES[n]["dark"])
-        d.text(x + 42, 498 if show_url else 518, LABEL[n], 21, INKD, bg, 500)
-    if show_url:
-        d.text(80, 574, "docs.aiplex.dev", 20, N["400"], bg, 400, mono=True)
+        d.icon(n, x, 494, 32, P.MODULES[n]["dark"])
+        d.text(x + 42, 518, LABEL[n], 21, INKD, bg, 500)
     return d
 
 
