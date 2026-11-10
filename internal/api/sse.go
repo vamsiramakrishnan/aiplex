@@ -35,10 +35,9 @@ func NewSSEHandler(store registry.Store) *SSEHandler {
 // instead of useQuery(refetchInterval) so a busy agent's timeline
 // stays current without polling.
 func (h *SSEHandler) Stream(w http.ResponseWriter, r *http.Request) {
-	// Accept token from query param (EventSource can't set headers)
-	if token := r.URL.Query().Get("token"); token != "" {
-		r.Header.Set("Authorization", "Bearer "+token)
-	}
+	// Identity is established by middleware from headers before this handler
+	// runs; a ?token= query parameter is not accepted (it never authenticated,
+	// and bearer tokens in URLs end up in proxy and browser logs).
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {

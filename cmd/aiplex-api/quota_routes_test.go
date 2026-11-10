@@ -31,10 +31,17 @@ func (quotaRouteVerifier) Verify(_ context.Context, token string) (map[string]an
 	if token == "admin" {
 		group = "admins"
 	}
+	if token == "quota-reader" {
+		group = "quota-readers"
+	}
 	claims := map[string]any{"iss": "https://identity.example", "sub": subject, "groups": []any{group}, "iat": time.Now().Add(-time.Minute).Unix(), "exp": time.Now().Add(time.Hour).Unix()}
 	if strings.HasPrefix(token, "owner-agent-") {
 		claims["sub"] = "owner"
 		claims["act"] = map[string]any{"sub": strings.TrimPrefix(token, "owner-agent-")}
+	}
+	if strings.HasPrefix(token, "stranger-agent-") {
+		claims["sub"] = "stranger"
+		claims["act"] = map[string]any{"sub": strings.TrimPrefix(token, "stranger-agent-")}
 	}
 	return claims, nil
 }
@@ -45,7 +52,7 @@ func quotaRouteValidator(t *testing.T, granted bool) *auth.WIFValidator {
 	if granted {
 		scopes = []string{"mcp:tools:search"}
 	}
-	for _, b := range []*models.RoleBinding{{ID: "viewers", Group: "viewers", Role: models.RoleViewer, Scopes: scopes}, {ID: "admins", Group: "admins", Role: models.RoleAdmin}} {
+	for _, b := range []*models.RoleBinding{{ID: "viewers", Group: "viewers", Role: models.RoleViewer, Scopes: scopes}, {ID: "admins", Group: "admins", Role: models.RoleAdmin}, {ID: "quota-readers", Group: "quota-readers", Role: models.RoleViewer, Scopes: []string{"aiplex:quota:read"}}} {
 		if err := store.PutRoleBinding(context.Background(), b); err != nil {
 			t.Fatal(err)
 		}
@@ -167,7 +174,7 @@ func TestQuotaStatusBindsTenantPrincipalAndDelegatedActor(t *testing.T) {
 	for _, test := range []struct {
 		token, id string
 		want      int
-	}{{"owner", "own", 200}, {"stranger", "own", 404}, {"owner-agent-a", "own", 404}, {"owner", "delegated", 404}, {"owner-agent-a", "delegated", 200}, {"owner-agent-b", "delegated", 404}, {"admin", "delegated", 200}, {"outsider", "own", 404}, {"owner", "missing", 404}} {
+	}{{"owner", "own", 200}, {"stranger", "own", 404}, {"owner-agent-a", "own", 200}, {"owner", "delegated", 200}, {"owner-agent-a", "delegated", 200}, {"owner-agent-b", "delegated", 200}, {"stranger-agent-a", "delegated", 200}, {"stranger-agent-a", "own", 404}, {"admin", "delegated", 404}, {"quota-reader", "delegated", 200}, {"quota-reader", "missing", 404}, {"outsider", "own", 404}, {"owner", "missing", 404}} {
 		r := httptest.NewRequest("GET", "/api/v1/quota/attempts/"+test.id, nil)
 		r.Header.Set("Authorization", "Bearer "+test.token)
 		w := httptest.NewRecorder()

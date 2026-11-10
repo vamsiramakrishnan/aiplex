@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,7 +41,8 @@ func RequestID(next http.Handler) http.Handler {
 	var counter atomic.Uint64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := r.Header.Get("X-Request-Id")
-		if rid == "" {
+		if !requestIDPattern.MatchString(rid) {
+			// Client ids reach logs and responses: accept only short tokens.
 			rid = "req-" + formatUint(counter.Add(1))
 		}
 		ctx := context.WithValue(r.Context(), keyRequestID, rid)
@@ -47,6 +50,8 @@ func RequestID(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
+
+var requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
 // Logger adds structured request logging.
 func Logger(next http.Handler) http.Handler {
@@ -93,19 +98,27 @@ func GetRequestID(ctx context.Context) string {
 }
 
 // CORS adds Cross-Origin Resource Sharing headers for the Console SPA.
+// Origins come only from configuration. A configured "*" is answered with a
+// literal "*" (never a reflected origin) and credentials are never allowed
+// cross-origin; an empty list allows no cross-origin reads.
 func CORS(allowedOrigins ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			allowed := false
+			allow := ""
 			for _, o := range allowedOrigins {
-				if o == "*" || o == origin {
-					allowed = true
+				if o == "*" {
+					allow = "*"
+				} else if origin != "" && o == origin {
+					allow = origin
 					break
 				}
 			}
-			if allowed {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
+			if allow != "*" {
+				w.Header().Add("Vary", "Origin")
+			}
+			if origin != "" && allow != "" {
+				w.Header().Set("Access-Control-Allow-Origin", allow)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-Id, Idempotency-Key, X-Aiplex-Funding-Account, X-Aiplex-Operation-Id, MCP-Protocol-Version")
 				w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id, X-Aiplex-Attempt-ID, Retry-After, ETag")
@@ -273,12 +286,25 @@ func RateLimit(requestsPerMinute int) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := extractOwner(r)
 			if key == "anonymous" {
-				key = r.RemoteAddr
+				// The peer address without its port: a new connection must not
+				// get a fresh bucket. Forwarded headers are not trusted here.
+				key = "addr:" + r.RemoteAddr
+				if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+					key = "addr:" + host
+				}
 			}
 
 			mu.Lock()
-			b, ok := buckets[key]
 			now := time.Now()
+			if len(buckets) > 100000 {
+				// Bound memory: drop buckets whose window has expired.
+				for k, old := range buckets {
+					if now.Sub(old.lastReset) > time.Minute {
+						delete(buckets, k)
+					}
+				}
+			}
+			b, ok := buckets[key]
 			if !ok || now.Sub(b.lastReset) > time.Minute {
 				b = &bucket{tokens: requestsPerMinute, lastReset: now}
 				buckets[key] = b
@@ -481,13 +507,15 @@ func Idempotency(actionFromPath func(*http.Request) string) func(http.Handler) h
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 
-			key := r.Header.Get("Idempotency-Key")
-			if key == "" {
-				action := actionFromPath(r)
-				runID := chi.URLParam(r, "run_id")
+			// A cached reply is replayed only to the same caller for the same
+			// run and action: a client key never crosses callers or targets.
+			request := r.Header.Get("Idempotency-Key")
+			if request == "" {
 				h := sha256.Sum256(body)
-				key = fmt.Sprintf("%s|%s|%s", runID, action, hex.EncodeToString(h[:]))
+				request = hex.EncodeToString(h[:])
 			}
+			keyed := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s", extractOwner(r), chi.URLParam(r, "run_id"), actionFromPath(r), request)))
+			key := hex.EncodeToString(keyed[:])
 
 			if v, ok := cache.Load(key); ok {
 				c := v.(*cached)
