@@ -217,7 +217,7 @@ All files are in `launch/`. Upload the PNGs, which `node brand/scripts/render.js
 
 - **Claims:** the text follows the documentation (access points, usage ledger, agent identity federation). It contains no performance numbers or customer names. The usage-ledger frame shows bars, not invented figures.
 - **Legibility:** every image was read at 400 px wide (`.renders/preview-400.png`). The smallest text there is about 10 px.
-- **The command in frame 5:** this is one self-contained `<path id="launch-command">` in `aiplex-carousel-5.svg`; the placeholder is `aiplex init`. To change it, regenerate the line and replace that element, or change the string in `f_try` in `build_sheets.py` and rebuild:
+- **The command in frame 5:** this is one self-contained `<path id="launch-command">` in `aiplex-carousel-5.svg`; the command it shows is `aiplex dev`. To change it, regenerate the line and replace that element, or change the string in `f_try` in `build_sheets.py` and rebuild:
 
   ```bash
   python3 brand/scripts/outline_text.py --font mono-500 --size 48 --x 176 --y 602 \

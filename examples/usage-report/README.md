@@ -20,31 +20,38 @@ aiplex usage summary --by plane,tool
 aiplex usage records
 ```
 
-On a fresh `aiplex dev`, the summaries look like this (the rule lines are shortened):
+On a fresh `aiplex dev`, the output of `report.sh` is this (copied as printed; the time column reads `just now` because the calls were just made):
 
 ```text
 # model calls by user and model
-USER  MODEL  REQUESTS  ERRORS  DENIED  IN  OUT  CACHE-W  MODALITY  UNITS  BATCH  COST  UNKNOWN  BOUNDED
-──────────────────────────────────────────────────────────────────────────────────────────────────
-principal-2751cfdeca30cd7898c2e828ee477dd5cf52883188d275a2b745295e0d40d1ff  mock-gpt  3  0  0  8  32  unknown  —  —  —  USD 0.000023 (estimated)  —  —
+USER                 MODEL     REQUESTS  ERRORS  DENIED  IN  OUT  COST
+developer@localhost  mock-gpt  3         0       0       8   32   USD 0.000023 (estimated)
 
 3 records scanned.
 
 # everything by plane and tool
-PLANE  TOOL  REQUESTS  ERRORS  DENIED  IN  OUT  CACHE-W  MODALITY  UNITS  BATCH  COST  UNKNOWN  BOUNDED
-──────────────────────────────────────────────────────────────────────────────────────────────────
-llmplex  —     3  0  0  8        32       unknown  —  —  —  USD 0.000023 (estimated)  —               —
-mcplex   echo  1  0  0  unknown  unknown  unknown  —  —  —  unknown                   usage:1 cost:1  —
+PLANE    TOOL  REQUESTS  ERRORS  DENIED  IN       OUT      COST
+llmplex  —     3         0       0       8        32       USD 0.000023 (estimated)
+mcplex   echo  1         0       0       unknown  unknown  unknown
 
 4 records scanned.
+
+# the individual records
+TIME      MODEL/TOOL  CALLER               ACCESS POINT  STATUS  IN       OUT      COST
+just now  echo        developer@localhost  local         ok      unknown  unknown  unknown
+just now  mock-gpt    developer@localhost  local         ok      2        10       USD 0.000007 (estimated)
+just now  mock-gpt    developer@localhost  local         ok      3        11       USD 0.000008 (estimated)
+just now  mock-gpt    developer@localhost  local         ok      3        11       USD 0.000008 (estimated)
+
+Record IDs and every counter: -o wide. One record in full: aiplex usage get <id>.
 ```
 
 ## How to read it
 
-- **User.** The ledger stores a pseudonymous principal ID derived from the verified identity (`principal-` and a hash), not the email address. In `aiplex dev` there is one caller, you, so there is one row. On a platform with several users, agents and clients, `--by user`, `--by agent`, `--by client` and `--by caller-kind` split the same totals.
+- **User.** The caller is shown by name. Each record carries `principal_display`, a readable label that the server takes from the verified identity: a verified email, display name or subject. It can be an email address, so do not publish these outputs without checking them. The key the ledger filters on is `principal_id`, shown as `USER` in `aiplex usage records -o wide`. In `aiplex dev` there is one caller, you, so there is one row. On a platform with several users, agents and clients, `--by user`, `--by agent`, `--by client` and `--by caller-kind` split the same totals.
 - **Estimated cost.** The mock model has a placeholder price, so cost is labelled `(estimated)`. A real deployment needs prices you have verified.
-- **Unknown stays unknown.** The tool call has no token or cost figures, so those columns say `unknown`, and the `UNKNOWN` column counts the records (`usage:1 cost:1`) rather than treating them as zero.
-- Other filters and groupings: `aiplex usage summary --help`. The ledger itself is specified in [usage-ledger](../../docs/usage-ledger.md).
+- **Unknown stays unknown.** The tool call has no token or cost figures, so those columns say `unknown` rather than zero. `aiplex usage summary -o wide` adds an `UNKNOWN` column that counts the records whose usage or cost is unknown.
+- Other filters and groupings: `aiplex usage summary --help`. Column layouts, and what `-o wide` adds, are in [the CLI section of the usage ledger](../../docs/usage-ledger.md#cli). The ledger itself is specified in [usage-ledger](../../docs/usage-ledger.md).
 
 ## How it is tested
 
