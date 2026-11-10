@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-skillsplex-title aiplex-icon-skillsplex-desc">
+  <title id="aiplex-icon-skillsplex-title">SkillsPlex</title>
+  <desc id="aiplex-icon-skillsplex-desc">Skills: a catalogue of tiles, one of them governed.</desc>
+  <path id="skillsplex-lines" d="M4 4h6v6H4ZM14 4h6v6h-6ZM4 14h6v6H4Z"/>
+  <path id="skillsplex-gate" d="M13 13h8v8h-8Z" fill="currentColor" stroke="none"/>
+</svg>

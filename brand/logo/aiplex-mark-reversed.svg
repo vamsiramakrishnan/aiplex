@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-labelledby="aiplex-mark-reversed-title aiplex-mark-reversed-desc">
+  <title id="aiplex-mark-reversed-title">AIPlex</title>
+  <desc id="aiplex-mark-reversed-desc">The AIPlex mark for dark backgrounds: three light lanes converge into one square gate and leave as a single lane.</desc>
+  <path id="lanes" d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#E8EBF2" stroke-width="4"/>
+  <rect id="gate" x="14" y="10" width="12" height="12" fill="#8DA2FF"/>
+</svg>

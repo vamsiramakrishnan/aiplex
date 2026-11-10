@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="butt" stroke-linejoin="miter" role="img" aria-labelledby="aiplex-icon-identity-title aiplex-icon-identity-desc">
+  <title id="aiplex-icon-identity-title">Identity</title>
+  <desc id="aiplex-icon-identity-desc">Identity: a credential card with a gate in place of a photo.</desc>
+  <path id="identity-lines" d="M3 5h18v14H3ZM14 10h4M14 14h4"/>
+  <path id="identity-gate" d="M6 9h6v6H6Z" fill="currentColor" stroke="none"/>
+</svg>

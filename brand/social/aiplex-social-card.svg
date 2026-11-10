@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-labelledby="aiplex-social-title aiplex-social-desc">
+  <title id="aiplex-social-title">AIPlex</title>
+  <desc id="aiplex-social-desc">AIPlex social card: the reversed lockup, a one-line description and the six Plex modules in their colours.</desc>
+
+  <defs>
+    <symbol id="i-mcplex" viewBox="0 0 24 24"><path d="M3 9h5M3 15h5M9 6h8v12H9ZM17 12h5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-a2aplex" viewBox="0 0 24 24"><path d="M3 3h6v6H3ZM15 15h6v6h-6ZM9 6h9v9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 4h4v4h-4Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-llmplex" viewBox="0 0 24 24"><path d="M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 10h4v4h-4Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-quotaplex" viewBox="0 0 24 24"><path d="M3 16A9 9 0 0 1 21 16M12 16l6-6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 14h4v4h-4Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-clientplex" viewBox="0 0 24 24"><path d="M3 4h18v16H3ZM7 9l3 3-3 3M12 15h5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-skillsplex" viewBox="0 0 24 24"><path d="M4 4h6v6H4ZM14 4h6v6h-6ZM4 14h6v6H4Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13h8v8h-8Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-access-point" viewBox="0 0 24 24"><path d="M2 12h7M15 12h7M6 4v16M18 4v16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-identity" viewBox="0 0 24 24"><path d="M3 5h18v14H3ZM14 10h4M14 14h4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 9h6v6H6Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-usage" viewBox="0 0 24 24"><path d="M2 21h20M6 18v-6M12 18V5M18 18v-9" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-agent" viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 10h4v4h-4Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M15.5 6.5A3.5 3.5 0 1 1 8.5 6.5A3.5 3.5 0 1 1 15.5 6.5ZM4 21v-1A8 6 0 0 1 20 20v1" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-client" viewBox="0 0 24 24"><path d="M3 4h18v12H3ZM12 16v4M7 21h10" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  </defs>
+  <rect id="background" width="1200" height="630" fill="#0B0D13"/>
+  <g id="lanes-motif" opacity="0.10"><g transform="translate(930 50) scale(14)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#E8EBF2" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#E8EBF2"/></g></g>
+  <g id="lockup"><g transform="translate(80 120) scale(3.5)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#E8EBF2" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#8DA2FF"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#E8EBF2"/></g></g>
+  <g id="tagline">
+    <text x="80" y="346" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="38" font-weight="500" fill="#E8EBF2">One gateway, identity, policy and usage ledger</text>
+    <text x="80" y="396" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="38" font-weight="500" fill="#E8EBF2">between agents, models, tools and skills.</text>
+  </g>
+  <g id="modules">
+    <use href="#i-mcplex" x="80" y="474" width="32" height="32" color="#58ACEF"/>
+    <text x="122" y="498" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="21" font-weight="500" fill="#E8EBF2">MCPlex</text>
+    <use href="#i-a2aplex" x="258" y="474" width="32" height="32" color="#FFBA81"/>
+    <text x="300" y="498" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="21" font-weight="500" fill="#E8EBF2">A2APlex</text>
+    <use href="#i-llmplex" x="436" y="474" width="32" height="32" color="#B78FE4"/>
+    <text x="478" y="498" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="21" font-weight="500" fill="#E8EBF2">LLMPlex</text>
+    <use href="#i-quotaplex" x="614" y="474" width="32" height="32" color="#57ECDC"/>
+    <text x="656" y="498" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="21" font-weight="500" fill="#E8EBF2">QuotaPlex</text>
+    <use href="#i-clientplex" x="792" y="474" width="32" height="32" color="#E6819A"/>
+    <text x="834" y="498" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="21" font-weight="500" fill="#E8EBF2">ClientPlex</text>
+    <use href="#i-skillsplex" x="970" y="474" width="32" height="32" color="#B5E287"/>
+    <text x="1012" y="498" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="21" font-weight="500" fill="#E8EBF2">SkillsPlex</text>
+  </g>
+  <text x="80" y="574" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="20" fill="#8890A3">docs.aiplex.dev</text>
+</svg>

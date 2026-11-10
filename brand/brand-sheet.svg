@@ -1,0 +1,319 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 2200" width="1600" height="2200" role="img" aria-labelledby="aiplex-brand-sheet-title aiplex-brand-sheet-desc">
+  <title id="aiplex-brand-sheet-title">AIPlex brand sheet</title>
+  <desc id="aiplex-brand-sheet-desc">Overview of the AIPlex identity: mark construction, lockups, clear space and minimum sizes, palette with contrast ratios, module colours and icons, and usage examples.</desc>
+
+  <defs>
+    <symbol id="i-mcplex" viewBox="0 0 24 24"><path d="M3 9h5M3 15h5M9 6h8v12H9ZM17 12h5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-a2aplex" viewBox="0 0 24 24"><path d="M3 3h6v6H3ZM15 15h6v6h-6ZM9 6h9v9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 4h4v4h-4Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-llmplex" viewBox="0 0 24 24"><path d="M6 6h12v12H6ZM9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 10h4v4h-4Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-quotaplex" viewBox="0 0 24 24"><path d="M3 16A9 9 0 0 1 21 16M12 16l6-6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 14h4v4h-4Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-clientplex" viewBox="0 0 24 24"><path d="M3 4h18v16H3ZM7 9l3 3-3 3M12 15h5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-skillsplex" viewBox="0 0 24 24"><path d="M4 4h6v6H4ZM14 4h6v6h-6ZM4 14h6v6H4Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13h8v8h-8Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-access-point" viewBox="0 0 24 24"><path d="M2 12h7M15 12h7M6 4v16M18 4v16" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 9h6v6H9Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-identity" viewBox="0 0 24 24"><path d="M3 5h18v14H3ZM14 10h4M14 14h4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M6 9h6v6H6Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-usage" viewBox="0 0 24 24"><path d="M2 21h20M6 18v-6M12 18V5M18 18v-9" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-agent" viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 10h4v4h-4Z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M15.5 6.5A3.5 3.5 0 1 1 8.5 6.5A3.5 3.5 0 1 1 15.5 6.5ZM4 21v-1A8 6 0 0 1 20 20v1" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+    <symbol id="i-client" viewBox="0 0 24 24"><path d="M3 4h18v12H3ZM12 16v4M7 21h10" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  </defs>
+  <rect id="background" width="1600" height="2200" fill="#FFFFFF"/>
+  <g id="header"><g transform="translate(64 48) scale(2)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g><text x="1536" y="78" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="22" font-weight="600" fill="#141A2E" text-anchor="end">Brand sheet</text><text x="1536" y="104" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#4A5163" text-anchor="end">Guide and file index: brand/README.md</text></g>
+  <path d="M64 148H1536" stroke="#D8DCE4" stroke-width="1"/>
+  <g id="construction"><text x="64" y="196" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#2F4FD8">1</text><text x="92" y="196" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#141A2E">Mark construction</text>
+    <g id="grid"><path d="M64 224V672M64 224H512" stroke="#B6BDCB" stroke-width="1"/><path d="M78 224V672M64 238H512" stroke="#ECEEF2" stroke-width="1"/><path d="M92 224V672M64 252H512" stroke="#ECEEF2" stroke-width="1"/><path d="M106 224V672M64 266H512" stroke="#ECEEF2" stroke-width="1"/><path d="M120 224V672M64 280H512" stroke="#B6BDCB" stroke-width="1"/><path d="M134 224V672M64 294H512" stroke="#ECEEF2" stroke-width="1"/><path d="M148 224V672M64 308H512" stroke="#ECEEF2" stroke-width="1"/><path d="M162 224V672M64 322H512" stroke="#ECEEF2" stroke-width="1"/><path d="M176 224V672M64 336H512" stroke="#B6BDCB" stroke-width="1"/><path d="M190 224V672M64 350H512" stroke="#ECEEF2" stroke-width="1"/><path d="M204 224V672M64 364H512" stroke="#ECEEF2" stroke-width="1"/><path d="M218 224V672M64 378H512" stroke="#ECEEF2" stroke-width="1"/><path d="M232 224V672M64 392H512" stroke="#B6BDCB" stroke-width="1"/><path d="M246 224V672M64 406H512" stroke="#ECEEF2" stroke-width="1"/><path d="M260 224V672M64 420H512" stroke="#ECEEF2" stroke-width="1"/><path d="M274 224V672M64 434H512" stroke="#ECEEF2" stroke-width="1"/><path d="M288 224V672M64 448H512" stroke="#B6BDCB" stroke-width="1"/><path d="M302 224V672M64 462H512" stroke="#ECEEF2" stroke-width="1"/><path d="M316 224V672M64 476H512" stroke="#ECEEF2" stroke-width="1"/><path d="M330 224V672M64 490H512" stroke="#ECEEF2" stroke-width="1"/><path d="M344 224V672M64 504H512" stroke="#B6BDCB" stroke-width="1"/><path d="M358 224V672M64 518H512" stroke="#ECEEF2" stroke-width="1"/><path d="M372 224V672M64 532H512" stroke="#ECEEF2" stroke-width="1"/><path d="M386 224V672M64 546H512" stroke="#ECEEF2" stroke-width="1"/><path d="M400 224V672M64 560H512" stroke="#B6BDCB" stroke-width="1"/><path d="M414 224V672M64 574H512" stroke="#ECEEF2" stroke-width="1"/><path d="M428 224V672M64 588H512" stroke="#ECEEF2" stroke-width="1"/><path d="M442 224V672M64 602H512" stroke="#ECEEF2" stroke-width="1"/><path d="M456 224V672M64 616H512" stroke="#B6BDCB" stroke-width="1"/><path d="M470 224V672M64 630H512" stroke="#ECEEF2" stroke-width="1"/><path d="M484 224V672M64 644H512" stroke="#ECEEF2" stroke-width="1"/><path d="M498 224V672M64 658H512" stroke="#ECEEF2" stroke-width="1"/><path d="M512 224V672M64 672H512" stroke="#B6BDCB" stroke-width="1"/></g>
+    <g transform="translate(64 224) scale(14)" opacity="0.92"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g>
+    <path transform="translate(64 224) scale(14)" d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#FFFFFF" stroke-width="0.08" stroke-dasharray="0.3 0.3"/>
+    <text x="544" y="242" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Grid 32 × 32 units; heavy lines every 4 units</text>
+    <text x="544" y="272" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Lane stroke 4 units (1/8 of the grid)</text>
+    <text x="544" y="302" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Lane centres at y = 6, 16, 26 (pitch 10)</text>
+    <text x="544" y="332" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Outer lanes turn 45° at x = 6 and meet the gate</text>
+    <text x="544" y="362" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Gate 12 × 12 units (3 strokes), x 14–26, y 10–22</text>
+    <text x="544" y="392" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Exit lane 4 units: x 26–30</text>
+    <text x="544" y="422" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Live area x 2–30, y 4–28 (28 × 24)</text>
+    <text x="544" y="452" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Butt caps, mitre joins, no rounding</text>
+    <text x="544" y="482" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#4A5163">16 px: 1 unit = 0.5 px, lanes 2 px on whole pixels</text>
+    <text x="544" y="512" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#4A5163">Wordmark: cap height 24, stem 4 = lane stroke</text>
+    <text x="544" y="542" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#4A5163">Optical: e overshoots 0.4; horizontals 3.5–3.75</text>
+    <text x="544" y="572" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#4A5163">App icon: mark shifted 0.8 units left of centre</text>
+  </g>
+  <g id="clear-space"><text x="900" y="196" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#2F4FD8">2</text><text x="928" y="196" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#141A2E">Clear space and minimum size</text>
+    <rect x="900" y="224" width="636" height="173.7" fill="#F6F7F9"/>
+    <rect x="918" y="243.5" width="482.0999999999999" height="149.7" fill="none" stroke="#2F4FD8" stroke-width="1" stroke-dasharray="4 4"/>
+    <g transform="translate(948 272) scale(3)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <rect x="918" y="243.5" width="36" height="36" fill="#2F4FD8" opacity="0.18"/>
+    <text x="926" y="266.5" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#2F4FD8">G</text>
+    <text x="900" y="425.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">G = gate width (12 units at mark scale). Keep G clear on every side of any lockup or mark.</text>
+    <text x="900" y="473.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Minimum sizes (shown at actual size)</text>
+    <g transform="translate(900 497.7)"><g transform="scale(1)"><path d="M1 3h2l5 5M1 13h2l5-5M1 8h7M12 8h3" fill="none" stroke="#141A2E" stroke-width="2"/><rect x="7" y="5" width="6" height="6" fill="#2F4FD8"/></g></g>
+    <text x="900" y="547.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Mark 16 px</text>
+    <text x="900" y="565.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">favicon drawing</text>
+    <g transform="translate(1050 495.7) scale(0.625)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <text x="1050" y="547.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Horizontal 20 px high</text>
+    <text x="1050" y="565.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">(88 px wide)</text>
+    <g transform="translate(1250 493.7) scale(0.43478260869565216)"><g transform="translate(19.5 -4) scale(2)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(2.15 64)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <text x="1250" y="547.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Stacked 40 px high</text>
+    <g transform="translate(1420 493.7) scale(0.75)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g>
+    <text x="1420" y="547.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Mark 24 px+</text>
+    <text x="1420" y="565.7" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">full drawing</text>
+  </g>
+  <g id="lockups"><text x="64" y="720" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#2F4FD8">3</text><text x="92" y="720" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#141A2E">Lockups and variants</text>
+    <rect x="64" y="744" width="356" height="236" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <g transform="translate(101 776) scale(2)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <g transform="translate(195.65 860) scale(0.9)"><g transform="translate(19.5 -4) scale(2)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(2.15 64)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <text x="64" y="1004" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Colour on light</text>
+    <rect x="436" y="744" width="356" height="236" fill="#0B0D13"/>
+    <g transform="translate(473 776) scale(2)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#E8EBF2" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#8DA2FF"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#E8EBF2"/></g>
+    <g transform="translate(567.65 860) scale(0.9)"><g transform="translate(19.5 -4) scale(2)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#E8EBF2" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#8DA2FF"/></g><path transform="translate(2.15 64)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#E8EBF2"/></g>
+    <text x="436" y="1004" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Reversed on dark</text>
+    <rect x="808" y="744" width="356" height="236" fill="#EDF0FD"/>
+    <g transform="translate(845 776) scale(2)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#141A2E"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <g transform="translate(939.65 860) scale(0.9)"><g transform="translate(19.5 -4) scale(2)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#141A2E"/></g><path transform="translate(2.15 64)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <text x="808" y="1004" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Mono (currentColor) on Mist</text>
+    <rect x="1180" y="744" width="356" height="236" fill="#2F4FD8"/>
+    <g transform="translate(1217 776) scale(2)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#FFFFFF" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#FFFFFF"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#FFFFFF"/></g>
+    <g transform="translate(1311.65 860) scale(0.9)"><g transform="translate(19.5 -4) scale(2)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#FFFFFF" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#FFFFFF"/></g><path transform="translate(2.15 64)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#FFFFFF"/></g>
+    <text x="1180" y="1004" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" fill="#141A2E">Mono on Gate Blue</text>
+  </g>
+  <g id="palette"><text x="64" y="1060" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#2F4FD8">4</text><text x="92" y="1060" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#141A2E">Colour (WCAG 2 contrast ratios)</text>
+    <rect x="64" y="1084" width="232" height="96" fill="#2F4FD8"/>
+    <text x="64" y="1204" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Gate Blue</text>
+    <text x="64" y="1224" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="13" fill="#141A2E">#2F4FD8</text>
+    <text x="64" y="1244" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">primary · links, actions, focus</text>
+    <text x="64" y="1264" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">on white: 6.50:1</text>
+    <rect x="312" y="1084" width="232" height="96" fill="#8DA2FF"/>
+    <text x="312" y="1204" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Gate Blue (dark)</text>
+    <text x="312" y="1224" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="13" fill="#141A2E">#8DA2FF</text>
+    <text x="312" y="1244" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">primary on dark surfaces</text>
+    <text x="312" y="1264" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">on neutral-950: 8.09:1</text>
+    <rect x="560" y="1084" width="232" height="96" fill="#141A2E"/>
+    <text x="560" y="1204" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Ink</text>
+    <text x="560" y="1224" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="13" fill="#141A2E">#141A2E</text>
+    <text x="560" y="1244" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">text, lanes of the mark</text>
+    <text x="560" y="1264" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">on white: 17.26:1</text>
+    <rect x="808" y="1084" width="232" height="96" fill="#E8EBF2" stroke="#D8DCE4"/>
+    <text x="808" y="1204" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Ink (dark)</text>
+    <text x="808" y="1224" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="13" fill="#141A2E">#E8EBF2</text>
+    <text x="808" y="1244" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">text on dark surfaces</text>
+    <text x="808" y="1264" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">on neutral-950: 16.28:1</text>
+    <rect x="1056" y="1084" width="232" height="96" fill="#EDF0FD" stroke="#D8DCE4"/>
+    <text x="1056" y="1204" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Mist</text>
+    <text x="1056" y="1224" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="13" fill="#141A2E">#EDF0FD</text>
+    <text x="1056" y="1244" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">selection, active nav</text>
+    <text x="1056" y="1264" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Ink on Mist: 15.19:1</text>
+    <rect x="1304" y="1084" width="232" height="96" fill="#1B2142"/>
+    <text x="1304" y="1204" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Mist (dark)</text>
+    <text x="1304" y="1224" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="13" fill="#141A2E">#1B2142</text>
+    <text x="1304" y="1244" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">selection on dark</text>
+    <text x="1304" y="1264" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Ink (dark) on it: 13.10:1</text>
+    <rect x="64.0" y="1296" width="113.2" height="48" fill="#FFFFFF"/>
+    <text x="72.0" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#141A2E">0</text>
+    <text x="72.0" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#141A2E">#FFFFFF</text>
+    <rect x="177.2" y="1296" width="113.2" height="48" fill="#F6F7F9"/>
+    <text x="185.2" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#141A2E">50</text>
+    <text x="185.2" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#141A2E">#F6F7F9</text>
+    <rect x="290.5" y="1296" width="113.2" height="48" fill="#ECEEF2"/>
+    <text x="298.5" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#141A2E">100</text>
+    <text x="298.5" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#141A2E">#ECEEF2</text>
+    <rect x="403.7" y="1296" width="113.2" height="48" fill="#D8DCE4"/>
+    <text x="411.7" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#141A2E">200</text>
+    <text x="411.7" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#141A2E">#D8DCE4</text>
+    <rect x="516.9" y="1296" width="113.2" height="48" fill="#B6BDCB"/>
+    <text x="524.9" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#141A2E">300</text>
+    <text x="524.9" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#141A2E">#B6BDCB</text>
+    <rect x="630.2" y="1296" width="113.2" height="48" fill="#8890A3"/>
+    <text x="638.2" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">400</text>
+    <text x="638.2" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#FFFFFF">#8890A3</text>
+    <rect x="743.4" y="1296" width="113.2" height="48" fill="#636B7E"/>
+    <text x="751.4" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">500</text>
+    <text x="751.4" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#FFFFFF">#636B7E</text>
+    <rect x="856.6" y="1296" width="113.2" height="48" fill="#4A5163"/>
+    <text x="864.6" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">600</text>
+    <text x="864.6" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#FFFFFF">#4A5163</text>
+    <rect x="969.8" y="1296" width="113.2" height="48" fill="#343947"/>
+    <text x="977.8" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">700</text>
+    <text x="977.8" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#FFFFFF">#343947</text>
+    <rect x="1083.1" y="1296" width="113.2" height="48" fill="#222632"/>
+    <text x="1091.1" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">800</text>
+    <text x="1091.1" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#FFFFFF">#222632</text>
+    <rect x="1196.3" y="1296" width="113.2" height="48" fill="#191C26"/>
+    <text x="1204.3" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">850</text>
+    <text x="1204.3" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#FFFFFF">#191C26</text>
+    <rect x="1309.5" y="1296" width="113.2" height="48" fill="#12151D"/>
+    <text x="1317.5" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">900</text>
+    <text x="1317.5" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#FFFFFF">#12151D</text>
+    <rect x="1422.8" y="1296" width="113.2" height="48" fill="#0B0D13"/>
+    <text x="1430.8" y="1316" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" fill="#FFFFFF">950</text>
+    <text x="1430.8" y="1334" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="11" fill="#FFFFFF">#0B0D13</text>
+    <rect x="64" y="1296" width="1472" height="48" fill="none" stroke="#D8DCE4"/>
+    <text x="64" y="1366" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">Neutrals. Body text: Ink on white 17.26:1; muted text neutral-600 on white 7.93:1; on dark, Ink (dark) on neutral-950 16.28:1 and neutral-400 6.07:1.</text>
+    <text x="64" y="1408" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Status: text colour on its tint, on page background (light | dark)</text>
+    <rect x="64" y="1424" width="172" height="92" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="76" y="1436" width="96" height="28" rx="4" fill="#E5F4EC"/>
+    <rect x="86" y="1446" width="8" height="8" fill="#167044"/>
+    <text x="102" y="1455" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#167044">ok</text>
+    <text x="76" y="1486" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#167044</text>
+    <text x="76" y="1504" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#141A2E">5.38 tint · 6.11 page</text>
+    <rect x="244" y="1424" width="172" height="92" fill="#0B0D13" stroke="#D8DCE4"/>
+    <rect x="256" y="1436" width="96" height="28" rx="4" fill="#0F2A1E"/>
+    <rect x="266" y="1446" width="8" height="8" fill="#5CCB93"/>
+    <text x="282" y="1455" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#5CCB93">ok</text>
+    <text x="256" y="1486" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#5CCB93</text>
+    <text x="256" y="1504" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#E8EBF2">7.60 tint · 9.64 page</text>
+    <rect x="436" y="1424" width="172" height="92" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="448" y="1436" width="96" height="28" rx="4" fill="#FDF1DC"/>
+    <rect x="458" y="1446" width="8" height="8" fill="#8F5300"/>
+    <text x="474" y="1455" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#8F5300">warning</text>
+    <text x="448" y="1486" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#8F5300</text>
+    <text x="448" y="1504" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#141A2E">5.52 tint · 6.17 page</text>
+    <rect x="616" y="1424" width="172" height="92" fill="#0B0D13" stroke="#D8DCE4"/>
+    <rect x="628" y="1436" width="96" height="28" rx="4" fill="#2E2210"/>
+    <rect x="638" y="1446" width="8" height="8" fill="#F2B544"/>
+    <text x="654" y="1455" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#F2B544">warning</text>
+    <text x="628" y="1486" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#F2B544</text>
+    <text x="628" y="1504" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#E8EBF2">8.48 tint · 10.61 page</text>
+    <rect x="808" y="1424" width="172" height="92" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="820" y="1436" width="96" height="28" rx="4" fill="#FCE8EA"/>
+    <rect x="830" y="1446" width="8" height="8" fill="#B8202F"/>
+    <text x="846" y="1455" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#B8202F">denied</text>
+    <text x="820" y="1486" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#B8202F</text>
+    <text x="820" y="1504" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#141A2E">5.44 tint · 6.39 page</text>
+    <rect x="988" y="1424" width="172" height="92" fill="#0B0D13" stroke="#D8DCE4"/>
+    <rect x="1000" y="1436" width="96" height="28" rx="4" fill="#3A1519"/>
+    <rect x="1010" y="1446" width="8" height="8" fill="#FF8A92"/>
+    <text x="1026" y="1455" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#FF8A92">denied</text>
+    <text x="1000" y="1486" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#FF8A92</text>
+    <text x="1000" y="1504" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#E8EBF2">7.15 tint · 8.60 page</text>
+    <rect x="1180" y="1424" width="172" height="92" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="1192" y="1436" width="96" height="28" rx="4" fill="#ECEEF2"/>
+    <rect x="1202" y="1446" width="8" height="8" fill="#5A6275"/>
+    <text x="1218" y="1455" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#5A6275">unknown</text>
+    <text x="1192" y="1486" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#5A6275</text>
+    <text x="1192" y="1504" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#141A2E">5.26 tint · 6.11 page</text>
+    <rect x="1360" y="1424" width="172" height="92" fill="#0B0D13" stroke="#D8DCE4"/>
+    <rect x="1372" y="1436" width="96" height="28" rx="4" fill="#222632"/>
+    <rect x="1382" y="1446" width="8" height="8" fill="#A3ABBD"/>
+    <text x="1398" y="1455" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#A3ABBD">unknown</text>
+    <text x="1372" y="1486" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#A3ABBD</text>
+    <text x="1372" y="1504" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#E8EBF2">6.55 tint · 8.43 page</text>
+  </g>
+  <g id="modules"><text x="64" y="1560" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#2F4FD8">5</text><text x="92" y="1560" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#141A2E">Module colours and icon family (24 px grid, 2 px stroke, gate square)</text>
+    <rect x="64" y="1584" width="232" height="132" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="180" y="1584" width="116" height="132" fill="#0B0D13"/>
+    <use href="#i-mcplex" x="98" y="1604" width="48" height="48" color="#0568A4"/>
+    <use href="#i-mcplex" x="214" y="1604" width="48" height="48" color="#58ACEF"/>
+    <text x="76" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#0568A4</text>
+    <text x="192" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#58ACEF</text>
+    <text x="76" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#4A5163">5.96:1</text>
+    <text x="192" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#8890A3">7.92:1</text>
+    <text x="64" y="1740" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">MCPlex</text>
+    <rect x="312" y="1584" width="232" height="132" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="428" y="1584" width="116" height="132" fill="#0B0D13"/>
+    <use href="#i-a2aplex" x="346" y="1604" width="48" height="48" color="#C36D05"/>
+    <use href="#i-a2aplex" x="462" y="1604" width="48" height="48" color="#FFBA81"/>
+    <text x="324" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#C36D05</text>
+    <text x="440" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#FFBA81</text>
+    <text x="324" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#4A5163">3.81:1</text>
+    <text x="440" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#8890A3">11.65:1</text>
+    <text x="312" y="1740" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">A2APlex</text>
+    <rect x="560" y="1584" width="232" height="132" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="676" y="1584" width="116" height="132" fill="#0B0D13"/>
+    <use href="#i-llmplex" x="594" y="1604" width="48" height="48" color="#7241A0"/>
+    <use href="#i-llmplex" x="710" y="1604" width="48" height="48" color="#B78FE4"/>
+    <text x="572" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#7241A0</text>
+    <text x="688" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#B78FE4</text>
+    <text x="572" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#4A5163">7.05:1</text>
+    <text x="688" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#8890A3">7.46:1</text>
+    <text x="560" y="1740" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">LLMPlex</text>
+    <rect x="808" y="1584" width="232" height="132" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="924" y="1584" width="116" height="132" fill="#0B0D13"/>
+    <use href="#i-quotaplex" x="842" y="1604" width="48" height="48" color="#099B8F"/>
+    <use href="#i-quotaplex" x="958" y="1604" width="48" height="48" color="#57ECDC"/>
+    <text x="820" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#099B8F</text>
+    <text x="936" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#57ECDC</text>
+    <text x="820" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#4A5163">3.44:1</text>
+    <text x="936" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#8890A3">13.35:1</text>
+    <text x="808" y="1740" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">QuotaPlex</text>
+    <rect x="1056" y="1584" width="232" height="132" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="1172" y="1584" width="116" height="132" fill="#0B0D13"/>
+    <use href="#i-clientplex" x="1090" y="1604" width="48" height="48" color="#9E2D52"/>
+    <use href="#i-clientplex" x="1206" y="1604" width="48" height="48" color="#E6819A"/>
+    <text x="1068" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#9E2D52</text>
+    <text x="1184" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#E6819A</text>
+    <text x="1068" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#4A5163">7.12:1</text>
+    <text x="1184" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#8890A3">7.37:1</text>
+    <text x="1056" y="1740" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">ClientPlex</text>
+    <rect x="1304" y="1584" width="232" height="132" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <rect x="1420" y="1584" width="116" height="132" fill="#0B0D13"/>
+    <use href="#i-skillsplex" x="1338" y="1604" width="48" height="48" color="#679725"/>
+    <use href="#i-skillsplex" x="1454" y="1604" width="48" height="48" color="#B5E287"/>
+    <text x="1316" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#141A2E">#679725</text>
+    <text x="1432" y="1684" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="12" fill="#E8EBF2">#B5E287</text>
+    <text x="1316" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#4A5163">3.48:1</text>
+    <text x="1432" y="1704" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="11" fill="#8890A3">13.13:1</text>
+    <text x="1304" y="1740" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">SkillsPlex</text>
+    <text x="64" y="1766" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">Neighbours in navigation order alternate lightness and hue; simulated protan, deutan and tritan OKLab distance ≥ 0.13 for every adjacent pair.</text>
+    <rect x="64" y="1796" width="232" height="72" fill="#F6F7F9"/>
+    <use href="#i-access-point" x="80" y="1820" width="24" height="24" color="#141A2E"/>
+    <use href="#i-access-point" x="124" y="1824" width="16" height="16" color="#141A2E"/>
+    <text x="156" y="1838" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Access Point</text>
+    <rect x="312" y="1796" width="232" height="72" fill="#F6F7F9"/>
+    <use href="#i-identity" x="328" y="1820" width="24" height="24" color="#141A2E"/>
+    <use href="#i-identity" x="372" y="1824" width="16" height="16" color="#141A2E"/>
+    <text x="404" y="1838" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Identity</text>
+    <rect x="560" y="1796" width="232" height="72" fill="#F6F7F9"/>
+    <use href="#i-usage" x="576" y="1820" width="24" height="24" color="#141A2E"/>
+    <use href="#i-usage" x="620" y="1824" width="16" height="16" color="#141A2E"/>
+    <text x="652" y="1838" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Usage</text>
+    <rect x="808" y="1796" width="232" height="72" fill="#F6F7F9"/>
+    <use href="#i-agent" x="824" y="1820" width="24" height="24" color="#141A2E"/>
+    <use href="#i-agent" x="868" y="1824" width="16" height="16" color="#141A2E"/>
+    <text x="900" y="1838" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Agent</text>
+    <rect x="1056" y="1796" width="232" height="72" fill="#F6F7F9"/>
+    <use href="#i-user" x="1072" y="1820" width="24" height="24" color="#141A2E"/>
+    <use href="#i-user" x="1116" y="1824" width="16" height="16" color="#141A2E"/>
+    <text x="1148" y="1838" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">User</text>
+    <rect x="1304" y="1796" width="232" height="72" fill="#F6F7F9"/>
+    <use href="#i-client" x="1320" y="1820" width="24" height="24" color="#141A2E"/>
+    <use href="#i-client" x="1364" y="1824" width="16" height="16" color="#141A2E"/>
+    <text x="1396" y="1838" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="600" fill="#141A2E">Client</text>
+    <text x="64" y="1894" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#4A5163">Access Point, Identity and Usage are shared services; Agent, User and Client are caller kinds. They use Ink, not a module hue.</text>
+  </g>
+  <g id="usage"><text x="64" y="1960" font-family="'JetBrains Mono', Menlo, Consolas, monospace" font-size="14" font-weight="600" fill="#2F4FD8">6</text><text x="92" y="1960" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="600" fill="#141A2E">Usage</text>
+    <rect x="64" y="1984" width="232" height="120" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <g transform="translate(110 2028) scale(1)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <path transform="translate(64 2120)" d="M0 6l4 4 8-8" fill="none" stroke="#167044" stroke-width="2"/>
+    <text x="84" y="2131" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#167044">Do</text>
+    <text x="64" y="2154" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Colour lockup on white or</text>
+    <text x="64" y="2172" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">neutral-50</text>
+    <rect x="312" y="1984" width="232" height="120" fill="#0B0D13" stroke="#D8DCE4"/>
+    <g transform="translate(358 2028) scale(1)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#E8EBF2" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#8DA2FF"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#E8EBF2"/></g>
+    <path transform="translate(312 2120)" d="M0 6l4 4 8-8" fill="none" stroke="#167044" stroke-width="2"/>
+    <text x="332" y="2131" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#167044">Do</text>
+    <text x="312" y="2154" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Reversed lockup on dark</text>
+    <text x="312" y="2172" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">surfaces</text>
+    <rect x="560" y="1984" width="232" height="120" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <g transform="translate(606 2028) scale(1)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#141A2E"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <path transform="translate(560 2120)" d="M0 6l4 4 8-8" fill="none" stroke="#167044" stroke-width="2"/>
+    <text x="580" y="2131" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#167044">Do</text>
+    <text x="560" y="2154" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">One colour where colour is</text>
+    <text x="560" y="2172" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">unavailable</text>
+    <rect x="808" y="1984" width="232" height="120" fill="#0B0D13" stroke="#D8DCE4"/>
+    <g transform="translate(854 2028) scale(1)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <path transform="translate(808 2120)" d="M1 1l10 10M11 1L1 11" fill="none" stroke="#B8202F" stroke-width="2"/>
+    <text x="828" y="2131" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#B8202F">Don't</text>
+    <text x="808" y="2154" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Colour lockup on dark: lanes</text>
+    <text x="808" y="2172" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">disappear</text>
+    <rect x="1056" y="1984" width="232" height="120" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <g transform="translate(1102 2028) scale(1)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#C36D05" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#099B8F"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g>
+    <path transform="translate(1056 2120)" d="M1 1l10 10M11 1L1 11" fill="none" stroke="#B8202F" stroke-width="2"/>
+    <text x="1076" y="2131" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#B8202F">Don't</text>
+    <text x="1056" y="2154" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Recoloured lanes or module</text>
+    <text x="1056" y="2172" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">hues in the mark</text>
+    <rect x="1304" y="1984" width="232" height="120" fill="#FFFFFF" stroke="#D8DCE4"/>
+    <g transform="translate(1318 2030)"><g transform="scale(1.4 0.8)"><g transform="translate(0 0) scale(1)"><g transform="translate(0 0) scale(1)"><path d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="#141A2E" stroke-width="4"/><rect x="14" y="10" width="12" height="12" fill="#2F4FD8"/></g><path transform="translate(40 4)" d="M0 24 7.5 0 12.5 0 20 24 15.81 24 13.81 17.6 6.19 17.6 4.19 24ZM10 5.41 7.32 14 12.68 14ZM21.5 0 33.5 0 33.5 3.5 29.5 3.5 29.5 20.5 33.5 20.5 33.5 24 21.5 24 21.5 20.5 25.5 20.5 25.5 3.5 21.5 3.5ZM37.1 0H41.1V24H37.1ZM41.1 0H46.6A7.5 7.5 0 0 1 46.6 15H41.1V11.25H46.6A3.75 3.75 0 0 0 46.6 3.75H41.1ZM56.5 -1.5H60.5V24H56.5ZM79.01 20.98A8.9 8.9 0 1 1 80.71 13.65L76.79 14.48A4.9 4.9 0 1 0 75.86 18.52ZM66.6 13.65H80.71V17.15H66.6ZM82.7 7 87.49 7 98.7 24 93.91 24ZM93.91 7 98.7 7 87.49 24 82.7 24Z" fill="#141A2E"/></g></g></g>
+    <path transform="translate(1304 2120)" d="M1 1l10 10M11 1L1 11" fill="none" stroke="#B8202F" stroke-width="2"/>
+    <text x="1324" y="2131" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" fill="#B8202F">Don't</text>
+    <text x="1304" y="2154" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">Stretched, rotated or</text>
+    <text x="1304" y="2172" font-family="Inter, 'Helvetica Neue', Arial, sans-serif" font-size="13" fill="#141A2E">re-spaced</text>
+  </g>
+</svg>
