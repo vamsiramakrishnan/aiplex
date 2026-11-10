@@ -64,7 +64,7 @@ unknown. Any other value is matched exactly.
 | `plane` | `llmplex`, `mcplex` or `a2aplex`. |
 | `provider`, `model_id`, `model_version` | Set for model exchanges. Tool calls use provider `mcp`. |
 | `resource_id` | Surface, tool connection or agent connection identifier. |
-| `tool_name` | Tool name for `tools/call` exchanges. |
+| `tool_name` | Tool name for `tools/call` exchanges. A `tools/list` exchange has `operation: tools/list` and no tool name, so it counts as a request but not as a tool call in the dashboard. |
 | `principal_id`, `actor_id` | Verified principal and delegated actor, when present. |
 | `client_id` | The verified token's authorized party (`azp`). A public OAuth client ID is attribution, not a security boundary. |
 | `access_point_id`, `caller_kind` | Set only when the exchange entered through an [access point](access-points.md). `caller_kind` is `agent`, `user` or `client`. |
@@ -80,7 +80,7 @@ unknown. Any other value is matched exactly.
 | `batch` | `true` when the exchange belongs to a provider batch job (its creation, retrieval, or the results fetch that settled it). Omitted otherwise. |
 | `image_size`, `image_quality` | Billing dimensions the provider reported for generated images (for example `1024x1024`, `high`); `mixed` when one exchange reported different values. Omitted when not reported. |
 | `usage_bound` | Present only when `usage` is not final. One of `lower_bound`, `ambiguous` or `partial`. See [bounded usage](#bounded-usage). |
-| `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`) and `scale`. |
+| `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`), `scale` and `amount_decimal`, the same amount written as an exact decimal string (for example `0.000006` for `amount` `6` at scale `6`). |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
 | `session` | `true` for a WebSocket session. One record covers the whole session, and its usage is final only with a terminal observation. Omitted otherwise. |
@@ -307,9 +307,9 @@ untruncated. The default columns are:
 | `IN`, `OUT` | `input_tokens` and `output_tokens`. Unknown counters show `unknown`. |
 | `COST` | The cost and its basis, `(settled)` or `(estimated)`. Unknown cost shows `unknown`. |
 
-`-o wide` adds the columns the default table leaves out: `ID` (the record ID), `PLANE`, `AGENT`, `USER`
-(the principal ID, the key the caller is recorded under), `CLIENT`, `SESSION`, `BATCH`, `CACHE-W`, `MODALITY`,
-`UNITS` and `LATENCY`. Use `-o json` for every field of each record.
+`-o wide` adds the columns the default table leaves out: `ID` (the record ID), `PLANE`, `AGENT`, `USER` (the
+readable user name), `PRINCIPAL ID` (the key the caller is recorded under), `CLIENT`, `SESSION`, `BATCH`, `CACHE-W`,
+`MODALITY`, `UNITS` and `LATENCY`. Use `-o json` for every field of each record.
 
 A record carries two readable names for the caller, set by the server from the verified identity when it
 verified it: `principal_display` for the user (or client) and `actor_display` for the agent. The CLI shows the
@@ -324,6 +324,10 @@ checking it. `principal_id` and `actor_id` are the keys that `--user` and `--age
 `REQUESTS`, `ERRORS`, `DENIED`, `IN`, `OUT` and `COST`. `-o wide` adds `CACHE-W`, `MODALITY`, `UNITS`,
 `BATCH`, `UNKNOWN` and `BOUNDED`. `BATCH` counts batch records. `BOUNDED` counts records with `lower_bound`,
 `ambiguous` or `partial` usage. The summary prints a note when any total includes bounded usage.
+
+A group whose key is empty is labelled `(no model)` with `--by model`, and `(no tool)` with `--by tool`. A
+`tools/list` record has no model and no tool, so it appears under both labels, and a chat record appears under
+`(no tool)` in `--by tool`.
 
 ```text
 $ aiplex usage summary --by model

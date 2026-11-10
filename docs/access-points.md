@@ -24,6 +24,8 @@ under a client-facing name. `--tool <connection>` exposes every permitted tool o
 Who may call: with no `--allow-*` flag, every verified caller of the kinds in `--callers` (default
 `user,agent,client`) is admitted. Otherwise a caller must match one of `--allow-users` (a subject, an email
 the usage ledger knows, or a `principal-…` ID), `--allow-groups`, `--allow-agents` or `--allow-clients`.
+On `aiplex dev`, a second caller from `aiplex dev token --user bob` has the email `bob@localhost`, so
+`--allow-users bob@localhost` admits it. A caller that is not admitted gets `not found` from `aiplex connect team`.
 
 ```sh
 aiplex access-points create team --model mock-gpt=local-models --tool local-tools
@@ -109,7 +111,7 @@ one. The route classes are in [authorization](authorization.md).
 | `GET /api/v1/overview/subjects/{kind}/{id}` | Effective access of one caller, with the reason for each grant. Also `GET /api/v1/overview/subjects/{kind}?id=…` for IDs that contain `/`. |
 | `GET /api/v1/overview/access-points/{id}` | Callers, resources, QoS and live usage of one access point. Usage is admin only. |
 | `GET /api/v1/overview/access-points` | List access points with their counts and quota coverage. Query: `limit` (1 to 200, default 50) and `cursor`. The response has `access_points` (each with `id`, `display_name`, `caller_kinds`, `qos_class`, `counts` of `models`, `tools` and `skills`, and `quota_coverage`), `next_cursor` when more pages exist, and `skipped_invalid` counting stored records that fail to decode. |
-| `GET /api/v1/overview/access-points/{id}/connect?client=…` | Ready-to-paste configuration for one client profile. Defaults to `generic`. The response includes an `endpoints` array (see below). |
+| `GET /api/v1/overview/access-points/{id}/connect?client=…` | Ready-to-paste configuration for one client profile. Defaults to `generic`. The response includes an `endpoints` array (see below). Any verified caller the access point admits may call it; operators get the full response and other callers a reduced one (see `aiplex connect` below). |
 
 Client-facing routes are at the server root, not under `/api/v1`. They use the
 caller's own bearer token. A request without a verified identity is refused.
@@ -502,8 +504,18 @@ aiplex connect ide-platform-team -o json
 Profiles are `generic` (the default), `antigravity`, `antigravity-acp`, `codex`,
 `claude-code` and `claude-desktop`. A profile is offered only when the access point
 serves a protocol that the client speaks. If it does not, the response is
-`422` and lists the protocols the access point offers. An unknown profile returns
-`404 UNKNOWN_CLIENT`.
+`422 CLIENT_NOT_APPLICABLE` and names the protocols the access point offers. An unknown
+profile returns `404 UNKNOWN_CLIENT`.
+
+`claude-desktop` speaks the Claude apps gateway protocol, which signs in through a gateway
+server rather than an access point. `--client claude-desktop` is therefore always refused with
+`422 CLIENT_NOT_APPLICABLE`, and the message says to use `claude-code` for an access point.
+
+Any verified caller that the access point admits can run `aiplex connect`. Operators (admins
+and deployers) get the full response. Other callers get a reduced one: only the auth step and
+`caller_kinds` for their own kind, and no notes that name internal resource IDs or the other
+subjects the access point admits. A caller the access point does not admit gets `404`, the same
+as for a missing access point.
 
 The snippets read the bearer token from the `AIPLEX_TOKEN` environment variable. No
 snippet contains a token or secret value. The caller still needs a token that the

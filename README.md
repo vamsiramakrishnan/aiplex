@@ -21,17 +21,18 @@ export PATH="$PWD/bin:$PATH"
 aiplex dev
 ```
 
-`aiplex dev` starts the API in memory on `127.0.0.1:8080` with a built-in mock model and a built-in MCP server, creates an access point called `local`, and signs you in as a local admin. It prints this (output of a source build from `make build`, copied as printed):
+`aiplex dev` starts the API in memory on `127.0.0.1:8080` with a built-in mock provider and a built-in MCP server, creates an access point called `local`, and signs you in as a local admin. The mock provider has four models, one per wire: `mock-gpt` (OpenAI Chat Completions), `mock-responses` (OpenAI Responses), `mock-claude` (Anthropic Messages) and `mock-gemini` (Gemini generateContent). It prints this (output of a source build from `make build`, copied as printed):
 
 ```text
   AIPlex local development
 
   API            http://127.0.0.1:8080  (development mode, in memory, loopback only)
   You            developer@localhost  (admin; token from a local issuer, valid 12h)
-  Model          mock-gpt  via the built-in mock provider (OpenAI Chat Completions wire, no API key)
+  Models         mock-gpt, mock-claude, mock-responses, mock-gemini  (built-in mock provider, no API key)
+                 wires: OpenAI Chat, Anthropic Messages, OpenAI Responses, Gemini generateContent
   Tools          local-tools: echo, add, reset_counter  (built-in MCP server)
   Access point   local  ->  http://127.0.0.1:8080/ap/local
-  Price          mock-gpt  (placeholder rates, so estimated cost shows in usage)
+  Price          placeholder rates for each mock model, so estimated cost shows in usage
   Quota          off (optional: QuotaPlex reads an operator policy file named by AIPLEX_QUOTA_FILE)
   CLI context    "local" (current)
   Console        not in this binary (a source build without Node). Release binaries include it;
@@ -55,6 +56,10 @@ aiplex dev
     # 3. Point an MCP client or IDE at it, and see where the Console is
     aiplex connect local
     aiplex dev status
+
+    # 4. Optional: see what a caller with no role gets
+    aiplex access-points create team --model mock-gpt=local-models --allow-users bob@localhost
+    AIPLEX_TOKEN=$(aiplex dev token --user bob 2>/dev/null) aiplex connect team
 
   Press Ctrl+C to stop. State is in memory and is discarded on stop.
 ```

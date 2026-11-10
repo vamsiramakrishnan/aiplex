@@ -18,7 +18,9 @@ There are two routing layers, and they are separate:
 aiplex llm providers                  # providers and operations from the server's catalog
 aiplex llm routes                     # Envoy routing rules
 aiplex llm surfaces list
-aiplex llm surfaces apply --help      # create or replace a surface
+aiplex llm surfaces get openai-prod   # a readable summary; -o json or -o yaml for the full specification
+aiplex llm surfaces create openai-prod --provider openai --models gpt-4o-mini --secret-ref openai-key
+aiplex llm surfaces apply --help      # create or replace a surface from a file
 aiplex llm usage                      # recorded model usage
 aiplex llm costs                      # usage and cost summary
 aiplex llm capacity --help            # last observed provider limits and cooldown (admin)

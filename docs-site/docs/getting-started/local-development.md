@@ -6,7 +6,7 @@ description: Build AIPlex and start a local API with a mock model, a mock MCP se
 
 # Run it locally in a minute
 
-`aiplex dev` starts the API on your machine with a built-in mock model and a built-in MCP server, creates an access point, signs you in as a local admin and prints what to try next. You need Go 1.25 or newer and `curl`. You do not need Docker, a cloud account or an API key.
+`aiplex dev` starts the API on your machine with a built-in mock provider and a built-in MCP server, creates an access point, signs you in as a local admin and prints what to try next. The mock provider has four models, one per wire: `mock-gpt` (OpenAI Chat Completions), `mock-responses` (OpenAI Responses), `mock-claude` (Anthropic Messages) and `mock-gemini` (Gemini generateContent). You need Go 1.25 or newer and `curl`. You do not need Docker, a cloud account or an API key.
 
 ## 1. Build and start
 
@@ -25,10 +25,11 @@ aiplex dev
 
   API            http://127.0.0.1:8080  (development mode, in memory, loopback only)
   You            developer@localhost  (admin; token from a local issuer, valid 12h)
-  Model          mock-gpt  via the built-in mock provider (OpenAI Chat Completions wire, no API key)
+  Models         mock-gpt, mock-claude, mock-responses, mock-gemini  (built-in mock provider, no API key)
+                 wires: OpenAI Chat, Anthropic Messages, OpenAI Responses, Gemini generateContent
   Tools          local-tools: echo, add, reset_counter  (built-in MCP server)
   Access point   local  ->  http://127.0.0.1:8080/ap/local
-  Price          mock-gpt  (placeholder rates, so estimated cost shows in usage)
+  Price          placeholder rates for each mock model, so estimated cost shows in usage
   Quota          off (optional: QuotaPlex reads an operator policy file named by AIPLEX_QUOTA_FILE)
   CLI context    "local" (current)
   Console        not in this binary (a source build without Node). Release binaries include it;
@@ -81,7 +82,7 @@ export PATH="$PWD/bin:$PATH"
 eval "$(aiplex dev env)"
 ```
 
-`aiplex dev env` exports `AIPLEX_URL` and `AIPLEX_TOKEN` for the CLI and for curl, and the base URL and key variables that OpenAI, Anthropic and Gemini SDKs read (`OPENAI_BASE_URL` and `OPENAI_API_KEY` for the mock model). The token is accepted only by the local API that issued it and expires when that API stops.
+`aiplex dev env` exports `AIPLEX_URL` and `AIPLEX_TOKEN` for the CLI and for curl, and the base URL and key variables that OpenAI, Anthropic and Gemini SDKs read. With the mock provider it exports all six (`OPENAI_BASE_URL`, `OPENAI_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY`), each pointing at the access point. The token is accepted only by the local API that issued it and expires when that API stops.
 
 ```bash
 curl -s "$AIPLEX_URL/ap/local/v1/chat/completions" \

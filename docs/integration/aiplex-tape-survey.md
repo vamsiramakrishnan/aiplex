@@ -270,8 +270,9 @@ The integration plan splits into seven AIPlex PRs, all landing on
 7. **Run timeline API** — read endpoints under `/api/v1/runs/...`.
 8. **Console Runs tab** — agent-detail Runs view with failure-first
    highlights.
-9. **E2E treasury demo** — `examples/aiplex-tape-treasury/` and the
-   `aiplex dev up --with-tape` flow.
+9. **E2E treasury demo** — `examples/aiplex-tape-treasury/` and a planned
+   local run of it. This is a proposal: `aiplex dev` has no `--with-tape` flag and no `up`
+   subcommand, so no such command exists in the repository.
 10. **Operator actions** — Tape admin client + `aiplex:runs:*` scopes +
     guarded console actions, audited end-to-end.
 
