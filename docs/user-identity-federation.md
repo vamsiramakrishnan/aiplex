@@ -25,7 +25,7 @@ All routes are under `/api/v1`.
 | `PUT /identity/user-providers/{id}` | Create or replace. Updates send the current revision in `If-Match`. | Admin |
 | `DELETE /identity/user-providers/{id}` | Delete. Send the current revision in `If-Match`. | Admin |
 | `POST /identity/user-providers/{id}/plan` | Setup steps for the identity provider, rendered as text. | Admin or deployer |
-| `POST /identity/user-providers/verify` | Dry run. Body: `token`, optional `provider_id`. The response never contains the token. | Admin or deployer |
+| `POST /identity/user-providers/verify` | Dry run. Body: `token`, optional `provider_id`. The response never contains the token. Limited to 20 requests per minute per caller; a caller over the limit gets `429 RATE_LIMITED`. | Admin or deployer |
 | `POST /identity/user-providers/{id}/membership/invalidate` | Drop one user's cached directory groups on this server process. Body: `{"subject": "<verified subject>"}`. | Admin |
 
 The `subject` is the provider's verified subject claim: `oid` for Entra ID and `sub`
@@ -207,7 +207,12 @@ receives the request. Run it on every replica, or wait for the TTL to expire.
   `groups_from: membership-authority`.
 - Dry-run `verify` checks the provider's signature, issuer, audience, subject, client
   claim and group view. It does not prove that the user has any access.
-- Provider JWKS URLs must pass the outbound endpoint policy when saved.
+- Provider JWKS URLs must pass the outbound endpoint policy when saved. Issuers must be `https`.
+  A JWKS URL may be plain `http` only when its host is `localhost` or a loopback address. The
+  outbound endpoint policy then refuses it unless the `network.allow_loopback` option is set in
+  the connections file (`AIPLEX_CONNECTIONS_FILE`). The API refuses that option unless
+  development mode is on (`AIPLEX_DEV_MODE`), and stops at startup otherwise.
+- The dry-run rate limit is per API process, so each replica allows 20 per minute per caller.
 - Live authentication applies only to the tenant named by `AIPLEX_TENANT_ID`.
 - Proof-of-possession (`cnf`) tokens are rejected. User tokens must be bearer tokens.
 - Setup plans are rendered text. Nothing is provisioned in the identity provider.
