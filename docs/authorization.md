@@ -199,7 +199,14 @@ Admission is decided by the access point's `caller_kinds` and `subjects`. The co
 | --- | --- | --- | --- |
 | General | 200 requests per minute. 1200 in development mode. | The verified principal. Anonymous requests use the peer address, without the port. Forwarded headers are not trusted here. | `429 RATE_LIMITED` with `Retry-After: 60`. The window is one minute per key. |
 | Token verification dry runs | 20 requests per minute (`VerifyDryRunsPerMinute`) | The same key as the general limit. Applied to `POST /api/v1/agents/identities/verify` and `POST /api/v1/identity/user-providers/verify`. | `429 RATE_LIMITED` with `Retry-After: 60`. |
-| Tape ingest and projection rebuild (`/internal/…`) | `TAPE_INGEST_RPS` events per second, default 1000. Burst `TAPE_INGEST_BURST`, default 1000. | The source IP. The first entry of `X-Forwarded-For` is used when present. | `429 RATE_LIMITED` with `Retry-After: 1`. |
+| Tape ingest and projection rebuild (`/internal/…`) | `TAPE_INGEST_RPS` events per second, default 1000. Burst `TAPE_INGEST_BURST`, default 1000. | The source IP: the peer address, or with `TRUSTED_PROXY_HOPS` set, the client address recorded by the trusted proxies (see the rule below). | `429 RATE_LIMITED` with `Retry-After: 1`. |
+
+**Forwarded addresses.** Forwarded-address headers (`X-Forwarded-For`, `Forwarded` and `X-Real-IP`) are ignored
+unless `TRUSTED_PROXY_HOPS` is set to a number of reverse proxies greater than zero (the default is `0`). Then the
+client address is the entry that many positions from the right of `X-Forwarded-For`, because each proxy appends the
+address it received the request from, and entries further left were written by the client. A malformed or too-short
+header falls back to the peer address. The general limit never reads these headers; it keys on the verified principal
+or on the connection's peer address. See [server environment variables](helm-identity-config.md#server-environment-variables).
 
 Request bodies are capped at 1 MiB. Invocation routes are capped at 8 MiB. Those are the access point
 routes, the MCP connection invoke and authorization routes, the A2A invoke route, the LLM native and
@@ -238,12 +245,16 @@ Some access point and MCP authorization responses set `no-store` themselves.
   in `AUTH_HOOK_TOKEN`. `POST /internal/tape/events` and `POST /internal/projections/rebuild/{run_id}` are
   guarded by `TAPE_INGEST_TOKEN`. When the variable is empty, the route answers `503 AUTH_DISABLED` and does
   not run. These guards sit outside the route policy.
-- **The ingest rate limit trusts `X-Forwarded-For`.** The first entry is used as the client IP. The code
-  comment says the gateway sets the header in production. A caller that can reach the API without the
-  gateway can send any value.
+- **The ingest rate limit trusts `X-Forwarded-For` only when told to.** It uses the client address from the rule
+  under [rate limits](#rate-limits). With `TRUSTED_PROXY_HOPS` left at `0`, the header is ignored and the peer
+  address is used. Set it to the number of proxies in front of the API, and only then. A caller that can reach the
+  API without those proxies can send any value in the header.
 - **Development mode.** `AIPLEX_DEV_MODE=true` admits requests with no verified identity to routes that
   need one. It raises the general limit to 1200 per minute and allows every origin when `CONSOLE_ORIGINS`
   is empty. The server refuses a non-loopback `HOST` in this mode. Do not expose a development API.
+  As a second guard, in development mode an anonymous request (one with no verified identity) that carries
+  `X-Forwarded-For`, `Forwarded` or `X-Real-IP` is refused with `403 PROXIED_DEVELOPMENT_REQUEST`. The message says the request came through a proxy. A request with a bearer token is not refused
+  for these headers.
 - **The route class is not the whole check.** A route classed `authenticated` depends on its handler for
   scoping and grants. The route table shows the class; it does not prove each handler is correct.
 - **Two tenant grants are not resolved.** On tenant routes an identity with two `aiplex:tenant:<id>` scopes

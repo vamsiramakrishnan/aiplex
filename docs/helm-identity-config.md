@@ -67,6 +67,7 @@ reads `HOST` and `PORT`, not `AIPLEX_HOST` or `AIPLEX_PORT`.
 | `CONSOLE_ORIGINS` | empty | Comma-separated list of full browser origins (scheme, host and optional port) allowed to read API responses cross-origin. A `*` entry allows any origin, without credentials. When empty and development mode is off, cross-origin browser access is disabled. When empty and development mode is on, every origin is allowed. Set it in production. |
 | `AIPLEX_TENANT_ID` | empty | The tenant this deployment serves. It is the single-tenant binding for deployment-wide state and for live federation. Live federation requires it unless development mode is on. With development mode on and this empty, the tenant is `development`. |
 | `AIPLEX_DEV_MODE` | `false` | Local development mode. See the warning below. |
+| `TRUSTED_PROXY_HOPS` | `0` | How many reverse proxies sit in front of the API and append to `X-Forwarded-For`. `0` ignores `X-Forwarded-For`, `Forwarded` and `X-Real-IP` and uses the connection's peer address. `N` (1 to 16) takes the client address `N` entries from the right of `X-Forwarded-For`; the entries on the left are written by the client and are never used. A malformed or too-short header falls back to the peer address. Set it to exactly the number of trusted proxies in the path, and only then. It affects the Tape ingest rate limit; the general rate limit always keys on the verified principal or the peer address. See [rate limits](authorization.md#rate-limits). |
 
 Development mode (`AIPLEX_DEV_MODE=true`) is for one developer on one machine. It changes these
 behaviours:
@@ -75,6 +76,8 @@ behaviours:
 - Requests without a verified identity are admitted to the routes that otherwise require one,
   including the route policy. Handlers still apply their own checks where they need a verified
   identity or tenant.
+- An anonymous request that carries `X-Forwarded-For`, `Forwarded` or `X-Real-IP` is refused with
+  `403 PROXIED_DEVELOPMENT_REQUEST`, because it came through a proxy. See [authorization](authorization.md).
 - Browser origins are not restricted when `CONSOLE_ORIGINS` is empty.
 - The per-caller rate limit is 1200 requests per minute, not 200.
 - Connection configuration may allow loopback upstreams (`network.allow_loopback`).

@@ -11,12 +11,18 @@ There has been no tagged release yet. This section summarises what exists in the
 - `aiplex dev` starts the API in memory on loopback with a built-in mock model and MCP server, seeds an access point `local`, signs you in as a local admin, and prints next steps. `aiplex dev env` exports `AIPLEX_URL`, `AIPLEX_TOKEN` and the base-URL and key variables read by OpenAI, Anthropic and Gemini SDKs. `--provider openai|anthropic|gemini --api-key-env NAME` forwards to a real provider.
 - `make demo` scripts a first run; `make e2e` runs the real binaries against local mock upstreams; `make deps` reports the tools each workflow needs.
 - Loopback JWKS issuer and a local agent registry in development mode.
+- `aiplex dev --detach` runs the local stack in the background, with its output in `~/.aiplex/dev.log`. `aiplex dev status` says whether it runs and where, and `aiplex dev stop` stops it. A second `aiplex dev` is refused. `--allow-origin` lets the local API call one more upstream origin.
+- The `aiplex dev` summary ends with numbered "Try next" steps, and says plainly when the Console is not built into the binary.
+- Release binaries embed the built Console; a source build says how to build it (`make console && make build`).
 
 ### Access points and usage
 
 - Access points: one stable URL per audience (`/ap/{id}/...`) in front of models, MCP tools and skills, with caller-kind admission, model aliases, optional QoS scope, native error shapes, and wires for OpenAI (chat, responses, embeddings, images, audio), Anthropic Messages, Gemini, Azure OpenAI (including `api-key` header and path shapes), Bedrock and WebSocket sessions.
 - A single-pane overview of callers and what each can reach (`aiplex who`, `aiplex access-points`, `aiplex connect`).
 - A tenant-scoped usage ledger for managed and reported exchanges, with filters and grouping (by model, user, source, error class, usage bound and batch), explicit usage bounds, and non-token units and modality splits. Unknown values stay unknown.
+- Guided creation from flags: `aiplex access-points create`, `aiplex mcp connections create|list|get|test|delete`, `aiplex llm surfaces create`, and `aiplex usage prices set <model> --input-per-mtok ... --output-per-mtok ...`. The file forms (`apply -f`, `prices set -f`) remain for full specifications.
+- Usage tables fit the terminal width, and show the caller by a readable name (`principal_display`, `actor_display`) instead of a principal hash. `aiplex usage records -o wide` and `summary -o wide` add the columns the default tables leave out.
+- CLI errors name the cause and give hints, such as `Did you mean` for a mistyped ID. Every command uses fixed exit codes (0 to 6, listed in `aiplex --help`), `--debug` shows the raw API error, and destructive commands ask on a terminal unless `--yes` is given.
 
 ### Models (LLMPlex)
 
@@ -35,6 +41,7 @@ There has been no tagged release yet. This section summarises what exists in the
 
 - Agent identity federation with cross-cloud presets, bindings and a token dry run; workforce user identity federation with directory group lookups; authoritative membership; native agent governance for Google, AWS and Microsoft Entra.
 - Default-deny route policy by mounted pattern; tenant taken from the verified identity only; hardened CORS and request IDs.
+- Forwarded-address headers (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`) are ignored unless `TRUSTED_PROXY_HOPS` names the number of proxies in front of the API. In development mode, an anonymous request that carries one of them is refused with `403 PROXIED_DEVELOPMENT_REQUEST`.
 - `aiplex-authz`, a Rust `ext_authz` service, and a Rego scope policy.
 
 ### Quota (QuotaPlex)
@@ -48,7 +55,7 @@ There has been no tagged release yet. This section summarises what exists in the
 
 ### Console and SDK
 
-- React Console covering the above, embedded in the CLI when built first; brand identity and design tokens applied.
+- React Console covering the above, embedded in the CLI when built first; role-aware, so each view shows what the signed-in roles may do; brand identity and design tokens applied.
 - Go SDK for the API.
 
 ### Documentation, brand and project files

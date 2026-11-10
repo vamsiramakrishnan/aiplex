@@ -21,7 +21,7 @@ export PATH="$PWD/bin:$PATH"
 aiplex dev
 ```
 
-`aiplex dev` starts the API in memory on `127.0.0.1:8080` with a built-in mock model and a built-in MCP server, creates an access point called `local`, and signs you in as a local admin. It prints this (trimmed; the full text also names the log file and repeats the commands below):
+`aiplex dev` starts the API in memory on `127.0.0.1:8080` with a built-in mock model and a built-in MCP server, creates an access point called `local`, and signs you in as a local admin. It prints this (output of a source build from `make build`, copied as printed):
 
 ```text
   AIPlex local development
@@ -32,17 +32,36 @@ aiplex dev
   Tools          local-tools: echo, add, reset_counter  (built-in MCP server)
   Access point   local  ->  http://127.0.0.1:8080/ap/local
   Price          mock-gpt  (placeholder rates, so estimated cost shows in usage)
-  Quota          off. QuotaPlex needs an operator quota policy file (AIPLEX_QUOTA_FILE); see docs/quotaplex-administration.md
+  Quota          off (optional: QuotaPlex reads an operator policy file named by AIPLEX_QUOTA_FILE)
   CLI context    "local" (current)
-  Console        not built into this binary. Build it with `make console && make build` (needs Node 22), or run
-                 `cd console && npm ci && npm run dev` (it proxies /api to http://localhost:8080)
+  Console        not in this binary (a source build without Node). Release binaries include it;
+                 from source: make console && make build (Node 22), then restart aiplex dev
+  API log        /root/.aiplex/dev-api.log
 
   WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy 127.0.0.1:8080.
 
-  Ready in 0.1s. In another terminal:
-    ...
+  Ready in 0.1s. Try next, in another terminal:
+
+    # 1. Send a chat request through the access point
+    eval "$(aiplex dev env)"
+    curl -s "$AIPLEX_URL/ap/local/v1/chat/completions" \
+      -H "Authorization: Bearer $AIPLEX_TOKEN" -H "Content-Type: application/json" \
+      -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hello"}]}'
+    # (any OpenAI SDK works too: the eval line sets OPENAI_BASE_URL and OPENAI_API_KEY)
+
+    # 2. See what it cost and who made it
+    aiplex usage records
+
+    # 3. Point an MCP client or IDE at it, and see where the Console is
+    aiplex connect local
+    aiplex dev status
+
   Press Ctrl+C to stop. State is in memory and is discarded on stop.
 ```
+
+The Console is not in a plain `make build` binary: the summary says so, and the Console line changes once it is built in. To get it from source, run `make console && make build` (needs Node 22) and start `aiplex dev` again. Release binaries include the Console.
+
+To run it in the background, use `aiplex dev --detach`, then `aiplex dev status` to check it and `aiplex dev stop` to stop it. Its output goes to `~/.aiplex/dev.log`. A second `aiplex dev` is refused while one is running.
 
 In a second terminal (from the same directory), send a request through the access point:
 
@@ -56,7 +75,7 @@ curl -s "$AIPLEX_URL/ap/local/v1/chat/completions" \
 ```
 
 ```json
-{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from the AIPlex mock model. You said: Hello","role":"assistant"}}],"created":1794283277,"id":"chatcmpl-mock-1794283277328460091","model":"mock-gpt","object":"chat.completion","usage":{"completion_tokens":9,"prompt_tokens":1,"total_tokens":10}}
+{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from the AIPlex mock model. You said: Hello","role":"assistant"}}],"created":1794287630,"id":"chatcmpl-mock-1794287630385369003","model":"mock-gpt","object":"chat.completion","usage":{"completion_tokens":9,"prompt_tokens":1,"total_tokens":10}}
 ```
 
 Now ask who used what:
@@ -66,14 +85,20 @@ aiplex usage summary
 ```
 
 ```text
-REQUESTS  ERRORS  DENIED  IN  OUT  CACHE-W  MODALITY  UNITS  BATCH  COST  UNKNOWN  BOUNDED
-──────────────────────────────────────────────────────────────────────────────────────────
-1  0  0  1  9  unknown  —  —  —  USD 0.000006 (estimated)  —  —
+REQUESTS  ERRORS  DENIED  IN  OUT  COST
+1         0       0       1   9    USD 0.000006 (estimated)
 
 1 records scanned.
 ```
 
-(The separator line is shortened here. Column layout may change as the CLI output is reworked.)
+`aiplex usage records` lists each call with its caller, and `aiplex usage records -o wide` adds the record IDs and every counter:
+
+```text
+TIME      MODEL/TOOL  CALLER               ACCESS POINT  STATUS  IN  OUT  COST
+just now  mock-gpt    developer@localhost  local         ok      1   9    USD 0.000006 (estimated)
+
+Record IDs and every counter: -o wide. One record in full: aiplex usage get <id>.
+```
 
 Stop `aiplex dev` with Ctrl+C. State is in memory and is discarded.
 
@@ -84,6 +109,51 @@ Stop `aiplex dev` with Ctrl+C. State is in memory and is discarded.
 - The same access point serves MCP tools at `http://127.0.0.1:8080/ap/local/mcp`. `aiplex connect local` prints ready-to-paste configuration for curl, MCP clients and several developer clients.
 
 More to try with `aiplex dev` running: `aiplex usage records`, `aiplex usage summary --by model`, `aiplex connect local`, and the [examples](examples/README.md). `make demo` scripts the whole run, including a streaming request and an MCP tool call, and exits non-zero on the first failure.
+
+### Next: an access point and a price
+
+Create a second access point with the guided command. `--model` exposes a model under a client-facing name, `--tool` exposes a tool connection, and with no `--allow-*` flag every verified caller of the allowed kinds may call it:
+
+```bash
+aiplex access-points create team --model mock-gpt=local-models --tool local-tools
+```
+
+```text
+Created access point team (revision 1): http://127.0.0.1:8080/ap/team
+
+Next:
+  aiplex connect team                 # client configuration
+  aiplex access-points get team
+```
+
+Set the price used to estimate cost for a model. The mock model already has a placeholder price; this sets one for another model name, in dollars per million tokens:
+
+```bash
+aiplex usage prices set gpt-4o-mini --input-per-mtok 0.15 --output-per-mtok 0.60
+```
+
+```text
+Created price gpt-4o-mini (revision 1): input USD 0.15/Mtok, output USD 0.60/Mtok
+```
+
+Prices are only used to estimate cost; `aiplex usage prices list` shows them. A price file (`aiplex usage prices set -f price.json`) takes the full specification. See [the usage ledger](docs/usage-ledger.md#prices) and [access points](docs/access-points.md).
+
+### When a command fails
+
+Errors name the problem, give a hint, and use a fixed exit code (see [the CLI reference](docs/cli.md#exit-codes)). A mistyped access point ID gets a suggestion:
+
+```bash
+aiplex access-points get locl
+```
+
+```text
+Error: access point "locl" not found
+  Did you mean: local
+  List them with: aiplex access-points list
+  aiplex dev keeps state in memory: anything created before it restarted is gone.
+```
+
+The command exits with code 4 (not found). Add `--debug` to see the raw API error.
 
 ## What it does
 
@@ -213,6 +283,7 @@ See [SECURITY.md](SECURITY.md) for the security model's current limits.
 
 - [Documentation site][docs] · [Run it locally][docs-local] · [Concepts][docs-concepts]
 - [Examples](examples/README.md)
+- [CLI reference](docs/cli.md): how the `aiplex` command finds the API and token, output formats, exit codes, confirmations and shell completion
 - [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
 - Repository layout: `cmd/` (API and CLI), `internal/` and `pkg/` (Go packages), `console/` (React), `authz/` (Rust), `sdk/` (Go SDK), `deploy/` (Terraform, Helm, Kubernetes, Ory), `docs/` (verified guides), `docs-site/` (the site), `brand/`, `examples/`, `tests/`. [CLAUDE.md](CLAUDE.md) has a short orientation for contributors and coding assistants.
 

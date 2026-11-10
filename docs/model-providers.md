@@ -267,6 +267,53 @@ Wire-format and usage-field details are in these pages. They are not repeated he
 There is no separate reference page for Bedrock. Its formats are described in the matrix
 rows.
 
+## Create a surface with the CLI
+
+`aiplex llm surfaces create <id>` (alias `add`) writes a model surface from flags. `--provider` fills in the
+endpoint, protocol, credential header and default operations from the provider catalog: `openai`, `anthropic`,
+`gemini` or `openai-compatible` (for servers such as Ollama or vLLM, which also need `--origin`). `--models` lists the
+model names callers may use, `--secret-ref` names the secret that holds the provider key (never the key itself), and
+`--operations` overrides the defaults. `aiplex llm providers <provider>` lists the operation IDs.
+
+```sh
+aiplex llm surfaces create openai --provider openai --models gpt-4o-mini,gpt-4o --secret-ref openai-key
+aiplex llm surfaces create claude --provider anthropic --models claude-sonnet-4-5 --secret-ref anthropic-key
+aiplex llm surfaces create local-ollama --provider openai-compatible --origin http://127.0.0.1:11434 --models llama3.2
+```
+
+Then expose the models on an access point: `aiplex access-points create team --model gpt-4o-mini=openai --allow-groups eng`.
+
+On `aiplex dev`, a surface's origin must be one the local API may call. The seeded `local-models` surface uses the
+mock model's loopback address. A surface for a public provider needs its origin given to `aiplex dev --allow-origin`
+when the local API starts. With `aiplex dev`, a secret reference name resolves from the environment variable
+`AIPLEX_TOOL_SECRET_<NAME>` (upper case, `-` as `_`) of the shell that started `aiplex dev`, so the key is never
+passed on the command line. Creating a surface for an origin that is not approved fails:
+
+```text
+Error: apply surface: origin not approved
+  The API only calls upstream origins its network policy approves.
+  With aiplex dev, restart it with: aiplex dev --allow-origin <scheme://host[:port]>
+```
+
+Creating a surface on the mock model's loopback origin (the address of the seeded `local-models` surface, which
+`aiplex llm surfaces get local-models` shows) succeeds:
+
+```text
+$ aiplex llm surfaces create mock-b --provider openai-compatible --origin http://127.0.0.1:40731 --models mock-gpt
+Created model surface mock-b (revision 1): openai-compatible at http://127.0.0.1:40731, models mock-gpt, 1 operations.
+
+Next: expose a model on an access point:
+  aiplex access-points create <id> --model mock-gpt=mock-b --allow-users <email>
+
+$ aiplex llm surfaces list
+ID            PROVIDER           PROTOCOL     OPERATIONS  MODELS  AUTH (reference)  CAPACITY POLICY  REVISION
+local-models  openai-compatible  openai-chat  1           1       auth:none         off              1
+mock-b        openai-compatible  openai-chat  1           1       auth:none         off              1
+```
+
+The port in that output is the one the mock upstream was given when `aiplex dev` started, and it changes each run.
+`--update` replaces a surface; the CLI reads its revision for you. `aiplex llm surfaces delete <id>` asks first on a terminal.
+
 ## Surface configuration
 
 A provider surface is a `model-surface` resource with a `provider` block. Every field
