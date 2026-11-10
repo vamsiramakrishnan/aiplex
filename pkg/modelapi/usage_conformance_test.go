@@ -107,6 +107,8 @@ type fixtureCall struct {
 	media    string // upstream content type override
 	// ws marks a WebSocket fixture replayed through a relay.
 	ws string
+	// contentType overrides the request Content-Type (multipart uploads).
+	contentType string
 	// method overrides POST; bind pre-binds resources to the test caller so
 	// that retrieval-style operations pass their ownership check.
 	method string
@@ -130,6 +132,9 @@ type fixtureRoute struct {
 	// allowUnknown: canonical fields the observer may leave unknown although
 	// the fixture states a value (an UNCONFIRMED composition), with the reason.
 	allowUnknown map[string]string
+	// check replaces the HTTP replay for fixtures that are not one exchange
+	// (batch results files aggregated across fetches).
+	check func(t *testing.T, data []byte, want canonical)
 }
 
 type expectedUsage struct {
@@ -341,20 +346,8 @@ func usageRoutes() []fixtureRoute {
 		exact("openai", "responses.error.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		formatOnly(exact("openai", "responses.background.queued.json", "responses-retrieve", "json", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""), statusUnsupported, "GET /v1/responses/{id} (background poll) is not an OpenAI provider operation; response body checked through the Responses observer"),
 		formatOnly(exact("openai", "responses.background.cancelled.json", "responses-cancel", "json", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""), statusUnsupported, "POST /v1/responses/{id}/cancel is not an OpenAI provider operation; response body checked through the Responses observer"),
-		unsupported("openai", "live.ws.jsonl", "live-voice-sessions", "websocket", "OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens"),
-		unsupported("openai", "live.interrupted.ws.jsonl", "live-voice-sessions", "websocket", "OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens"),
 		unsupported("openai", "embeddings.json", "embeddings", "json", "no /v1/embeddings operation on the OpenAI provider surface"),
-		unsupported("openai", "transcription.json", "audio-transcriptions", "json", "no /v1/audio/transcriptions operation; duration-billed variants report seconds"),
-		unsupported("openai", "transcription.duration.json", "audio-transcriptions", "json", "no /v1/audio/transcriptions operation; duration-billed variants report seconds"),
-		unsupported("openai", "transcription.sse", "audio-transcriptions", "sse", "no /v1/audio/transcriptions operation"),
-		unsupported("openai", "transcription.interrupted.sse", "audio-transcriptions", "sse", "no /v1/audio/transcriptions operation"),
-		unsupported("openai", "images.json", "images", "json", "no /v1/images operation; non-GPT image models bill per image"),
-		unsupported("openai", "images.sse", "images", "sse", "no /v1/images operation"),
-		unsupported("openai", "images.interrupted.sse", "images", "sse", "no /v1/images operation"),
 		unsupported("openai", "moderation.json", "moderations", "json", "no /v1/moderations operation (no usage documented)"),
-		unsupported("openai", "batch.output.jsonl", "batch", "jsonl-file", "batch output files are downloaded artifacts, not gateway responses; no /v1/batches operation"),
-		unsupported("openai", "batch.errors.jsonl", "batch", "jsonl-file", "batch error files are downloaded artifacts, not gateway responses"),
-		unsupported("openai", "batch.object.json", "batch", "json", "no /v1/batches operation"),
 
 		// ---------------- Anthropic ----------------
 		exact("anthropic", "messages.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
@@ -366,9 +359,7 @@ func usageRoutes() []fixtureRoute {
 		exact("anthropic", "messages-iterations.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
 		exact("anthropic", "messages-code-execution.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, toolRefuse),
 		unsupported("anthropic", "count-tokens.json", "count-tokens", "json", "no /v1/messages/count_tokens operation (an estimate, never consumption)"),
-		unsupported("anthropic", "batch-results.jsonl", "message-batches", "jsonl-file", "no Message Batches operation; results files are downloaded artifacts"),
-		unsupported("anthropic", "batch-results-partial.jsonl", "message-batches", "jsonl-file", "no Message Batches operation; results files are downloaded artifacts"),
-		unsupported("anthropic", "managed-agents-session.json", "managed-agents", "json", "no Managed Agents operation"),
+		unsupported("anthropic", "managed-agents-session.json", "managed-agents", "json", "no Managed Agents operation: the session object usage is a documented cumulative snapshot (platform.claude.com/docs/en/managed-agents/session-observability, re-read 2026-11-10), but the session.usage event envelope is still not shown and a session has no single terminal exchange through which a snapshot could settle once without double counting repeated polls"),
 		unsupported("anthropic", "ratelimit.json", "rate-limit-metadata", "json", "documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits"),
 		exact("anthropic", "vertex-raw.json", "vertex-rawPredict", "json", callVertexClaude, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
 		exact("anthropic", "vertex-raw.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
@@ -391,8 +382,6 @@ func usageRoutes() []fixtureRoute {
 		formatOnly(exact("google", "gemini-count-tokens.json", "gemini-countTokens", "json", callVertexCount, convNoConsumption, natGemini, false, strictNotApplicable, ""), statusUnsupported, noDA+"; countTokens is an estimate and must never be recorded as usage"),
 		formatOnly(exact("google", "gemini-embed.json", "gemini-embedContent", "json", callVertexEmbed, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		unsupported("google", "gemini-cachedcontent-create.json", "gemini-cachedContents", "json", "no Gemini Developer API surface and not replayed: DA cache names (cachedContents/{id}) are outside the Vertex resource scope, and how cache creation is billed is UNCONFIRMED (cache.create is request-count; usageMetadata.totalTokenCount is not mapped to cache writes)"),
-		unsupported("google", "gemini-veo-operation.json", "gemini-predictLongRunning", "json", "no Developer API surface; video is billed per output second and the operation result carries no usage"),
-		unsupported("google", "gemini-batch-inlined.json", "gemini-batch", "json", "no Developer API batch operation; job resources carry no token totals"),
 		formatOnly(exact("google", "gemini-interactions.json", "gemini-interactions", "json", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions-interrupted.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, false, strictNotApplicable, ""), statusUnsupported, noDA),
@@ -415,7 +404,6 @@ func usageRoutes() []fixtureRoute {
 		}(),
 		advisory("google", "vertex-count-tokens.json", "vertex-countTokens", "json", callVertexCount, convNoConsumption, natGemini, false, "countTokens is an input-size estimate, never consumption; only the request is counted"),
 		advisory("google", "vertex-embed-predict.json", "vertex-predict", "json", callVertexPredict, convGemini, natGemini, true, requestCount),
-		unsupported("google", "vertex-batch-gcs.jsonl", "vertex-batch", "jsonl-file", "batch output rows are Cloud Storage artifacts, not gateway responses; batch.create counts the submission only"),
 		exact("google", "vertex-openai-chat.json", "vertex-openai-chat", "json", callVertexChat, convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
 		exact("google", "vertex-openai-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
 			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
@@ -442,8 +430,9 @@ func usageRoutes() []fixtureRoute {
 		advisory("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, false, sessionReason),
 	}
 	// Utility operations (ops_utility_routes_test.go) replace the matching
-	// unsupported/format-checked entries above.
-	return overrideRoutes(routes, utilityRoutes())
+	// unsupported/format-checked entries above; media and batch routes
+	// (usage_conformance_extended_test.go) are appended.
+	return append(overrideRoutes(routes, utilityRoutes()), extendedUsageRoutes()...)
 }
 
 func withAllow(r fixtureRoute, allow map[string]string) fixtureRoute {
@@ -606,6 +595,9 @@ func runFixtureHTTP(t *testing.T, route fixtureRoute, data []byte, mode leaseMod
 	}
 	r := httptest.NewRequest(method, call.path, strings.NewReader(call.body))
 	r.Header.Set("Content-Type", "application/json")
+	if call.contentType != "" {
+		r.Header.Set("Content-Type", call.contentType)
+	}
 	w := httptest.NewRecorder()
 	g.ServeHTTP(w, r)
 	run.code, run.body = w.Code, w.Body.Bytes()
@@ -683,14 +675,18 @@ func TestUsageFormatConformance(t *testing.T) {
 				}
 				return
 			}
-			if route.call == nil {
-				t.Fatal("served fixture needs a call")
-			}
 			data, err := os.ReadFile(filepath.Join("testdata", "usage-formats", route.provider, route.file))
 			if err != nil {
 				t.Fatal(err)
 			}
 			want := expectedCanonical(route.conv, expectations[route.provider][route.file])
+			if route.check != nil {
+				route.check(t, data, want)
+				return
+			}
+			if route.call == nil {
+				t.Fatal("served fixture needs a call")
+			}
 			checkFixture(t, route, data, want)
 		})
 	}
@@ -1038,9 +1034,12 @@ Strict Gemini settlement treats an omitted ` + "`cachedContentTokenCount`" + ` a
 omission; conservative, all input charged as uncached) and derives thoughts as
 total - prompt - candidates. WebSocket sessions are request-count metered: one
 admission and one settlement per session; usage without final evidence is
-labelled ` + "`lower_bound`" + `, ` + "`ambiguous`" + ` (resumed Live session) or ` + "`partial`" + ` (non-token units
-such as transcription seconds, kept as ` + "`*_milliseconds`" + ` counters the token ledger
-cannot hold).
+labelled ` + "`lower_bound`" + `, ` + "`ambiguous`" + ` (resumed Live session) or ` + "`partial`" + ` (units the
+ledger has no field for, such as Realtime input-transcription meters billed to
+another model). Non-token units the ledger holds (audio/voice/video milliseconds,
+generated images, per-modality token splits) are compared by the media and batch
+checks; batch results files are aggregated with the gateway's own batch parser
+and must settle only when complete.
 
 `
 

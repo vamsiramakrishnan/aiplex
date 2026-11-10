@@ -268,13 +268,15 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 			return
 		}
 	}
-	if op.ID == "openai.v1.realtime" {
+	if op.ID == "openai.v1.realtime" || op.ID == openAILiveOperation {
 		if len(query["model"]) != 1 || !g.allowedModel(query.Get("model")) {
 			http.Error(w, "model is not allowed", http.StatusForbidden)
 			return
 		}
 		metadata.Model = query.Get("model")
-		upstreamQuery.Set("model", metadata.Model)
+		if op.ID == "openai.v1.realtime" {
+			upstreamQuery.Set("model", metadata.Model)
+		}
 	} else if len(query["model"]) > 0 {
 		http.Error(w, "the model is selected per response.create event", http.StatusBadRequest)
 		return
@@ -350,6 +352,10 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 	switch op.ID {
 	case "openai.v1.realtime":
 		adapter = &realtimeAdapter{gateway: g, model: metadata.Model, pending: map[string]bool{}, done: map[string]bool{}, now: time.Now}
+	case openAILiveOperation:
+		// Live voice: the model is pinned by ?model= and checked against
+		// session.start (live_voice.go); admission is unchanged.
+		adapter = newLiveVoiceAdapter(g, metadata.Model)
 	default:
 		adapter = &responsesSocketAdapter{gateway: g, owner: owner, trusted: trusted, op: op, pending: map[string]bool{}, done: map[string]bool{}}
 	}

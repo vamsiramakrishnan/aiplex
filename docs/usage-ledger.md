@@ -51,7 +51,9 @@ Unknown query parameters and unknown `group_by` fields are rejected with
 | `status` | `ok`, `error`, `denied` (HTTP 401, 403, 407 or 429), or `unknown` (the response began but did not complete, or the client disconnected). |
 | `source` | `managed` for records captured on AIPlex paths, `reported` for `POST /api/v1/llm/usage`. |
 | `requests` | Requests counted for the record. |
-| `usage` | Provider-normalized counters, each nullable: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `total_tokens`. The whole object is `null` when no counter is known. |
+| `usage` | Provider-normalized counters, each nullable: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `total_tokens`. Optional [unit fields](#units-and-modality-splits) appear only when reported. The whole object is `null` when no counter or unit is known. |
+| `batch` | `true` when the exchange belongs to a provider batch job (its creation, retrieval, or the results fetch that settled it). Omitted otherwise. |
+| `image_size`, `image_quality` | Billing dimensions the provider reported for generated images (for example `1024x1024`, `high`); `mixed` when one exchange reported different values. Omitted when not reported. |
 | `usage_bound` | Present only when `usage` is not final. One of `lower_bound`, `ambiguous` or `partial`. See [bounded usage](#bounded-usage). |
 | `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`) and `scale`. |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
@@ -90,7 +92,7 @@ It is set in two places:
 | --- | --- | --- |
 | `lower_bound` | The counters are what was observed before the exchange ended. The real total may be higher. | A WebSocket session ended without final evidence: the socket dropped without a clean close, a started response had no usage, activity followed the last snapshot, or `MaxStreamDuration` was reached. |
 | `ambiguous` | The counters come from a resumed Gemini Live session, whose counter composition across resumption is not established. | A resumed Live session. |
-| `partial` | Non-token units were reported (for example audio or transcription seconds, or image counts). The ledger has no field for them, so the token counters do not describe the whole exchange. | A session that ended with non-token units. Also any exchange whose counters include a `*_milliseconds` or `*_images` counter, or a `transcription_*` counter. |
+| `partial` | Units were reported that the ledger has no field for, so the counters do not describe the whole exchange. Units the ledger holds (see [units](#units-and-modality-splits)) never make a record partial. | Realtime input transcription (`transcription_*` counters, billed to a different model than the record's) and any other `*_milliseconds` or `*_images` counter without a ledger field. |
 
 A bounded record's `status` is `unknown`, and its `error_class` is `session_usage_<bound>`
 when the cause is a session. A record with no `usage_bound` has final counters, or `usage`
@@ -108,6 +110,26 @@ must exclude lower bounds.
 
 Cost is not estimated from a bounded record's counters unless a settlement or price
 establishes it, as described above.
+
+## Units and modality splits
+
+These `usage` fields are held beside the token counters, never added into
+them, and are omitted when the provider did not report them (unknown, not zero):
+
+| Field | Unit | Meaning |
+| --- | --- | --- |
+| `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens` | tokens | Per-modality subsets of `input_tokens` (OpenAI `*_tokens_details`, Gemini `promptTokensDetails`). |
+| `output_text_tokens`, `output_audio_tokens`, `output_image_tokens` | tokens | Per-modality subsets of `output_tokens` (OpenAI `*_tokens_details`, Gemini `candidatesTokensDetails` / `responseTokensDetails`). |
+| `audio_input_milliseconds` | milliseconds | Input audio billed by duration (OpenAI transcription `usage.type: "duration"`, seconds rounded up to whole milliseconds). |
+| `voice_session_milliseconds` | milliseconds | Voice duration of a seconds-metered session. |
+| `video_output_milliseconds` | milliseconds | Generated video duration, when a provider reports it. |
+| `generated_images` | images | Images returned by an image generation or edit. |
+
+Summaries report them separately: `modality_tokens` (sums of the splits),
+`units` (sums of the unit fields), `unit_records` (records that reported each
+unit) and `batch_records`. Each is omitted when empty. Batch usage is recorded
+once, on the results fetch that settled the batch; see
+[model metering profiles](model-metering-profiles.md#provider-batches).
 
 ## Prices
 
@@ -134,7 +156,19 @@ The rates above are placeholders that show the shape of the resource. Replace
 them with your contracted prices. Each meter is `numerator` fixed-point money
 units, at the price's `scale`, per `denominator` raw units. Allowed meters are
 `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`,
-`reasoning_tokens` and `requests`. A zero numerator declares a free meter.
+`reasoning_tokens`, `requests`, every modality split and every unit field listed
+under [units](#units-and-modality-splits). A zero numerator declares a free meter.
+A priced modality split is charged at its own rate and removed from its parent
+(`input_tokens` or `output_tokens`), like `cache_read_tokens`; when both a cache
+subset and an input modality split are priced, cost is estimated only if the
+priced cache subset is zero, because cached tokens can also be audio or image
+tokens. A known, non-zero unit without a price makes the cost unknown.
+
+Optional selectors narrow a price: `batch` (`true` matches only batch exchanges,
+`false` only others), `image_size` and `image_quality`. Among the prices that
+match a record, the one with the most selectors (`provider` counts as one) wins;
+a tie is no match. There is no built-in batch discount: configure a `batch: true`
+price with the contracted batch rates.
 
 `input_tokens` is the total input. When `cache_read_tokens` is also priced, only
 the uncached remainder is charged at the input rate. `reasoning_tokens` is charged

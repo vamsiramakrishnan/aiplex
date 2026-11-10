@@ -63,6 +63,16 @@ type SummaryGroup struct {
 	PartialUsageRecords   int64       `json:"partial_usage_records,omitempty"`
 	Cost                  []CostTotal `json:"cost"`
 	UnknownCostRecords    int64       `json:"unknown_cost_records"`
+	// ModalityTokens sums per-modality token splits (subsets of the token
+	// totals, never added to them) over records that reported them.
+	ModalityTokens map[string]int64 `json:"modality_tokens,omitempty"`
+	// Units sums non-token units (milliseconds, image counts); UnitRecords
+	// counts the records that reported each. Records that did not report a
+	// unit are not counted as zero.
+	Units       map[string]int64 `json:"units,omitempty"`
+	UnitRecords map[string]int64 `json:"unit_records,omitempty"`
+	// BatchRecords counts records of provider batch exchanges.
+	BatchRecords int64 `json:"batch_records,omitempty"`
 }
 
 // CostTotal is an exact sum of fixed-point amounts in one currency and basis.
@@ -187,6 +197,9 @@ func (g *groupAccumulator) add(r Record) error {
 			return fmt.Errorf("token total overflows")
 		}
 		s.Tokens[name] += *v
+	}
+	if err := g.addUnits(r); err != nil {
+		return err
 	}
 	if r.Cost.Basis != BasisSettled && r.Cost.Basis != BasisEstimated {
 		s.UnknownCostRecords++

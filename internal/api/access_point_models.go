@@ -58,6 +58,8 @@ var accessPointWires = []accessPointWire{
 	{WireOpenAIModerations, "/v1/moderations", []string{modelapi.ProtocolOpenAIModerations}},
 }
 
+func init() { accessPointWires = append(accessPointWires, accessPointMediaWires()...) }
+
 // accessPointWebSocket reports the session wires, which carry no body and
 // are upgraded by the native gateway.
 func accessPointWebSocket(protocol string) bool {
@@ -422,6 +424,11 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 				return
 			}
 			name = query.Get("model")
+		case protocol == WireOpenAIImages || protocol == WireOpenAIAudio:
+			var form bool
+			if name, form, err = multipartModel(data, r.Header.Get("Content-Type")); !form {
+				name, err = bodyModel(data)
+			}
 		default:
 			name, err = bodyModel(data)
 		}

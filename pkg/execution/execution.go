@@ -27,6 +27,10 @@ type Observation struct {
 	// established) or BoundPartial (non-token units were not captured).
 	// Empty means no qualification.
 	Bound string
+	// Dimensions are provider-reported billing dimensions of the observed
+	// units (for example image_size, image_quality) and the batch marker
+	// ("batch": "true"). They never change a counter.
+	Dimensions map[string]string
 }
 
 // Usage-bound labels for Observation.Bound.

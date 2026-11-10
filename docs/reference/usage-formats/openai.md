@@ -157,3 +157,10 @@ Fixture: the `rate_limits.updated` event is inside `realtime.ws.jsonl` (not a us
 9. Batch: no explicit example of usage inside output-file lines; per-request 4xx representation (output line with non-200 `status_code` vs error file); batch-level usage cache-write counter absent.
 10. Rate limits: which endpoints and transports emit `x-ratelimit-*`; full 429 JSON body example; whether `rate_limit_exceeded` is still used.
 11. Doc pages are rendered for the current model generation; older SDK/proxy behaviour (e.g. pre-2025 Chat usage without `cache_write_tokens`) is not covered.
+
+## Fixture notes (media, Live voice and batch operations, 2026-11-10)
+
+- `transcription*.json/.sse` and `images*.json/.sse` are served by `openai.v1.audio-transcriptions` and `openai.v1.images-generations`. Duration usage is observed as `audio_input_milliseconds` (seconds rounded up), images as `generated_images`, detail splits as `input_*_tokens` / `output_*_tokens`.
+- `live*.ws.jsonl` are served by the `openai.v1.live` relay (`/v1/live/sessions?model=`, the model pinned against `session.start`). `session.closed` `usage.seconds` = 45.8 is recorded once as 45800 ms.
+- `batch.output.jsonl`, `batch.errors.jsonl` and `batch.object.json` are aggregated by the gateway's batch settlement. Paths re-read on 2026-11-10: `POST /v1/batches` (https://developers.openai.com/api/reference/resources/batches/methods/create) and `GET /v1/files/{file_id}/content` (https://developers.openai.com/api/reference/resources/files/methods/content). Retrieve, cancel and list paths (`GET /v1/batches/{id}`, `POST /v1/batches/{id}/cancel`, `GET /v1/batches`) were not shown on the create page and are taken from the reference index.
+- Speech: re-read https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create on 2026-11-10; `stream_format: "sse"` is confirmed, but no SSE event names or usage fields are shown. Third-party sources describe `speech.audio.done` with usage; not used. Speech stays request-count with unknown usage.

@@ -176,3 +176,8 @@ Fixture: `ratelimit.json`.
 10. `server_tool_use` full key set (schema lists web_search/web_fetch; code execution doc shows `code_execution_requests`; tool-search/bash keys unknown).
 11. Whether `message_delta` can emit multiple times with differing cumulative values (docs say "one or more"); the fixtures assume last-wins.
 12. Docs model/version names in examples (e.g. `anthropic-version: 2026-10-21`) reflect the pages as read on 2026-11-09 and may move.
+
+## Fixture notes (Message Batches and Managed Agents, 2026-11-10)
+
+- `batch-results.jsonl` and `batch-results-partial.jsonl` are aggregated by the Message Batches results relay (`GET /v1/messages/batches/{id}/results`). A cache counter absent on one succeeded line leaves its sum unknown (the partial fixture's expectation already says so; the full fixture's cache_write sum is therefore unknown, not 2000).
+- Managed Agents: https://platform.claude.com/docs/en/managed-agents/session-observability was re-read on 2026-11-10. It confirms the session `usage` snapshot fields and that `session.usage` carries "the same cumulative snapshot", emitted before idle and on a budget pause, but still shows no event envelope. Left unsupported.
