@@ -221,11 +221,7 @@ func (h *ConnectedHandler) AccessPointQuotaPlan(w http.ResponseWriter, r *http.R
 	id := idParam(r)
 	record, _, err := h.loadAccessPointRecord(r.Context(), tenant, id)
 	if err != nil {
-		if errors.Is(err, resources.ErrNotFound) {
-			Error(w, r, http.StatusNotFound, "NOT_FOUND", "access point not found")
-		} else {
-			Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", "saved access point is invalid")
-		}
+		accessPointLoadError(w, r, err, func(err error) bool { return errors.Is(err, resources.ErrNotFound) })
 		return
 	}
 	ap, err := h.validateAccessPoint(r.Context(), tenant, id, record.Spec)

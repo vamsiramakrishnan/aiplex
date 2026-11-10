@@ -473,7 +473,28 @@ func (h *ConnectedHandler) loadAccessPointRecord(ctx context.Context, tenant, id
 		return record, AccessPoint{}, resources.ErrNotFound
 	}
 	ap, err := decodeAccessPoint(id, record.Spec)
-	return record, ap, err
+	if err != nil {
+		return record, ap, fmt.Errorf("%w: %v", errAccessPointRecordInvalid, err)
+	}
+	return record, ap, nil
+}
+
+// errAccessPointRecordInvalid marks a record that loaded from the store but
+// does not decode. Any other loadAccessPointRecord error is a store failure.
+var errAccessPointRecordInvalid = errors.New("saved access point is invalid")
+
+// accessPointLoadError writes the response for a failed loadAccessPointRecord:
+// 404 for a missing record, 409 for a record that loads but is invalid, and
+// 503 for a store failure.
+func accessPointLoadError(w http.ResponseWriter, r *http.Request, err error, notFound func(error) bool) {
+	switch {
+	case notFound(err):
+		Error(w, r, http.StatusNotFound, "NOT_FOUND", "access point not found")
+	case errors.Is(err, errAccessPointRecordInvalid):
+		Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", "saved access point is invalid")
+	default:
+		Error(w, r, http.StatusServiceUnavailable, "ACCESS_POINT_UNAVAILABLE", "access point configuration is unavailable")
+	}
 }
 
 var errAccessPointUnavailable = errors.New("access point unavailable")
