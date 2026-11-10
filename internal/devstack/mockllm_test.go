@@ -49,6 +49,18 @@ func TestMockResponses(t *testing.T) {
 	}
 }
 
+// The seeded placeholder price sets only the token meters: a per-request rate
+// of zero the operator never chose would show as "request USD 0".
+func TestMockPriceHasNoRequestMeter(t *testing.T) {
+	meters := MockPrice("mock-gpt")["meters"].(map[string]any)
+	if _, ok := meters["requests"]; ok {
+		t.Fatalf("mock price sets a requests meter: %v", meters)
+	}
+	if _, ok := meters["input_tokens"]; !ok {
+		t.Fatalf("mock price lacks token meters: %v", meters)
+	}
+}
+
 func TestMockResponsesRejectsMissingInput(t *testing.T) {
 	srv := httptest.NewServer(&MockModels{})
 	defer srv.Close()

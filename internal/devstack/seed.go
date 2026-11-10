@@ -160,7 +160,6 @@ func MockPrice(model string) map[string]any {
 		"meters": map[string]any{
 			"input_tokens":  map[string]any{"numerator": 15, "denominator": 100},
 			"output_tokens": map[string]any{"numerator": 60, "denominator": 100},
-			"requests":      map[string]any{"numerator": 0, "denominator": 1},
 		},
 	}
 }
