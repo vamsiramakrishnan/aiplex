@@ -17,9 +17,20 @@ spec:
       labels:
         app.kubernetes.io/name: aiplex-console
     spec:
+      # The console serves static files and never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: nginx
         image: {{ include "aiplex.console.image" . }}
+        # The image is nginx:alpine, which starts as root, binds port 80 and
+        # writes its cache and pid under /var. runAsNonRoot, a read-only root
+        # filesystem and dropping every capability need an unprivileged nginx
+        # image on a high port first (follow-up; see docs/gcp-permissions.md).
+        securityContext:
+          allowPrivilegeEscalation: false
         ports:
         - containerPort: 80
           name: http

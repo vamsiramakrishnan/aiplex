@@ -2,6 +2,7 @@
 {{- range .Values.api.extraVolumes }}
 {{- $name := required "api.extraVolumes entries require a name" .name -}}
 {{- if hasKey $apiVolumeNames $name }}{{ fail "duplicate api.extraVolumes name" }}{{ end -}}
+{{- if eq $name "tmp" }}{{ fail "api.extraVolumes name tmp is reserved for the API's scratch directory" }}{{ end -}}
 {{- $_ := set $apiVolumeNames $name true -}}
 {{- if eq (hasKey . "secret") (hasKey . "configMap") }}{{ fail "api.extraVolumes must select exactly one Secret or ConfigMap" }}{{ end -}}
 {{- range $key, $value := . }}
@@ -50,9 +51,26 @@ spec:
         app.kubernetes.io/name: aiplex-api
     spec:
       serviceAccountName: aiplex-api
+      # The API keeps the Kubernetes service account token: the deploy engine
+      # (internal/deploy) talks to the Kubernetes API in-cluster. The chart
+      # grants it no RBAC role; operators who enable in-cluster deploys bind a
+      # namespaced Role themselves.
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        # distroless/static:nonroot
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: aiplex-api
         image: {{ include "aiplex.api.image" . }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
         ports:
         - containerPort: 8080
           name: http
@@ -79,8 +97,11 @@ spec:
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
-        {{- with .Values.api.extraVolumeMounts }}
         volumeMounts:
+        # Writable scratch space; the root filesystem is read-only.
+        - name: tmp
+          mountPath: /tmp
+        {{- with .Values.api.extraVolumeMounts }}
         {{- range . }}
         - name: {{ .name | quote }}
           mountPath: {{ .mountPath | quote }}
@@ -104,9 +125,11 @@ spec:
             port: http
           initialDelaySeconds: 3
           periodSeconds: 5
-      {{- with .Values.api.extraVolumes }}
       volumes:
-        {{- toYaml . | nindent 8 }}
+      - name: tmp
+        emptyDir: {}
+      {{- with .Values.api.extraVolumes }}
+        {{- toYaml . | nindent 6 }}
       {{- end }}
 ---
 apiVersion: v1

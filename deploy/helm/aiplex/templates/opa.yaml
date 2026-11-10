@@ -58,9 +58,22 @@ spec:
       labels:
         app.kubernetes.io/name: opa-ext-authz
     spec:
+      # OPA evaluates the mounted policy and never calls the Kubernetes API.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: opa
         image: {{ .Values.opa.image }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
         args:
         - "run"
         - "--server"
