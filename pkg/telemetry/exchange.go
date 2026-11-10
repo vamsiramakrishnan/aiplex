@@ -91,6 +91,9 @@ func (e Exchange) Attributes() []attribute.KeyValue {
 	str(AttrMCPMethodName, e.MCPMethod)
 	str(AttrGenAIToolName, e.ToolName)
 	str(AttrResourceID, e.ResourceID)
+	if e.Plane == usageledger.PlaneA2A {
+		str(AttrAgentID, e.ResourceID)
+	}
 	str(AttrAccessPointID, e.AccessPointID)
 	str(AttrCallerKind, e.CallerKind)
 	str(AttrPrincipalID, e.PrincipalID)
@@ -198,7 +201,9 @@ func (in *Instruments) RecordExchange(ctx context.Context, e Exchange) {
 	}
 	attrs := e.metricAttributes()
 	finalUsage := e.Usage != nil && (e.UsageBound == "" || e.UsageBound == usageledger.UsagePartial)
-	if e.Plane == usageledger.PlaneLLM && finalUsage {
+	// The conventions' token counters apply to any GenAI operation, told apart
+	// by gen_ai.operation.name (chat, invoke_agent, ...); MCP has no tokens.
+	if (e.Plane == usageledger.PlaneLLM || e.Plane == usageledger.PlaneA2A) && finalUsage {
 		for _, c := range []struct {
 			counter metric.Int64Counter
 			value   *int64

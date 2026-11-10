@@ -93,7 +93,12 @@ spec:
     - name: aiplex-console
       port: 80
 ---
-# API: /api/*, /auth/*, /healthz, /readyz, /v0.1/*, /events.
+# API: /api/*, /auth/*, /healthz, /readyz, /v0.1/*, /events and /otlp/* (the
+# OTLP/HTTP receiver for coding-harness telemetry: /otlp/v1/logs, /metrics,
+# /traces; an exporter's endpoint is https://<domain>/otlp). The receiver bounds
+# its own bodies (4 MiB as sent by default, AIPLEX_OTLP_MAX_BODY_BYTES); the GKE
+# Gateway exposes no request-body-size setting, so nothing is configured here
+# and the load balancer's own limits apply.
 # /metrics is deliberately not routed: scrapers reach the API Service inside the
 # cluster with the AIPLEX_METRICS_TOKEN bearer secret. /internal/* (the authz
 # sidecar's denial reports) is not routed either; it is cluster-internal.
@@ -132,6 +137,9 @@ spec:
     - path:
         type: PathPrefix
         value: /events
+    - path:
+        type: PathPrefix
+        value: /otlp/
     backendRefs:
     - name: aiplex-api
       port: 8080

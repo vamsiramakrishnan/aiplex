@@ -13,7 +13,7 @@
 #      records, aiplex dev status and aiplex dev stop.
 #
 # What it does not cover: the container image build (needs a Docker daemon),
-# cosign signing, the SBOM, the Homebrew formula install, other OS/arch
+# cosign signing, the SBOM, the Homebrew cask install, other OS/arch
 # archives, and downloading from GitHub. Exits non-zero on the first failure.
 #
 #   bash tools/release-smoke.sh            # or: make release-smoke
@@ -41,10 +41,12 @@ else
 fi
 
 step "goreleaser check and snapshot (no publish, no docker images, no signing, no SBOM, no Homebrew upload)"
-GORELEASER_VERSION="v2.13.1"   # same major line as release.yml and ci.yml; bump them together
+# One pinned GoReleaser version, shared with ci.yml, release.yml and the Makefile (GORELEASER_VERSION).
+# Bump all four deliberately. A goreleaser on PATH of another version is not used.
+GORELEASER_VERSION="v2.20.0"
 GR="$(command -v goreleaser || true)"
-if [ -z "$GR" ]; then
-    echo "goreleaser not on PATH: installing $GORELEASER_VERSION with go install"
+if [ -z "$GR" ] || ! "$GR" --version 2>/dev/null | grep -q "${GORELEASER_VERSION#v}"; then
+    echo "installing goreleaser $GORELEASER_VERSION with go install"
     go install "github.com/goreleaser/goreleaser/v2@$GORELEASER_VERSION" || fail "go install goreleaser"
     GR="$(go env GOPATH)/bin/goreleaser"
 fi

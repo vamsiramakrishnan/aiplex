@@ -13,7 +13,7 @@ import (
 )
 
 // GroupByFields are the record fields a summary may group by.
-var GroupByFields = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "status", "source", "error_class", "usage_bound", "batch", "hook_decision"}
+var GroupByFields = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "budget", "status", "source", "error_class", "usage_bound", "batch", "hook_decision", "harness"}
 
 const (
 	BucketHour = "hour"
@@ -29,6 +29,12 @@ type SummaryQuery struct {
 	Filter  Filter
 	GroupBy []string
 	Bucket  string
+	// MergeSources adds managed and reported records into the same groups.
+	// Without it, a query with no source filter keeps them in separate groups
+	// (see Summarize).
+	MergeSources bool
+	// Feedback, when set, adds the latest feedback totals to every group.
+	Feedback FeedbackStore
 }
 
 // Summary aggregates records. Truncated means the scan or group bound was
@@ -39,6 +45,14 @@ type Summary struct {
 	Groups         []SummaryGroup `json:"groups"`
 	RecordsScanned int64          `json:"records_scanned"`
 	Truncated      bool           `json:"truncated"`
+	// SourceSplit is true when managed and reported records are kept in
+	// separate groups (the "source" key was added to group_by).
+	SourceSplit bool `json:"source_split,omitempty"`
+	// ExcludedCorrelatedReported counts reported records left out because
+	// they share a correlation key with a managed record.
+	ExcludedCorrelatedReported int64 `json:"excluded_correlated_reported,omitempty"`
+	// Notes explain how sources were treated, in plain words.
+	Notes []string `json:"notes,omitempty"`
 }
 
 // SummaryGroup totals one group. Token sums only include records where that
@@ -78,6 +92,9 @@ type SummaryGroup struct {
 	UnitRecords map[string]int64 `json:"unit_records,omitempty"`
 	// BatchRecords counts records of provider batch exchanges.
 	BatchRecords int64 `json:"batch_records,omitempty"`
+	// Feedback totals the latest feedback of the group's records, when the
+	// summary asked for it.
+	Feedback *FeedbackTotals `json:"feedback,omitempty"`
 }
 
 // CostTotal is an exact sum of fixed-point amounts in one currency and basis.
@@ -118,8 +135,8 @@ func ParseGroupBy(raw string) ([]string, error) {
 	out := []string{}
 	for _, part := range strings.Split(raw, ",") {
 		field := strings.TrimSpace(part)
-		if !allowed[field] {
-			return nil, invalid("group_by field %q is not one of %s", field, strings.Join(GroupByFields, ","))
+		if !allowed[field] && !(strings.HasPrefix(field, TagGroupPrefix) && ValidTagKey(strings.TrimPrefix(field, TagGroupPrefix))) {
+			return nil, invalid("group_by field %q is not one of %s or tag:<key>", field, strings.Join(GroupByFields, ","))
 		}
 		if seen[field] {
 			return nil, invalid("group_by field %q repeated", field)
@@ -141,6 +158,13 @@ func ValidateBucket(bucket string) error {
 
 func groupValue(r Record, field string) string {
 	switch field {
+	case "budget":
+		// A record that drew from several budgets is counted once in each;
+		// Aggregator.Add fans out. A record with none groups under "".
+		if len(r.BudgetIDs) == 1 {
+			return r.BudgetIDs[0]
+		}
+		return ""
 	case "plane":
 		return r.Plane
 	case "provider":
@@ -171,6 +195,11 @@ func groupValue(r Record, field string) string {
 		return strconv.FormatBool(r.Batch)
 	case "hook_decision":
 		return hookDecision(r)
+	case "harness":
+		return r.Harness
+	}
+	if strings.HasPrefix(field, TagGroupPrefix) {
+		return r.Tags[strings.TrimPrefix(field, TagGroupPrefix)]
 	}
 	return ""
 }
@@ -184,8 +213,9 @@ type costAccumulator struct {
 }
 
 type groupAccumulator struct {
-	group SummaryGroup
-	costs map[[2]string]*costAccumulator
+	group    SummaryGroup
+	costs    map[[2]string]*costAccumulator
+	feedback feedbackAccumulator
 }
 
 func pow10(n uint8) *big.Int { return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil) }
@@ -233,7 +263,7 @@ func (g *groupAccumulator) add(r Record) error {
 	if err := g.addUnits(r); err != nil {
 		return err
 	}
-	if r.Cost.Basis != BasisSettled && r.Cost.Basis != BasisEstimated {
+	if r.Cost.Basis != BasisSettled && r.Cost.Basis != BasisEstimated && r.Cost.Basis != BasisReported {
 		s.UnknownCostRecords++
 		return nil
 	}
@@ -283,15 +313,39 @@ type Aggregator struct {
 	groups    map[string]*groupAccumulator
 	scanned   int64
 	truncated bool
+	// trackFeedback adds feedback totals to every group (AddWithFeedback).
+	trackFeedback bool
 }
 
 func NewAggregator(q SummaryQuery) *Aggregator {
 	return &Aggregator{query: q, groups: map[string]*groupAccumulator{}}
 }
 
-// Add folds one record into its group.
-func (a *Aggregator) Add(r Record) error {
+// Add folds one record into its group. Grouping by budget counts a record in
+// the group of every budget it drew from, so budget groups overlap by design
+// (a child's spend is also its ancestors' spend) and do not sum to the total.
+func (a *Aggregator) Add(r Record) error { return a.AddWithFeedback(r, nil) }
+
+// AddWithFeedback folds one record and its latest feedback (nil: none) into
+// its group. Feedback totals are kept only when the summary asked for them.
+func (a *Aggregator) AddWithFeedback(r Record, fb *Feedback) error {
 	a.scanned++
+	for _, f := range a.query.GroupBy {
+		if f == "budget" && len(r.BudgetIDs) > 1 {
+			for _, id := range r.BudgetIDs {
+				one := r
+				one.BudgetIDs = []string{id}
+				if err := a.fold(one, fb); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+	return a.fold(r, fb)
+}
+
+func (a *Aggregator) fold(r Record, fb *Feedback) error {
 	key := make([]string, 0, len(a.query.GroupBy)+1)
 	values := map[string]string{}
 	for _, field := range a.query.GroupBy {
@@ -325,6 +379,9 @@ func (a *Aggregator) Add(r Record) error {
 			}
 		}
 	}
+	if a.trackFeedback {
+		g.feedback.add(fb)
+	}
 	return g.add(r)
 }
 
@@ -333,6 +390,9 @@ func (a *Aggregator) Result() Summary {
 	out := Summary{GroupBy: append([]string{}, a.query.GroupBy...), Bucket: a.query.Bucket, Groups: []SummaryGroup{}, RecordsScanned: a.scanned, Truncated: a.truncated}
 	for _, g := range a.groups {
 		group := g.group
+		if a.trackFeedback {
+			group.Feedback = g.feedback.result()
+		}
 		for key, c := range g.costs {
 			group.Cost = append(group.Cost, CostTotal{Currency: key[0], Basis: key[1], Amount: ceilRat(c.sum).String(), Scale: c.scale, Records: c.records})
 		}
@@ -361,6 +421,21 @@ func (a *Aggregator) Result() Summary {
 
 // Summarize pages through the store newest first and aggregates up to
 // MaxSummaryRecords records.
+//
+// Managed records (access point exchanges) and reported records (harness
+// telemetry) can describe the same request, so they are never added together
+// silently:
+//
+//   - With no source filter, the "source" key is added to the grouping so the
+//     two are separate groups, and reported records that share a correlation
+//     key with a managed record (see CorrelationKeys) are left out and counted
+//     in ExcludedCorrelatedReported.
+//   - With source=reported the query asked for them; every reported record is
+//     included, correlated or not.
+//   - With MergeSources the groups are combined, still leaving out the
+//     correlated reported records. Reported records with no key in common with
+//     a managed record may still describe requests that are also counted as
+//     managed; the notes say so.
 func Summarize(ctx context.Context, store Store, tenant string, q SummaryQuery) (Summary, error) {
 	if err := ValidateBucket(q.Bucket); err != nil {
 		return Summary{}, err
@@ -371,24 +446,90 @@ func Summarize(ctx context.Context, store Store, tenant string, q SummaryQuery) 
 	if _, err := ParseGroupBy(strings.Join(q.GroupBy, ",")); err != nil {
 		return Summary{}, err
 	}
+	budgetManaged := false
+	for _, f := range q.GroupBy {
+		if f == "budget" && q.Filter.Source == "" {
+			// Budgets are drawn only by managed exchanges: reported records
+			// (for example OTLP-ingested) never drew from one, so a summary by
+			// budget counts managed records only.
+			q.Filter.Source, budgetManaged = SourceManaged, true
+		}
+	}
+	source := q.Filter.Source
+	split := source == "" && !q.MergeSources
+	if split {
+		hasSource := false
+		for _, f := range q.GroupBy {
+			hasSource = hasSource || f == "source"
+		}
+		if !hasSource {
+			q.GroupBy = append(append([]string{}, q.GroupBy...), "source")
+		}
+	}
+	var managed *ManagedKeys
+	keysTruncated := false
+	if source == "" {
+		var err error
+		if managed, keysTruncated, err = managedKeys(ctx, store, tenant, q.Filter); err != nil {
+			return Summary{}, err
+		}
+	}
 	agg := NewAggregator(q)
+	agg.trackFeedback = q.Feedback != nil
+	var excluded int64
+	sawReported := false
+	finish := func() Summary {
+		out := agg.Result()
+		out.SourceSplit = split
+		out.ExcludedCorrelatedReported = excluded
+		out.Notes = summaryNotes(source, split, q.MergeSources, sawReported || excluded > 0, keysTruncated)
+		if budgetManaged {
+			out.Notes = append(out.Notes, "Grouped by budget: only managed records are counted, because reported records never draw from a budget.")
+		}
+		return out
+	}
 	cursor := ""
 	for {
 		page, err := store.List(ctx, tenant, Query{Filter: q.Filter, Limit: MaxLimit, Cursor: cursor})
 		if err != nil {
 			return Summary{}, err
 		}
+		kept := make([]Record, 0, len(page.Records))
 		for _, r := range page.Records {
+			if source == "" && managed.Correlates(r) {
+				excluded++
+				continue
+			}
+			if r.Source == SourceReported {
+				sawReported = true
+			}
+			kept = append(kept, r)
+		}
+		var latest map[string]Feedback
+		if q.Feedback != nil && len(kept) > 0 {
+			ids := make([]string, len(kept))
+			for i, r := range kept {
+				ids[i] = r.ID
+			}
+			if latest, err = q.Feedback.Latest(ctx, tenant, ids); err != nil {
+				return Summary{}, err
+			}
+		}
+		for _, r := range kept {
 			if agg.scanned >= MaxSummaryRecords {
 				agg.truncated = true
-				return agg.Result(), nil
+				return finish(), nil
 			}
-			if err := agg.Add(r); err != nil {
+			var fb *Feedback
+			if f, ok := latest[r.ID]; ok {
+				fb = &f
+			}
+			if err := agg.AddWithFeedback(r, fb); err != nil {
 				return Summary{}, err
 			}
 		}
 		if page.NextCursor == "" {
-			return agg.Result(), nil
+			return finish(), nil
 		}
 		cursor = page.NextCursor
 	}
@@ -401,4 +542,54 @@ func ceilRat(r *big.Rat) *big.Int {
 		whole.Add(whole, big.NewInt(1))
 	}
 	return whole
+}
+
+// correlationWindow widens the managed-key scan beyond the summary window so
+// a managed record that started just before a reported one is still seen.
+const correlationWindow = time.Hour
+
+// managedKeys collects the correlation keys of managed records in the
+// summary's window and visibility.
+func managedKeys(ctx context.Context, store Store, tenant string, f Filter) (*ManagedKeys, bool, error) {
+	keys := NewManagedKeys()
+	scan := Filter{Source: SourceManaged, Visibility: f.Visibility}
+	if !f.Since.IsZero() {
+		scan.Since = f.Since.Add(-correlationWindow)
+	}
+	if !f.Until.IsZero() {
+		scan.Until = f.Until.Add(correlationWindow)
+	}
+	cursor, scanned := "", 0
+	for {
+		page, err := store.List(ctx, tenant, Query{Filter: scan, Limit: MaxLimit, Cursor: cursor})
+		if err != nil {
+			return nil, false, err
+		}
+		for _, r := range page.Records {
+			if scanned++; scanned > MaxSummaryRecords {
+				return keys, true, nil
+			}
+			keys.AddManaged(r)
+		}
+		if page.NextCursor == "" {
+			return keys, false, nil
+		}
+		cursor = page.NextCursor
+	}
+}
+
+func summaryNotes(source string, split, merged, reported, keysTruncated bool) []string {
+	var notes []string
+	switch {
+	case source == SourceReported:
+		notes = append(notes, "Reported records are included whether or not a managed record describes the same request; do not add these totals to managed totals.")
+	case split && reported:
+		notes = append(notes, "Managed and reported records are separate groups and are not added together. Reported records that share a trace, client request id or request id with a managed record are left out.")
+	case merged && reported:
+		notes = append(notes, "Managed and reported records are combined. Reported records that share no correlation key with a managed record may describe requests that are also counted as managed.")
+	}
+	if keysTruncated && source == "" {
+		notes = append(notes, "The managed records scanned for correlation were truncated, so some correlated reported records may be included.")
+	}
+	return notes
 }

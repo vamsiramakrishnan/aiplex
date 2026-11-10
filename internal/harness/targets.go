@@ -33,6 +33,11 @@ type Options struct {
 	// context and return the wrong token.
 	HelperContext string
 	Telemetry   string // OTLP endpoint for the harness's own telemetry; "" = off
+	// TelemetryAIPlex means Telemetry is this deployment's own OTLP receiver
+	// (--with-telemetry aiplex). The receiver authenticates the sender with the
+	// AIPlex token, so the export header references the token and no file ever
+	// holds it: see telemetryAuth.
+	TelemetryAIPlex bool
 }
 
 // Plan is the result of planning: file changes plus what must still be done
@@ -233,6 +238,12 @@ func PlanClaudeCode(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 		}
 	}
 
+	if o.Telemetry != "" && o.TelemetryAIPlex {
+		// Claude Code's settings env holds literal values, so the export header
+		// (which carries the token) is set in the shell, never in the file.
+		p.Remaining = append(p.Remaining, "export OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Bearer $"+TokenEnv+"\"   # authenticates the telemetry export to AIPlex; settings.json cannot reference an environment variable, so the token is not written there")
+		p.Notes = append(p.Notes, "AIPlex's OTLP receiver records api_request and api_error log events as source=reported usage; metrics and traces are accepted but not recorded")
+	}
 	if o.TokenHelper {
 		p.Remaining = append(p.Remaining,
 			"apiKeyHelper runs `"+o.helper()+"`; `aiplex` must be on PATH for Claude Code, and an ANTHROPIC_AUTH_TOKEN in your shell would take precedence over it",
@@ -326,6 +337,10 @@ func PlanGeminiCLI(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	}
 	p.Changes = append(p.Changes, ch)
 	p.Remaining = append(p.Remaining, tokenStep("gemini"))
+	if o.Telemetry != "" && o.TelemetryAIPlex {
+		p.Remaining = append(p.Remaining, "export GEMINI_TELEMETRY_OTLP_HEADERS=\"Authorization=Bearer $"+TokenEnv+"\"   # authenticates the telemetry export to AIPlex; not written to settings.json so the token never lands in a file")
+		p.Notes = append(p.Notes, "AIPlex's OTLP receiver records gemini_cli.api_response and api_error log events as source=reported usage; whether Gemini CLI appends /v1/logs to the endpoint has not been validated")
+	}
 	return p, nil
 }
 
@@ -431,10 +446,18 @@ func PlanCodex(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	}
 	if o.Telemetry != "" {
 		endpoint := o.Telemetry
-		if otlpProtocol(endpoint) == "grpc" {
+		switch {
+		case o.TelemetryAIPlex:
+			// Codex posts to the endpoint exactly as given, so name the logs
+			// route; the header refers to the token by environment variable.
+			endpoint = strings.TrimRight(endpoint, "/") + "/v1/logs"
+			t.WriteString("\n[otel]\nlog_user_prompt = false\n")
+			t.WriteString("exporter = { otlp-http = { endpoint = " + tomlString(endpoint) + ", protocol = \"binary\", headers = { \"Authorization\" = " + tomlString("Bearer ${"+TokenEnv+"}") + " } } }\n")
+			p.Notes = append(p.Notes, "AIPlex records Codex's response.completed event as source=reported usage. The export header refers to ${"+TokenEnv+"}, Codex's documented placeholder form for header values; that has not been validated against a live Codex, and the token is not written to the file")
+		case otlpProtocol(endpoint) == "grpc":
 			t.WriteString("\n[otel]\nlog_user_prompt = false\n")
 			t.WriteString("exporter = { otlp-grpc = { endpoint = " + tomlString(endpoint) + " } }\n")
-		} else {
+		default:
 			if u, err := url.Parse(endpoint); err == nil && (u.Path == "" || u.Path == "/") {
 				endpoint = strings.TrimRight(endpoint, "/") + "/v1/logs"
 			}

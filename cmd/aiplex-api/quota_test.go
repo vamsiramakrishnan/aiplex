@@ -153,6 +153,25 @@ func TestDocumentedQuotaExampleLoadsAndActivates(t *testing.T) {
 	}
 }
 
+func TestBudgetsCostExampleLoadsAndActivates(t *testing.T) {
+	spec, err := loadQuotaFile("../../examples/budgets/quota-cost.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	host, err := api.NewQuotaHost(context.Background(), spec.Host, quotaplex.NewMemoryStore(), func() time.Time { return now }, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = host.Ready(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	meters := host.Engines()["development"].PolicyMeters()
+	if meters["usd"].Unit != "money" || meters["usd"].Currency != "USD" || !meters["requests"].Billable {
+		t.Fatalf("the example must define a USD money meter and a billable request meter: %+v", meters)
+	}
+}
+
 func TestDeclaredProviderLimitsAreVersionAccountAndExpiryScoped(t *testing.T) {
 	now := time.Now().UTC()
 	e := providerLimitEvidence{ID: "verified-context-cap", TenantID: "tenant", BindingID: "model-binding", Provider: "google", Model: "model", ModelVersion: "model-001", BillingAccount: "project", Region: "global", InputCeiling: 1000, CombinedOutputCeiling: 100, SourceRef: "operator-verified-native-model-metadata", IssuedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour)}

@@ -30,6 +30,8 @@ type AccessPoint struct {
 	Tools       []AccessPointTool   `json:"tools,omitempty"`
 	Skills      []AccessPointSkill  `json:"skills,omitempty"`
 	QoS         *AccessPointQoS     `json:"qos,omitempty"`
+	// Project is a label an administrator sets; tenant budgets may select it.
+	Project string `json:"project,omitempty"`
 }
 
 // AccessPointSubjects narrows who may call. An empty block admits every
@@ -53,6 +55,9 @@ type AccessPointModel struct {
 type AccessPointTool struct {
 	ConnectionRef string   `json:"connection_ref"`
 	Expose        []string `json:"expose,omitempty"`
+	// Rules are policy rules evaluated in addition to the connection's own;
+	// an access point can only add restrictions.
+	Rules []ToolRule `json:"rules,omitempty"`
 }
 
 // AccessPointSkill exposes one deployed skill server.

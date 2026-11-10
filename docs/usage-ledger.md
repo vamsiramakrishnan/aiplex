@@ -26,9 +26,12 @@ deployer gets the overview's configuration view with usage withheld (see
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `hook_decision`, `cost_basis`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
-| `GET /api/v1/usage/records/{id}` | One record. |
-| `GET /api/v1/usage/summary` | Totals. Accepts the same filters, except `limit` and `cursor`, plus `group_by` and `bucket=hour\|day`. Returns requests, errors, token sums, records with unknown usage and cost per currency. |
+| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `budget_id`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `hook_decision`, `harness`, `tag.<key>`, `cost_basis`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
+| `GET /api/v1/usage/records/{id}` | One record, with its latest `feedback` when it has any. |
+| `GET /api/v1/usage/records/{id}/feedback` | The record's feedback history, newest first. |
+| `POST /api/v1/usage/records/{id}/feedback` | Add feedback to a record: the record's own principal or actor, or an operator (admin or deployer). See [feedback](#feedback). |
+| `GET /api/v1/usage/summary` | Totals. Accepts the same filters, except `limit` and `cursor`, plus `group_by`, `bucket=hour\|day`, `merge_sources=true` and `feedback=true`. Returns requests, errors, token sums, records with unknown usage and cost per currency. Managed and reported records are separate groups: see [sources in summaries](#sources-in-summaries). |
+| `GET /api/v1/usage/config` | The deployment's usage settings the Console reads: the trace viewer link template, whether feedback and feedback comments are on, and the tag keys a caller may set. No secrets. |
 | `GET /api/v1/usage/prices` | List model-price resources. |
 | `GET /api/v1/usage/prices/{id}` | One price with its revision. |
 | `PUT /api/v1/usage/prices/{id}` | Create or replace a price. Send the current revision in `If-Match`; `0` creates. |
@@ -39,7 +42,8 @@ Unknown query parameters, repeated parameters, and unknown `group_by` fields are
 `400 INVALID_QUERY`. The valid `group_by` fields are `plane`, `provider`,
 `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`,
 `access_point_id`, `caller_kind`, `status`, `source`, `error_class`, `usage_bound`,
-`batch` and `hook_decision`. A `group_by` field may appear once.
+`batch`, `hook_decision` and `harness`, or `tag:<key>` to group by a record [tag](#tags). A `group_by`
+field may appear once.
 
 Filter values are checked before the query runs:
 
@@ -49,11 +53,13 @@ Filter values are checked before the query runs:
 | `caller_kind` | `agent`, `user`, `client` |
 | `status` | `ok`, `error`, `denied`, `unknown` |
 | `source` | `managed`, `reported` |
+| `harness` | Any text up to 512 characters, for example `claude-code`. Matches reported records from that harness. |
+| `tag.<key>` | A tag value, for example `tag.experiment=arm-a`. Repeat with other keys to require several. Keys are `[a-z][a-z0-9_.-]{0,31}`. |
 | `usage_bound` | `lower_bound`, `ambiguous`, `partial`, `none` |
 | `batch` | `true` or `false`. A record with `batch: true` matches `true`. |
 | `error_class` | Any text up to 512 characters. Matches records with exactly that `error_class`. |
 | `hook_decision` | `allow`, `deny`, `transform`, `error`, `skipped`, or `none` (no [request hook](request-hooks.md) ran). Matches `hooks.decision`. |
-| `cost_basis` | `settled`, `estimated` or `unknown`. Matches `cost.basis`. |
+| `cost_basis` | `settled`, `estimated`, `reported` or `unknown`. Matches `cost.basis`. |
 | `since`, `until` | RFC 3339 timestamps. `until` must be after `since`. |
 
 `usage_bound=none` matches records with no `usage_bound`, meaning counters that are final or
@@ -71,8 +77,14 @@ unknown. Any other value is matched exactly.
 | `principal_id`, `actor_id` | Verified principal and delegated actor, when present. |
 | `client_id` | The verified token's authorized party (`azp`). A public OAuth client ID is attribution, not a security boundary. |
 | `access_point_id`, `caller_kind` | Set only when the exchange entered through an [access point](access-points.md). `caller_kind` is `agent`, `user` or `client`. |
+| `budget_ids` | The [tenant budgets](budgets.md) the exchange drew from (its own and every ancestor), sorted. Set only when QuotaPlex dispatched the attempt: a request refused or released before dispatch has none. `group_by=budget` counts a record in every budget it drew from, so budget groups overlap. Reported (`source=reported`) records never have budget ids; a summary by budget counts managed records only and is not source-split. |
 | `status` | `ok`, `error`, `denied` (HTTP 401, 403, 407 or 429), or `unknown` (the response began but did not complete, or the client disconnected). |
-| `source` | `managed` for records captured on AIPlex paths, `reported` for `POST /api/v1/llm/usage`. |
+| `source` | `managed` for records captured on AIPlex paths. `reported` for records the caller or its client reported: `POST /api/v1/llm/usage`, or a harness's OpenTelemetry sent to [`/otlp`](#harness-telemetry-reported-records). |
+| `harness`, `harness_version`, `session_id` | Reported records from a harness: its name (`claude-code`, `codex`, `gemini-cli`), its version and its own session id. These are labels the sender chose, not identity. |
+| `client_request_id` | The caller's per-request id (`X-Client-Request-Id`, or the harness's `client_request_id`), kept only as a correlation key. |
+| `caller_span_id` | Managed records: the span id in the `traceparent` the caller sent. A correlation key only. |
+| `reported_attributes` | Reported records: a bounded, documented subset of the sender's labels (see [harness telemetry](#harness-telemetry-reported-records)). Never identity, prompts, tool input or error text. |
+| `tags` | Experiment labels (see [tags](#tags)). |
 | `http_status` | The HTTP status the caller received. Omitted when the exchange had none. |
 | `error_class` | The reason for a non-`ok` status. See [error classes](#error-classes). |
 | `operation` | The native operation ID, for managed model exchanges. |
@@ -88,6 +100,7 @@ unknown. Any other value is matched exactly.
 | `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`), `scale` and `amount_decimal`, the same amount written as an exact decimal string (for example `0.000006` for `amount` `6` at scale `6`). An estimate also carries `price_id` (the price used) and, when `amount` was rounded up, `exact` (the unrounded amount in minor units as a fraction, for example `37/4`). A cost computed after the record was written carries `backfilled_at` ([back-estimation](#back-estimation)). |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
 | `hooks` | Present when a [request hook](request-hooks.md) ran on the exchange. `decision` is the most significant decision of all runs (`deny`, then `error`, then `transform`, then `allow`, then `skipped`); `uninspected_parts` counts images, audio, files and unknown blocks that were present but not inspected; `fail_open_used` is `true` when a `fail_open` hook failed and the exchange continued without it. `results` lists each hook run: `id` (`policy/hook`), `type`, `phase` (`request` or `response`), `decision`, `rules` (rule identifiers with match `count`; for a denial the denying rule comes first), `duration_ms` and `fail_open_used`. It never holds content or the matched text. |
+| `tool_policy_rule` | The identifier of the [policy rule](tool-policy-rules.md) that refused a tool call (`error_class` `tool_policy_denied` or `tool_policy_error`). Omitted otherwise and for the default deny. Never the arguments. |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
 | `session` | `true` for a WebSocket session. One record covers the whole session, and its usage is final only with a terminal observation. Omitted otherwise. |
 | `request_id` | The request's correlation identifier (`X-Request-Id`). |
@@ -99,12 +112,13 @@ A counter that the provider did not report is `null`. A reported zero is `0`.
 Summaries count records with unknown usage separately, so an absent counter never
 lowers a total silently.
 
-Cost has three bases:
+Cost has four bases:
 
 | Basis | Source |
 | --- | --- |
 | `settled` | The QuotaPlex attempt for the exchange settled with a money meter in one currency. |
 | `estimated` | A `model-price` resource matched the record. The amount is the exact rational sum of the priced quantities, rounded up once to the price's scale ([rounding](#rounding)). With `backfilled_at`, the record was unknown when written and a price was applied later ([back-estimation](#back-estimation)). |
+| `reported` | A harness reported the cost itself (Claude Code's `cost_usd`). It is the sender's estimate, never a provider invoice and never an AIPlex price. Totals keep it apart from `settled` and `estimated`. |
 | `unknown` | Neither source applies. The record carries no currency, amount or scale. |
 
 A record gets `unknown` cost when:
@@ -356,7 +370,7 @@ Records written before a price existed have an unknown cost. `aiplex usage price
 - `--dry-run` (`dry_run: true`) reports counts and the total per currency and writes nothing.
   Filters: `since`, `until`, `model_id`, `provider`. The result counts records left unknown and
   why (`usage_not_final`, `no_price`, `changed`).
-- Summaries reflect backfilled costs, and `cost_basis=unknown` finds what remains.
+- Summaries reflect backfilled costs, and `cost_basis=unknown` finds what remains. Only `unknown` costs are ever written: a `reported` cost (a harness's own figure) and a `settled` or `estimated` one are left as they are. A reported record that has usage but no cost may be priced like any other unknown-cost record, which is what the OTLP receiver does at ingest with the same `Estimate`. Summaries that split by source still add exact values and round once per group.
 
 ### Price catalogue
 
@@ -485,6 +499,8 @@ HTTP-status class below. A quota, capacity or session reason replaces that class
 | `model_not_found` | A caller the access point admitted asked for a model it does not offer (HTTP 404, status `error`). See [access points](access-points.md). |
 | Quota reason codes | QuotaPlex refused the exchange before the provider was called. |
 | `hook_denied` | A [request hook](request-hooks.md) refused the request (before the provider was called; no quota is reserved) or withheld the response (after it; usage is still recorded). Status `denied`, HTTP 403. |
+| `tool_policy_denied` | A [policy rule](tool-policy-rules.md) on a tool call refused it: a matching `deny` rule, or no `allow` rule matched. Refused before quota, hooks and the upstream call. Status `denied`, HTTP 403. The record's `tool_policy_rule` names the rule (empty for the default deny). |
+| `tool_policy_error` | A policy rule on a tool call could not be evaluated (or the arguments were over the evaluation limit) and the call was refused. Status `denied`, HTTP 403. `tool_policy_rule` names the rule that failed. |
 | `hook_unavailable` | A request hook could not decide (timeout, unreachable or invalid sidecar) and is not `fail_open`. Status `error`, HTTP 503. |
 | `hook_policy_unavailable` | The tenant's hook policies could not be read, or a stored one no longer validates. Status `error`, HTTP 503. |
 
@@ -535,6 +551,101 @@ an error.
 Summary responses carry `truncated` and `records_scanned`. A truncated total covers only the
 records scanned.
 
+## Harness telemetry (reported records)
+
+Coding harnesses export their own OpenTelemetry. AIPlex can receive it and keep the
+usage it describes as `source=reported` records, next to the managed records for
+requests that went through an access point. Point a harness at AIPlex with
+`aiplex connect <access-point> --client <client> --write --with-telemetry aiplex`; the
+receiver, its limits and exactly which signals are mapped are in
+[observability](observability.md#harness-telemetry-received-over-otlp) and
+[harness onboarding](harness-onboarding.md#telemetry-into-the-usage-ledger).
+
+A reported record is written from one harness log event per model request:
+
+| Ledger field | From |
+| --- | --- |
+| `tenant_id`, `principal_id`, `principal_display`, `actor_id`, `client_id`, `caller_kind` | The verified token of the sender. Never the payload. |
+| `plane`, `operation` | `llmplex`; `<harness>.<event>` such as `claude-code.api_request`. |
+| `model_id` | The event's model. |
+| `usage` | The event's token counts. Each missing count stays `null`; `input_tokens` is the total input including cache tokens, so Claude Code's `input_tokens` is added to its cache read and cache creation counts, and is `null` if either is missing. |
+| `cost` | Basis `reported` with currency `USD` when the event carries a cost (`cost_usd_micros` exactly, else `cost_usd` as its shortest decimal, rounded up beyond 12 places). When it carries none and a `model-price` matches, basis `estimated`. Otherwise `unknown`. |
+| `started_at`, `finished_at`, `latency_ms` | The event time and, when the harness reports it, the request duration. A record with no reported duration has `latency_ms` 0 and `started_at` equal to `finished_at`: the field cannot hold "unknown", so read 0 as "not reported" on reported records. |
+| `trace_id`, `span_id` | The ids on the log event, when it carried any. |
+| `harness`, `harness_version`, `session_id`, `client_request_id` | The event and its resource (`service.version`). |
+| `reported_attributes` | `event`, `prompt_id`, `request_id`, `query_source`, `speed`, `effort`, `service_tier`, `attempt`, `entrypoint`, `terminal_type`. At most 16, each at most 256 characters. |
+
+Every record id is the hash of (tenant, sender, harness, session, event time, event name,
+sequence, prompt id, request ids, model), so an OTLP retry of the same event is stored once,
+also across replicas. User email, account and organization ids, repository details, prompts,
+tool input and error text are never copied.
+
+### Sources in summaries
+
+A managed record and a reported record can describe the same request. A summary never
+adds them silently:
+
+- With no `source` filter, `source` is added to the grouping, so managed and reported
+  are separate groups (`source_split: true`), and reported records that correspond to a
+  managed record are left out and counted in `excluded_correlated_reported`.
+- `source=reported` returns every reported record, correlated or not, with a note that its
+  totals must not be added to managed totals.
+- `merge_sources=true` adds the two together, still leaving out correlated records. The
+  response says that reported records with no key in common with a managed record may
+  describe requests that are also counted as managed.
+- `notes` says in plain words what was done. The dashboard and the access point and subject
+  roll-ups under `/api/v1/overview` count managed records only.
+
+A reported record is matched to a managed one only by an explicit key both carry, within one
+tenant and one verified principal; model, time and token counts are never used to guess:
+
+1. `client_request_id` on both (the harness sends it as `X-Client-Request-Id`; AIPlex stores
+   it on the managed record).
+2. The managed record's `caller_span_id` (the span id in the `traceparent` the harness sent)
+   equals the reported event's own `span_id`, and the trace ids are equal.
+3. A `request_id` the caller chose with `X-Request-Id` (the server-generated `req-<number>`
+   form is unique only within a process and is never a key).
+4. As a fallback, the same trace: the harness propagated a trace and the managed record
+   continued it, but the event's span is not the request's span. Each managed record absorbs
+   at most one reported record this way.
+
+When no key exists the records stay in separate groups. Whether a given harness provides a
+key depends on how it is configured; see [harness onboarding](harness-onboarding.md#what-was-run-against-real-clients).
+
+## Tags
+
+Tags are small key/value labels on a record, for comparing experiments (an arm, a prompt
+version). They come from two places:
+
+- the access point's `labels`, which are trusted configuration and always apply;
+- the `X-AIPlex-Tags: key=value,key=value` request header (also accepted on OTLP exports),
+  honored only for keys in `AIPLEX_TAG_KEYS_ALLOWED` (default: none). A header cannot override
+  a configured label. Unlisted or malformed parts are dropped and counted in
+  `aiplex.usage.tags_rejected`.
+
+Keys are `[a-z][a-z0-9_.-]{0,31}`, values up to 64 characters of `[A-Za-z0-9_.:/@+() -]`, at
+most 8 tags a record. Header values per key and tenant are capped at `AIPLEX_TAG_MAX_VALUES`
+(default 50); beyond it a value is stored as `(other)` and counted with reason `overflow`.
+The cap is kept in process memory, so each replica applies it to its own view and a restart
+begins afresh. Filter with `tag.<key>=<value>`; group with `tag:<key>`.
+
+## Feedback
+
+`POST /api/v1/usage/records/{id}/feedback` takes `{"score": -1..1, "label": "helpful",
+"comment": "..."}`. `score` is required; `label` is `[a-z][a-z0-9_.-]{0,31}`. The record's own
+principal or actor, or an operator (admin or deployer), may submit it; a record the caller
+cannot see answers 404. `comment` is stored only when the operator set
+`AIPLEX_FEEDBACK_COMMENTS=true`; otherwise a request with a comment is refused
+(`COMMENTS_DISABLED`), not silently trimmed. The author is the verified principal.
+
+Feedback is stored beside the record, never in it. It is append-only: the newest entry is
+the record's current feedback (shown as `feedback` in the record) and earlier entries stay in
+`GET .../feedback`. A summary with `feedback=true` adds per group: `records` with
+feedback, `without_feedback`, `positive`, `negative`, `neutral` and `average_score`. Records
+without feedback are not a neutral score: they are counted in `without_feedback` and left out
+of the average, which is `null` when no record has feedback. Free-text comments never appear in
+summaries.
+
 ## Capture and enablement
 
 Capture needs no switch. Each completed exchange on these paths writes one record:
@@ -545,6 +656,7 @@ Capture needs no switch. Each completed exchange on these paths writes one recor
 | `/api/v1/a2a/connections/{id}/invoke` | `plane=a2aplex`, `source=managed` |
 | `/api/v1/mcp/connections/{id}/invoke` | `plane=mcplex`, `source=managed` |
 | `POST /api/v1/llm/usage` | `plane=llmplex`, `source=reported`. The route requires the admin role, and a verified tenant is needed to mirror the report. |
+| `POST /otlp/v1/logs` | `plane=llmplex`, `source=reported`, one record per recognized harness usage event. Any verified caller reports its own telemetry. |
 
 The access-point model and tool endpoints call the same handlers, so their
 exchanges are recorded with `access_point_id` and `caller_kind` set.
@@ -559,7 +671,7 @@ not change the response to the client.
 
 `aiplex usage records` and `aiplex usage summary` take the same filters: `--plane`,
 `--provider`, `--model`, `--tool`, `--agent`, `--user`, `--client`, `--access-point`,
-`--caller-kind`, `--status`, `--source`, `--error-class`, `--bound`, `--batch`, `--hook-decision`, `--cost-basis`, `--since` and `--until`.
+`--caller-kind`, `--budget`, `--status`, `--source`, `--error-class`, `--bound`, `--batch`, `--hook-decision`, `--cost-basis`, `--since` and `--until`.
 `--error-class` and `--bound` pass through to `error_class` and `usage_bound`. `--bound` accepts
 `lower_bound`, `ambiguous`, `partial` or `none`. `--batch` takes `true` or `false`. Given alone,
 `--batch` means `--batch=true`. `--since` and `--until` also accept a duration such as `24h` or
@@ -629,6 +741,17 @@ mock-gpt  1         0       0       1   9    USD 0.000006 (estimated)
   provider calls and other traffic that bypasses these paths produce no record.
 - A reported record is only as accurate as its reporter. The ledger does not
   check it against the provider.
+- Reported OTLP records come from log events only. Metrics and traces are accepted and not
+  recorded, so a request is never counted both as an event and as a counter or a span.
+  A harness that exports only metrics produces no records. Tool results, prompts and other
+  events are not recorded.
+- Correlation of reported records with managed ones needs a key the harness actually sends.
+  Claude Code, for example, sends no `X-Client-Request-Id` and no `traceparent` to a gateway
+  unless `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1` (and the traces beta) is set; without a key its
+  reported records stay in their own group, and a summary shows them beside the managed ones
+  rather than merging them. Run against a real Claude Code, the propagated trace did pair them.
+- Feedback is not in list rows. It is in the record detail and, with `feedback=true`, in
+  summaries (read page by page from a separate store). The tag value cap is per process.
 - `POST /api/v1/llm/usage` mirrors its counters into the ledger but does not copy
   the report's floating-point cost. The ledger cost comes from a price resource or
   is `unknown`.

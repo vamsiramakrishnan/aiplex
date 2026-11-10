@@ -9,8 +9,14 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 ```text
 Query the usage ledger: one record per managed request on any plane, by any
 client or agent. Unknown usage or cost is shown as "unknown", never as zero,
-and cost always carries its basis (settled or estimated). Non-administrators
+and cost always carries its basis (settled, estimated or reported). Non-administrators
 see only their own records.
+
+Records have a source. "managed" records are requests that went through an
+access point. "reported" records come from a harness's own telemetry
+(Claude Code, Codex, Gemini CLI) sent to AIPlex over OTLP; their cost, when the
+harness reported one, has the basis "reported". The two sources can describe the
+same request, so a summary keeps them apart and never adds them silently.
 
 Usage:
   aiplex usage [flags]
@@ -25,6 +31,7 @@ Available Commands:
   records     List usage records, newest first
   get         Show every field of one usage record
   summary     Totals of requests, tokens and cost, optionally grouped
+  feedback    Rate a usage record (append-only), or show its feedback history
   prices      Manage model prices used to estimate cost (writes need the admin role)
 
 Flags:
@@ -70,11 +77,13 @@ Flags:
       --all                     Follow every page
       --batch string[="true"]   Provider batch records only (true) or excluding them (false)
       --bound string            Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
+      --budget string           Tenant budget ID: exchanges that drew from that budget
       --caller-kind string      Caller kind: agent, user or client (caller_kind)
       --client string           Client ID (client_id)
-      --cost-basis string       Cost basis: settled, estimated or unknown (cost_basis)
+      --cost-basis string       Cost basis: settled, estimated, reported or unknown (cost_basis)
       --cursor string           Continue from a next_cursor value
       --error-class string      Error class (error_class)
+      --harness string          Reported records from one harness: claude-code, codex or gemini-cli
   -h, --help                    help for records
       --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
       --limit int               Page size, 1 to 1000 (default 100)
@@ -84,6 +93,7 @@ Flags:
       --since string            Start of window: duration like 24h, 7d, or an RFC3339 time
       --source string           Source: managed or reported
       --status string           Status: ok, error, denied or unknown
+      --tag stringArray         Records carrying a tag, key=value (repeatable)
       --tool string             Tool name (tool_name)
       --until string            End of window (exclusive): duration ago like 1h, or an RFC3339 time
       --user string             User / principal ID (principal_id)
@@ -142,14 +152,21 @@ Exit codes:
 
 ```text
 Aggregate usage. --by takes plane, provider, model, tool, agent, user, client,
-access-point, caller-kind, status, source, error-class, bound (usage_bound)
-or batch (aliases: model=model_id, agent=actor_id,
+access-point, caller-kind, budget, status, source, error-class, bound (usage_bound)
+harness, batch or tag:<key> (a record tag, for example tag:experiment) (aliases: model=model_id, agent=actor_id,
 user=principal_id, client=client_id, tool=tool_name, access-point=access_point_id,
 caller-kind=caller_kind). Records whose usage is bounded (lower_bound, ambiguous
 or partial) are included in the sums and counted in the BOUNDED column; their
 totals are not final. Costs are never summed across currencies
 or bases. When the scan limit is reached the totals cover only the newest
 records and the command says so.
+
+Managed and reported records are separate rows (a SOURCE column) unless you
+filter with --source. Reported records that share a trace, client request id
+or request id with a managed record are left out, because they describe the same
+request; the command says how many. --merge-sources adds the two together and
+says that it cannot rule out double counting. With -o wide the FEEDBACK column
+shows the average score of records that have feedback and how many do not.
 
 Usage:
   aiplex usage summary [flags]
@@ -158,6 +175,8 @@ Examples:
   aiplex usage summary --by model,agent --since 7d
   aiplex usage summary --by access-point,caller-kind --since 7d
   aiplex usage summary --by model --bucket day --since 30d -o json
+  aiplex usage summary --by tag:experiment --since 7d -o wide
+  aiplex usage summary --source reported --by harness,model --since 7d
 
 Flags:
       --access-point string     Access point ID (access_point_id)
@@ -165,22 +184,69 @@ Flags:
       --batch string[="true"]   Provider batch records only (true) or excluding them (false)
       --bound string            Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
       --bucket string           Time bucket: hour or day
-      --by strings              Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,status,source,error-class,bound,batch
+      --budget string           Tenant budget ID: exchanges that drew from that budget
+      --by strings              Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,budget,status,source,error-class,bound,batch,harness,tag:<key>
       --caller-kind string      Caller kind: agent, user or client (caller_kind)
       --client string           Client ID (client_id)
-      --cost-basis string       Cost basis: settled, estimated or unknown (cost_basis)
+      --cost-basis string       Cost basis: settled, estimated, reported or unknown (cost_basis)
       --error-class string      Error class (error_class)
+      --harness string          Reported records from one harness: claude-code, codex or gemini-cli
   -h, --help                    help for summary
       --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
+      --merge-sources           Add managed and reported records together (may count a request twice)
       --model string            Model ID (model_id)
       --plane string            Plane: llmplex, mcplex or a2aplex
       --provider string         Provider
       --since string            Start of window: duration like 24h, 7d, or an RFC3339 time
       --source string           Source: managed or reported
       --status string           Status: ok, error, denied or unknown
+      --tag stringArray         Records carrying a tag, key=value (repeatable)
       --tool string             Tool name (tool_name)
       --until string            End of window (exclusive): duration ago like 1h, or an RFC3339 time
       --user string             User / principal ID (principal_id)
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex usage feedback`
+
+```text
+Add feedback to a usage record you can see: your own, or any record if you are
+an operator. --score is a number from -1 (worst) to 1 (best). Feedback is
+append-only: the newest entry is the record's current feedback and earlier ones
+stay in the history (--history). Free-text --comment is stored only when the
+operator enabled comments (AIPLEX_FEEDBACK_COMMENTS); otherwise it is refused.
+Summaries show feedback with -o wide.
+
+Usage:
+  aiplex usage feedback <record-id> [flags]
+
+Examples:
+  aiplex usage feedback ul_0123456789abcdef --score 1 --label helpful
+  aiplex usage feedback ul_0123456789abcdef --score -1
+  aiplex usage feedback ul_0123456789abcdef --history
+
+Flags:
+      --comment string   Free-text comment (only if the operator enabled comments)
+  -h, --help             help for feedback
+      --history          Show the feedback history instead of adding feedback
+      --label string     Short label, lowercase (for example helpful)
+      --score float      Score from -1 (worst) to 1 (best)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

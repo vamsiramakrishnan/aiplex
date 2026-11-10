@@ -13,6 +13,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/clientplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolpolicy"
 )
 
 // accessPointCaller is derived only from the verified identity and saved
@@ -133,18 +134,24 @@ func (ap AccessPoint) admits(identity *models.WIFIdentity, caller accessPointCal
 // accessPointCall travels in the request context from the access-point gate
 // to the managed handlers, quota host and usage ledger.
 type accessPointCall struct {
+	// Project is the access point's administrator-set project label.
+	Project    string
 	ID         string
 	CallerKind string
 	ClientID   string
 	Revision   uint64
 	QoS        bool
 	Weight     uint32 // QoS weight; zero without QoS
-	recheck    func(context.Context) error
+	// Tags are the usage record tags resolved for this request.
+	Tags    map[string]string
+	recheck func(context.Context) error
 	// missingGrant is set by the model authorizer when it refuses a caller the
 	// access point admitted: the operator-facing explanation of which grants
 	// are missing. It only changes the wording of the refusal; it never
 	// permits anything.
 	missingGrant string
+	// toolRules are the access point's policy rules by tool connection.
+	toolRules map[string][]toolpolicy.Rule
 }
 
 type accessPointKey struct{}
@@ -240,10 +247,19 @@ func (h *ConnectedHandler) accessPointGate(w http.ResponseWriter, r *http.Reques
 		return "", AccessPoint{}, nil, false
 	}
 	revision := record.Revision
-	call := &accessPointCall{ID: id, CallerKind: caller.Kind, ClientID: caller.ClientID, Revision: revision, QoS: ap.QoS != nil}
+	call := &accessPointCall{ID: id, CallerKind: caller.Kind, ClientID: caller.ClientID, Revision: revision, QoS: ap.QoS != nil, Project: ap.Project}
+	for _, t := range ap.Tools {
+		if len(t.Rules) > 0 {
+			if call.toolRules == nil {
+				call.toolRules = map[string][]toolpolicy.Rule{}
+			}
+			call.toolRules[t.ConnectionRef] = t.Rules
+		}
+	}
 	if ap.QoS != nil {
 		call.Weight = ap.QoS.Weight
 	}
+	call.Tags = h.Tags.requestTags(r, tenant, ap.Labels)
 	call.recheck = func(ctx context.Context) error {
 		current, currentAP, err := h.loadAccessPointRecord(ctx, tenant, id)
 		if err != nil || current.Revision != revision {

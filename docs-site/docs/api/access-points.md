@@ -30,6 +30,7 @@ The resource `id` must equal the `id` field. The body is decoded strictly, so un
 | `tools` | array of object | No | Tool connections exposed. See Tools. |
 | `skills` | array of object | No | Skill server instances exposed. See Skills. |
 | `qos` | object | No | Quality of service and limits. See QoS. |
+| `labels` | object of string | No | Up to 8 trusted experiment tags, stored as `tags` on every usage record of an exchange through this access point. Keys match `[a-z][a-z0-9_.-]{0,31}`, values are up to 64 characters of `[A-Za-z0-9_.:/@+() -]` and are not `(other)`. A caller can add tags only with the `X-AIPlex-Tags` header for keys the operator allowed, and cannot override a label. |
 
 At least one of `models`, `tools` or `skills` must be present.
 
@@ -60,6 +61,7 @@ A `name` that differs from `native_model` is allowed only when the surface's fac
 |---|---|---|---|
 | `connection_ref` | string | Yes | Identifier of a managed `tool-connection` resource. Must match `[A-Za-z0-9][A-Za-z0-9_.-]{0,62}`, contain no `__` and not end in `_`. |
 | `expose` | array of string | No | Tool names or prefixes ending in `*`. Omitted exposes every tool the connection permits. Validated as a tool policy. |
+| `rules` | array of rule | No | [Policy rules](../library/tool-policy-rules.md) for calls through this access point, in the same shape as the connection's `tools.rules`. They run in addition to the connection's rules, so an access point can only add restrictions. Compiled when the access point is saved; a rule that does not check is a `400 INVALID_SPEC` with `details.field` `tools/N/rules`. |
 
 At most 64 tool entries, each connection listed once.
 
@@ -381,14 +383,28 @@ A successful `tools/call` returns the managed tool's result unchanged. The respo
 
 ```json
 {
+  "servers": [
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "example.gateway/ap-team",
+        "title": "Team",
+        "description": "Every tool exposed by access point team; tool names are {connection}__{tool}",
+        "version": "1.0.0",
+        "remotes": [{"type": "streamable-http", "url": "https://gateway.example/ap/team/mcp"}]
+      },
+      "_meta": {}
+    }
+  ],
+  "metadata": {"count": 1},
   "templates": [],
-  "total": 0,
+  "total": 1,
   "page": 0,
-  "page_size": 0
+  "page_size": 1
 }
 ```
 
-Each entry carries the template fields and a `remotes` list with `type: streamable-http` and the MCP URL. The response contains an aggregate entry only when the access point has tools and the MCP module is enabled.
+`servers` follows the MCP Registry API's list response (server.json schema 2025-12-11): each entry is `{server, _meta}`, and `metadata.count` is the number of entries. `name` is the reverse-DNS of the public URL's host (`localhost` when it has no DNS name), a slash, and `ap-{id}` or `ap-{id}-{connection}`; `description` and `title` are cut to the schema's 100 characters. `_meta` is an empty object: the official registry's status and publication times are not asserted here. `templates`, `total`, `page` and `page_size` are the AIPlex catalog members and carry the same entries as template fields plus `remotes`; they remain for existing clients. The response contains an aggregate entry only when the access point has tools and the MCP module is enabled.
 
 `GET /skills` returns `access_point_id`, `servers` (the manifests the caller may invoke) and `unavailable` (instance references that are not running or whose template cannot be read). Errors use the AIPlex error shape.
 

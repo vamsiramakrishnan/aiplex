@@ -124,15 +124,30 @@ var intendedRoutePolicy = map[string]string{
 	"DELETE /api/v1/access-points/{id}":          "admin/t",
 	"POST /api/v1/access-points/{id}/quota-plan": "admin/t",
 
+	// Budgets: operators read, admins write and preview, a verified member
+	// reads the status of its own budget (handler-scoped).
+	"GET /api/v1/budgets":             "op/t",
+	"GET /api/v1/budgets/{id}":        "op/t",
+	"PUT /api/v1/budgets/{id}":        "admin/t",
+	"DELETE /api/v1/budgets/{id}":     "admin/t",
+	"POST /api/v1/budgets/preview":    "admin/t",
+	"GET /api/v1/budgets/{id}/status": "auth/t",
+
 	// Usage ledger.
-	"GET /api/v1/usage/records":        "auth/t",
-	"GET /api/v1/usage/records/{id}":   "auth/t",
-	"GET /api/v1/usage/summary":        "auth/t",
-	"POST /api/v1/usage/backfill":      "admin/t",
-	"GET /api/v1/usage/prices":         "op/t",
-	"GET /api/v1/usage/prices/{id}":    "op/t",
-	"PUT /api/v1/usage/prices/{id}":    "admin/t",
-	"DELETE /api/v1/usage/prices/{id}": "admin/t",
+	"GET /api/v1/usage/records":                "auth/t",
+	"GET /api/v1/usage/records/{id}":           "auth/t",
+	"GET /api/v1/usage/summary":                "auth/t",
+	"GET /api/v1/usage/config":                 "auth/t",
+	"POST /api/v1/usage/backfill":              "admin/t",
+	"GET /api/v1/usage/records/{id}/feedback":  "auth/t",
+	"POST /api/v1/usage/records/{id}/feedback": "auth/t",
+	"POST /otlp/v1/logs":                       "auth/t",
+	"POST /otlp/v1/metrics":                    "auth/t",
+	"POST /otlp/v1/traces":                     "auth/t",
+	"GET /api/v1/usage/prices":                 "op/t",
+	"GET /api/v1/usage/prices/{id}":            "op/t",
+	"PUT /api/v1/usage/prices/{id}":            "admin/t",
+	"DELETE /api/v1/usage/prices/{id}":         "admin/t",
 
 	// Request-hook policies: operator only (they describe detection rules).
 	"GET /api/v1/hooks/policies":            "op/t",
@@ -190,6 +205,7 @@ var intendedRoutePolicy = map[string]string{
 	"DELETE /api/v1/mcp/connections/{id}":                      "op/t",
 	"POST /api/v1/mcp/connections/{id}/registration":           "op/t",
 	"POST /api/v1/mcp/connections/{id}/invoke":                 "auth/t+grant",
+	"POST /api/v1/mcp/connections/{id}/rules/test":             "op/t",
 	"GET /api/v1/mcp/connections/{id}/authorization":           "auth/t+grant",
 	"POST /api/v1/mcp/connections/{id}/authorization":          "auth/t+grant",
 	"DELETE /api/v1/mcp/connections/{id}/authorization":        "auth/t+grant",

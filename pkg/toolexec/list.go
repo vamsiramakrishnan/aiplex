@@ -18,6 +18,8 @@ import (
 type ListedTool struct {
 	Name         string
 	ReadOnlyHint *bool
+	// The other MCP annotation hints; nil when the server did not declare them.
+	DestructiveHint, IdempotentHint, OpenWorldHint *bool
 }
 
 // ListOptions governs tools/list. Listing is discovery: it is authorized and
@@ -110,7 +112,7 @@ func (g *Gateway) unauthorized(ctx context.Context, response *http.Response, cre
 // rpcDenied reports an authorization denial as a JSON-RPC error that keeps the
 // caller's request ID. Upstream challenges and bodies never reach it.
 func rpcDenied(w http.ResponseWriter, id json.RawMessage, err error) {
-	code, reason, message := RPCForbidden, "denied", "tool invocation denied"
+	code, reason, message, rule := RPCForbidden, "denied", "tool invocation denied", ""
 	status := http.StatusForbidden
 	var denial *Denial
 	if errors.As(err, &denial) {
@@ -126,17 +128,22 @@ func rpcDenied(w http.ResponseWriter, id json.RawMessage, err error) {
 		if denial.Message != "" {
 			message = denial.Message
 		}
+		rule = denial.Rule
 	}
 	type rpcError struct {
 		Code    int               `json:"code"`
 		Message string            `json:"message"`
 		Data    map[string]string `json:"data"`
 	}
+	data := map[string]string{"reason": reason}
+	if rule != "" {
+		data["rule"] = rule
+	}
 	body, _ := json.Marshal(struct {
 		JSONRPC string          `json:"jsonrpc"`
 		ID      json.RawMessage `json:"id"`
 		Error   rpcError        `json:"error"`
-	}{"2.0", id, rpcError{code, message, map[string]string{"reason": reason}}})
+	}{"2.0", id, rpcError{code, message, data}})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
@@ -208,7 +215,10 @@ func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted cont
 		var tool struct {
 			Name        string `json:"name"`
 			Annotations *struct {
-				ReadOnlyHint *bool `json:"readOnlyHint"`
+				ReadOnlyHint    *bool `json:"readOnlyHint"`
+				DestructiveHint *bool `json:"destructiveHint"`
+				IdempotentHint  *bool `json:"idempotentHint"`
+				OpenWorldHint   *bool `json:"openWorldHint"`
 			} `json:"annotations"`
 		}
 		if json.Unmarshal(entry, &tool) != nil || !toolName.MatchString(tool.Name) {
@@ -217,6 +227,7 @@ func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted cont
 		listed := ListedTool{Name: tool.Name}
 		if tool.Annotations != nil {
 			listed.ReadOnlyHint = tool.Annotations.ReadOnlyHint
+			listed.DestructiveHint, listed.IdempotentHint, listed.OpenWorldHint = tool.Annotations.DestructiveHint, tool.Annotations.IdempotentHint, tool.Annotations.OpenWorldHint
 		}
 		observed = append(observed, listed)
 		if list.Visible(r.Context(), copyContext(trusted), listed) {

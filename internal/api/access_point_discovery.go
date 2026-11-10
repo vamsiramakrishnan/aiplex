@@ -93,7 +93,11 @@ func (h *ConnectedHandler) AccessPointServers(w http.ResponseWriter, r *http.Req
 			servers = append(servers, accessPointServer{Template: models.Template{ID: "ap-" + ap.ID + "-" + tool.ConnectionRef, Source: "access-point", Plane: models.PlaneMCPlex, Name: tool.ConnectionRef, Description: "Tool connection " + tool.ConnectionRef + " through access point " + ap.ID, Category: "access-point", Version: "1.0.0", Verified: true}, Remotes: []accessPointRemote{{Type: "streamable-http", URL: base + accessPointResourcePath(ap.ID, tool.ConnectionRef)}}})
 		}
 	}
-	JSON(w, http.StatusOK, map[string]any{"templates": servers, "total": len(servers), "page": 0, "page_size": len(servers)})
+	entries := h.registryEntries(servers)
+	JSON(w, http.StatusOK, map[string]any{
+		"servers": entries, "metadata": map[string]any{"count": len(entries)},
+		"templates": servers, "total": len(servers), "page": 0, "page_size": len(servers),
+	})
 }
 
 // AccessPointSkills returns the manifests of the skill servers an access

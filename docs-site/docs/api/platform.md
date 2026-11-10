@@ -26,7 +26,7 @@ The platform API covers the routes that are not specific to one plane. It has he
 | DELETE | `/api/v1/agents/{clientId}` | Delete an agent registration | `admin` or `deployer` outside development mode |
 | GET | `/api/v1/agents/{clientId}/permissions` | Read an agent's permission ceiling by plane | Verified identity |
 | GET | `/api/v1/dashboard/stats` | Read the platform summary | Verified identity |
-| GET | `/api/v1/dashboard/denials` | List recent policy denials | Verified identity |
+| GET | `/api/v1/dashboard/denials` | List recent policy denials | `admin` role; deployment-wide, so an identity bound to a tenant is refused |
 | POST | `/api/v1/dashboard/denials` | Record a policy denial | `admin` outside development mode |
 | POST | `/internal/policy-denials` | Record a denial reported by the authz sidecar | Shared bearer secret (`AIPLEX_DENIAL_TOKEN`) |
 | GET | `/v0.1/servers` | List catalog entries as an MCP registry view | Verified identity. Mounted when `mcplex` is enabled. |
@@ -481,7 +481,7 @@ only `ledger` or `legacy-store`.
 
 ### GET `/api/v1/dashboard/denials`
 
-Returns the most recent 50 policy denials as a JSON array.
+Returns the most recent 50 policy denials as a JSON array. The route policy classifies it as `admin` and deployment-wide: denials are deployment-wide operator data, so a verified identity without the `admin` role is refused (`403 ROLE_REQUIRED`), and so is an identity bound to a tenant (`403 DEPLOYMENT_SCOPE_REQUIRED`). A verified identity alone is not enough.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -499,6 +499,8 @@ Returns the most recent 50 policy denials as a JSON array.
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The identity does not hold the `admin` role |
+| 403 | `DEPLOYMENT_SCOPE_REQUIRED` | The identity is bound to a tenant |
 | 500 | `STORE_ERROR` | Store read failed |
 
 ### POST `/api/v1/dashboard/denials`

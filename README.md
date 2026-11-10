@@ -11,7 +11,7 @@ AIPlex is a gateway that sits between the people, agents and developer tools tha
 
 ## Install
 
-Tagged releases publish the install script, release archives, a Homebrew formula and container images. No release has been tagged yet, so until the first one, build from source (below).
+Tagged releases publish the install script, release archives, a Homebrew cask for macOS and container images. No release has been tagged yet, so until the first one, build from source (below).
 
 - **Install script** (Linux and macOS, amd64 or arm64). This installs `aiplex` and `aiplex-api` into `~/.local/bin`, verifies the archive against the release `checksums.txt` first, and needs no sudo:
 
@@ -20,7 +20,7 @@ Tagged releases publish the install script, release archives, a Homebrew formula
   curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash -s -- --version v0.1.0
   ```
 
-- **Homebrew** (from the first tagged release): `brew install vamsiramakrishnan/tap/aiplex`. The tap is the `vamsiramakrishnan/homebrew-tap` repository.
+- **Homebrew, macOS only** (from the first tagged release): `brew install --cask vamsiramakrishnan/tap/aiplex`. The cask lives in the `vamsiramakrishnan/homebrew-tap` repository. Homebrew casks do not install on Linux; Linux users use the install script or the archive.
 - **Container images** (from the first tagged release): `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex` (the CLI), each for linux/amd64 and linux/arm64.
 - **Build from source**: Go 1.25 or newer, then `make build`, which writes `bin/aiplex` and `bin/aiplex-api`.
 

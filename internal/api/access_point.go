@@ -18,6 +18,8 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolpolicy"
 )
 
 // AccessPointKind is the tenant resource kind of an access point: one stable
@@ -46,6 +48,13 @@ type AccessPoint struct {
 	Tools       []AccessPointTool   `json:"tools,omitempty"`
 	Skills      []AccessPointSkill  `json:"skills,omitempty"`
 	QoS         *AccessPointQoS     `json:"qos,omitempty"`
+	// Project is a free-form label an administrator sets here. Tenant budgets
+	// may select it as a member (members.projects); it is trusted because only
+	// an administrator can set it, and it is never read from a request.
+	Project string `json:"project,omitempty"`
+	// Labels are trusted experiment tags stored on every usage record of an
+	// exchange through this access point (see usage_tags.go).
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // AccessPointSubjects narrows who may call. Principals, groups and agents are
@@ -73,9 +82,14 @@ type AccessPointModel struct {
 // AccessPointTool exposes one saved tool connection. Expose is an optional
 // list of tool names or prefixes ending in '*'; omitted exposes every tool
 // the connection itself permits.
+//
+// Rules are policy rules (pkg/toolpolicy) evaluated in addition to the
+// connection's own tools.rules: a call must pass both, so an access point can
+// only add restrictions.
 type AccessPointTool struct {
-	ConnectionRef string   `json:"connection_ref"`
-	Expose        []string `json:"expose,omitempty"`
+	ConnectionRef string            `json:"connection_ref"`
+	Expose        []string          `json:"expose,omitempty"`
+	Rules         []toolpolicy.Rule `json:"rules,omitempty"`
 }
 
 type AccessPointSkill struct {
@@ -233,7 +247,27 @@ func (h *ConnectedHandler) validateAccessPoint(ctx context.Context, tenant, id s
 	if err = h.validateAccessPointQoS(tenant, ap.QoS); err != nil {
 		return ap, err
 	}
+	if ap.Project != "" && !budgetLabelPattern.MatchString(ap.Project) {
+		return ap, withField("project", fmt.Errorf("project must match [A-Za-z0-9][A-Za-z0-9._-]{0,127}"))
+	}
+	if err = validateAccessPointLabels(ap.Labels); err != nil {
+		return ap, withField("labels", err)
+	}
 	return ap, nil
+}
+
+// validateAccessPointLabels bounds the labels an access point stamps on usage
+// records.
+func validateAccessPointLabels(labels map[string]string) error {
+	if len(labels) > usageledger.MaxTags {
+		return fmt.Errorf("labels is bounded to %d entries", usageledger.MaxTags)
+	}
+	for k, v := range labels {
+		if !usageledger.ValidTagKey(k) || !usageledger.ValidTagValue(v) || v == usageledger.TagOverflowValue {
+			return fmt.Errorf("labels need keys of [a-z][a-z0-9_.-]{0,31} and values of up to %d characters of [A-Za-z0-9_.:/@+() -], other than %q", usageledger.MaxTagValueLength, usageledger.TagOverflowValue)
+		}
+	}
+	return nil
 }
 
 func (h *ConnectedHandler) validateAccessPointSubjects(ctx context.Context, tenant string, s AccessPointSubjects) error {
@@ -362,6 +396,11 @@ func (h *ConnectedHandler) validateAccessPointTools(ctx context.Context, tenant 
 		if t.Expose != nil {
 			if err := (toolexec.ToolPolicy{Allow: t.Expose}).Validate(); err != nil {
 				return withField(at("expose"), fmt.Errorf("tools[%s].expose: %v", t.ConnectionRef, strings.TrimPrefix(err.Error(), "tools.allow ")))
+			}
+		}
+		if len(t.Rules) > 0 {
+			if _, err := toolpolicy.CompileCached(t.Rules); err != nil {
+				return withField(at("rules"), fmt.Errorf("tools[%s].rules: %v", t.ConnectionRef, err))
 			}
 		}
 		if _, err := h.accessPointToolConnection(ctx, tenant, t.ConnectionRef); err != nil {

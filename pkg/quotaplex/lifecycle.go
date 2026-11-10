@@ -171,7 +171,7 @@ func (e *Engine) Abort(ctx context.Context, tenant, attempt string) error {
 		if record.Decision.State != "admitted" || !record.Decision.Allowed {
 			return ErrInvalidTransition
 		}
-		changes, err := releaseAttempt(tx, record, nil)
+		changes, err := releaseAttempt(tx, record, nil, now)
 		if err != nil {
 			return err
 		}
@@ -270,9 +270,11 @@ func (e *Engine) Settle(ctx context.Context, settlement Settlement) (Decision, e
 				return err
 			}
 			for _, budget := range record.Plan.Budgets {
-				if record.Plan.Meters[budget.MeterID].Unit == "money" {
-					if _, exists := money[budget.MeterID]; !exists {
-						return ErrUnknownPrice
+				for _, meter := range budgetMeters(budget) {
+					if record.Plan.Meters[meter].Unit == "money" {
+						if _, exists := money[meter]; !exists {
+							return ErrUnknownPrice
+						}
 					}
 				}
 			}
@@ -281,7 +283,7 @@ func (e *Engine) Settle(ctx context.Context, settlement Settlement) (Decision, e
 				return err
 			}
 		}
-		changes, err := releaseAttempt(tx, record, actual)
+		changes, err := releaseAttempt(tx, record, actual, now)
 		if err != nil {
 			return err
 		}
@@ -316,14 +318,16 @@ func (e *Engine) Settle(ctx context.Context, settlement Settlement) (Decision, e
 
 func planHasMoneyBudget(plan Plan) bool {
 	for _, budget := range plan.Budgets {
-		if plan.Meters[budget.MeterID].Unit == "money" {
-			return true
+		for _, meter := range budgetMeters(budget) {
+			if plan.Meters[meter].Unit == "money" {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func releaseAttempt(tx Tx, record attemptRecord, actual Vector) ([]budgetMutation, error) {
+func releaseAttempt(tx Tx, record attemptRecord, actual Vector, now time.Time) ([]budgetMutation, error) {
 	changes := make([]budgetMutation, 0, len(record.Plan.Budgets))
 	for _, limit := range record.Plan.Budgets {
 		state, err := loadBudget(tx, limit)
@@ -334,11 +338,17 @@ func releaseAttempt(tx Tx, record attemptRecord, actual Vector) ([]budgetMutatio
 			return nil, fmt.Errorf("reservation hold underflow: %w", ErrConflict)
 		}
 		state.Held -= limit.Demand
-		consumed := actual[limit.MeterID]
+		var consumed int64
+		for _, meter := range budgetMeters(limit) {
+			if consumed, err = checkedAdd(consumed, actual[meter]); err != nil {
+				return nil, err
+			}
+		}
 		state.Consumed, err = checkedAdd(state.Consumed, consumed)
 		if err != nil {
 			return nil, err
 		}
+		state.Crossed = crossThresholds(state, limit, now)
 		if err := tx.Put(budgetKind, limit.Key, state); err != nil {
 			return nil, err
 		}

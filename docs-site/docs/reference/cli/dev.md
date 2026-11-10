@@ -59,6 +59,7 @@ Usage:
 
 Examples:
   aiplex dev
+  aiplex dev --quota    # QuotaPlex on, so budgets that count requests work
   aiplex dev --detach && aiplex dev status
   aiplex dev --provider openai --api-key-env OPENAI_API_KEY
   aiplex dev --provider anthropic --api-key-env ANTHROPIC_API_KEY --model claude-haiku-4-5
@@ -86,6 +87,7 @@ Flags:
       --otel string            Export OpenTelemetry traces and metrics (OTLP/HTTP) to this collector endpoint, e.g. http://127.0.0.1:4318
       --port int               API port on 127.0.0.1 (default 8080)
       --provider string        Model provider: mock, openai, anthropic or gemini (default "mock")
+      --quota                  Turn QuotaPlex on for the mock surfaces and tools so budgets that count requests work (mock provider only; counters reset when the API restarts)
 
 Global Flags:
       --debug           Show debug output, including raw API errors

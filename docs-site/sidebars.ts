@@ -47,6 +47,8 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'guides/mcplex'},
           items: [
             L('tool-connection-auth', 'Tool connection auth'),
+            L('tool-policy-rules', 'Policy rules on tool calls'),
+            L('mcp-registry-import', 'Import from the MCP Registry'),
             L('mcp-runtime-authorization', 'Owned MCP OAuth execution'),
           ],
         },
@@ -78,6 +80,7 @@ const sidebars: SidebarsConfig = {
             L('quotaplex-execution-coverage', 'Execution coverage'),
             L('quotaplex-prerequisites', 'Prerequisites and readiness'),
             L('quotaplex-foundation-design', 'Foundation design'),
+            L('budgets', 'Budgets'),
             L('usage-ledger', 'Usage ledger'),
           ],
         },
@@ -149,7 +152,9 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'api/overview'},
           items: [
             'api/usage',
+            'api/otlp',
             'api/hooks',
+            'api/budgets',
             'api/access-points',
             'api/overview-pane',
             'api/identity-agents',

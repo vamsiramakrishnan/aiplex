@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"github.com/vamsiramakrishnan/aiplex/pkg/budgets"
 	"net/http"
 	"sort"
 	"time"
@@ -90,6 +91,7 @@ type OverviewAccessPoint struct {
 	QoS         *AccessPointQoS          `json:"qos"`
 	Quota       OverviewAccessPointQuota `json:"quota"`
 	Balance     OverviewBalance          `json:"balance"`
+	Budgets     OverviewBudgets          `json:"budgets"`
 	Usage       OverviewAccessPointUsage `json:"usage"`
 	Notes       []string                 `json:"notes"`
 }
@@ -244,6 +246,7 @@ func (h *OverviewHandler) AccessPointOverview(w http.ResponseWriter, r *http.Req
 	out.Resources = h.apResources(r.Context(), tenant, ap)
 	out.Quota = h.apQuota(tenant, ap)
 	out.Balance = OverviewBalance{Reason: overviewBalanceReason}
+	out.Budgets = h.budgetsFor(r.Context(), tenant, []budgetVariant{{facts: budgets.Facts{AccessPointID: ap.ID, Project: ap.Project}}}, overviewBudgetAPNote)
 	callers, truncated, err := h.apCallers(r.Context(), tenant, ap, since, dir)
 	if err != nil {
 		Error(w, r, http.StatusServiceUnavailable, "USAGE_LEDGER_UNAVAILABLE", "usage ledger is unavailable")

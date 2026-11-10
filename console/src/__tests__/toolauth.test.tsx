@@ -179,6 +179,15 @@ describe('tool auth helpers', () => {
     expect(filesRecord.spec.auth?.type).toBe('api_key')
   })
 
+  it('keeps policy rules it does not edit', () => {
+    const rule = { id: 'no-etc', effect: 'deny', when: "path_under(args.path, '/etc')" }
+    const spec = { ...filesRecord.spec, tools: { allow: ['files.*'], rules: [rule] } }
+    const next = applySelection(spec, catalog, { authType: 'api_key', values: { in: 'header', name: 'X-Api-Key', secret_ref: 'files-key' }, allow: 'a.*', deny: '', readOnly: true })
+    expect(next.tools).toEqual({ allow: ['a.*'], read_only: true, rules: [rule] })
+    const cleared = applySelection(spec, catalog, { authType: '', values: {}, allow: '', deny: '', readOnly: false })
+    expect(cleared.tools).toEqual({ rules: [rule] })
+  })
+
   it('validates required, enum and reference fields from the catalog', () => {
     const type = catalog.types[1]
     expect(Object.keys(validateAuthValues(catalog, type, {}))).toEqual(['in', 'name', 'secret_ref'])

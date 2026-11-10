@@ -82,9 +82,11 @@ not flags: use `aiplex access-points apply -f <file>` for them, and the [specifi
 | `caller_kinds` | One to three of `agent`, `user`, `client`. Unknown kinds are rejected. |
 | `subjects` | Narrows who may call. An empty block admits every caller of an allowed kind. See [admission](#admission). |
 | `models[]` | `name` is the client-facing name, `surface_ref` a saved model surface, `native_model` the model the surface lists. Names are unique. |
-| `tools[]` | `connection_ref` names a saved tool connection. `expose` is an optional list of tool names or prefixes ending in `*`. Omitted means every tool the connection permits. |
+| `tools[]` | `connection_ref` names a saved tool connection. `expose` is an optional list of tool names or prefixes ending in `*`. Omitted means every tool the connection permits. `rules` is an optional list of [policy rules](tool-policy-rules.md) for calls through this access point; they run in addition to the connection's own rules, so an access point can only add restrictions. Rules are compiled when the access point is saved. |
 | `skills[]` | `instance_ref` names a deployed skill instance. Requires the `skillsplex` module. |
+| `project` | Optional label, `[A-Za-z0-9._-]` up to 128 characters, set by an administrator. A [tenant budget](budgets.md) may select it in `members.projects`. It is trusted because only an administrator can set it; it is never read from a request. |
 | `qos` | `class` (lower-case, up to 63 characters), `weight`, `limits` (`requests_per_minute`, `tokens_per_minute`, `concurrency`) and `budget_refs`. Rendered into QuotaPlex controls. See [QoS and quota](#qos-and-quota). |
+| `labels` | Up to 8 trusted experiment tags (`key: value`), stored as `tags` on every usage record of an exchange through this access point. Keys are `[a-z][a-z0-9_.-]{0,31}`; values up to 64 characters of `[A-Za-z0-9_.:/@+() -]`, not `(other)`. A caller can add tags only with the `X-AIPlex-Tags` header for keys the operator allowed (`AIPLEX_TAG_KEYS_ALLOWED`), and cannot override a label. Filter and group usage by tag: see the [usage ledger](usage-ledger.md#tags). Invalid labels are refused on save as `labels`. |
 
 Unknown fields are rejected. The API returns a validation error for any reference that
 does not resolve in the tenant.
@@ -140,7 +142,7 @@ caller's own bearer token. A request without a verified identity is refused.
 | `GET /v1beta/models` | Google GenAI list | Only models reachable through that protocol. |
 | `POST /mcp` | MCP Streamable HTTP | Aggregates every exposed tool as `{connection}__{tool}`. See [aggregate tools/list](#aggregate-toolslist). |
 | `POST /mcp/{connection}` | MCP Streamable HTTP | One connection, with original tool names. |
-| `GET /v0.1/servers` | MCP registry listing | For clients that take a catalog URL. |
+| `GET /v0.1/servers` | MCP registry listing | For clients that take a catalog URL. Served in the MCP Registry response shape (`servers[]` of `{server, _meta}`, `metadata.count`; server.json schema 2025-12-11) next to the AIPlex catalog members (`templates`, `total`, `page`, `page_size`). See [MCP Registry import](mcp-registry-import.md#related-the-access-points-own-registry-shaped-listing). |
 | `GET /skills` | Skill manifest | Exposed skills. Requires `skillsplex`. |
 | `GET /.well-known/oauth-protected-resource`, `…/mcp`, `…/mcp/{connection}` | RFC 9728 metadata | Public. Points at the operator's authorization server. |
 
@@ -366,8 +368,10 @@ resource that cannot be read returns `503 RESOURCE_STORE_UNAVAILABLE`, not a fie
 ## Tool requests
 
 Each `tools/call` goes through the managed tool path: connection policy, the caller's
-`mcp:tools:` grant, quota, the upstream credential and the usage ledger. See
-[tool connection auth](tool-connection-auth.md).
+`mcp:tools:` grant, policy rules (the connection's, then the access point's), quota, the
+upstream credential and the usage ledger. See
+[tool connection auth](tool-connection-auth.md) and
+[policy rules on tool calls](tool-policy-rules.md).
 
 The MCP endpoints accept `POST` only (other methods return `405`). The body must be
 `application/json`. Browser origins are checked against the public URL's own origin
@@ -474,7 +478,10 @@ Notes from the rendering code:
   binding without that meter is denied.
 - A QoS block with no limits and no matching quota control fails closed for requests.
 - Re-rendering replaces this access point's earlier rate and concurrency rules.
-- `budget_refs` select budgets that already exist in the active quota policy.
+- `budget_refs` select budgets that already exist in the active quota policy. They are the operator's
+  QuotaPlex budget rules. [Tenant budgets](budgets.md) (team and project limits saved with
+  `aiplex budgets`) are separate: they select an access point through their `members.access_points`
+  or its `project`, need no `budget_refs`, and are enforced by QuotaPlex in the same admission.
 
 **Fail-closed rule.** A request through an access point with a `qos` block is refused
 when no active quota control matches the access point and the target:

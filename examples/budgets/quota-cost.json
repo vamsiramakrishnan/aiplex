@@ -1,0 +1,50 @@
+{
+  "version": "v1",
+  "host": {
+    "max_membership_age": 300000000000,
+    "tenants": [
+      {
+        "policy": {
+          "version": "v1",
+          "tenant_id": "development",
+          "id": "budgets-cost",
+          "revision": 1,
+          "effective_at": "2026-01-01T00:00:00Z",
+          "meters": {
+            "requests": { "id": "requests", "unit": "requests", "billable": true },
+            "usd": { "id": "usd", "unit": "money", "currency": "USD", "scale": 6 }
+          },
+          "price_books": [
+            {
+              "id": "placeholder-tariff",
+              "revision": 1,
+              "match": { "resource_id": "local-models" },
+              "prices": [
+                { "meter_id": "requests", "money_meter_id": "usd", "numerator": 1000, "denominator": 1 }
+              ]
+            }
+          ],
+          "accounts": [{ "id": "team", "priority": 1, "tenant_wide": true }],
+          "concurrency": [
+            { "id": "active", "scope": { "kind": "tenant" }, "match": {}, "limit": 64 }
+          ]
+        },
+        "activate": true
+      }
+    ],
+    "bindings": [
+      {
+        "id": "local-models-chat",
+        "tenant_id": "development",
+        "plane": "llmplex",
+        "resource_id": "local-models",
+        "operation_id": "compat.chat-completions",
+        "model": "mock-gpt",
+        "profile": "request-count",
+        "funding_account_id": "team",
+        "provider": "openai-compatible",
+        "meters": { "requests": "requests" }
+      }
+    ]
+  }
+}

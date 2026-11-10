@@ -3,6 +3,7 @@ import {
   type AccessPointRecord,
   type AccessPointSpec,
   type ConnectConfig,
+  type Feedback,
   type ModelPrice,
   type ModelPriceRecord,
   type ModelSurface,
@@ -28,11 +29,14 @@ import {
   parseOverviewSubjectPage,
   parseToolConnection,
   parseUsageRecord,
+  parseFeedback,
   parseUsageRecordPage,
   parseUsageSummary,
   parseWhoami,
   toWireAccessPointSpec,
   toWireModelPrice,
+  parseBudgetStatus,
+  type BudgetStatus,
 } from "./models.js";
 
 const USER_AGENT = "aiplex-sdk-ts/0.1.0";
@@ -50,12 +54,17 @@ const VALID_GROUP_BY = new Set<string>([
   "client_id",
   "access_point_id",
   "caller_kind",
+  "budget",
   "status",
   "source",
   "error_class",
   "usage_bound",
   "batch",
+  "hook_decision",
+  "harness",
 ]);
+
+const TAG_GROUP = /^tag:[a-z][a-z0-9_.-]{0,31}$/;
 
 const VALID_BUCKETS = new Set<string>(["hour", "day"]);
 
@@ -77,11 +86,21 @@ export interface UsageFilter {
   clientId?: string;
   accessPointId?: string;
   callerKind?: string;
+  /** Records that drew from this tenant budget. */
+  budgetId?: string;
   status?: string;
   source?: string;
   errorClass?: string;
   usageBound?: string;
   batch?: boolean;
+  /** Reported records from one harness (claude-code, codex, gemini-cli). */
+  harness?: string;
+  /** allow, deny, transform, error, skipped, or none. */
+  hookDecision?: string;
+  /** settled, estimated, reported or unknown. */
+  costBasis?: string;
+  /** Records carrying every tag pair, sent as tag.<key>=<value>. */
+  tags?: Record<string, string>;
   since?: string;
   until?: string;
 }
@@ -159,10 +178,14 @@ function applyUsageFilter(
     ["client_id", filter.clientId],
     ["access_point_id", filter.accessPointId],
     ["caller_kind", filter.callerKind],
+    ["budget_id", filter.budgetId],
     ["status", filter.status],
     ["source", filter.source],
     ["error_class", filter.errorClass],
     ["usage_bound", filter.usageBound],
+    ["harness", filter.harness],
+    ["hook_decision", filter.hookDecision],
+    ["cost_basis", filter.costBasis],
     ["since", filter.since],
     ["until", filter.until],
   ];
@@ -173,6 +196,9 @@ function applyUsageFilter(
   }
   if (filter.batch !== undefined && filter.batch !== null) {
     params.set("batch", filter.batch ? "true" : "false");
+  }
+  for (const [key, val] of Object.entries(filter.tags ?? {})) {
+    params.set(`tag.${key}`, val);
   }
 }
 
@@ -418,6 +444,16 @@ export class AiplexClient {
   /**
    * Gets a single access point by ID.
    */
+  /**
+   * Counters of a budget in its current window. Members see spent, reserved
+   * and remaining; operators see more. A non-member gets a not-found error.
+   */
+  public async getBudgetStatus(id: string): Promise<BudgetStatus> {
+    validateId(id, "id");
+    const data = await this.#request("GET", `/api/v1/budgets/${encodeURIComponent(id)}/status`);
+    return parseBudgetStatus(data);
+  }
+
   public async getAccessPoint(id: string): Promise<AccessPointRecord> {
     validateId(id, "id");
     const data = await this.#request(
@@ -708,7 +744,14 @@ export class AiplexClient {
    */
   public async usageSummary(
     filter?: UsageFilter,
-    options?: { groupBy?: readonly string[]; bucket?: "hour" | "day" },
+    options?: {
+      groupBy?: readonly string[];
+      bucket?: "hour" | "day";
+      /** Add managed and reported records together instead of keeping them apart. */
+      mergeSources?: boolean;
+      /** Add latest-feedback totals to every group. */
+      feedback?: boolean;
+    },
   ): Promise<UsageSummary> {
     const query = new URLSearchParams();
     applyUsageFilter(query, filter);
@@ -724,7 +767,7 @@ export class AiplexClient {
         if (entry === "") {
           continue;
         }
-        if (!VALID_GROUP_BY.has(entry)) {
+        if (!VALID_GROUP_BY.has(entry) && !TAG_GROUP.test(entry)) {
           throw new TypeError(`invalid groupBy field: ${entry}`);
         }
         if (seen.has(entry)) {
@@ -744,9 +787,43 @@ export class AiplexClient {
       }
       query.set("bucket", options.bucket);
     }
+    if (options?.mergeSources) {
+      query.set("merge_sources", "true");
+    }
+    if (options?.feedback) {
+      query.set("feedback", "true");
+    }
 
     const data = await this.#request("GET", "/api/v1/usage/summary", { query });
     return parseUsageSummary(data);
+  }
+
+  /**
+   * Adds feedback (score from -1 to 1) to a record the caller may see. It is
+   * append-only; the newest entry is the record's current feedback.
+   */
+  public async addUsageFeedback(
+    recordId: string,
+    input: { score: number; label?: string; comment?: string },
+  ): Promise<Feedback> {
+    validateId(recordId, "recordId");
+    if (
+      typeof input.score !== "number" ||
+      !Number.isFinite(input.score) ||
+      input.score < -1 ||
+      input.score > 1
+    ) {
+      throw new TypeError("score must be a number between -1 and 1");
+    }
+    const body: Record<string, unknown> = { score: input.score };
+    if (input.label) body["label"] = input.label;
+    if (input.comment) body["comment"] = input.comment;
+    const data = await this.#request(
+      "POST",
+      `/api/v1/usage/records/${encodeURIComponent(recordId)}/feedback`,
+      { body },
+    );
+    return parseFeedback(data);
   }
 
   /**

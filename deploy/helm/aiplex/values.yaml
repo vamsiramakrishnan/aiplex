@@ -62,6 +62,11 @@ denialIngest:
     key: token
 
 # ─── Rust ext_authz sidecar (optional; the default data path is OPA below) ───
+# The release pipeline does not build or push this image yet. Build it from
+# authz/Dockerfile with authz/ as the context and push it to
+# <global.registry>/aiplex-authz:<tag> (tag defaults to the chart appVersion):
+#   docker build -t "$REGISTRY/aiplex-authz:0.1.0" authz/ && docker push "$REGISTRY/aiplex-authz:0.1.0"
+# See docs/policy-denials.md.
 authz:
   enabled: false
   replicas: 2
@@ -215,3 +220,28 @@ kratos:
       requests:
         cpu: 100m
         memory: 128Mi
+
+# Usage ledger settings (docs/usage-ledger.md, docs/observability.md). All are
+# optional; the defaults are what the API uses when the variable is unset.
+usage:
+  # Trace viewer link shown in the Console, for example
+  # https://tempo.example/trace/{trace_id}. Must contain {trace_id} and be an
+  # http(s) URL without credentials, or the API refuses to start.
+  traceUrlTemplate: ""
+  # Accept free-text comments on record feedback (default: refused).
+  feedbackComments: false
+  # Keys a caller may set with the X-AIPlex-Tags header (default: none).
+  tagKeysAllowed: []
+  # Distinct header-supplied values per key and tenant before "(other)" (API default 50).
+  tagMaxValues: ""
+  # OTLP/HTTP receiver for harness telemetry at /otlp/v1/{logs,metrics,traces}.
+  # Empty values use the API defaults: 1000 records, 4 MiB, 20 requests/s and
+  # 2000 records/s per principal (in process, per replica).
+  otlp:
+    maxRecordsPerRequest: ""
+    maxBodyBytes: ""
+    requestsPerSecond: ""
+    recordsPerSecond: ""
+    # Forward the telemetry AIPlex does not record to the collector named by
+    # otel.endpoint (http/protobuf only). Default off.
+    forward: false

@@ -69,6 +69,21 @@ function optBoolean(
   return val;
 }
 
+function optNumber(
+  obj: Record<string, unknown>,
+  key: string,
+  context: string,
+): number | null {
+  const val = obj[key];
+  if (val === undefined || val === null) {
+    return null;
+  }
+  if (typeof val !== "number" || !Number.isFinite(val)) {
+    throw decodeError(`${context}.${key}: expected number`);
+  }
+  return val;
+}
+
 function optInt(
   obj: Record<string, unknown>,
   key: string,
@@ -607,6 +622,10 @@ export interface UsageCounters {
   cacheWriteTokens: number | null;
   reasoningTokens: number | null;
   totalTokens: number | null;
+  /** Part of cacheWriteTokens written with the one-hour TTL (a subset). */
+  cacheWrite1hTokens: number | null;
+  /** Gemini tool-use prompt tokens; not part of inputTokens. */
+  toolUsePromptTokens: number | null;
   raw: Record<string, unknown>;
 }
 
@@ -622,6 +641,8 @@ export function parseUsageCounters(value: unknown): UsageCounters {
     cacheWriteTokens: optInt(obj, "cache_write_tokens", "UsageCounters"),
     reasoningTokens: optInt(obj, "reasoning_tokens", "UsageCounters"),
     totalTokens: optInt(obj, "total_tokens", "UsageCounters"),
+    cacheWrite1hTokens: optInt(obj, "cache_write_1h_tokens", "UsageCounters"),
+    toolUsePromptTokens: optInt(obj, "tool_use_prompt_tokens", "UsageCounters"),
     raw: obj,
   };
 }
@@ -635,6 +656,12 @@ export interface Cost {
   amountMinor: string | null;
   scale: number | null;
   amountDecimal: string | null;
+  /** Unrounded amount in minor units as a fraction ("37/4"); only when amount was rounded up. */
+  exact: string | null;
+  /** The price an estimate used. */
+  priceId: string | null;
+  /** Set when the cost was unknown at write time and priced afterwards. */
+  backfilledAt: string | null;
   raw: Record<string, unknown>;
 }
 
@@ -662,6 +689,9 @@ export function parseCost(value: unknown): Cost {
     amountMinor,
     scale,
     amountDecimal,
+    exact: basis === "unknown" ? null : optString(obj, "exact", "Cost"),
+    priceId: basis === "unknown" ? null : optString(obj, "price_id", "Cost"),
+    backfilledAt: basis === "unknown" ? null : optString(obj, "backfilled_at", "Cost"),
     raw: obj,
   };
 }
@@ -727,6 +757,68 @@ function parseCostTotalList(
 }
 
 /**
+ * One feedback entry on a usage record. Append-only; the newest is current.
+ * `score` is null only when the server omitted it; absence is never neutral.
+ */
+export interface Feedback {
+  id: string | null;
+  recordId: string | null;
+  by: string | null;
+  createdAt: string | null;
+  score: number | null;
+  label: string | null;
+  comment: string | null;
+  raw: Record<string, unknown>;
+}
+
+/**
+ * Parses a {@link Feedback}.
+ */
+export function parseFeedback(value: unknown): Feedback {
+  const obj = asObject(value, "Feedback");
+  return {
+    id: optString(obj, "id", "Feedback"),
+    recordId: optString(obj, "record_id", "Feedback"),
+    by: optString(obj, "by", "Feedback"),
+    createdAt: optString(obj, "created_at", "Feedback"),
+    score: optNumber(obj, "score", "Feedback"),
+    label: optString(obj, "label", "Feedback"),
+    comment: optString(obj, "comment", "Feedback"),
+    raw: obj,
+  };
+}
+
+/**
+ * Latest-feedback totals of a summary group. `averageScore` is null when no
+ * record has feedback; records without feedback are in `withoutFeedback`.
+ */
+export interface FeedbackTotals {
+  records: number | null;
+  withoutFeedback: number | null;
+  positive: number | null;
+  negative: number | null;
+  neutral: number | null;
+  averageScore: number | null;
+  raw: Record<string, unknown>;
+}
+
+/**
+ * Parses a {@link FeedbackTotals}.
+ */
+export function parseFeedbackTotals(value: unknown): FeedbackTotals {
+  const obj = asObject(value, "FeedbackTotals");
+  return {
+    records: optInt(obj, "records", "FeedbackTotals"),
+    withoutFeedback: optInt(obj, "without_feedback", "FeedbackTotals"),
+    positive: optInt(obj, "positive", "FeedbackTotals"),
+    negative: optInt(obj, "negative", "FeedbackTotals"),
+    neutral: optInt(obj, "neutral", "FeedbackTotals"),
+    averageScore: optNumber(obj, "average_score", "FeedbackTotals"),
+    raw: obj,
+  };
+}
+
+/**
  * Single usage ledger record.
  */
 export interface UsageRecord {
@@ -750,11 +842,30 @@ export interface UsageRecord {
   spanId: string | null;
   status: string | null;
   source: string | null;
+  /** Processing tier the provider reported (default, standard, flex, priority, mixed). */
+  serviceTier: string | null;
+  /** Provider-side tool requests by kind; empty when none were reported. */
+  serverTools: Record<string, number>;
   streaming: boolean | null;
   httpStatus: number | null;
   requests: number | null;
   usage: UsageCounters | null;
   cost: Cost | null;
+  /** Reported records: the harness, its version and its own session id. Labels, never identity. */
+  harness: string | null;
+  harnessVersion: string | null;
+  sessionId: string | null;
+  clientRequestId: string | null;
+  callerSpanId: string | null;
+  reportedAttributes: Record<string, string>;
+  /** Experiment labels from access point labels and allowlisted headers. */
+  tags: Record<string, string>;
+  /** Tenant budgets the exchange drew from (its own and ancestors). */
+  budgetIds: string[];
+  /** Request-hook summary (decision, results); null when no hook ran. */
+  hooks: Record<string, unknown> | null;
+  /** Latest feedback, present on a record fetched with getUsageRecord. */
+  feedback: Feedback | null;
   raw: Record<string, unknown>;
 }
 
@@ -786,11 +897,28 @@ export function parseUsageRecord(value: unknown): UsageRecord {
     spanId: optString(obj, "span_id", "UsageRecord"),
     status: optString(obj, "status", "UsageRecord"),
     source: optString(obj, "source", "UsageRecord"),
+    serviceTier: optString(obj, "service_tier", "UsageRecord"),
+    serverTools: intMap(obj, "server_tools", "UsageRecord"),
     streaming: optBoolean(obj, "streaming", "UsageRecord"),
     httpStatus: optInt(obj, "http_status", "UsageRecord"),
     requests: optInt(obj, "requests", "UsageRecord"),
     usage: usageRaw !== null ? parseUsageCounters(usageRaw) : null,
     cost: costRaw !== null ? parseCost(costRaw) : null,
+    harness: optString(obj, "harness", "UsageRecord"),
+    harnessVersion: optString(obj, "harness_version", "UsageRecord"),
+    sessionId: optString(obj, "session_id", "UsageRecord"),
+    clientRequestId: optString(obj, "client_request_id", "UsageRecord"),
+    callerSpanId: optString(obj, "caller_span_id", "UsageRecord"),
+    reportedAttributes: stringMap(obj, "reported_attributes", "UsageRecord"),
+    tags: stringMap(obj, "tags", "UsageRecord"),
+    budgetIds: Array.isArray(obj["budget_ids"])
+      ? (obj["budget_ids"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : [],
+    hooks: optObject(obj, "hooks", "UsageRecord"),
+    feedback:
+      optObject(obj, "feedback", "UsageRecord") !== null
+        ? parseFeedback(obj["feedback"])
+        : null,
     raw: obj,
   };
 }
@@ -839,6 +967,8 @@ export interface UsageSummaryGroup {
   tokens: Record<string, number>;
   tokensUnknown: Record<string, number>;
   cost: CostTotal[];
+  /** Present when the summary asked for feedback. */
+  feedback: FeedbackTotals | null;
   raw: Record<string, unknown>;
 }
 
@@ -867,6 +997,10 @@ export function parseUsageSummaryGroup(value: unknown): UsageSummaryGroup {
     tokens: intMap(obj, "tokens", "UsageSummaryGroup"),
     tokensUnknown: intMap(obj, "tokens_unknown", "UsageSummaryGroup"),
     cost: parseCostTotalList(obj, "cost", "UsageSummaryGroup"),
+    feedback:
+      optObject(obj, "feedback", "UsageSummaryGroup") !== null
+        ? parseFeedbackTotals(obj["feedback"])
+        : null,
     raw: obj,
   };
 }
@@ -879,6 +1013,12 @@ export interface UsageSummary {
   groups: UsageSummaryGroup[];
   recordsScanned: number | null;
   truncated: boolean | null;
+  /** True when managed and reported records are separate groups. */
+  sourceSplit: boolean | null;
+  /** Reported records left out because they describe a request that has a managed record; null when the server omitted it (zero is omitted). */
+  excludedCorrelatedReported: number | null;
+  /** How sources were treated, in plain words. */
+  notes: string[];
   raw: Record<string, unknown>;
 }
 
@@ -900,6 +1040,13 @@ export function parseUsageSummary(value: unknown): UsageSummary {
     groups,
     recordsScanned: optInt(obj, "records_scanned", "UsageSummary"),
     truncated: optBoolean(obj, "truncated", "UsageSummary"),
+    sourceSplit: optBoolean(obj, "source_split", "UsageSummary"),
+    excludedCorrelatedReported: optInt(
+      obj,
+      "excluded_correlated_reported",
+      "UsageSummary",
+    ),
+    notes: stringList(obj, "notes", "UsageSummary"),
     raw: obj,
   };
 }
@@ -959,6 +1106,26 @@ export function parseModelPriceRate(value: unknown): ModelPriceRate {
 }
 
 /**
+ * Long-context override: above this total input the whole request uses these meters.
+ */
+export interface ModelPriceTier {
+  aboveInputTokens: number | null;
+  meters: Record<string, ModelPriceRate>;
+}
+
+function parseMeters(value: unknown, context: string): Record<string, ModelPriceRate> {
+  const meters: Record<string, ModelPriceRate> = {};
+  if (value !== undefined && value !== null) {
+    for (const [k, v] of Object.entries(asObject(value, context))) {
+      if (v !== null && v !== undefined) {
+        meters[k] = parseModelPriceRate(v);
+      }
+    }
+  }
+  return meters;
+}
+
+/**
  * Model price specification.
  */
 export interface ModelPrice {
@@ -967,6 +1134,10 @@ export interface ModelPrice {
   currency: string | null;
   scale: number | null;
   meters: Record<string, ModelPriceRate>;
+  /** Matches records served on this tier; without it a price covers standard-tier exchanges. */
+  serviceTier?: string | null;
+  /** Long-context overrides, ascending by threshold. */
+  tiers?: ModelPriceTier[];
   raw?: Record<string, unknown>;
 }
 
@@ -992,6 +1163,16 @@ export function parseModelPrice(value: unknown): ModelPrice {
     currency: optString(obj, "currency", "ModelPrice"),
     scale: optInt(obj, "scale", "ModelPrice"),
     meters,
+    serviceTier: optString(obj, "service_tier", "ModelPrice"),
+    tiers: Array.isArray(obj["tiers"])
+      ? (obj["tiers"] as unknown[]).map((t) => {
+          const tier = asObject(t, "ModelPrice.tiers");
+          return {
+            aboveInputTokens: optInt(tier, "above_input_tokens", "ModelPrice.tiers"),
+            meters: parseMeters(tier["meters"], "ModelPrice.tiers.meters"),
+          };
+        })
+      : [],
     raw: obj,
   };
 }
@@ -1023,6 +1204,23 @@ export function toWireModelPrice(price: ModelPrice): Record<string, unknown> {
   }
   if (price.scale !== null && price.scale !== undefined) {
     out["scale"] = price.scale;
+  }
+  if (price.serviceTier !== null && price.serviceTier !== undefined) {
+    out["service_tier"] = price.serviceTier;
+  }
+  if (price.tiers !== undefined && price.tiers.length > 0) {
+    out["tiers"] = price.tiers.map((t) => {
+      const tm: Record<string, unknown> = {};
+      for (const [k, rate] of Object.entries(t.meters)) {
+        const r: Record<string, unknown> = {};
+        if (rate.numerator !== null && rate.numerator !== undefined) r["numerator"] = rate.numerator;
+        if (rate.denominator !== null && rate.denominator !== undefined) r["denominator"] = rate.denominator;
+        tm[k] = r;
+      }
+      const tier: Record<string, unknown> = { meters: tm };
+      if (t.aboveInputTokens !== null) tier["above_input_tokens"] = t.aboveInputTokens;
+      return tier;
+    });
   }
   return out;
 }
@@ -1418,4 +1616,59 @@ export function parseList<T>(
     throw decodeError(`${context}: expected JSON array`);
   }
   return value.map((item) => itemParser(item));
+}
+
+/**
+ * A budget's counters in its current window. Amounts are exact decimal
+ * strings. Operator-only fields are null or empty for a member: unknown, not zero.
+ */
+export interface BudgetStatus {
+  id: string;
+  displayName: string | null;
+  parent: string | null;
+  unit: string;
+  currency: string | null;
+  limit: string;
+  spent: string;
+  reserved: string;
+  remaining: string;
+  overLimit: boolean;
+  windowStart: string | null;
+  windowEnd: string | null;
+  unknownCostRequests: number | null;
+  thresholdEvents: Array<Record<string, unknown>>;
+  children: Array<Record<string, unknown>>;
+  topSpenders: Array<Record<string, unknown>>;
+  raw: Record<string, unknown>;
+}
+
+function budgetObjectList(obj: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
+  const val = obj[key];
+  return Array.isArray(val)
+    ? val.filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x))
+    : [];
+}
+
+export function parseBudgetStatus(data: unknown): BudgetStatus {
+  const obj = asObject(data, "BudgetStatus");
+  const window = optObject(obj, "window", "BudgetStatus") ?? {};
+  return {
+    id: reqString(obj, "id", "BudgetStatus"),
+    displayName: optString(obj, "display_name", "BudgetStatus"),
+    parent: optString(obj, "parent", "BudgetStatus"),
+    unit: reqString(obj, "unit", "BudgetStatus"),
+    currency: optString(obj, "currency", "BudgetStatus"),
+    limit: reqString(obj, "limit", "BudgetStatus"),
+    spent: reqString(obj, "spent", "BudgetStatus"),
+    reserved: reqString(obj, "reserved", "BudgetStatus"),
+    remaining: reqString(obj, "remaining", "BudgetStatus"),
+    overLimit: optBoolean(obj, "over_limit", "BudgetStatus") === true,
+    windowStart: optString(window, "start", "BudgetStatus.window"),
+    windowEnd: optString(window, "end", "BudgetStatus.window"),
+    unknownCostRequests: optInt(obj, "unknown_cost_requests", "BudgetStatus"),
+    thresholdEvents: budgetObjectList(obj, "threshold_events"),
+    children: budgetObjectList(obj, "children"),
+    topSpenders: budgetObjectList(obj, "top_spenders"),
+    raw: obj,
+  };
 }

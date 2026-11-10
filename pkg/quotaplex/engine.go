@@ -89,6 +89,11 @@ type budgetRecord struct {
 	Consumed    int64     `json:"consumed"`
 	Credited    int64     `json:"credited"`
 	Debited     int64     `json:"debited"`
+	// UnknownCost counts requests admitted under on_unknown_cost
+	// allow_and_flag whose cost could not be computed. Crossed records the
+	// alert thresholds consumption has reached in this window.
+	UnknownCost int64            `json:"unknown_cost,omitempty"`
+	Crossed     []ThresholdCross `json:"crossed,omitempty"`
 }
 
 type rateRecord struct {
@@ -148,6 +153,7 @@ type BudgetBalance struct {
 	Credited    int64     `json:"credited"`
 	Debited     int64     `json:"debited"`
 	Available   int64     `json:"available"`
+	UnknownCost int64     `json:"unknown_cost,omitempty"`
 }
 
 func quotaHash(parts ...any) string {
@@ -294,11 +300,12 @@ func (e *Engine) Admit(ctx context.Context, demand Demand) (Decision, error) {
 			return err
 		}
 		decision := Decision{TenantID: demand.Context.TenantID, AttemptID: demand.AttemptID, Policy: e.policy.Reference(), State: "denied"}
-		persistDenial := func(reason string, retry time.Duration) error {
-			decision.Reason, decision.RetryAfter = reason, retry
+		persistDenialFor := func(reason, budget string, retry time.Duration) error {
+			decision.Reason, decision.RetryAfter, decision.BudgetID = reason, retry, budget
 			result = decision
 			return tx.Create(attemptKind, demand.AttemptID, attemptRecord{Fingerprint: fingerprint, Demand: demand, Decision: decision})
 		}
+		persistDenial := func(reason string, retry time.Duration) error { return persistDenialFor(reason, "", retry) }
 		var head PolicyRef
 		if err := tx.Get(policyHeadKind, "active", &head); errors.Is(err, ErrNotFound) {
 			return persistDenial("policy_inactive", 0)
@@ -318,7 +325,7 @@ func (e *Engine) Admit(ctx context.Context, demand Demand) (Decision, error) {
 		if err != nil {
 			var denied *ResolveError
 			if errors.As(err, &denied) {
-				return persistDenial(denied.Code, 0)
+				return persistDenialFor(denied.Code, denied.BudgetID, 0)
 			}
 			return err
 		}
@@ -357,12 +364,21 @@ func (e *Engine) Admit(ctx context.Context, demand Demand) (Decision, error) {
 					return err
 				}
 			}
+			if limit.UnknownCost {
+				// allow_and_flag: nothing is held; the request is counted
+				// so the budget shows how much spend it cannot see.
+				state.UnknownCost++
+				state.Limit = limit.Limit
+				state.LimitPolicy = plan.Policy
+				budgets[limit.Key] = state
+				continue
+			}
 			available, err := budgetAvailable(state, limit.Limit)
 			if err != nil {
 				return err
 			}
 			if available < limit.Demand {
-				return persistDenial("budget_exhausted", positiveDuration(limit.Window.End.Sub(now)))
+				return persistDenialFor("budget_exhausted", limit.BudgetID, positiveDuration(limit.Window.End.Sub(now)))
 			}
 			state.Held, err = checkedAdd(state.Held, limit.Demand)
 			if err != nil {
@@ -560,7 +576,7 @@ func (e *Engine) BudgetBalance(ctx context.Context, tenant, key string) (BudgetB
 	if err != nil {
 		return BudgetBalance{}, err
 	}
-	return BudgetBalance{Key: record.Key, RuleID: record.RuleID, MeterID: record.MeterID, Window: record.Window, Limit: record.Limit, LimitPolicy: record.LimitPolicy, Held: record.Held, Consumed: record.Consumed, Credited: record.Credited, Debited: record.Debited, Available: available}, nil
+	return BudgetBalance{Key: record.Key, RuleID: record.RuleID, MeterID: record.MeterID, Window: record.Window, Limit: record.Limit, LimitPolicy: record.LimitPolicy, Held: record.Held, Consumed: record.Consumed, Credited: record.Credited, Debited: record.Debited, Available: available, UnknownCost: record.UnknownCost}, nil
 }
 
 func (e *Engine) checkTenant(tenant string) error {

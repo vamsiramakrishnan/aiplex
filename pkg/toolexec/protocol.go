@@ -108,6 +108,11 @@ func ParseRequest(body []byte, allowed []string) (Request, error) {
 		Params  struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments,omitempty"`
+			// Meta is accepted so a client's per-request _meta (progress
+			// token, trace context) does not make the request invalid. It is
+			// not part of the semantic digest; trace context in it is replaced
+			// before dispatch (see PatchTraceMeta).
+			Meta json.RawMessage `json:"_meta,omitempty"`
 		} `json:"params"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
@@ -130,6 +135,9 @@ func ParseRequest(body []byte, allowed []string) (Request, error) {
 	}
 	if !found {
 		return Request{}, fmt.Errorf("tool is not allowed by this connection")
+	}
+	if meta := bytes.TrimSpace(envelope.Params.Meta); len(meta) > 0 && meta[0] != '{' && !bytes.Equal(meta, []byte("null")) {
+		return Request{}, fmt.Errorf("params._meta must be an object")
 	}
 	arguments := envelope.Params.Arguments
 	if len(arguments) > 0 && (bytes.TrimSpace(arguments)[0] != '{' || bytes.Equal(bytes.TrimSpace(arguments), []byte("null"))) {
