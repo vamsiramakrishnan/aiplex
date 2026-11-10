@@ -9,16 +9,28 @@ upstream availability, entitlement or runtime permissions.
 
 ## Coverage contracts
 
-| Binding profile | Operations | Required token mappings |
-| --- | --- | --- |
-| `request-count` | Explicit cataloged HTTP/SSE generation, prediction, embeddings, counting, supported native resource operations and job/cache creation | None; `requests` is required |
-| `gemini-text` | Native model/endpoint `generateContent` and `streamGenerateContent` | `uncached_input_tokens`, `cached_tokens`, `output_tokens`, `thought_tokens` |
-| `openai-text` | `openai.chat-completions`, `response.create` | `uncached_input_tokens`, `cached_tokens`, `output_tokens` |
-| `anthropic-text` | `anthropic.messages`, or Anthropic model `rawPredict` / `streamRawPredict` on Vertex | `uncached_input_tokens`, `cached_tokens`, `output_tokens` |
-| `gemini-interaction-text` | Model-backed `interaction.create` | `uncached_input_tokens`, `cached_tokens`, `output_tokens`, `thought_tokens` |
+| Binding profile | Operations | Required token mappings | Optional token mappings |
+| --- | --- | --- | --- |
+| `request-count` | Explicit cataloged HTTP/SSE generation, prediction, embeddings, counting, supported native resource operations and job/cache creation; WebSocket sessions on session-metered surfaces | None; `requests` is required | — |
+| `gemini-text` | Native model/endpoint `generateContent` and `streamGenerateContent` (Vertex, provider `google`; SSE or JSON array); Gemini Developer API `gemini.models.generateContent` / `gemini.models.streamGenerateContent` (provider `gemini-developer`) | `uncached_input_tokens`, `cached_tokens`, `output_tokens`, `thought_tokens` | — |
+| `openai-text` | `openai.chat-completions`, `response.create`, OpenAI and Azure OpenAI Chat/Responses, `openai.v1.responses-websocket` (per admitted response), `compat.chat-completions` only with `provider.usage_semantics: "openai"` | `uncached_input_tokens`, `cached_tokens`, `output_tokens` | cache writes: `cache_write_tokens` **or** `cache_write_30m_tokens` + `cache_write_12h_tokens` |
+| `anthropic-text` | `anthropic.messages`; Anthropic `rawPredict` / `streamRawPredict` on Vertex; Anthropic Messages bodies on Bedrock `bedrock.invoke` / `bedrock.invoke-stream` (provider `bedrock`) | `uncached_input_tokens`, `cached_tokens`, `output_tokens` | cache writes: `cache_write_tokens` **or** `cache_write_5m_tokens` + `cache_write_1h_tokens` |
+| `bedrock-converse-text` | `bedrock.converse`, `bedrock.converse-stream` | `uncached_input_tokens`, `cached_tokens`, `output_tokens` | cache writes: `cache_write_tokens` **or** `cache_write_5m_tokens` + `cache_write_1h_tokens` |
+| `vertex-openai-text` | `openai.chat-completions` on a Google surface (Vertex OpenAI-compatible endpoint) | `input_tokens`, `output_tokens` | — |
+| `gemini-interaction-text` | Model-backed `interaction.create` (Vertex) and `gemini.interactions.create` (Developer API) | `uncached_input_tokens`, `cached_tokens`, `output_tokens`, `thought_tokens` | — |
+| `embedding-input` | `openai.v1.embeddings`, `azure.v1.embeddings`, `azure.deployments.embeddings`, `gemini.models.embedContent`, `gemini.models.batchEmbedContents`, Vertex `models.predict` / `endpoints.predict` (embedding statistics), `models.embedContent` | `input_tokens` | — |
+| `openai-realtime` | `openai.v1.realtime` per admitted response (token-metered surface) | `uncached_text_input_tokens`, `uncached_audio_input_tokens`, `uncached_image_input_tokens`, `cached_text_input_tokens`, `cached_audio_input_tokens`, `cached_image_input_tokens`, `text_output_tokens`, `audio_output_tokens` | — |
+| `gemini-live-allowance` | `live.connect` per allowance window (token-metered surface) | at least one of `input_tokens`, `cached_tokens`, `output_tokens`, `thought_tokens`, `tool_use_tokens`, `total_tokens` | the others in that list |
+
+A binding maps at most 12 meters including `requests`. Cache-write meters are
+one complete option: the scalar `cache_write_tokens` (one price for every TTL)
+or the provider's full per-TTL set (one price per TTL); mapping both, a partial
+set or another provider's set is rejected at configuration. Disjoint input
+subsets (uncached, cache read, each mapped cache write) each reserve the whole
+attested input ceiling; the shared-ceiling check applies to their sum.
 
 Every profile additionally maps `requests`. Mapped raw meters must be distinct;
-a thought meter is deliberately rejected for the two output-inclusive profiles.
+a thought meter is deliberately rejected for the output-inclusive profiles.
 Existing versioned price books price those raw units into explicit money meters.
 Different token profiles need price books matching their actual meter sets:
 a Gemini price book that requires a thought meter cannot be reused for an
@@ -36,36 +48,72 @@ installed coverage contract remain unsupported by the managed host.
 ## WebSocket sessions
 
 Gemini Live (`live.connect`), OpenAI Realtime (`openai.v1.realtime`) and OpenAI
-Responses WebSocket mode (`openai.v1.responses-websocket`) are covered by the
-`request-count` profile only. A session maps onto the one-exchange model:
+Responses WebSocket mode (`openai.v1.responses-websocket`) are configured per
+surface with the `websocket` block of the saved surface spec:
 
-- **Admission**: one lease per session, prepared once the session's model is
-  known (Live: after the bounded `setup` message; Realtime: the `?model=`
-  connect parameter; Responses: no model at upgrade, so the lease is prepared at the upgrade and each `response.create` is re-authorized, not admitted again) and
-  before credentials or the upstream dial. A token-profile lease is aborted and
-  the session refused (`UNSUPPORTED_EXECUTION_TRANSPORT`).
-- **Observation**: usage server events are forwarded as advisory, non-terminal
-  observations: Live `usageMetadata` as cumulative session snapshots (last
-  replaces earlier, never added), Realtime `response.done` and Responses
-  `response.completed` as per-response deltas summed over distinct response ids.
-  Realtime input-transcription usage is a separate `transcription_*` meter
-  (billed at the transcription model's rate) and is never merged into the
-  session's token counters. Realtime `rate_limits.updated` feeds the provider
-  limit observation.
-- **Settlement**: exactly once at session end. Only a clean close with complete
-  evidence (every started response finished with usage; no Live model output,
-  turn signal or client input after the last snapshot) yields a terminal
-  observation with session totals. Otherwise the observed usage is labelled
-  `lower_bound`, `ambiguous` (a resumed Live session, whose counter reset is
-  unconfirmed) or `partial` (non-token units such as transcription seconds),
-  and the ledger records the exchange as `unknown` with that `usage_bound`.
-  Either way the request-count lease settles its one request and releases its
-  permit.
-- **Exposure bound**: per session, one admitted request against request
-  budgets/rates and one concurrency permit for at most the gateway's
-  `MaxStreamDuration` (default 30 minutes, at most 24 hours), after which both
-  sockets are closed. Tokens on these paths are not bounded by quota, only by
-  provider session limits and that duration; no token-metered claim is made.
+| Field | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `websocket.metering` | `session`, `token` | `session` | How sessions are admitted (below). |
+| `websocket.max_session_seconds` | 60..86400 | the gateway's maximum stream duration (1800) | Hard session duration; both sockets close when it elapses. |
+| `websocket.token_allowance` | 1024..4194304 (`token` only) | 32768 | Gemini Live allowance window, held per mapped meter. |
+
+**Session metering (default)** keeps the request-count contract: one admission
+prepared once the model is known (Live: after the bounded `setup`; Realtime:
+the `?model=` connect parameter; Responses: at the upgrade, each
+`response.create` re-authorized) and before credentials or the dial; one
+settlement at session end; usage is advisory (`lower_bound`, `ambiguous` for a
+resumed Live session, `partial` for non-token units). A token-profile lease is
+refused (`UNSUPPORTED_EXECUTION_TRANSPORT`). Exposure: one admitted request and
+one concurrency permit for at most the session duration; tokens unbounded.
+
+**Token metering, OpenAI Realtime and Responses WebSocket mode** (per-response
+admission). Each client `response.create` is its own exchange: it is admitted
+(budgets, rates, concurrency, trusted exposure bound; idempotency key derived
+from the session's key plus `/ws/<n>`), its dispatch is claimed, and only then
+is the event forwarded. One response may be in flight; a second
+`response.create`, a quota denial or an unbounded request (Realtime:
+`response.max_output_tokens` must be an integer, `"inf"` is refused; tools,
+out-of-band `input` and `conversation` selection are refused; Responses: the
+`openai-text` request rules plus no `stream_id` lanes) is answered with the
+protocol's own `error` event (`error.code` = the quota code, e.g.
+`QUOTA_BUDGET_EXHAUSTED`) and dropped; the session stays open. `response.created`
+binds the lease; the terminal event (Realtime `response.done` with status
+`completed`, Responses `response.completed`) is settled on its exact usage and
+acknowledged before it reaches the client. Cancelled, failed or incomplete
+responses, a response without usage and a disconnect retain the hold as
+unknown, as for an incomplete HTTP stream; a provider `invalid_request_error`
+(Realtime) or a 4xx rejection status (Responses) before `response.created`
+releases it. Realtime turn detection can create responses without a client
+`response.create`, so a token-metered Realtime session must first send a
+`session.update` with `turn_detection` null or `create_response: false` (GA
+`session.audio.input.turn_detection` or beta `session.turn_detection`); every
+other event before that, and any later update that re-enables automatic
+responses, is refused natively. A response the gateway did not admit closes
+the session with a policy-violation close. Exposure: every response is bounded
+by its own admitted hold; nothing is generated outside an admitted hold.
+Realtime settles on disjoint modality meters (`openai-realtime`):
+`input_token_details` text/audio/image minus `cached_tokens_details`, and
+`output_token_details` text/audio; every breakdown must add up to the reported
+totals. Input-transcription usage (billed to the ASR model) stays advisory.
+
+**Token metering, Gemini Live** (renewable allowance). Live `usageMetadata`
+messages are session-cumulative snapshots whose composition Google does not
+fully document. The first window lease holds `token_allowance` per mapped
+meter at setup, before credentials and the dial. When any mapped counter has
+consumed half of the window, the window settles exactly on the snapshot delta
+(windows never overlap: one concurrency permit per session) and the next
+window is admitted. A denied renewal sends `{"goAway":{"timeLeft":"0s"}}` and
+closes both sockets with a policy-violation close. A clean close whose last
+message was a snapshot settles the open window; an interruption, or model
+output/input after the last snapshot, retains the open window as unknown.
+Resumed sessions are refused in token mode. Omitted Live counters are 0
+(proto3 scalar omission). **Worst-case exposure beyond admitted holds: one
+allowance per mapped meter** — a snapshot jump larger than half a window
+settles as a recorded overrun (debt that blocks further admissions, never
+dropped), and after a denied renewal the usage generated between that snapshot
+and the close has no hold and reaches the ledger only as `lower_bound`
+telemetry. The `gemini-live-allowance` profile uses the surface allowance as
+its exposure bound; no provider bound authority is involved.
 
 ## Strict text request contracts
 
@@ -92,8 +140,23 @@ The current supported payloads are intentionally explicit:
   explicit `store: false`. Tools, conversation/previous-response references,
   remote files, multimodal content and background execution are refused.
 - Anthropic requires inline string message/system content and `max_tokens`.
-  An explicit thinking budget must fit that output cap. Tools, cache controls,
-  image/document blocks, context-management work and unknown fields are refused.
+  An explicit thinking budget must fit that output cap. When the binding maps a
+  cache-write meter, text content blocks with `cache_control`
+  (`{"type":"ephemeral"}`, optional `ttl` `5m`/`1h`), system text blocks and the
+  top-level `cache_control` (automatic caching) are accepted; otherwise they are
+  refused. Tools, image/document blocks, context-management work and unknown
+  fields are refused. Anthropic Messages bodies on Bedrock InvokeModel follow
+  the same rules.
+- Bedrock Converse requires inline text content blocks, an optional text
+  `system` and `inferenceConfig.maxTokens`; `cachePoint` blocks
+  (`type: default`, optional `ttl` `5m`/`1h`) only with a cache-write meter.
+  Tools, guardrails, documents, images and `additionalModelRequestFields` are
+  refused.
+- OpenAI-format `prompt_cache_key` and `prompt_cache_options` (`mode`
+  `implicit`/`explicit`, `ttl`) are accepted only with a cache-write meter.
+- Embeddings (`embedding-input`) require inline text input (OpenAI `input`
+  string or up to 2048 strings; Gemini text `content` parts; Vertex predict
+  `instances[].content` strings); the attested input ceiling is the only bound.
   The existing Messages client facade can translate to the corresponding native
   Vertex Anthropic operation; it uses the same quota admission and accounting.
 - Interactions requires a direct model, one inline string input, a bounded
@@ -122,7 +185,11 @@ reasoning = total). The observer folds reasoning into output only when the
 native total proves that composition, keeps an inclusive composition when the
 total proves that instead (open models), and otherwise leaves output unknown.
 The endpoint documents no cached-input breakdown, so the strict `openai-text`
-profile fails closed there.
+profile fails closed there unless the response carries one. The
+`vertex-openai-text` profile settles total input and billed output only: the
+native total must be reported when reasoning is present (it proves the
+composition) and must equal input + output. Without a cache split an implicit
+cache hit is charged at the operator's input price for `input_tokens`.
 
 Usage-format conformance against provider-documented samples, and the
 generated provider x surface x transport coverage matrix, are in
@@ -138,12 +205,56 @@ Anthropic input tokens exclude cache-read input. Its uncached meter is therefore
 the native input count; cache-read input is a separate meter. Thinking remains
 inside billed output. No separately billable thought count is invented.
 
-Positive cache-write/cache-creation quantities and native server-tool quantities
-are currently outside the output-inclusive strict profiles. They fail closed
-rather than using ordinary input prices. These dimensions need their own
-attested exposure and price contracts. Thus a provider/version that automatically
-reports cache writes cannot acquire this token-accounting profile simply because
-it speaks an otherwise compatible Messages/Responses protocol.
+Cache writes are a first-class meter. Composition, without double counting:
+OpenAI and Azure input includes reads and writes (uncached = input − read −
+write; Responses `cache_write_tokens_details.ttl_30m_tokens`/`ttl_12h_tokens`
+"sum to `cache_write_tokens`"); Anthropic Messages, Vertex Anthropic and
+Anthropic bodies on Bedrock InvokeModel report input exclusive of both (total
+input = input + `cache_read_input_tokens` + `cache_creation_input_tokens`;
+`cache_creation.ephemeral_5m_input_tokens` + `ephemeral_1h_input_tokens` equal
+the scalar); Bedrock Converse `inputTokens` is "only the non-cached input
+tokens" and `cacheDetails[{inputTokens, ttl: 5m|1h}]` breaks down the writes
+(AWS prompt-caching guide). A breakdown that contradicts its scalar is refused.
+A reported zero writes all TTL buckets as zero; positive writes without a
+breakdown leave the buckets unknown, so a per-TTL binding fails closed. A
+binding with no cache-write meter refuses positive writes at settlement
+(`QUOTA_USAGE_UNMETERED`, exposure retained). An absent OpenAI-format
+`cache_write_tokens` settles as 0 (documented default; models without
+separately billed writes keep written tokens in ordinary input).
+
+Server-tool quantities always fail closed, per counter: Anthropic
+`server_tool_use.web_search_requests`, `web_fetch_requests` and
+`code_execution_requests` (per-request billing; code execution also bills
+container time that no usage object reports), any unknown `server_tool_use`
+key, and Gemini `toolUsePromptTokenCount` / `total_tool_use_tokens`. The
+documented counters are kept as `server_tool_*` ledger telemetry. The strict
+profiles also refuse tool requests, so no exposure bound exists for them.
+
+Bedrock Converse responses carry no model identifier. Under a strict profile
+the versioned `modelId` the gateway dispatched to (the URL path selector,
+checked against the surface) is the observed identity; embeddings without a
+model in the response use the dispatched model the same way.
+
+Gemini `cachedContentTokenCount` omitted from a response is 0: it is a plain
+proto3 `int32` without presence (`google/cloud/aiplatform/v1/prediction_service.proto`,
+`google/ai/generativelanguage/v1beta/generative_service.proto`) and the
+[proto3 JSON mapping](https://protobuf.dev/programming-guides/json/) omits
+default values.
+
+## Provider rejections
+
+A provider status that its documentation defines as refused before generation
+releases the hold: the exchange settles as one request with zero consumption
+and the provider's status, error body and `Retry-After` reach the client
+unchanged (subject to the surface's header passthrough). Other failures keep
+exposure retained as unknown.
+
+| Provider | Released (not processed) | Retained (ambiguous) |
+| --- | --- | --- |
+| OpenAI, Azure OpenAI, OpenAI-compatible | 400, 401, 403, 404, 413, 422, 429 | 5xx incl. 503, cut connections, errors after a 2xx |
+| Anthropic | 400, 401, 402, 403, 404, 413, 429, 529 `overloaded_error` | 500 `api_error`, 504 `timeout_error`, mid-stream `error` events |
+| Google (Vertex incl. partner rawPredict, Gemini) | 400, 401, 403, 404, 429 `RESOURCE_EXHAUSTED` | 500, 503, 504 |
+| Bedrock | 400 `ValidationException`/`ServiceQuotaExceededException`, 403, 404, 429 `ThrottlingException`/`ModelNotReadyException` | 408 `ModelTimeoutException`, 424 `ModelErrorException`, 500, 503 |
 
 The provider's actual native model identifier is recorded separately from the
 configured target. Missing or different required proof retains exposure and

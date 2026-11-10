@@ -36,13 +36,24 @@ total when reported, else input + output. Per-directory rules:
 | `google/vertex-openai-chat*` | output = completion + reasoning (completion excludes reasoning) |
 | `google/*count-tokens*` | not consumption: no usage may be observed |
 
-Strict Gemini settlement treats an omitted `cachedContentTokenCount` as 0 (proto3 zero
-omission; conservative, all input charged as uncached) and derives thoughts as
-total - prompt - candidates. WebSocket sessions are request-count metered: one
-admission and one settlement per session; usage without final evidence is
-labelled `lower_bound`, `ambiguous` (resumed Live session) or `partial` (non-token units
-such as transcription seconds, kept as `*_milliseconds` counters the token ledger
-cannot hold).
+Strict Gemini settlement treats an omitted `cachedContentTokenCount` as 0: the field is a
+plain proto3 `int32` without presence in both the Vertex and Developer API protos, and
+the proto3 JSON mapping omits default values. Thoughts are derived as
+total - prompt - candidates. Cache writes are a separate meter (scalar or per-TTL);
+OpenAI-format strict settlement treats an absent `cache_write_tokens` as 0 (documented
+default; models without separately billed writes keep them in ordinary input).
+Strict lease rows also cover Azure OpenAI (`azure-openai/`) and generic compatible
+servers that declare `usage_semantics: "openai"` (`openai-compatible/`), both in the
+OpenAI convention.
+
+WebSocket sessions run two ways. On a session-metered surface (default) one
+request-count admission and one settlement per session; usage without final
+evidence is labelled `lower_bound`, `ambiguous` (resumed Live session) or `partial`
+(non-token units such as transcription seconds). On a token-metered surface
+(`websocket.metering: "token"`) the harness replays the fixture with one lease per
+admitted Realtime/Responses response or Live allowance window: complete sessions
+settle every lease and the settled leases add up to the fixture's usage; an
+interrupted session leaves its open lease unsettled.
 
 ## Summary (rows)
 
