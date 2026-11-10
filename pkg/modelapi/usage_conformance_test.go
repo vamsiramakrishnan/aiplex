@@ -359,7 +359,7 @@ func usageRoutes() []fixtureRoute {
 		exact("anthropic", "messages-iterations.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
 		exact("anthropic", "messages-code-execution.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, toolRefuse),
 		unsupported("anthropic", "count-tokens.json", "count-tokens", "json", "no /v1/messages/count_tokens operation (an estimate, never consumption)"),
-		unsupported("anthropic", "managed-agents-session.json", "managed-agents", "json", "no Managed Agents operation"),
+		unsupported("anthropic", "managed-agents-session.json", "managed-agents", "json", "no Managed Agents operation: the session object usage is a documented cumulative snapshot (platform.claude.com/docs/en/managed-agents/session-observability, re-read 2026-11-10), but the session.usage event envelope is still not shown and a session has no single terminal exchange through which a snapshot could settle once without double counting repeated polls"),
 		unsupported("anthropic", "ratelimit.json", "rate-limit-metadata", "json", "documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits"),
 		exact("anthropic", "vertex-raw.json", "vertex-rawPredict", "json", callVertexClaude, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
 		exact("anthropic", "vertex-raw.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
