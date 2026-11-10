@@ -261,7 +261,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 			}
 		}
 	}
-	upstream, err := url.Parse(strings.TrimSuffix(g.surface.Origin, "/") + r.URL.EscapedPath())
+	upstream, err := url.Parse(g.upstreamOrigin() + r.URL.EscapedPath())
 	if err != nil {
 		http.Error(w, "invalid upstream request", http.StatusBadRequest)
 		return true
