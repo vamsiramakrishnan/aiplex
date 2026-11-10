@@ -77,6 +77,9 @@ type ConnectedHandler struct {
 
 	budgetMu  sync.Mutex
 	budgetSrc *BudgetCache
+	// Tags resolves record tags (access point labels and the allowlisted
+	// X-AIPlex-Tags header). Nil allows no caller-supplied tags.
+	Tags *TagPolicy
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {

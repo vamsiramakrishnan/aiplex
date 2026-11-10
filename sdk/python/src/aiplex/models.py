@@ -66,6 +66,29 @@ def _opt_bool(obj: dict[str, Any], key: str) -> bool | None:
     return val
 
 
+def _str_map(obj: dict[str, Any], key: str) -> dict[str, str]:
+    val = obj.get(key)
+    if val is None:
+        return {}
+    if not isinstance(val, dict):
+        raise _decode_err(f"field '{key}' must be an object")
+    out: dict[str, str] = {}
+    for k, v in val.items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            raise _decode_err(f"entries of '{key}' must be strings")
+        out[k] = v
+    return out
+
+
+def _opt_float(obj: dict[str, Any], key: str) -> float | None:
+    val = obj.get(key)
+    if val is None:
+        return None
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        raise _decode_err(f"field '{key}' must be a number")
+    return float(val)
+
+
 def _opt_dict(obj: dict[str, Any], key: str) -> dict[str, Any] | None:
     val = obj.get(key)
     if val is None:
@@ -182,11 +205,19 @@ class UsageFilter:
     client_id: str | None = None
     access_point_id: str | None = None
     caller_kind: str | None = None
+    #: Records that drew from this tenant budget.
+    budget_id: str | None = None
     status: str | None = None
     source: str | None = None
     error_class: str | None = None
     usage_bound: str | None = None
     batch: bool | None = None
+    #: Reported records from one harness (claude-code, codex, gemini-cli).
+    harness: str | None = None
+    #: allow, deny, transform, error, skipped, or none.
+    hook_decision: str | None = None
+    #: Records carrying every tag pair, sent as tag.<key>=<value>.
+    tags: dict[str, str] | None = None
     since: str | None = None
     until: str | None = None
 
@@ -203,10 +234,13 @@ class UsageFilter:
             ("client_id", self.client_id),
             ("access_point_id", self.access_point_id),
             ("caller_kind", self.caller_kind),
+            ("budget_id", self.budget_id),
             ("status", self.status),
             ("source", self.source),
             ("error_class", self.error_class),
             ("usage_bound", self.usage_bound),
+            ("harness", self.harness),
+            ("hook_decision", self.hook_decision),
             ("since", self.since),
             ("until", self.until),
         )
@@ -215,6 +249,8 @@ class UsageFilter:
                 params[name] = value
         if self.batch is not None:
             params["batch"] = "true" if self.batch else "false"
+        for key, value in (self.tags or {}).items():
+            params["tag." + key] = value
         return params
 
 
@@ -593,6 +629,65 @@ def _cost_total_list(obj: dict[str, Any], key: str = "cost") -> list[CostTotal]:
 
 
 @dataclass(frozen=True)
+class Feedback:
+    """One feedback entry on a usage record. Append-only; the newest is current."""
+
+    id: str | None = None
+    record_id: str | None = None
+    by: str | None = None
+    created_at: str | None = None
+    #: From -1 to 1. None means the field was absent, never "neutral".
+    score: float | None = None
+    label: str | None = None
+    comment: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> Feedback:
+        d = _expect_dict(data, "feedback")
+        return cls(
+            id=_opt_str(d, "id"),
+            record_id=_opt_str(d, "record_id"),
+            by=_opt_str(d, "by"),
+            created_at=_opt_str(d, "created_at"),
+            score=_opt_float(d, "score"),
+            label=_opt_str(d, "label"),
+            comment=_opt_str(d, "comment"),
+            raw=dict(d),
+        )
+
+
+@dataclass(frozen=True)
+class FeedbackTotals:
+    """Latest-feedback totals of a summary group.
+
+    ``average_score`` is None when no record has feedback; records without
+    feedback are counted in ``without_feedback`` and are not a neutral score.
+    """
+
+    records: int | None = None
+    without_feedback: int | None = None
+    positive: int | None = None
+    negative: int | None = None
+    neutral: int | None = None
+    average_score: float | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> FeedbackTotals:
+        d = _expect_dict(data, "feedback_totals")
+        return cls(
+            records=_opt_int(d, "records"),
+            without_feedback=_opt_int(d, "without_feedback"),
+            positive=_opt_int(d, "positive"),
+            negative=_opt_int(d, "negative"),
+            neutral=_opt_int(d, "neutral"),
+            average_score=_opt_float(d, "average_score"),
+            raw=dict(d),
+        )
+
+
+@dataclass(frozen=True)
 class UsageRecord:
     """Single usage ledger record."""
 
@@ -621,6 +716,22 @@ class UsageRecord:
     requests: int | None = None
     usage: UsageCounters | None = None
     cost: Cost | None = None
+    #: Reported records: the harness (claude-code, codex, gemini-cli), its
+    #: version and its own session id. Labels the sender chose, never identity.
+    harness: str | None = None
+    harness_version: str | None = None
+    session_id: str | None = None
+    client_request_id: str | None = None
+    caller_span_id: str | None = None
+    reported_attributes: dict[str, str] = field(default_factory=dict)
+    #: Experiment labels from access point labels and allowlisted headers.
+    tags: dict[str, str] = field(default_factory=dict)
+    #: Tenant budgets the exchange drew from (own and ancestors).
+    budget_ids: list[str] = field(default_factory=list)
+    #: Request-hook summary (decision, results); None when no hook ran.
+    hooks: dict[str, Any] | None = None
+    #: Latest feedback, present on a record fetched with get_usage_record.
+    feedback: Feedback | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -656,6 +767,16 @@ class UsageRecord:
             requests=_opt_int(d, "requests"),
             usage=usage,
             cost=cost,
+            harness=_opt_str(d, "harness"),
+            harness_version=_opt_str(d, "harness_version"),
+            session_id=_opt_str(d, "session_id"),
+            client_request_id=_opt_str(d, "client_request_id"),
+            caller_span_id=_opt_str(d, "caller_span_id"),
+            reported_attributes=_str_map(d, "reported_attributes"),
+            tags=_str_map(d, "tags"),
+            budget_ids=_str_list(d, "budget_ids"),
+            hooks=_opt_dict(d, "hooks"),
+            feedback=Feedback.from_wire(d["feedback"]) if d.get("feedback") is not None else None,
             raw=dict(d),
         )
 
@@ -701,6 +822,8 @@ class UsageSummaryGroup:
     tokens: dict[str, int] = field(default_factory=dict)
     tokens_unknown: dict[str, int] = field(default_factory=dict)
     cost: list[CostTotal] = field(default_factory=list)
+    #: Present when the summary asked for feedback.
+    feedback: FeedbackTotals | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -733,6 +856,7 @@ class UsageSummaryGroup:
             tokens=_int_map(d, "tokens"),
             tokens_unknown=_int_map(d, "tokens_unknown"),
             cost=_cost_total_list(d, "cost"),
+            feedback=FeedbackTotals.from_wire(d["feedback"]) if d.get("feedback") is not None else None,
             raw=dict(d),
         )
 
@@ -745,6 +869,13 @@ class UsageSummary:
     groups: list[UsageSummaryGroup] = field(default_factory=list)
     records_scanned: int | None = None
     truncated: bool | None = None
+    #: True when managed and reported records are separate groups.
+    source_split: bool | None = None
+    #: Reported records left out because they describe a request that has a
+    #: managed record. None when the server did not report it (zero is omitted).
+    excluded_correlated_reported: int | None = None
+    #: How sources were treated, in plain words.
+    notes: list[str] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -760,6 +891,9 @@ class UsageSummary:
             groups=groups,
             records_scanned=_opt_int(d, "records_scanned"),
             truncated=_opt_bool(d, "truncated"),
+            source_split=_opt_bool(d, "source_split"),
+            excluded_correlated_reported=_opt_int(d, "excluded_correlated_reported"),
+            notes=_str_list(d, "notes"),
             raw=dict(d),
         )
 
@@ -1160,5 +1294,66 @@ class OverviewSubjectDetail:
             usage=usage,
             notes=_str_list(d, "notes"),
             known_from=_str_list(d, "known_from"),
+            raw=dict(d),
+        )
+
+
+@dataclass(frozen=True)
+class BudgetStatus:
+    """A budget's counters in its current window. Amounts are exact decimal strings."""
+
+    id: str
+    unit: str
+    limit: str
+    spent: str
+    reserved: str
+    remaining: str
+    display_name: str | None = None
+    parent: str | None = None
+    currency: str | None = None
+    over_limit: bool = False
+    window_start: str | None = None
+    window_end: str | None = None
+    #: Operator-only; None for a member. Never zero when not reported.
+    unknown_cost_requests: int | None = None
+    threshold_events: list[dict[str, Any]] = field(default_factory=list)
+    children: list[dict[str, Any]] = field(default_factory=list)
+    top_spenders: list[dict[str, Any]] = field(default_factory=list)
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> BudgetStatus:
+        d = _expect_dict(data, "budget_status")
+        window = _opt_dict(d, "window") or {}
+
+        def req(key: str) -> str:
+            value = d.get(key)
+            if not isinstance(value, str):
+                raise AiplexError(
+                    f"budget_status.{key} must be a string", code="decode_error", status_code=None
+                )
+            return value
+
+        def dicts(key: str) -> list[dict[str, Any]]:
+            value = d.get(key)
+            return [dict(x) for x in value if isinstance(x, dict)] if isinstance(value, list) else []
+
+        return cls(
+            id=req("id"),
+            unit=req("unit"),
+            limit=req("limit"),
+            spent=req("spent"),
+            reserved=req("reserved"),
+            remaining=req("remaining"),
+            display_name=_opt_str(d, "display_name"),
+            parent=_opt_str(d, "parent"),
+            currency=_opt_str(d, "currency"),
+            over_limit=bool(_opt_bool(d, "over_limit")),
+            window_start=_opt_str(window, "start"),
+            window_end=_opt_str(window, "end"),
+            unknown_cost_requests=_opt_int(d, "unknown_cost_requests"),
+            threshold_events=dicts("threshold_events"),
+            children=dicts("children"),
+            top_spenders=dicts("top_spenders"),
             raw=dict(d),
         )

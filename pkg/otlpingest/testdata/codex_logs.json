@@ -1,0 +1,53 @@
+{
+  "_comment": "Built by hand from the Codex otel documentation and the codex.sse_event response.completed fields in codex-rs/otel (read 2026-11-10). Not captured from a real client.",
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "codex_cli_rs"}},
+          {"key": "service.version", "value": {"stringValue": "0.99.0"}}
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {"name": "codex_otel"},
+          "logRecords": [
+            {
+              "timeUnixNano": "1794312010000000000",
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "codex.sse_event"}},
+                {"key": "event.kind", "value": {"stringValue": "response.completed"}},
+                {"key": "conversation.id", "value": {"stringValue": "conv-1"}},
+                {"key": "model", "value": {"stringValue": "gpt-5-codex"}},
+                {"key": "input_token_count", "value": {"intValue": "1200"}},
+                {"key": "output_token_count", "value": {"intValue": "400"}},
+                {"key": "cached_token_count", "value": {"intValue": "1000"}},
+                {"key": "reasoning_token_count", "value": {"intValue": "128"}},
+                {"key": "tool_token_count", "value": {"intValue": "1600"}},
+                {"key": "duration_ms", "value": {"intValue": "30"}},
+                {"key": "model_reasoning_effort", "value": {"stringValue": "high"}}
+              ]
+            },
+            {
+              "timeUnixNano": "1794312010500000000",
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "codex.sse_event"}},
+                {"key": "event.kind", "value": {"stringValue": "response.output_text.delta"}},
+                {"key": "conversation.id", "value": {"stringValue": "conv-1"}}
+              ]
+            },
+            {
+              "timeUnixNano": "1794312011000000000",
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "codex.api_request"}},
+                {"key": "conversation.id", "value": {"stringValue": "conv-1"}},
+                {"key": "status", "value": {"intValue": "200"}},
+                {"key": "duration_ms", "value": {"intValue": "900"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

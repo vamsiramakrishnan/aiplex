@@ -89,7 +89,14 @@ func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, te
 	if call := accessPointCallFrom(r.Context()); call != nil {
 		c.record.AccessPointID = call.ID
 		c.record.CallerKind = call.CallerKind
+		if len(call.Tags) > 0 {
+			c.record.Tags = call.Tags
+		}
 	}
+	// Keys that let a harness's own telemetry be matched to this record:
+	// the caller's span id from its traceparent and its per-request id.
+	_, c.record.CallerSpanID = telemetry.RemoteParent(r.Header)
+	c.record.ClientRequestID = clientRequestID(r.Header.Get("X-Client-Request-Id"))
 	return c.writer, r, c
 }
 

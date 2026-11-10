@@ -69,6 +69,21 @@ function optBoolean(
   return val;
 }
 
+function optNumber(
+  obj: Record<string, unknown>,
+  key: string,
+  context: string,
+): number | null {
+  const val = obj[key];
+  if (val === undefined || val === null) {
+    return null;
+  }
+  if (typeof val !== "number" || !Number.isFinite(val)) {
+    throw decodeError(`${context}.${key}: expected number`);
+  }
+  return val;
+}
+
 function optInt(
   obj: Record<string, unknown>,
   key: string,
@@ -727,6 +742,68 @@ function parseCostTotalList(
 }
 
 /**
+ * One feedback entry on a usage record. Append-only; the newest is current.
+ * `score` is null only when the server omitted it; absence is never neutral.
+ */
+export interface Feedback {
+  id: string | null;
+  recordId: string | null;
+  by: string | null;
+  createdAt: string | null;
+  score: number | null;
+  label: string | null;
+  comment: string | null;
+  raw: Record<string, unknown>;
+}
+
+/**
+ * Parses a {@link Feedback}.
+ */
+export function parseFeedback(value: unknown): Feedback {
+  const obj = asObject(value, "Feedback");
+  return {
+    id: optString(obj, "id", "Feedback"),
+    recordId: optString(obj, "record_id", "Feedback"),
+    by: optString(obj, "by", "Feedback"),
+    createdAt: optString(obj, "created_at", "Feedback"),
+    score: optNumber(obj, "score", "Feedback"),
+    label: optString(obj, "label", "Feedback"),
+    comment: optString(obj, "comment", "Feedback"),
+    raw: obj,
+  };
+}
+
+/**
+ * Latest-feedback totals of a summary group. `averageScore` is null when no
+ * record has feedback; records without feedback are in `withoutFeedback`.
+ */
+export interface FeedbackTotals {
+  records: number | null;
+  withoutFeedback: number | null;
+  positive: number | null;
+  negative: number | null;
+  neutral: number | null;
+  averageScore: number | null;
+  raw: Record<string, unknown>;
+}
+
+/**
+ * Parses a {@link FeedbackTotals}.
+ */
+export function parseFeedbackTotals(value: unknown): FeedbackTotals {
+  const obj = asObject(value, "FeedbackTotals");
+  return {
+    records: optInt(obj, "records", "FeedbackTotals"),
+    withoutFeedback: optInt(obj, "without_feedback", "FeedbackTotals"),
+    positive: optInt(obj, "positive", "FeedbackTotals"),
+    negative: optInt(obj, "negative", "FeedbackTotals"),
+    neutral: optInt(obj, "neutral", "FeedbackTotals"),
+    averageScore: optNumber(obj, "average_score", "FeedbackTotals"),
+    raw: obj,
+  };
+}
+
+/**
  * Single usage ledger record.
  */
 export interface UsageRecord {
@@ -755,6 +832,21 @@ export interface UsageRecord {
   requests: number | null;
   usage: UsageCounters | null;
   cost: Cost | null;
+  /** Reported records: the harness, its version and its own session id. Labels, never identity. */
+  harness: string | null;
+  harnessVersion: string | null;
+  sessionId: string | null;
+  clientRequestId: string | null;
+  callerSpanId: string | null;
+  reportedAttributes: Record<string, string>;
+  /** Experiment labels from access point labels and allowlisted headers. */
+  tags: Record<string, string>;
+  /** Tenant budgets the exchange drew from (its own and ancestors). */
+  budgetIds: string[];
+  /** Request-hook summary (decision, results); null when no hook ran. */
+  hooks: Record<string, unknown> | null;
+  /** Latest feedback, present on a record fetched with getUsageRecord. */
+  feedback: Feedback | null;
   raw: Record<string, unknown>;
 }
 
@@ -791,6 +883,21 @@ export function parseUsageRecord(value: unknown): UsageRecord {
     requests: optInt(obj, "requests", "UsageRecord"),
     usage: usageRaw !== null ? parseUsageCounters(usageRaw) : null,
     cost: costRaw !== null ? parseCost(costRaw) : null,
+    harness: optString(obj, "harness", "UsageRecord"),
+    harnessVersion: optString(obj, "harness_version", "UsageRecord"),
+    sessionId: optString(obj, "session_id", "UsageRecord"),
+    clientRequestId: optString(obj, "client_request_id", "UsageRecord"),
+    callerSpanId: optString(obj, "caller_span_id", "UsageRecord"),
+    reportedAttributes: stringMap(obj, "reported_attributes", "UsageRecord"),
+    tags: stringMap(obj, "tags", "UsageRecord"),
+    budgetIds: Array.isArray(obj["budget_ids"])
+      ? (obj["budget_ids"] as unknown[]).filter((x): x is string => typeof x === "string")
+      : [],
+    hooks: optObject(obj, "hooks", "UsageRecord"),
+    feedback:
+      optObject(obj, "feedback", "UsageRecord") !== null
+        ? parseFeedback(obj["feedback"])
+        : null,
     raw: obj,
   };
 }
@@ -839,6 +946,8 @@ export interface UsageSummaryGroup {
   tokens: Record<string, number>;
   tokensUnknown: Record<string, number>;
   cost: CostTotal[];
+  /** Present when the summary asked for feedback. */
+  feedback: FeedbackTotals | null;
   raw: Record<string, unknown>;
 }
 
@@ -867,6 +976,10 @@ export function parseUsageSummaryGroup(value: unknown): UsageSummaryGroup {
     tokens: intMap(obj, "tokens", "UsageSummaryGroup"),
     tokensUnknown: intMap(obj, "tokens_unknown", "UsageSummaryGroup"),
     cost: parseCostTotalList(obj, "cost", "UsageSummaryGroup"),
+    feedback:
+      optObject(obj, "feedback", "UsageSummaryGroup") !== null
+        ? parseFeedbackTotals(obj["feedback"])
+        : null,
     raw: obj,
   };
 }
@@ -879,6 +992,12 @@ export interface UsageSummary {
   groups: UsageSummaryGroup[];
   recordsScanned: number | null;
   truncated: boolean | null;
+  /** True when managed and reported records are separate groups. */
+  sourceSplit: boolean | null;
+  /** Reported records left out because they describe a request that has a managed record; null when the server omitted it (zero is omitted). */
+  excludedCorrelatedReported: number | null;
+  /** How sources were treated, in plain words. */
+  notes: string[];
   raw: Record<string, unknown>;
 }
 
@@ -900,6 +1019,13 @@ export function parseUsageSummary(value: unknown): UsageSummary {
     groups,
     recordsScanned: optInt(obj, "records_scanned", "UsageSummary"),
     truncated: optBoolean(obj, "truncated", "UsageSummary"),
+    sourceSplit: optBoolean(obj, "source_split", "UsageSummary"),
+    excludedCorrelatedReported: optInt(
+      obj,
+      "excluded_correlated_reported",
+      "UsageSummary",
+    ),
+    notes: stringList(obj, "notes", "UsageSummary"),
     raw: obj,
   };
 }
@@ -1418,4 +1544,59 @@ export function parseList<T>(
     throw decodeError(`${context}: expected JSON array`);
   }
   return value.map((item) => itemParser(item));
+}
+
+/**
+ * A budget's counters in its current window. Amounts are exact decimal
+ * strings. Operator-only fields are null or empty for a member: unknown, not zero.
+ */
+export interface BudgetStatus {
+  id: string;
+  displayName: string | null;
+  parent: string | null;
+  unit: string;
+  currency: string | null;
+  limit: string;
+  spent: string;
+  reserved: string;
+  remaining: string;
+  overLimit: boolean;
+  windowStart: string | null;
+  windowEnd: string | null;
+  unknownCostRequests: number | null;
+  thresholdEvents: Array<Record<string, unknown>>;
+  children: Array<Record<string, unknown>>;
+  topSpenders: Array<Record<string, unknown>>;
+  raw: Record<string, unknown>;
+}
+
+function budgetObjectList(obj: Record<string, unknown>, key: string): Array<Record<string, unknown>> {
+  const val = obj[key];
+  return Array.isArray(val)
+    ? val.filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x))
+    : [];
+}
+
+export function parseBudgetStatus(data: unknown): BudgetStatus {
+  const obj = asObject(data, "BudgetStatus");
+  const window = optObject(obj, "window", "BudgetStatus") ?? {};
+  return {
+    id: reqString(obj, "id", "BudgetStatus"),
+    displayName: optString(obj, "display_name", "BudgetStatus"),
+    parent: optString(obj, "parent", "BudgetStatus"),
+    unit: reqString(obj, "unit", "BudgetStatus"),
+    currency: optString(obj, "currency", "BudgetStatus"),
+    limit: reqString(obj, "limit", "BudgetStatus"),
+    spent: reqString(obj, "spent", "BudgetStatus"),
+    reserved: reqString(obj, "reserved", "BudgetStatus"),
+    remaining: reqString(obj, "remaining", "BudgetStatus"),
+    overLimit: optBoolean(obj, "over_limit", "BudgetStatus") === true,
+    windowStart: optString(window, "start", "BudgetStatus.window"),
+    windowEnd: optString(window, "end", "BudgetStatus.window"),
+    unknownCostRequests: optInt(obj, "unknown_cost_requests", "BudgetStatus"),
+    thresholdEvents: budgetObjectList(obj, "threshold_events"),
+    children: budgetObjectList(obj, "children"),
+    topSpenders: budgetObjectList(obj, "top_spenders"),
+    raw: obj,
+  };
 }

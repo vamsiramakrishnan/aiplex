@@ -16,6 +16,10 @@
 #   make deploy       Helm install
 #   make verify       Health check + status
 
+# GoReleaser version, pinned for both local and CI use (ci.yml, release.yml and
+# tools/release-smoke.sh use the same value). Bump deliberately, with all four in step.
+GORELEASER_VERSION := v2.20.0
+
 .PHONY: help build test lint run-local dev deps clean demo e2e e2e-race examples-test release-smoke update-price-catalog \
         infra infra-plan infra-destroy deploy deploy-dry verify \
         docker-up docker-down console
@@ -233,6 +237,9 @@ deps: ## Check the tools each workflow needs
 	done
 
 # ─── Release ────────────────────────────────────────────
+
+release-tool: ## Install the pinned goreleaser ($(GORELEASER_VERSION)) into GOPATH/bin
+	$(GO) install github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
 release-check: ## Validate .goreleaser.yaml
 	goreleaser check

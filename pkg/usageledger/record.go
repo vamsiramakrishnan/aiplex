@@ -44,6 +44,10 @@ const (
 	BasisSettled   = "settled"
 	BasisEstimated = "estimated"
 	BasisUnknown   = "unknown"
+	// BasisReported is a cost the harness itself reported (for example Claude
+	// Code's cost_usd). It is the sender's estimate, neither settled by a
+	// provider invoice nor computed from an AIPlex price.
+	BasisReported = "reported"
 
 	// MaxTextLength bounds every identifier stored on a record.
 	MaxTextLength = 512
@@ -234,8 +238,10 @@ type Record struct {
 	BudgetIDs []string `json:"budget_ids,omitempty"`
 	RequestID string   `json:"request_id,omitempty"`
 	// TraceID and SpanID are the W3C identifiers of the exchange's span (the
-	// CLIENT span of a managed exchange, the SERVER span of the request that
-	// reported a reported record). The trace continues the caller's
+	// CLIENT span of a managed exchange; for a record reported through the
+	// legacy usage report, the SERVER span of the request that reported it;
+	// for a record from harness telemetry, the ids on the harness's own log
+	// event, empty when the event carried none). The trace continues the caller's
 	// traceparent when it sent a valid one. They are generated whether or not
 	// telemetry export is on, so logs, traces and records correlate.
 	TraceID        string `json:"trace_id,omitempty"`
@@ -249,8 +255,21 @@ type Record struct {
 	HTTPStatus int    `json:"http_status,omitempty"`
 	ErrorClass string `json:"error_class,omitempty"`
 	Source     string `json:"source"`
-	Requests   int64  `json:"requests"`
-	Usage      *Usage `json:"usage"`
+	// Harness, HarnessVersion and SessionID describe a reported record (see
+	// telemetry_fields.go). They are labels the sender chose, never identity.
+	Harness         string `json:"harness,omitempty"`
+	HarnessVersion  string `json:"harness_version,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	ClientRequestID string `json:"client_request_id,omitempty"`
+	// CallerSpanID is the span id of the traceparent the caller sent with a
+	// managed request. It only correlates a reported record to this one.
+	CallerSpanID       string            `json:"caller_span_id,omitempty"`
+	ReportedAttributes map[string]string `json:"reported_attributes,omitempty"`
+	// Tags are experiment labels from trusted access point configuration and
+	// an operator-allowlisted request header (see telemetry_fields.go).
+	Tags     map[string]string `json:"tags,omitempty"`
+	Requests int64             `json:"requests"`
+	Usage    *Usage            `json:"usage"`
 	// UsageBound qualifies Usage when the exchange ended without final usage
 	// evidence: "lower_bound" (the counters are what was observed before the
 	// exchange ended), "ambiguous" (a resumed session whose counter
@@ -378,6 +397,9 @@ func (r Record) Validate() error {
 			return err
 		}
 	}
+	if err := r.validateTelemetryFields(); err != nil {
+		return err
+	}
 	if err := r.Hooks.validate(); err != nil {
 		return err
 	}
@@ -392,7 +414,7 @@ func (c Cost) Validate() error {
 			return invalid("unknown cost cannot carry an amount")
 		}
 		return nil
-	case BasisSettled, BasisEstimated:
+	case BasisSettled, BasisEstimated, BasisReported:
 		if !ValidCurrency(c.Currency) || c.Scale > MaxScale {
 			return invalid("cost needs a three-letter currency and scale up to %d", MaxScale)
 		}
@@ -401,7 +423,7 @@ func (c Cost) Validate() error {
 		}
 		return nil
 	}
-	return invalid("cost basis must be settled, estimated or unknown")
+	return invalid("cost basis must be settled, estimated, reported or unknown")
 }
 
 // Clone returns a deep copy so stores never share counter pointers.
@@ -424,6 +446,7 @@ func (r Record) Clone() Record {
 		u.UnitUsage = r.Usage.UnitUsage.clone()
 		r.Usage = &u
 	}
+	r.ReportedAttributes, r.Tags = cloneLabels(r.ReportedAttributes), cloneLabels(r.Tags)
 	r.Hooks = cloneHooks(r.Hooks)
 	r.BudgetIDs = append([]string(nil), r.BudgetIDs...)
 	if len(r.BudgetIDs) == 0 {

@@ -62,6 +62,8 @@ A request draws from a budget when any member selector matches. Every selector i
 | `access_points` | The access point the request entered through | requests through an access point |
 | `projects` | The `project` label an administrator set on the access point | requests through an access point |
 
+Access points also carry `labels` (trusted tag keys stamped on usage records, see the usage ledger). A budget's `projects` selector deliberately matches the access point's `project` field only, not `labels`: `project` is a single, validated, dedicated field, so a tag key someone adds for reporting cannot silently move spend between budgets. Tags that callers may send in an allowlisted header never select a budget.
+
 A free-form project label is trusted only because only an administrator can set it, on the access point specification (`"project": "apollo"`). A request header such as `X-Project` never selects a budget (there is a test for this).
 
 A request also draws from **every ancestor** of each budget it matches: if `platform` has parent `engineering`, a platform request draws from both, and `engineering` may have no members of its own. A caller who belongs to two unrelated budgets draws from both and their ancestors. A request may draw from at most 16 budgets; beyond that it is refused (`QUOTA_BUDGET_TOO_MANY`).
@@ -178,7 +180,7 @@ The [overview](access-points.md#the-single-pane) adds a `budgets` block to a sub
 
 ## Usage ledger
 
-A ledger record carries `budget_ids`: the budgets the attempt drew from (its own and every ancestor), set only for an attempt that was dispatched. `aiplex usage summary --by budget` and `GET /api/v1/usage/summary?group_by=budget` group by budget, and `--budget` / `budget_id` filter records. A record that drew from several budgets is counted in each group, so budget groups overlap by design (a child's spend is also its parent's) and do not sum to the total. Requests refused by a budget have no attempt and appear in the group with an empty budget.
+A ledger record carries `budget_ids`: the budgets the attempt drew from (its own and every ancestor), set only for an attempt that was dispatched. `aiplex usage summary --by budget` and `GET /api/v1/usage/summary?group_by=budget` group by budget, and `--budget` / `budget_id` filter records. Only **managed** records have budgets: records reported through OTLP ingest (`source=reported`) never drew from a budget, so `--by budget` and `--budget` count managed records only, the default managed/reported source split does not apply to them, and the summary says so in its notes. A record that drew from several budgets is counted in each group, so budget groups overlap by design (a child's spend is also its parent's) and do not sum to the total. Requests refused by a budget have no attempt and appear in the group with an empty budget.
 
 The ledger and the counters agree on requests and on cost when both come from the quota policy. They are separate records with separate price sources: the ledger's `cost` for a record is QuotaPlex's settled money when the policy priced the attempt, and otherwise an estimate from the ledger's own price resources (basis `estimated`). A request admitted under `allow_and_flag` is unknown cost to the budget but can still carry an estimate in the ledger. The end-to-end test reconciles counters and ledger for a sequence that includes an unpriced request.
 

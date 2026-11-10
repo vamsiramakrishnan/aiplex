@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -192,6 +193,10 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	federationH.Providers = userFederationH.Providers
 	userFederationH.Bindings = federationH.Bindings
 	usageH := configureUsageLedger(store, cfg, connectedH, llmH)
+	otlpH, err := configureUsageTelemetry(store, usageH, connectedH, &srv.closers)
+	if err != nil {
+		return nil, fmt.Errorf("usage telemetry configuration failed: %w", err)
+	}
 	dashH.Ledger, dashH.Tenant = usageH.Ledger, connectedH.Tenant
 	quotaRuntime, err := configureQuota(ctx, cfg, store, connectedH)
 	if err != nil {
@@ -285,7 +290,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			limit := int64(1 << 20)
-			if nativeInvocation(r) {
+			if nativeInvocation(r) || strings.HasPrefix(r.URL.Path, "/otlp/") {
 				limit = 8 << 20
 			}
 			api.MaxBody(limit)(next).ServeHTTP(w, r)
@@ -481,6 +486,10 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 
 	// Access points: /ap/{id}/… model, MCP, catalog and skill endpoints.
 	connectedH.MountAccessPointEndpoints(r)
+
+	// OTLP receiver for harness telemetry: /otlp/v1/{logs,metrics,traces}.
+	// Any verified caller may report its own telemetry (route_policy.go).
+	otlpH.Mount(r.With(api.RequireIdentity(cfg.DevelopmentMode)))
 
 	// A2A Agent Card discovery (per-instance)
 	if moduleEnabled(enabledModules, "a2aplex") {

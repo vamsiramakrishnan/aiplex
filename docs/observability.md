@@ -138,12 +138,103 @@ log line, metric label or error body, whether the hook masked it or denied it.
   `AIPLEX_TRACE_PROPAGATE_UPSTREAM=false` turns it off; AIPlex then strips
   `traceparent` and `tracestate` from every upstream request. The ledger and
   telemetry are unchanged.
-- MCP: trace context goes in HTTP headers only. The conventions also ask for
-  `params._meta.traceparent` in the JSON-RPC message. AIPlex relays the caller's
-  JSON-RPC body unchanged, so it does not add `_meta`.
+- MCP: for a managed `tools/call`, trace context goes in the HTTP headers and also in
+  `params._meta.traceparent` (and `tracestate`), which the MCP specification reserves for
+  OpenTelemetry trace context
+  ([modelcontextprotocol.io/specification/draft/basic/index](https://modelcontextprotocol.io/specification/draft/basic/index),
+  "General fields", `_meta`). The values are the exchange's CLIENT span, the same as the
+  header. The edit changes only that `_meta` object: AIPlex splices text into the caller's
+  JSON-RPC body and copies every other byte, so large integers, floats, escapes, key order and
+  spacing are unchanged (tested with 30-digit integers, `1.0e+100`, surrogate pairs and a
+  nested `_meta` inside arguments). A `traceparent` or `tracestate` the caller put in
+  `_meta` is replaced; a caller's `baggage` is removed, because baggage is neither read nor
+  forwarded. With `AIPLEX_TRACE_PROPAGATE_UPSTREAM=false` they are removed from `_meta`
+  as they are from the headers. Other `_meta` keys (`progressToken`) are kept on the direct
+  `/api/v1/mcp/connections/{id}/invoke` path. Through an access point the call is rebuilt
+  from `name` and `arguments`, so only the trace context is in `_meta`. A `_meta` that is not
+  an object, or a duplicated key, is refused (`400`). `tools/list` requests are built by
+  AIPlex and carry no `_meta`.
 - Tool credential configuration still refuses `traceparent` and `tracestate` as
   credential header names (`pkg/toolcredential`). That rule is about operator
   credential configuration and does not affect propagation.
+
+## Harness telemetry received over OTLP
+
+AIPlex has an OTLP/HTTP receiver, so a coding harness can report what it did to the usage
+ledger. It is separate from AIPlex's own export above.
+
+| Route | Content |
+| --- | --- |
+| `POST /otlp/v1/logs` | Log events. Recognized usage events become `source=reported` ledger records. |
+| `POST /otlp/v1/metrics` | Accepted, counted, not recorded. |
+| `POST /otlp/v1/traces` | Accepted, counted, not recorded. |
+
+Set the harness's `OTEL_EXPORTER_OTLP_ENDPOINT` to `<AIPlex URL>/otlp` (the exporter appends
+`/v1/logs`) and send the AIPlex token as `Authorization: Bearer` in
+`OTEL_EXPORTER_OTLP_HEADERS`. Both `application/x-protobuf` and `application/json` work, with
+or without `Content-Encoding: gzip`.
+
+**Identity.** The sender is authenticated like any other caller. The route policy is
+`authenticated, tenant-scoped`: any verified caller of the tenant may report its own
+telemetry, and nothing else. Tenant, principal, client and caller kind (`agent`, `user` or
+`client`) come from the verified token only. Resource and record attributes (`user.email`,
+`user.account_uuid`, `organization.id`, `session.id`, anything named `aiplex.*`) are untrusted
+labels: only the documented subset is stored as `reported_attributes`, and none of them can
+change who the record belongs to. Development mode accepts an unauthenticated sender on its
+loopback listener, like every other route, and its records have no principal.
+
+**One source of truth.** Per-request log events are the only signal turned into records.
+Metrics (cumulative or delta counters) and traces (Claude Code's `llm_request` spans) describe
+the same requests, so storing them as well would count a request twice; they are accepted and
+dropped. A harness that exports only metrics therefore produces no ledger records.
+`aiplex connect --with-telemetry` enables logs.
+
+**What is mapped** (written from the harnesses' documentation, see
+[harness onboarding](harness-onboarding.md#what-was-run-against-real-clients) for what was
+run against a real client):
+
+| Harness | Event | Ledger record |
+| --- | --- | --- |
+| Claude Code | `claude_code.api_request` | `model`, `input_tokens` + `cache_read_tokens` + `cache_creation_tokens` as `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens` as `cache_write_tokens`, cost `cost_usd_micros` (exact) or `cost_usd` with basis `reported`, `duration_ms`, `session.id`, `client_request_id`, `request_id` (kept as an attribute), `prompt.id`, `query_source`, `speed`, `effort` |
+| Claude Code | `claude_code.api_error` | A record with status `error`, `error_class` `upstream_error` (`rate_limited` for 429), `status_code`, `duration_ms`, no usage and unknown cost. The error text is never stored. |
+| Codex | `codex.sse_event` with `event.kind=response.completed` | `model`, `input_token_count`, `output_token_count`, `cached_token_count` as cache read, `cache_write_token_count`, `reasoning_token_count`, `conversation.id` as the session. Codex exports no cost, and no duration is used (the `duration_ms` on that event is not a request latency). |
+| Gemini CLI | `gemini_cli.api_response` | `model`, `input_token_count`, `output_token_count`, `cached_content_token_count` as cache read, `thoughts_token_count` as reasoning, `total_token_count`, `status_code`, `duration_ms`, `session.id`, `prompt_id`. `tool_token_count` is not mapped. |
+| Gemini CLI | `gemini_cli.api_error` | A record with status `error`, as for Claude Code. |
+
+Every other event (prompts, tool results and decisions, startup, config) is accepted and not
+recorded. A missing token count stays unknown; a negative one rejects that record
+(`rejected_log_records` in the OTLP partial-success response, with a content-free reason).
+Events whose time is in the future (by more than 10 minutes) or older than the ledger retains
+are rejected.
+
+**Idempotency.** A record's id is a hash of the sender and the event's identity (session,
+timestamp, name, sequence, prompt and request ids), so the same event sent again, even to
+another replica, is stored once. A retried export answers `200` as before.
+
+**Limits and statuses.** Bodies are bounded (4 MiB as sent, 16 MiB decompressed,
+`AIPLEX_OTLP_MAX_BODY_BYTES`), as are log records, metrics and spans per request (1000,
+`AIPLEX_OTLP_MAX_RECORDS_PER_REQUEST`) and rates per principal (20 requests and 2000
+records a second, `AIPLEX_OTLP_REQUESTS_PER_SECOND` and `AIPLEX_OTLP_RECORDS_PER_SECOND`; in
+process, so per replica). Refusals use OTLP's status body (`google.rpc.Status` as protobuf or
+JSON): `413` for too large, `429` with `Retry-After` for rate limits, `415` for an unsupported
+content type or encoding, `400` for a body that is not an OTLP request, `401` and `403`
+without a verified identity or tenant, `503` with `Retry-After` when the ledger cannot be
+written (the exporter retries; the deterministic ids make the retry safe).
+
+**Forwarding.** With `AIPLEX_OTLP_FORWARD=true`, what AIPlex does not record (unmapped log
+events, all metrics and traces) is sent on to your collector (`OTEL_EXPORTER_OTLP_ENDPOINT`
+or the per-signal endpoints, `http/protobuf`, the headers in `OTEL_EXPORTER_OTLP_HEADERS`).
+The verified identity is added as resource attributes (`aiplex.principal.id`,
+`aiplex.tenant.id`, `aiplex.caller.kind`, `aiplex.client.id`); any `aiplex.*` attribute the
+sender supplied is removed first. The sender's `Authorization` header is never forwarded.
+Forwarding is best effort (a bounded queue, a 5 second timeout) and never fails the sender's
+export. Default off; a misconfiguration (no endpoint, `grpc`) stops startup. Do not point it
+at AIPlex's own `/otlp`.
+
+Counters: `aiplex.otlp.ingest` by signal, harness (`claude-code`, `codex`, `gemini-cli`,
+`unknown`) and outcome (`recorded`, `duplicate`, `rejected`, `dropped`, `forwarded`,
+`forward_failed`, `rate_limited`, `too_large`, `malformed`), and `aiplex.usage.tags_rejected`
+by reason. Neither carries a principal, session or request id.
 
 ## Metrics
 
@@ -210,6 +301,11 @@ OTLP exporters read most of them directly.
 | `OTEL_ENDPOINT` | empty | Deprecated alias of `OTEL_EXPORTER_OTLP_ENDPOINT`, used only when the standard variable is unset. A warning is logged. |
 | `AIPLEX_TRACE_PROPAGATE_UPSTREAM` | `true` | `false` strips trace context from upstream requests. Any value other than a boolean stops startup. |
 | `AIPLEX_METRICS_TOKEN` | empty | Bearer secret for `GET /metrics`. |
+| `AIPLEX_TRACE_URL_TEMPLATE` | empty | A trace viewer link for the Console, for example `https://tempo.example/trace/{trace_id}`. Must contain `{trace_id}` and be an `http` or `https` URL without credentials; anything else stops startup. The Console shows "Open in trace viewer" on a record. |
+| `AIPLEX_OTLP_FORWARD` | `false` | Forward the harness telemetry AIPlex does not record to your collector. See above. |
+| `AIPLEX_OTLP_MAX_BODY_BYTES`, `AIPLEX_OTLP_MAX_RECORDS_PER_REQUEST`, `AIPLEX_OTLP_REQUESTS_PER_SECOND`, `AIPLEX_OTLP_RECORDS_PER_SECOND` | 4 MiB, 1000, 20, 2000 | Receiver bounds. |
+| `AIPLEX_TAG_KEYS_ALLOWED`, `AIPLEX_TAG_MAX_VALUES` | empty, 50 | Caller-supplied record tags (see the [usage ledger](usage-ledger.md#tags)). |
+| `AIPLEX_FEEDBACK_COMMENTS` | `false` | Accept free-text comments on record feedback. |
 
 The startup log says what is in effect: `telemetry configured
 traces_exported=... metrics_exported=... upstream_trace_propagation=...`.
@@ -242,8 +338,10 @@ Development mode needs no token.
 A coding harness can send its own telemetry to the same collector:
 `aiplex connect <access-point> --client <client> --write --with-telemetry <endpoint>`
 sets the client's OpenTelemetry export (Claude Code, Codex, Gemini CLI). That is the
-client's telemetry, not AIPlex's: AIPlex does not read it into the usage ledger. See
-[harness onboarding](harness-onboarding.md).
+client's telemetry, not AIPlex's. To read it into the usage ledger instead, send it to AIPlex
+itself: `--with-telemetry aiplex` (see
+[harness telemetry received over OTLP](#harness-telemetry-received-over-otlp) and
+[harness onboarding](harness-onboarding.md)).
 
 ## Turn it on in GKE (Helm)
 
@@ -260,6 +358,15 @@ api:
     name: aiplex-metrics     # an existing Secret; the chart never holds the value
     key: token
 ```
+
+Usage ledger settings are under `usage:` in the chart values: `traceUrlTemplate`,
+`feedbackComments`, `tagKeysAllowed`, `tagMaxValues` and `otlp.*` (receiver bounds and
+`forward`), each passed to the API as the `AIPLEX_*` variable of the same name. The Gateway
+routes `/otlp/` to the API. The GKE Gateway has no request-body-size setting, so none is
+configured; the receiver's own bound (4 MiB as sent by default) applies, and the load
+balancer's limits apply in front of it. Feedback collections need Firestore TTL on
+`usage_feedback_latest` and `usage_feedback_events` (`firestore.tf`). The chart templates were
+not rendered here (no `helm` available).
 
 The chart's collector exports to Cloud Trace and Cloud Monitoring in
 `global.projectId`. It runs as its own `otel-collector` Kubernetes service
@@ -278,6 +385,12 @@ before applying (see the comment at the top of `deploy/k8s/otel-collector.yaml`)
 
 ## Limits and what has not been validated
 
+- The OTLP receiver is exercised by unit tests on payloads built from the harnesses'
+  documentation, an end-to-end test against `aiplex dev`, and a real Claude Code 2.1.322
+  exporting to a local `aiplex dev` (see
+  [harness onboarding](harness-onboarding.md#what-was-run-against-real-clients)). Codex and
+  Gemini CLI mappings have not been run against the real clients. The receiver has not been
+  measured under load.
 - Export has been verified only against the in-process OTLP/HTTP receiver in
   `tests/e2e/telemetry_test.go`. It has **not** been run against a real
   collector, Jaeger, Cloud Trace or Cloud Monitoring. The gRPC exporter path has
@@ -287,13 +400,22 @@ before applying (see the comment at the top of `deploy/k8s/otel-collector.yaml`)
   of this page).
 - The CLIENT span covers admission as well as the upstream call, so its duration
   is the ledger's `latency_ms` and not only the provider's time.
-- Agent invocations use the GenAI `invoke_agent` client convention. The A2A
-  protocol conventions (`a2a.*`) are not emitted, because the managed agent
-  connections call native agent runtimes rather than A2A endpoints.
+- Agent invocations use the GenAI `invoke_agent` client convention (checked 2026-11-10 against
+  `docs/gen-ai/client-invoke-agent.md`: operation name, provider name, usage attributes and
+  `gen_ai.client.invoke_agent.duration` match; the span carries `gen_ai.agent.id`, the agent
+  connection id). The convention names the span `invoke_agent {gen_ai.agent.name}` when the
+  name is known; AIPlex has no agent name and uses `invoke_agent`, which the convention
+  allows. The A2A protocol conventions (`docs/gen-ai/a2a.md`: `a2a.method.name`,
+  `a2a.task.id`, ...) describe A2A protocol messages and are not emitted, because the managed
+  agent connections call native agent runtimes rather than A2A endpoints.
 - `mcp.session.id` is never set: managed tool execution is stateless and opens no
   MCP session.
-- Token metrics cover the model plane only. Agent token usage is on the spans and
-  in the ledger.
+- The token counters (`gen_ai.client.inference.usage.*`) are told apart by
+  `gen_ai.operation.name`, so they cover model exchanges (`chat`, `generate_content`, ...) and
+  agent exchanges (`invoke_agent`) when the ledger record has known, final usage. An agent
+  runtime that reports no usage adds nothing to the counters and is counted in
+  `aiplex.usage.unknown_usage`. MCP exchanges have no tokens. The conventions define no
+  `invoke_agent`-specific token metric; the counters are the generic ones.
 - Time to first chunk is measured to the first bytes AIPlex writes to the
   caller, not to the first upstream byte.
 - Upstream model requests are made by AIPlex's own HTTP client. No HTTP-level

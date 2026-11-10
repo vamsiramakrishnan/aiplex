@@ -30,6 +30,7 @@ The resource `id` must equal the `id` field. The body is decoded strictly, so un
 | `tools` | array of object | No | Tool connections exposed. See Tools. |
 | `skills` | array of object | No | Skill server instances exposed. See Skills. |
 | `qos` | object | No | Quality of service and limits. See QoS. |
+| `labels` | object of string | No | Up to 8 trusted experiment tags, stored as `tags` on every usage record of an exchange through this access point. Keys match `[a-z][a-z0-9_.-]{0,31}`, values are up to 64 characters of `[A-Za-z0-9_.:/@+() -]` and are not `(other)`. A caller can add tags only with the `X-AIPlex-Tags` header for keys the operator allowed, and cannot override a label. |
 
 At least one of `models`, `tools` or `skills` must be present.
 

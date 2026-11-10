@@ -12,7 +12,7 @@ There has been no tagged release yet. This section summarises what exists in the
 
 ### Packaging and install
 
-- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew formula to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`. The images are distroless, run as a non-root user and carry OCI labels.
+- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew cask for macOS to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`, built with GoReleaser `dockers_v2`. GoReleaser is pinned to v2.20.0. The images are distroless, run as a non-root user and carry OCI labels.
 - The release also produces an SBOM and signs `checksums.txt` and the images keyless with the workflow's GitHub identity. The signing and the SBOM have not been run against a real release.
 - `install.sh` refuses an archive when `checksums.txt` cannot be downloaded or does not list it, rejects a malformed `--version`, and names the missing platform asset when a release has no build for it.
 - None of this has been published yet: no release is tagged, and the tap, the images and the signatures have not been produced.
@@ -35,6 +35,14 @@ There has been no tagged release yet. This section summarises what exists in the
 - `aiplex auth print-token` for client credential helpers.
 - `integrations/claude-code` (plugin with three skills), `integrations/gemini-cli` (extension) and a root `AGENTS.md`; a test checks that every `aiplex` command in them exists.
 - Gemini CLI's base URL and Antigravity's configuration are printed as remaining steps, not written: Gemini CLI has no settings key for the base URL, and Antigravity's config location is not documented.
+
+### Harness telemetry, tags and feedback
+
+- An OTLP/HTTP receiver (`POST /otlp/v1/logs`, `/metrics`, `/traces`; protobuf or JSON, gzip, bounded) records a coding harness's usage events as `source=reported` ledger records under the sender's verified identity: Claude Code `api_request` and `api_error`, Codex `response.completed`, Gemini CLI `api_response` and `api_error`. Metrics and traces are accepted and not recorded, so a request is not counted twice. Retries are idempotent; unmapped signals can be forwarded to your collector (`AIPLEX_OTLP_FORWARD`). `aiplex connect --write --with-telemetry aiplex` points a client at it without writing the token to a file. Mappings come from the harnesses' documentation; only Claude Code was run against a real client.
+- Cost basis `reported` for a cost a harness reported. Summaries keep managed and reported records in separate groups, leave out reported records that share an explicit key with a managed record, and say so (`source_split`, `excluded_correlated_reported`, `notes`); `merge_sources=true` adds them together. The dashboard and overview roll-ups count managed records only.
+- Record `tags` from access point `labels` and an operator-allowlisted `X-AIPlex-Tags` header (`tag.<key>` filter, `tag:<key>` grouping, a per-key cap with an `(other)` bucket). Append-only record feedback (`POST /api/v1/usage/records/{id}/feedback`, `aiplex usage feedback`), shown in the record and in summaries (`feedback=true`, `-o wide`) with "without feedback" counted apart.
+- The Console shows trace and span ids with copy buttons, a trace viewer link (`AIPLEX_TRACE_URL_TEMPLATE`), a source badge and the harness.
+- Managed `tools/call` requests carry the exchange's trace context in `params._meta` as well as the HTTP headers; the rest of the request is relayed byte for byte. Agent exchanges with known final usage are counted in the GenAI token counters.
 
 ### Request hooks
 

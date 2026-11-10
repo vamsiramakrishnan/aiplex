@@ -11,6 +11,9 @@ The usage API reads the tenant's usage ledger: one append-only record per manage
 | GET | `/api/v1/usage/records` | List one page of visible records, newest first | Verified identity and tenant. Admin sees all tenant records; others see their own. |
 | GET | `/api/v1/usage/records/{id}` | Read one visible record | Same as the list route |
 | GET | `/api/v1/usage/summary` | Aggregate visible records into groups and optional time buckets | Same as the list route |
+| GET | `/api/v1/usage/records/{id}/feedback` | Read a record's feedback history, newest first | The record's principal or actor, or an operator (`admin` or `deployer`) |
+| POST | `/api/v1/usage/records/{id}/feedback` | Add feedback to a record (append-only) | Same as the history route |
+| GET | `/api/v1/usage/config` | Read the deployment's usage settings | Verified identity and tenant |
 | GET | `/api/v1/usage/prices` | List the tenant's model-price resources | Verified identity and tenant |
 | GET | `/api/v1/usage/prices/{id}` | Read one model-price resource | Verified identity and tenant |
 | PUT | `/api/v1/usage/prices/{id}` | Create or update a model-price resource | `admin` role (outside development mode) |
@@ -48,7 +51,9 @@ All filters are exact matches. Each parameter may appear at most once. Unknown p
 | `access_point_id` | string | No | Access point that the exchange entered through |
 | `caller_kind` | string | No | `agent`, `user` or `client` |
 | `status` | string | No | `ok`, `error`, `denied` or `unknown` |
-| `source` | string | No | `managed` (exchanges through AIPlex) or `reported` (mirrored from a legacy usage report) |
+| `source` | string | No | `managed` (exchanges through AIPlex) or `reported` (mirrored from a legacy usage report, or read from a harness's own telemetry sent to [`/otlp`](./otlp.md)) |
+| `harness` | string | No | Reported records from one harness, for example `claude-code` |
+| `tag.<key>` | string | No | Records carrying that tag, for example `tag.experiment=arm-a`. Several `tag.*` parameters must all match. |
 | `since` | RFC 3339 timestamp | No | Inclusive lower bound on `started_at` |
 | `until` | RFC 3339 timestamp | No | Exclusive upper bound on `started_at`. Must be after `since` when both are set. |
 | `limit` | integer | No | Page size from 1 to 1000. Default 100. |
@@ -86,7 +91,12 @@ The response is a page object.
 | `caller_kind` | string | `agent`, `user` or `client`. Omitted unless entered through an access point. |
 | `request_id` | string | Omitted when empty |
 | `trace_id` | string | W3C trace identifier (32 hex), for correlation only. Set on every record AIPlex writes; continues the caller's `traceparent` when it was valid. Omitted on older records. |
-| `span_id` | string | W3C span identifier (16 hex) of the exchange's span: the CLIENT span of a managed exchange, or the SERVER span of a reporting request. Omitted on older records. |
+| `span_id` | string | W3C span identifier (16 hex) of the exchange's span: the CLIENT span of a managed exchange, the SERVER span of a legacy reporting request, or the id on a harness's own log event. Omitted on older records. |
+| `harness`, `harness_version`, `session_id` | string | Reported records from a harness: its name, version and own session id. Labels the sender chose; never identity. |
+| `client_request_id` | string | Omitted when empty. A caller-chosen per-request id, kept as a correlation key. |
+| `caller_span_id` | string | Omitted when empty. Managed records: the span id of the `traceparent` the caller sent. |
+| `reported_attributes` | object of string | Omitted when empty. Reported records: a bounded subset of the sender's labels (`event`, `prompt_id`, `request_id`, `query_source`, `speed`, `effort`, `service_tier`, `attempt`, `entrypoint`, `terminal_type`). |
+| `tags` | object of string | Omitted when empty. Experiment labels from the access point's `labels` and the allowlisted `X-AIPlex-Tags` header. |
 | `quota_attempt_id` | string | Omitted when empty. Links the record to its quota attempt. |
 | `streaming` | boolean | `true` for streamed responses |
 | `session` | boolean | Omitted unless `true`. `true` for a WebSocket session covering the whole session. |
@@ -100,7 +110,7 @@ The response is a page object.
 | `batch` | boolean | Omitted unless `true`. Provider batch exchange. |
 | `image_size` | string | Omitted when empty. Reported image dimension, for example `1024x1024`. |
 | `image_quality` | string | Omitted when empty. Reported image quality, for example `high`. |
-| `cost` | object | Cost basis and amount. See Behaviour notes. |
+| `cost` | object | Cost basis (`settled`, `estimated`, `reported` or `unknown`) and amount. `reported` is a cost the harness itself reported (the sender's estimate). See Behaviour notes. |
 | `provider_limits` | object | Omitted unless the provider reported rate-limit metadata on the exchange |
 
 ### Usage counters
@@ -174,7 +184,7 @@ curl -sS "$AIPLEX_URL/api/v1/usage/records?plane=llmplex&status=ok&limit=50" \
 
 ## GET `/api/v1/usage/records/{id}`
 
-Returns one record. The path parameter `id` is the record identifier. A record that exists but is not visible to the caller returns the same `404` as a missing record.
+Returns one record. The path parameter `id` is the record identifier. A record that exists but is not visible to the caller returns the same `404` as a missing record. The body is the record plus, when it has feedback, `feedback`: the latest entry (`id`, `record_id`, `by`, `created_at`, `score`, `label`, and `comment` only if comments are enabled).
 
 ### Status codes and errors
 
@@ -202,7 +212,9 @@ Aggregates the visible records that match the filters. It accepts every filter p
 
 | Name | Type | Required | Meaning |
 |---|---|---|---|
-| `group_by` | string | No | Comma-separated subset of `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `status`, `access_point_id`, `caller_kind`. Each field at most once. Empty means one group for all matching records. |
+| `group_by` | string | No | Comma-separated subset of `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `status`, `access_point_id`, `caller_kind`, `source`, `error_class`, `usage_bound`, `batch`, `harness`, or `tag:<key>`. Each field at most once. Empty means one group for all matching records. |
+| `merge_sources` | boolean | No | `true` adds managed and reported records into the same groups. Not allowed with a `source` filter. |
+| `feedback` | boolean | No | `true` adds `feedback` totals to every group. |
 | `bucket` | string | No | `hour` or `day`. Splits each group by the start of `started_at` in UTC. Omitted when empty. |
 
 ### Response
@@ -214,6 +226,9 @@ Aggregates the visible records that match the filters. It accepts every filter p
 | `groups` | array of group | Ordered by bucket start, then by key values |
 | `records_scanned` | integer | Records read by this summary |
 | `truncated` | boolean | `true` when the scan reached 200000 records or the result reached 10000 groups. Totals then cover only the newest records scanned. |
+| `source_split` | boolean | Omitted unless `true`. With no `source` filter and no `merge_sources`, `source` is added to `group_by` so managed and reported records are separate groups. |
+| `excluded_correlated_reported` | integer | Omitted when zero. Reported records left out because they describe a request that has a managed record (same principal, and a shared `client_request_id`, trace and span, caller-chosen request id or propagated trace). |
+| `notes` | array of string | Omitted when empty. How sources were treated, in plain words. |
 
 ### Group fields
 
@@ -239,6 +254,7 @@ Aggregates the visible records that match the filters. It accepts every filter p
 | `units` | object of integer | Omitted when empty. Sums of the unit fields. |
 | `unit_records` | object of integer | Omitted when empty. Number of records that reported each unit. Records that did not report a unit are not counted as zero. |
 | `batch_records` | integer | Omitted when zero. Records of provider batch exchanges. |
+| `feedback` | object | Present with `feedback=true`: `records` (with feedback), `without_feedback`, `positive`, `negative`, `neutral` and `average_score` (a number, or `null` when no record has feedback). Records without feedback are not a neutral score. |
 
 ### Status codes and errors
 
@@ -288,6 +304,41 @@ curl -sS "$AIPLEX_URL/api/v1/usage/summary?group_by=model_id&bucket=day" \
   "truncated": false
 }
 ```
+
+## POST /api/v1/usage/records/{id}/feedback
+
+Adds feedback to a record. The record's own principal or actor may, and so may an operator (`admin` or `deployer`). Anyone else gets the `404` of a missing record. Feedback is append-only; the newest entry is the record's current feedback.
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `score` | number | Yes | From -1 (worst) to 1 (best) |
+| `label` | string | No | `[a-z][a-z0-9_.-]{0,31}` |
+| `comment` | string | No | Up to 500 characters. Accepted only when the operator set `AIPLEX_FEEDBACK_COMMENTS=true`; otherwise refused. |
+
+Unknown fields are rejected. The author (`by`) is the verified principal, not a body field. The response is `201` with the stored entry (`id`, `tenant_id`, `record_id`, `by`, `created_at`, `score`, `label`, `comment`).
+
+| Status | Code | When |
+|---|---|---|
+| 201 | none | Stored |
+| 400 | `INVALID_FEEDBACK` | Missing or out-of-range `score`, bad `label`, unknown field, body not one JSON object |
+| 400 | `COMMENTS_DISABLED` | A `comment` was sent while comments are off |
+| 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 404 | `NOT_FOUND` | The record is missing or not visible to the caller |
+| 503 | `FEEDBACK_UNAVAILABLE` | Feedback is not configured |
+
+```bash
+curl -sS -X POST "$AIPLEX_URL/api/v1/usage/records/ul_0123456789abcdef0123456789abcdef/feedback" \
+  -H "Authorization: Bearer $AIPLEX_TOKEN" -H "Content-Type: application/json" \
+  -d '{"score":1,"label":"helpful"}'
+```
+
+## GET /api/v1/usage/records/{id}/feedback
+
+Returns `{"record_id": "...", "feedback": [...]}`, newest first (at most 100). Same visibility and errors as the POST.
+
+## GET /api/v1/usage/config
+
+Returns the usage settings the Console reads: `trace_url_template` (the operator's trace viewer link with `{trace_id}`, or an empty string), `feedback` (available), `feedback_comments` (accepted) and `tag_keys_allowed` (the keys `X-AIPlex-Tags` may set). It carries no secret.
 
 ## GET /api/v1/usage/prices
 
@@ -440,6 +491,7 @@ curl -sS -X DELETE "$AIPLEX_URL/api/v1/usage/prices/price-example" \
 - **Cost basis.** `cost.basis` is one of:
   - `settled`: the amount a quota settlement charged for the record's `quota_attempt_id`. It is exact.
   - `estimated`: computed from the single matching model price. The sum of all meters is rounded up once.
+  - `reported`: a cost the harness itself reported in its telemetry (Claude Code's `cost_usd_micros` or `cost_usd`), in `USD`. It is the sender's estimate, not an invoice and not an AIPlex price, and totals keep it apart from the other bases.
   - `unknown`: neither a settlement nor a matching price exists, or a priced meter's quantity is unknown. Such a cost has no `currency`, `amount` or `scale`.
 - **Amounts are fixed-point.** `cost.amount` is a decimal integer string of minor units, with `cost.scale` decimal places of the currency. An amount of `"1500"` at scale `6` is 0.001500 of the currency unit. The amount is always a string so that JSON readers do not lose precision. A priced record also carries `cost.amount_decimal`, the same value written as an exact decimal string (`"0.001500"` in the example above). Read `amount_decimal` when a decimal is needed and `amount` and `scale` when exact integer arithmetic is needed. The `cost` array in a summary uses the same convention and rescales amounts of different scales to the largest scale without loss.
 - **No built-in prices.** Without a matching price resource, estimated cost is unknown. The API never invents a price.
@@ -453,6 +505,7 @@ curl -sS -X DELETE "$AIPLEX_URL/api/v1/usage/prices/price-example" \
 - **Ordering and paging.** Records are ordered newest first by `(started_at, id)`. `next_cursor` is an opaque base64url token. Pass it unchanged as `cursor` and keep the other filters the same. The default page size is 100 and the maximum is 1000.
 - **Visibility.** Non-admin callers see only records whose `principal_id` or `actor_id` equals their own principal. Filters cannot widen that view.
 - **Content.** Records never contain prompts, completions, tool arguments, tool results or credentials. Identifiers are bounded to 512 characters.
-- **Reported records.** `source: "reported"` records are mirrored from legacy usage reports. Their float cost is never copied. Their cost is estimated from a price or left unknown.
+- **Reported records.** `source: "reported"` records are mirrored from legacy usage reports, or read from a harness's own telemetry sent to [`/otlp`](./otlp.md). A legacy report's float cost is never copied; its cost is estimated from a price or left unknown. A harness's own cost has basis `reported`; without one the cost is estimated from a price or left unknown.
+- **Sources in summaries.** A managed and a reported record can describe the same request, so a summary with no `source` filter keeps them in separate groups and leaves out reported records that share an explicit key with a managed one (`excluded_correlated_reported`). It never matches on model, time or token counts. `merge_sources=true` adds them together and says it cannot rule out double counting.
 - **Retention.** The Firestore-backed ledger is configured with a 90-day retention (`usageledger.DefaultRetention`). Older records are not returned.
 - **Writes.** The usage records themselves have no write route on this API. Records are created by the gateways.

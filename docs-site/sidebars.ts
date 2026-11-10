@@ -150,6 +150,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'api/overview'},
           items: [
             'api/usage',
+            'api/otlp',
             'api/hooks',
             'api/budgets',
             'api/access-points',
