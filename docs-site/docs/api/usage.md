@@ -51,7 +51,7 @@ All filters are exact matches. Each parameter may appear at most once. Unknown p
 | `access_point_id` | string | No | Access point that the exchange entered through |
 | `caller_kind` | string | No | `agent`, `user` or `client` |
 | `status` | string | No | `ok`, `error`, `denied` or `unknown` |
-| `source` | string | No | `managed` (exchanges through AIPlex) or `reported` (mirrored from a legacy usage report, or read from a harness's own telemetry sent to [`/otlp`](otlp)) |
+| `source` | string | No | `managed` (exchanges through AIPlex) or `reported` (mirrored from a legacy usage report, or read from a harness's own telemetry sent to [`/otlp`](./otlp.md)) |
 | `harness` | string | No | Reported records from one harness, for example `claude-code` |
 | `tag.<key>` | string | No | Records carrying that tag, for example `tag.experiment=arm-a`. Several `tag.*` parameters must all match. |
 | `since` | RFC 3339 timestamp | No | Inclusive lower bound on `started_at` |
@@ -505,7 +505,7 @@ curl -sS -X DELETE "$AIPLEX_URL/api/v1/usage/prices/price-example" \
 - **Ordering and paging.** Records are ordered newest first by `(started_at, id)`. `next_cursor` is an opaque base64url token. Pass it unchanged as `cursor` and keep the other filters the same. The default page size is 100 and the maximum is 1000.
 - **Visibility.** Non-admin callers see only records whose `principal_id` or `actor_id` equals their own principal. Filters cannot widen that view.
 - **Content.** Records never contain prompts, completions, tool arguments, tool results or credentials. Identifiers are bounded to 512 characters.
-- **Reported records.** `source: "reported"` records are mirrored from legacy usage reports, or read from a harness's own telemetry sent to [`/otlp`](otlp). A legacy report's float cost is never copied; its cost is estimated from a price or left unknown. A harness's own cost has basis `reported`; without one the cost is estimated from a price or left unknown.
+- **Reported records.** `source: "reported"` records are mirrored from legacy usage reports, or read from a harness's own telemetry sent to [`/otlp`](./otlp.md). A legacy report's float cost is never copied; its cost is estimated from a price or left unknown. A harness's own cost has basis `reported`; without one the cost is estimated from a price or left unknown.
 - **Sources in summaries.** A managed and a reported record can describe the same request, so a summary with no `source` filter keeps them in separate groups and leaves out reported records that share an explicit key with a managed one (`excluded_correlated_reported`). It never matches on model, time or token counts. `merge_sources=true` adds them together and says it cannot rule out double counting.
 - **Retention.** The Firestore-backed ledger is configured with a 90-day retention (`usageledger.DefaultRetention`). Older records are not returned.
 - **Writes.** The usage records themselves have no write route on this API. Records are created by the gateways.

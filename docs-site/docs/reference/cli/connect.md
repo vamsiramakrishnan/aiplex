@@ -48,7 +48,7 @@ Flags:
       --scope string            With --write: user (home directory files) or project (this directory's files; claude-code and gemini-cli) (default "user")
       --token-helper            With --write: let the client fetch its token from "aiplex --context NAME auth print-token" for the context in effect (needs a stored token; claude-code, codex)
       --undo                    Restore the most recent backup made by --write (for --client, or the latest of any)
-      --with-telemetry string   With --write: also point the client's own OpenTelemetry export at this OTLP endpoint (prompts stay redacted)
+      --with-telemetry string   With --write: also point the client's own OpenTelemetry export at this OTLP endpoint, or 'aiplex' for this deployment's own receiver, which records the client's usage events as reported records (prompts stay redacted; the token is never written)
       --write                   Merge the configuration into the client's own config file (shows a diff, backs up first)
   -y, --yes                     Do not ask for confirmation (required without a terminal)
 

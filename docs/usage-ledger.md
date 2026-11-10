@@ -367,7 +367,7 @@ requests that went through an access point. Point a harness at AIPlex with
 `aiplex connect <access-point> --client <client> --write --with-telemetry aiplex`; the
 receiver, its limits and exactly which signals are mapped are in
 [observability](observability.md#harness-telemetry-received-over-otlp) and
-[harness onboarding](harness-onboarding.md#telemetry-into-the-usage-ledger-with-telemetry-aiplex).
+[harness onboarding](harness-onboarding.md#telemetry-into-the-usage-ledger).
 
 A reported record is written from one harness log event per model request:
 

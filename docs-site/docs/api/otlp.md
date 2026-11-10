@@ -2,7 +2,7 @@
 title: OTLP receiver
 ---
 
-The OTLP receiver takes OpenTelemetry exports from coding harnesses and turns the usage events it recognizes into `source=reported` records in the [usage ledger](usage). It speaks OTLP/HTTP only. What is mapped, what is not, and what was run against a real client are in [observability](../observability#harness-telemetry-received-over-otlp) and [harness onboarding](../harness-onboarding#what-was-run-against-real-clients).
+The OTLP receiver takes OpenTelemetry exports from coding harnesses and turns the usage events it recognizes into `source=reported` records in the [usage ledger](./usage.md). It speaks OTLP/HTTP only. What is mapped, what is not, and what was run against a real client are in [observability](../library/observability.md#harness-telemetry-received-over-otlp) and [harness onboarding](../library/harness-onboarding.md#what-was-run-against-real-clients).
 
 ## Routes
 
@@ -21,7 +21,7 @@ Set the exporter's endpoint to `$AIPLEX_URL/otlp` (it appends `/v1/logs`) and it
 | `Content-Type` | `application/x-protobuf` or `application/json` (OTLP/JSON, with hexadecimal trace and span ids). Anything else is `415`. |
 | `Content-Encoding` | none, `identity` or `gzip`. Anything else is `415`. |
 
-Bodies are bounded to 4 MiB as sent and 16 MiB decompressed, and to 1000 log records (or metrics, or spans) per request. An optional `X-AIPlex-Tags: key=value,...` header adds [tags](../usage-ledger#tags) to the records for keys the operator allowed.
+Bodies are bounded to 4 MiB as sent and 16 MiB decompressed, and to 1000 log records (or metrics, or spans) per request. An optional `X-AIPlex-Tags: key=value,...` header adds [tags](../library/usage-ledger.md#tags) to the records for keys the operator allowed.
 
 ## Response
 

@@ -87,7 +87,7 @@ This is the client's own telemetry. AIPlex's telemetry (its spans and metrics, a
 collector a Helm install runs) is described in [observability](observability.md). Pointing it
 at a collector does not put it in the usage ledger; sending it to AIPlex itself does:
 
-### Telemetry into the usage ledger (`--with-telemetry aiplex`)
+### Telemetry into the usage ledger
 
 `--with-telemetry aiplex` is a shorthand for this deployment's own OTLP receiver
 (`<AIPlex URL>/otlp`, taken from the URLs the server advertises for the access point, else the
