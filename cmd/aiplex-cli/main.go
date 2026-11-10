@@ -161,6 +161,7 @@ Start here (no Docker, no cloud account):
 	applyShortDescriptions(root)
 	applyExamples(root)
 	registerCompletions(root)
+	confirmDestructive(root)
 	rejectUnknownSubcommands(root)
 	return root
 }

@@ -636,3 +636,24 @@ func confirm(cmd *cobra.Command, yes bool, question string) error {
 	}
 	return newCLIError(exitError, "cancelled; nothing was deleted")
 }
+
+// confirmDestructive gives every delete/undeploy command without its own
+// confirmation a --yes flag and a prompt on a terminal.
+func confirmDestructive(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		confirmDestructive(sub)
+	}
+	if (c.Name() != "delete" && c.Name() != "undeploy" && c.Name() != "delete-context") || c.RunE == nil || c.Flags().Lookup("yes") != nil {
+		return
+	}
+	var yes bool
+	c.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
+	run := c.RunE
+	c.RunE = func(cmd *cobra.Command, args []string) error {
+		what := strings.TrimPrefix(strings.TrimPrefix(cmd.Parent().CommandPath(), "aiplex"), " ")
+		if err := confirm(cmd, yes, strings.Join(strings.Fields(cmd.Name()+" "+what+" "+strings.Join(args, " ")), " ")+"?"); err != nil {
+			return err
+		}
+		return run(cmd, args)
+	}
+}
