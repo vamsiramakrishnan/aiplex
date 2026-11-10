@@ -22,7 +22,7 @@ where they are the principal or the actor. Writes to `/api/v1/usage/` require th
 admin role. Deployers are not admins: they read only their own records, like any other
 non-admin caller. The overview roll-ups under `/api/v1/overview` are admin-only too. A
 deployer gets the overview's configuration view with usage withheld (see
-[access points](access-points.md#overview)).
+[access points](access-points.md#the-single-pane)).
 
 | Route | Purpose |
 | --- | --- |
