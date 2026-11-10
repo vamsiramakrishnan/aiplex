@@ -45,7 +45,7 @@ Refusals use these codes. An anonymous caller gets `401 UNAUTHENTICATED` on ever
 ## Route groups
 
 The table groups routes by API area. It is not a full list. For the complete table, see
-[the machine-readable route table](#the-machine-readable-route-table).
+[the machine-readable route table](#the-machine-readable-table).
 
 | API area | Class | Scope | Routes |
 | --- | --- | --- | --- |
