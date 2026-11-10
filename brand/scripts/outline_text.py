@@ -13,9 +13,9 @@ Library use (see build_sheets.py):
     defs = ts.defs()                       # <path id="g-..."> definitions to put in <defs>
 
 Command line (prints a self-contained <path>, for one-off replacements such as
-the launch carousel's command line):
+a single command line):
     python3 brand/scripts/outline_text.py --font mono-500 --size 40 --x 96 --y 700 \
-        --fill "#E8EBF2" --id launch-command "npx your-command"
+        --fill "#E8EBF2" --id command "npx your-command"
 
 Fonts (SIL Open Font License 1.1): Inter / Inter Display by Rasmus Andersson,
 JetBrains Mono by JetBrains. Outlines in artwork are permitted by the OFL.
