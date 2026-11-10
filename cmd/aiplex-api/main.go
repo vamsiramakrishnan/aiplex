@@ -44,7 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("TLS listener configuration failed")
 	}
-	srv := &http.Server{TLSConfig: tlsConfig, Addr: addr, Handler: app.handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	srv := &http.Server{TLSConfig: tlsConfig, Addr: addr, Handler: app.handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second, MaxHeaderBytes: 64 << 10}
 
 	go func() {
 		log.Info().Str("addr", addr).Msg("aiplex-api starting")

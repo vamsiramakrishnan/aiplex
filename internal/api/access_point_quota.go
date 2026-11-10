@@ -232,6 +232,10 @@ func (h *ConnectedHandler) AccessPointQuotaPlan(w http.ResponseWriter, r *http.R
 		return
 	}
 	ap, err := h.validateAccessPoint(r.Context(), tenant, id, record.Spec)
+	if err != nil && errors.Is(err, errAccessPointUnavailable) {
+		Error(w, r, http.StatusServiceUnavailable, "ACCESS_POINT_UNAVAILABLE", "access point configuration is unavailable")
+		return
+	}
 	if err != nil {
 		Error(w, r, http.StatusConflict, "ACCESS_POINT_INVALID", err.Error())
 		return

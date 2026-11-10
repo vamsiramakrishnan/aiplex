@@ -258,6 +258,9 @@ func (h *ConnectedHandler) validateAccessPointSubjects(ctx context.Context, tena
 	}
 	for i, ref := range s.ClientRegistrations {
 		record, err := h.Store.Get(ctx, tenant, clientplex.Kind, ref)
+		if err != nil && !errors.Is(err, resources.ErrNotFound) {
+			return referenceUnavailable(err)
+		}
 		if err != nil {
 			return withField(fmt.Sprintf("subjects/client_registrations/%d", i), fmt.Errorf("client registration %q does not resolve in this tenant", ref))
 		}
@@ -273,6 +276,9 @@ func (h *ConnectedHandler) validateAccessPointSubjects(ctx context.Context, tena
 func (h *ConnectedHandler) accessPointSurface(ctx context.Context, tenant, ref string) (ModelConnection, error) {
 	var connection ModelConnection
 	record, err := h.Store.Get(ctx, tenant, "model-surface", ref)
+	if err != nil && !errors.Is(err, resources.ErrNotFound) {
+		return connection, referenceUnavailable(err)
+	}
 	if err != nil {
 		return connection, fmt.Errorf("model surface %q does not resolve in this tenant", ref)
 	}
@@ -327,6 +333,9 @@ func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant
 func (h *ConnectedHandler) accessPointToolConnection(ctx context.Context, tenant, ref string) (ToolConnection, error) {
 	var connection ToolConnection
 	record, err := h.Store.Get(ctx, tenant, "tool-connection", ref)
+	if err != nil && !errors.Is(err, resources.ErrNotFound) {
+		return connection, referenceUnavailable(err)
+	}
 	if err != nil {
 		return connection, fmt.Errorf("tool connection %q does not resolve in this tenant", ref)
 	}
@@ -526,3 +535,9 @@ func accessPointLoadError(w http.ResponseWriter, r *http.Request, err error, not
 }
 
 var errAccessPointUnavailable = errors.New("access point unavailable")
+
+// referenceUnavailable marks a reference lookup that failed in the store, so
+// an outage is reported as unavailable rather than as an invalid reference.
+func referenceUnavailable(err error) error {
+	return fmt.Errorf("%w: referenced resource lookup failed", errAccessPointUnavailable)
+}

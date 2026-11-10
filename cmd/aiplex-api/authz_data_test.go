@@ -136,7 +136,7 @@ type failingResources struct {
 }
 
 func (f failingResources) Get(ctx context.Context, tenant, kind, id string) (resources.Record, error) {
-	if kind == "access-point" && id == f.failID {
+	if (kind == "access-point" || kind == "model-surface") && id == f.failID {
 		return resources.Record{}, errors.New("backend unavailable")
 	}
 	return f.Store.Get(ctx, tenant, kind, id)
@@ -230,5 +230,20 @@ func TestRunsRequireScopesAndHideOtherTenants(t *testing.T) {
 	other := s.do(t, "GET", "/api/v1/runs/theirs", "runs-operator", "")
 	if authzErrorCode(missing.Body.Bytes()) != authzErrorCode(other.Body.Bytes()) || missing.Code != other.Code || len(missing.Body.String()) != len(other.Body.String()) {
 		t.Fatalf("other-tenant run differs from a missing run: %s vs %s", other.Body, missing.Body)
+	}
+}
+
+// A store failure while resolving an access point's references is an
+// outage (503), not an invalid reference (400).
+func TestAccessPointReferenceOutageIsNotAValidationError(t *testing.T) {
+	s := newAuthzServerWithResources(t, failingResources{Store: resources.NewMemoryStore(), failID: "outage"})
+	req := authzRequest("PUT", "/api/v1/access-points/ap", string(callerAdmin), `{"id":"ap","caller_kinds":["user"],"models":[{"name":"m","surface_ref":"outage","native_model":"m"}]}`)
+	rec := s.do2(req)
+	if rec.Code != 503 {
+		t.Fatalf("reference outage answered %d %s", rec.Code, rec.Body)
+	}
+	req = authzRequest("PUT", "/api/v1/access-points/ap", string(callerAdmin), `{"id":"ap","caller_kinds":["user"],"models":[{"name":"m","surface_ref":"missing","native_model":"m"}]}`)
+	if rec = s.do2(req); rec.Code != 400 {
+		t.Fatalf("missing reference answered %d %s", rec.Code, rec.Body)
 	}
 }
