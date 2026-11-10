@@ -1,12 +1,22 @@
-# GoReleaser — builds and publishes aiplex CLI binaries
+# GoReleaser: builds and publishes the aiplex CLI and the aiplex-api server.
+#
+# Each release archive holds both binaries (aiplex and aiplex-api, plus
+# LICENSE, README.md and CHANGELOG.md), because `aiplex dev` starts the API
+# that sits next to the CLI. install.sh depends on the archive name and on the
+# binaries being at the archive root; keep both in step with it.
 #
 # Usage:
-#   goreleaser release --clean         # tag + release
-#   goreleaser build --snapshot --clean  # local test build
+#   goreleaser check                       # validate this file
+#   goreleaser release --snapshot --clean --skip=publish   # local dry run (make release-dry)
+#   git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0  # real release, by CI
 #
-# Triggered by: git tag v0.1.0 && git push --tags
+# The release workflow (.github/workflows/release.yml) runs on a v* tag, builds the
+# Console first (it is embedded in the CLI), and uses the matching section of
+# CHANGELOG.md as the release notes.
 
 version: 2
+
+project_name: aiplex
 
 builds:
   - id: aiplex
@@ -14,6 +24,8 @@ builds:
     binary: aiplex
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
     goos:
       - linux
       - darwin
@@ -31,6 +43,8 @@ builds:
     binary: aiplex-api
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
     goos:
       - linux
       - darwin
@@ -43,40 +57,42 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    ids:
+      - aiplex
+      - aiplex-api
+    formats:
+      - tar.gz
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     name_template: "aiplex_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
 
 checksum:
   name_template: "checksums.txt"
+  algorithm: sha256
 
+# Used when no --release-notes file is given (for example `make release-dry`).
+# The release workflow passes the CHANGELOG.md section instead.
 changelog:
   sort: asc
   filters:
     exclude:
+      - "^Merge "
       - "^docs:"
       - "^chore:"
       - "^ci:"
-
-brews:
-  - name: aiplex
-    repository:
-      owner: vamsiramakrishnan
-      name: homebrew-tap
-    homepage: "https://github.com/vamsiramakrishnan/aiplex"
-    description: "AIPlex CLI — unified control plane for AI agent interactions"
-    install: |
-      bin.install "aiplex"
-      bin.install "aiplex-api"
-    test: |
-      system "#{bin}/aiplex", "version"
 
 release:
   github:
     owner: vamsiramakrishnan
     name: aiplex
+  # A tag with a hyphen (v0.2.0-rc.1) is published as a pre-release.
+  prerelease: auto
   header: |
     ## Installation
 
@@ -84,12 +100,11 @@ release:
     # macOS / Linux
     curl -fsSL https://raw.githubusercontent.com/vamsiramakrishnan/aiplex/main/install.sh | bash
 
-    # macOS (Homebrew)
-    brew install vamsiramakrishnan/tap/aiplex
-
     # From source (Go 1.25+): builds bin/aiplex and bin/aiplex-api
     git clone https://github.com/vamsiramakrishnan/aiplex.git && cd aiplex && make build
 
     # Then, locally with no cloud account:
     aiplex dev
     ```
+
+    Each archive contains `aiplex` and `aiplex-api`. Verify downloads against `checksums.txt`.

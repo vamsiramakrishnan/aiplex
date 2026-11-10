@@ -221,10 +221,13 @@ deps: ## Check the tools each workflow needs
 
 # ─── Release ────────────────────────────────────────────
 
-release-dry: ## Preview release (no publish)
-	goreleaser build --snapshot --clean
+release-check: ## Validate .goreleaser.yaml
+	goreleaser check
 
-release: ## Tag and release (requires GITHUB_TOKEN)
+release-dry: ## Build release archives locally into dist/ (no publish)
+	goreleaser release --snapshot --clean --skip=publish
+
+release: ## Publish a release from the current tag (CI does this on a v* tag; requires GITHUB_TOKEN)
 	goreleaser release --clean
 
 # ─── Clean ──────────────────────────────────────────────
