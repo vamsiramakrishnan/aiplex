@@ -152,6 +152,10 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	if g.options.ObserveLimits != nil {
 		g.options.ObserveLimits(r.Context(), owner, providerlimits.Parse(g.surface.Provider.ID, response.StatusCode, response.Header, time.Now()))
 	}
+	if g.handleUpstreamAuth(w, r, run, response) {
+		return
+	}
+	g.noteRejectionClass(r, response)
 	if response.StatusCode >= 300 && response.StatusCode < 400 {
 		if err := run.finish(execution.Result{StatusCode: response.StatusCode, Err: errors.New("upstream redirect refused")}); err != nil {
 			writeExecutionError(w, err)

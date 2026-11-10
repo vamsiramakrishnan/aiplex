@@ -128,6 +128,19 @@ func (c *usageCapture) noteError(err error) {
 	}
 }
 
+// noteClass keeps the error class of a failure the gateway attributes itself
+// (upstream_auth, upstream_quota_exhausted). The first one wins.
+func (c *usageCapture) noteClass(class string) {
+	if c == nil || class == "" || len(class) > 64 {
+		return
+	}
+	c.mu.Lock()
+	if c.errorCode == "" {
+		c.errorCode = class
+	}
+	c.mu.Unlock()
+}
+
 func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string, terminal bool, bound string, dimensions ...map[string]string) {
 	if c == nil {
 		return
@@ -169,6 +182,14 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 		c.genAIProvider = telemetry.ModelProviderName(connection.Surface.Provider.ID, false)
 	}
 	c.mu.Unlock()
+	opts.NoteError = func(_ context.Context, class string) { c.noteClass(class) }
+	if opts.OperatorDetail == nil {
+		// Operators (admin or deployer) see the surface id in gateway-made
+		// upstream errors; every other caller sees none.
+		opts.OperatorDetail = func(ctx context.Context) bool {
+			return HasRole(GetWIFAccess(ctx), models.RoleAdmin, models.RoleDeployer)
+		}
+	}
 	authorize := opts.Authorize
 	opts.Authorize = func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
 		c.set(func(r *usageledger.Record) {

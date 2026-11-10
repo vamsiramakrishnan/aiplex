@@ -157,7 +157,7 @@ func NativeKeyHeaders(next http.Handler) http.Handler {
 		}
 		value, ok := nativeKeyValue(native)
 		if !ok {
-			writeNativeError(w, wire, http.StatusUnauthorized, "UNAUTHENTICATED", "conflicting credentials: send the AIPlex token once")
+			writeNativeError(w, wire, http.StatusUnauthorized, "UNAUTHENTICATED", "conflicting credentials: the "+nativeKeyHeaderOf[kind]+" header was repeated with different values; send the AIPlex token once")
 			return
 		}
 		if value == "" {
@@ -171,7 +171,7 @@ func NativeKeyHeaders(next http.Handler) http.Handler {
 		if existing := r.Header.Values("Authorization"); len(existing) > 0 {
 			token, bearer := strings.CutPrefix(strings.Join(existing, ","), "Bearer ")
 			if len(existing) != 1 || !bearer || subtle.ConstantTimeCompare([]byte(token), []byte(value)) != 1 {
-				writeNativeError(w, wire, http.StatusUnauthorized, "UNAUTHENTICATED", "conflicting credentials: the Authorization header and the provider key header differ")
+				writeNativeError(w, wire, http.StatusUnauthorized, "UNAUTHENTICATED", nativeKeyConflictMessage(nativeKeyHeaderOf[kind]))
 				return
 			}
 		}
@@ -195,4 +195,17 @@ func nativeKeyValue(values []string) (string, bool) {
 		out = v
 	}
 	return out, true
+}
+
+// nativeKeyConflictMessage tells a caller who sent the AIPlex token in
+// Authorization and a different value in a provider key header (Claude Code
+// does this when its settings already hold ANTHROPIC_API_KEY) which header to
+// remove. AIPlex never uses that value; it is dropped before identity
+// extraction and appears in no log, record or span. It was, however, received
+// by the gateway in transit, so the message says so without claiming more.
+func nativeKeyConflictMessage(header string) string {
+	return "conflicting credentials: this request has an Authorization header and a " + header + " header with different values. " +
+		"Send the AIPlex token once: remove the " + header + " header (AIPlex does not use a provider key). " +
+		"The value in " + header + " reached this gateway in this request; it is discarded and never logged, stored or forwarded, " +
+		"so treat it as seen by the gateway operator in transit only."
 }

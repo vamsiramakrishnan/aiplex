@@ -98,7 +98,7 @@ func TestUsageLedgerRecordsUnmanagedModelWithEstimatedCost(t *testing.T) {
 	if u == nil || *u.InputTokens != 3 || *u.OutputTokens != 2 || *u.CacheReadTokens != 1 || *u.ReasoningTokens != 1 || *u.TotalTokens != 6 || u.CacheWriteTokens != nil {
 		t.Fatalf("normalized usage: %+v", u)
 	}
-	if r.Cost != (usageledger.Cost{Basis: usageledger.BasisEstimated, Currency: "USD", Amount: "14", Scale: 6}) {
+	if r.Cost != (usageledger.Cost{Basis: usageledger.BasisEstimated, Currency: "USD", Amount: "14", Scale: 6, PriceID: "model-v1-usd"}) {
 		t.Fatalf("estimated cost: %+v", r.Cost)
 	}
 	assertNoPayload(t, r)
@@ -378,7 +378,7 @@ func TestUsageLedgerReportedSource(t *testing.T) {
 	if *rec.Usage.InputTokens != 1000 || *rec.Usage.OutputTokens != 10 || *rec.Usage.TotalTokens != 1010 {
 		t.Fatalf("reported usage: %+v", rec.Usage)
 	}
-	if rec.Cost != (usageledger.Cost{Basis: usageledger.BasisEstimated, Currency: "USD", Amount: "156000", Scale: 9}) {
+	if rec.Cost != (usageledger.Cost{Basis: usageledger.BasisEstimated, Currency: "USD", Amount: "156000", Scale: 9, PriceID: "flash"}) {
 		t.Fatalf("reported cost must come from a price resource, not the float report: %+v", rec.Cost)
 	}
 }

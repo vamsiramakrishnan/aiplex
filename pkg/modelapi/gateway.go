@@ -103,6 +103,12 @@ type Options struct {
 	// Hooks inspects request and response content (hooks.go). Nil leaves
 	// every body untouched.
 	Hooks ContentHooks
+	// NoteError receives the error class of a failure the gateway attributes
+	// itself (upstream_auth, upstream_quota_exhausted; upstream_errors.go).
+	NoteError func(ctx context.Context, class string)
+	// OperatorDetail reports whether the caller is an operator, who sees the
+	// surface id in gateway-generated upstream errors. Nil means no one does.
+	OperatorDetail func(ctx context.Context) bool
 }
 type compiledOperation struct {
 	operation Operation
@@ -343,6 +349,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	if g.handleUpstreamAuth(w, r, run, response) {
+		return
+	}
 	if response.StatusCode >= 300 && response.StatusCode < 400 {
 		if err := run.finish(execution.Result{StatusCode: response.StatusCode, Err: errors.New("upstream redirect refused")}); err != nil {
 			writeExecutionError(w, err)
