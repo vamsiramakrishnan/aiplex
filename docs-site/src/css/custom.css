@@ -1,172 +1,190 @@
+/*
+ * Theme tokens
+ *
+ * All colours live behind the --aiplex-* variables below. The values here are
+ * neutral placeholders. BRAND TOKENS: when the brand package lands, import its
+ * token file here (for example `@import url('./brand-tokens.css');`, copied from
+ * brand/) and override only the --aiplex-* variables; no other rule in this
+ * file or in src/pages/ hard-codes a colour.
+ */
 :root {
-  --ifm-color-primary: #6366f1;
-  --ifm-color-primary-dark: #4f46e5;
-  --ifm-color-primary-darker: #4338ca;
-  --ifm-color-primary-darkest: #3730a3;
-  --ifm-color-primary-light: #818cf8;
-  --ifm-color-primary-lighter: #a5b4fc;
-  --ifm-color-primary-lightest: #c7d2fe;
+  --aiplex-accent: #25598f;
+  --aiplex-accent-hover: #1d4873;
+  --aiplex-surface: #f5f7f9;
+  --aiplex-surface-border: #d5dbe1;
+  --aiplex-text-muted: #4b5563;
+  --aiplex-diagram-bg: #ffffff;
+  --aiplex-diagram-line: #5b6674;
+  --aiplex-diagram-box: #eef2f6;
+  --aiplex-diagram-text: #1b1f24;
+  --aiplex-diagram-accent: #25598f;
+  --aiplex-code-comment: #5a6370;
+  --aiplex-code-literal: #0a6560;
+  --aiplex-code-string: #9d1450;
+  --aiplex-code-function: #8f2236;
+}
+
+[data-theme='dark'] {
+  --aiplex-accent: #8ab8e6;
+  --aiplex-accent-hover: #b3d3f2;
+  --aiplex-surface: #1f242b;
+  --aiplex-surface-border: #384049;
+  --aiplex-text-muted: #aeb7c2;
+  --aiplex-diagram-bg: #14181d;
+  --aiplex-diagram-line: #9aa5b1;
+  --aiplex-diagram-box: #222a33;
+  --aiplex-diagram-text: #eef1f4;
+  --aiplex-diagram-accent: #8ab8e6;
+  --aiplex-code-comment: #9aa7d6;
+}
+
+/* Map the tokens onto Infima. */
+:root {
+  --ifm-color-primary: var(--aiplex-accent);
+  --ifm-color-primary-dark: var(--aiplex-accent-hover);
+  --ifm-color-primary-darker: var(--aiplex-accent-hover);
+  --ifm-color-primary-darkest: var(--aiplex-accent-hover);
+  --ifm-color-primary-light: var(--aiplex-accent);
+  --ifm-color-primary-lighter: var(--aiplex-accent);
+  --ifm-color-primary-lightest: var(--aiplex-accent);
   --ifm-code-font-size: 95%;
-  --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 }
 
 [data-theme='dark'] {
-  --ifm-color-primary: #818cf8;
-  --ifm-color-primary-dark: #6366f1;
-  --ifm-color-primary-darker: #4f46e5;
-  --ifm-color-primary-darkest: #4338ca;
-  --ifm-color-primary-light: #a5b4fc;
-  --ifm-color-primary-lighter: #c7d2fe;
-  --ifm-color-primary-lightest: #e0e7ff;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
 
-/* Hero styles */
-.hero--aiplex {
-  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
-  padding: 4rem 0 6rem;
-  color: white;
+/*
+ * Wide tables scroll inside their own box, never the page. Markdown tables are
+ * emitted as bare <table> elements, so the table itself becomes the scroller.
+ */
+.markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
-[data-theme='light'] .hero--aiplex {
-  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 50%, #c7d2fe 100%);
-  color: #1e1b4b;
+/* Long inline code (routes, env vars) may break instead of widening the page. */
+.markdown :not(pre) > code {
+  overflow-wrap: anywhere;
 }
 
-.hero--aiplex .hero__title {
-  font-size: 3.5rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-.hero--aiplex .hero__subtitle {
-  font-size: 1.4rem;
-  opacity: 0.9;
-  max-width: 600px;
+/* Landing page */
+.aiplex-home {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 1040px;
   margin: 0 auto;
-  line-height: 1.6;
+  padding: 2.5rem 16px 4rem;
 }
 
-/* Plane cards */
-.plane-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 1.5rem;
-  padding: 3rem 0;
-}
-
-.plane-card {
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 12px;
-  padding: 2rem;
-  transition: all 0.2s ease;
-  background: var(--ifm-background-surface-color);
-}
-
-.plane-card:hover {
-  border-color: var(--ifm-color-primary);
-  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.15);
-  transform: translateY(-2px);
-}
-
-.plane-card h3 {
-  margin-top: 0;
-  font-size: 1.3rem;
-}
-
-.plane-card .plane-tag {
-  display: inline-block;
-  padding: 0.2rem 0.6rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.aiplex-home h1 {
+  font-size: clamp(2rem, 6vw, 2.75rem);
   margin-bottom: 0.75rem;
 }
 
-.plane-tag--mcp { background: #dbeafe; color: #1e40af; }
-.plane-tag--a2a { background: #dcfce7; color: #166534; }
-.plane-tag--llm { background: #fef3c7; color: #92400e; }
-
-[data-theme='dark'] .plane-tag--mcp { background: #1e3a5f; color: #93c5fd; }
-[data-theme='dark'] .plane-tag--a2a { background: #14532d; color: #86efac; }
-[data-theme='dark'] .plane-tag--llm { background: #451a03; color: #fcd34d; }
-
-/* Quick start steps */
-.quickstart-steps {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-  padding: 2rem 0;
+.aiplex-lede {
+  font-size: 1.15rem;
+  max-width: 46rem;
+  color: var(--aiplex-text-muted);
 }
 
-.quickstart-step {
-  text-align: center;
-  padding: 1.5rem;
-}
-
-.quickstart-step .step-number {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--ifm-color-primary);
-  color: white;
-  font-weight: 700;
-  font-size: 1.1rem;
-  margin-bottom: 1rem;
-}
-
-/* Terminal-style code blocks */
-.terminal-block {
-  background: #1a1b26;
+.aiplex-diagram {
+  margin: 2rem 0;
+  border: 1px solid var(--aiplex-surface-border);
   border-radius: 8px;
-  padding: 1.25rem 1.5rem;
-  color: #a9b1d6;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.9rem;
-  line-height: 1.6;
+  background: var(--aiplex-diagram-bg);
   overflow-x: auto;
-  margin: 1rem 0;
 }
 
-.terminal-block .prompt {
-  color: #7aa2f7;
+.aiplex-diagram svg {
+  display: block;
+  min-width: 640px;
+  width: 100%;
+  height: auto;
 }
 
-.terminal-block .comment {
-  color: #565f89;
+.aiplex-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2.5rem;
 }
 
-/* Admonition customization */
-.alert--tip {
-  --ifm-alert-background-color: rgba(99, 102, 241, 0.1);
-  --ifm-alert-border-color: var(--ifm-color-primary);
+.aiplex-link-card {
+  display: block;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--aiplex-surface-border);
+  border-radius: 8px;
+  background: var(--aiplex-surface);
+  color: inherit;
+  text-decoration: none;
 }
 
-/* Section dividers */
-.section-divider {
-  border: none;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--ifm-color-emphasis-200), transparent);
-  margin: 3rem 0;
+.aiplex-link-card:hover {
+  border-color: var(--aiplex-accent);
+  color: inherit;
+  text-decoration: none;
 }
 
-/* Badges in docs */
-.badge {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-left: 0.5rem;
-  vertical-align: middle;
+.aiplex-link-card strong {
+  display: block;
+  color: var(--aiplex-accent);
+  margin-bottom: 0.25rem;
 }
 
-.badge--mcplex { background: #dbeafe; color: #1e40af; }
-.badge--a2aplex { background: #dcfce7; color: #166534; }
-.badge--llmplex { background: #fef3c7; color: #92400e; }
+.aiplex-link-card span {
+  color: var(--aiplex-text-muted);
+  font-size: 0.92rem;
+}
+
+.aiplex-modules {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/*
+ * Code block token colours. The stock Prism themes fall below WCAG AA contrast
+ * for several token types (comments, numbers, parameters). Prism applies colours
+ * inline, so these overrides need !important.
+ */
+[data-theme='light'] .token.comment,
+[data-theme='light'] .token.prolog,
+[data-theme='light'] .token.doctype,
+[data-theme='light'] .token.cdata {
+  color: var(--aiplex-code-comment) !important;
+}
+
+[data-theme='light'] .token.property,
+[data-theme='light'] .token.boolean,
+[data-theme='light'] .token.number,
+[data-theme='light'] .token.constant,
+[data-theme='light'] .token.symbol,
+[data-theme='light'] .token.variable,
+[data-theme='light'] .token.parameter,
+[data-theme='light'] .token.tag {
+  color: var(--aiplex-code-literal) !important;
+}
+
+[data-theme='light'] .token.string,
+[data-theme='light'] .token.char,
+[data-theme='light'] .token.attr-value,
+[data-theme='light'] .token.builtin,
+[data-theme='light'] .token.inserted {
+  color: var(--aiplex-code-string) !important;
+}
+
+[data-theme='light'] .token.function,
+[data-theme='light'] .token.class-name {
+  color: var(--aiplex-code-function) !important;
+}
+
+[data-theme='dark'] .token.comment,
+[data-theme='dark'] .token.prolog,
+[data-theme='dark'] .token.doctype,
+[data-theme='dark'] .token.cdata {
+  color: var(--aiplex-code-comment) !important;
+}
