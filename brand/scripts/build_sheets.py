@@ -369,7 +369,7 @@ def build(which):
     if "social" in which:
         out += [(social(), "social/aiplex-social-card.svg"), (banner(), "social/aiplex-readme-banner.svg")]
     if "sheet" in which:
-        out += [(sheet("light"), "brand-sheet.svg")]
+        out += [(sheet("light"), "brand-sheet.svg"), (sheet("dark"), "brand-sheet-dark.svg")]
     return out
 
 
