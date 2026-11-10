@@ -338,6 +338,14 @@ func buildEntry(provider, model, key string, raw map[string]any) (pricecatalog.E
 				continue
 			}
 		}
+		if cachedModalityCovered(field, e.Rates) {
+			// A cached-input rate for a modality whose own token rate is
+			// imported cannot misprice: the ledger does not hold cached tokens
+			// by modality, so a price that separates that modality leaves any
+			// record with cached tokens and tokens of that modality unknown.
+			leftOut[field] = true
+			continue
+		}
 		if classify(field) {
 			blocking[field] = true
 		} else {
@@ -463,4 +471,24 @@ func build(upstream []byte, meta pricecatalog.Meta) (pricecatalog.Snapshot, erro
 func sha256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+var cachedModalityRE = regexp.MustCompile(`^cache_read_input_(audio|image|video)_token_cost`)
+
+// cachedModalityCovered reports whether field is a cached-input rate of a
+// modality whose uncached token rate was imported in rates.
+func cachedModalityCovered(field string, rates pricecatalog.Rates) bool {
+	m := cachedModalityRE.FindStringSubmatch(field)
+	if m == nil {
+		return false
+	}
+	switch m[1] {
+	case "audio":
+		return rates.InputAudio != ""
+	case "image":
+		return rates.InputImage != ""
+	case "video":
+		return rates.InputVideo != ""
+	}
+	return false
 }

@@ -3,6 +3,7 @@ package modelapi
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 )
 
 // Server-tool and service-tier observation.
@@ -19,11 +20,12 @@ import (
 //     code_interpreter_call, image_generation_call. Function calls and
 //     computer or MCP calls are executed by the caller or priced otherwise and
 //     are not counted.
-//   - Gemini: the number of grounding web search queries
-//     (candidates[].groundingMetadata.webSearchQueries) reported on the chunk
-//     that carries usageMetadata. Gemini bills grounding per query on current
-//     models and per grounded prompt on older ones; the count is the queries
-//     reported, so price it only for models billed per query.
+//   - Gemini: usageMetadata.billedToolCalls, counted per search query for a
+//     search tool and per successful call for other tools (see
+//     countGeminiServerTools); the grounding queries in groundingMetadata are
+//     the fallback. Gemini bills grounding per query on current models and per
+//     grounded prompt on older ones, so price it only for models billed per
+//     query.
 //
 // A count is only recorded when the provider reports it; a response without
 // the field leaves the kind absent, never zero.
@@ -78,6 +80,60 @@ func countResponsesServerTools(raw json.RawMessage, counters map[string]int64) {
 			addServerToolCalls(counters, kind, 1)
 		}
 	}
+}
+
+// countGeminiServerTools counts Gemini's provider-side tool use. The
+// authoritative signal is usageMetadata.billedToolCalls, observed on the live
+// Gemini Developer API on 2026-11-10 for a google_search request:
+//
+//	"billedToolCalls":[{"tool":"GOOGLE_SEARCH_RETRIEVAL","successfulToolCallCount":1,"searchQueryCount":1}]
+//
+// A search tool is counted by searchQueryCount (grounding is billed per search
+// query on current models; older models bill per grounded prompt, which is
+// successfulToolCallCount), any other tool by successfulToolCallCount. That
+// live response carried no groundingMetadata, so grounding queries
+// (candidates[].groundingMetadata.webSearchQueries) are used only when
+// billedToolCalls is absent, never added to it.
+func countGeminiServerTools(usage map[string]json.RawMessage, candidates json.RawMessage, counters map[string]int64) {
+	if raw := usage["billedToolCalls"]; raw != nil && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		var calls []struct {
+			Tool       string `json:"tool"`
+			Successful *int64 `json:"successfulToolCallCount"`
+			Queries    *int64 `json:"searchQueryCount"`
+		}
+		if json.Unmarshal(raw, &calls) != nil {
+			return
+		}
+		for _, call := range calls {
+			kind := geminiToolKind(call.Tool)
+			n := call.Successful
+			if strings.Contains(strings.ToUpper(call.Tool), "SEARCH") && call.Queries != nil {
+				n = call.Queries
+			}
+			if kind != "" && n != nil {
+				addServerToolCalls(counters, kind, *n)
+			}
+		}
+		return
+	}
+	countGroundingQueries(candidates, counters)
+}
+
+// geminiToolKind maps a billedToolCalls tool name to a server-tool kind.
+func geminiToolKind(tool string) string {
+	if tool == "GOOGLE_SEARCH_RETRIEVAL" || tool == "GOOGLE_SEARCH" {
+		return "google_search"
+	}
+	var b strings.Builder
+	for _, c := range strings.ToLower(tool) {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' {
+			b.WriteRune(c)
+		}
+	}
+	if kind := b.String(); kind != "" && kind[0] >= 'a' && kind[0] <= 'z' {
+		return kind
+	}
+	return ""
 }
 
 // countGroundingQueries counts Gemini grounding web search queries.

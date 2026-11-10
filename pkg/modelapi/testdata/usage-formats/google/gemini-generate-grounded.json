@@ -23,6 +23,7 @@
     "candidatesTokenCount": 60,
     "toolUsePromptTokenCount": 300,
     "thoughtsTokenCount": 40,
+    "billedToolCalls": [{"tool": "GOOGLE_SEARCH_RETRIEVAL", "successfulToolCallCount": 2, "searchQueryCount": 3}],
     "totalTokenCount": 900,
     "serviceTier": "priority"
   },

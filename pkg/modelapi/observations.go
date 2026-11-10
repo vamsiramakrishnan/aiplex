@@ -300,7 +300,7 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		countResponsesServerTools(object["output"], counters)
 	}
 	if result.gemini {
-		countGroundingQueries(root["candidates"], counters)
+		countGeminiServerTools(usage, root["candidates"], counters)
 	}
 	if op.ID == "openai.chat-completions" && g.surface.Provider == nil {
 		vertexCompletionComposition(counters)

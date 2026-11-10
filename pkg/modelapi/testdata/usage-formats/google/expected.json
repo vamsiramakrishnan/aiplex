@@ -366,6 +366,6 @@
     "cache_write_tokens": null,
     "reasoning_tokens": 40,
     "total_tokens": 900,
-    "notes": "Grounded generation: groundingMetadata.webSearchQueries (3) is a per-query server-tool count, toolUsePromptTokenCount (300) is NOT inside promptTokenCount but is inside totalTokenCount, and usageMetadata.serviceTier names the tier. Fixture is synthetic, shaped after the GenerateContentResponse."
+    "notes": "Grounded generation: usageMetadata.billedToolCalls (shape observed live on the Gemini Developer API, 2026-11-10; searchQueryCount 3, successfulToolCallCount 2) is the per-query server-tool count, with groundingMetadata.webSearchQueries as a fallback, toolUsePromptTokenCount (300) is NOT inside promptTokenCount but is inside totalTokenCount, and usageMetadata.serviceTier names the tier. Fixture is synthetic, shaped after the GenerateContentResponse."
   }
 }

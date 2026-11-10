@@ -166,18 +166,18 @@ func TestCatalogImportNeverOverwritesWithoutReplace(t *testing.T) {
 func TestCatalogImportRefusesPartialPricingWithoutAcceptance(t *testing.T) {
 	api, server := newCatalogAPI("[]")
 	defer server.Close()
-	_, err := runUsage(t, server, "table", "prices", "catalog", "import", "gemini-developer/gemini-2.5-flash", "--yes")
+	_, err := runUsage(t, server, "table", "prices", "catalog", "import", "gemini-developer/gemini-3.1-pro-preview", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "cannot express") {
 		t.Fatalf("err = %v", err)
 	}
 	if len(api.puts) != 0 {
 		t.Fatal("a refused import must write nothing")
 	}
-	out, err := runUsage(t, server, "table", "prices", "catalog", "import", "gemini-developer/gemini-2.5-flash", "--yes", "--accept-partial")
+	out, err := runUsage(t, server, "table", "prices", "catalog", "import", "gemini-developer/gemini-3.1-pro-preview", "--yes", "--accept-partial")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(api.puts) == 0 || !strings.Contains(out, "NOT EXPRESSIBLE") || !strings.Contains(out, "imported anyway: --accept-partial was given") || strings.Contains(out, "importing needs --accept-partial") || !strings.Contains(out, "cache_read_input_audio_token_cost") {
+	if len(api.puts) == 0 || !strings.Contains(out, "NOT EXPRESSIBLE") || !strings.Contains(out, "imported anyway: --accept-partial was given") || strings.Contains(out, "importing needs --accept-partial") || !strings.Contains(out, "input_cost_per_token_above_200k_tokens") {
 		t.Fatalf("puts=%v\n%s", api.puts, out)
 	}
 }
