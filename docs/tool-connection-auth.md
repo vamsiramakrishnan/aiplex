@@ -89,8 +89,11 @@ error with code `-32001` that keeps the request ID.
 3. The caller's grant `mcp:tools:{name}`. The `scope` denial names the missing grant.
 4. If `read_only` is set, the tool's `readOnlyHint` must be known and `true`. A hint
    is known only when a `tools/list` response from this gateway, for this connection
-   revision, recorded it within the last 24 hours. Otherwise the call is denied with
-   `read_only_unknown`, and the caller is told to list tools through the gateway.
+   revision, recorded that tool's own annotation within the last 24 hours. Each tool
+   expires on its own. A later listing refreshes the allowed tools that it lists with a
+   `readOnlyHint`. Other tools keep the time they were last listed, and a tool whose
+   annotation is absent from the listing loses its hint. Otherwise the call is denied
+   with `read_only_unknown`, and the caller is told to list tools through the gateway.
 5. Quota admission, when QuotaPlex covers the path.
 6. Credential acquisition for the auth type.
 7. The upstream call. The credential is applied only to the connection's configured origin.
@@ -142,7 +145,8 @@ The `--allow` and `--deny` flags replace their lists. Pass `''` to empty one.
   from the MCP server. AIPlex trusts it and does not verify the tool's behavior.
 - The read-only check needs a prior `tools/list` through this gateway for the current
   connection revision. Any change to the connection invalidates the recorded hints.
-  Hints older than 24 hours are not used.
+  Each hint expires 24 hours after its tool was last listed with an annotation. An older
+  hint is not used, even when other tools in the same listing are fresh.
 - The tools policy matches tool names only. It does not inspect arguments.
 - The `auth` block applies to managed `tools/call` and `tools/list` through AIPlex.
   A tool server reached any other way is outside this policy.
