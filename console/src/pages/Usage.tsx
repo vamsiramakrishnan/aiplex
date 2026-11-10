@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../api/usage'
 import UsagePrices from './UsagePrices'
 import { useAccess } from '../hooks/useAccess'
@@ -12,9 +12,11 @@ const button = 'rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacit
 const card = 'rounded border border-gray-200 p-4 dark:border-gray-800'
 const muted = 'text-xs text-gray-600 dark:text-gray-400'
 
-export const GROUP_LABELS: Record<api.GroupField, string> = {
-  plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', access_point_id: 'Access point', caller_kind: 'Caller kind', status: 'Status', source: 'Source', error_class: 'Error class', usage_bound: 'Usage bound', batch: 'Batch',
+export const GROUP_LABELS: Record<string, string> = {
+  plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', access_point_id: 'Access point', caller_kind: 'Caller kind', status: 'Status', source: 'Source', error_class: 'Error class', usage_bound: 'Usage bound', batch: 'Batch', harness: 'Harness',
 }
+/** Heading for a group field; a tag is shown as "Tag key". */
+export const groupName = (f: string): string => GROUP_LABELS[f] ?? (f.startsWith('tag:') ? `Tag ${f.slice(4)}` : f)
 
 // ---- filters -------------------------------------------------------------
 
@@ -33,13 +35,14 @@ export interface FilterDraft {
   error_class: string
   usage_bound: string
   batch: string
+  harness: string
 }
-export const emptyDraft: FilterDraft = { preset: '24h', plane: '', model_id: '', tool_name: '', actor_id: '', principal_id: '', client_id: '', access_point_id: '', caller_kind: '', status: '', source: '', error_class: '', usage_bound: '', batch: '' }
+export const emptyDraft: FilterDraft = { preset: '24h', plane: '', model_id: '', tool_name: '', actor_id: '', principal_id: '', client_id: '', access_point_id: '', caller_kind: '', status: '', source: '', error_class: '', usage_bound: '', batch: '', harness: '' }
 
 /** Turns the form into API filters; the time window is resolved once, at apply time. */
 export function buildFilter(draft: FilterDraft, now: Date = new Date()): api.UsageFilter {
   const filter: api.UsageFilter = { since: api.presetSince(draft.preset, now) }
-  for (const name of ['plane', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status', 'source', 'error_class', 'usage_bound', 'batch'] as const) {
+  for (const name of ['plane', 'model_id', 'tool_name', 'actor_id', 'principal_id', 'client_id', 'access_point_id', 'caller_kind', 'status', 'source', 'error_class', 'usage_bound', 'batch', 'harness'] as const) {
     const value = draft[name].trim()
     if (value) filter[name] = value
   }
@@ -51,7 +54,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Filters kept behind "More filters"; the six most used stay visible. */
-export const MORE_FILTERS = ['actor_id', 'principal_id', 'client_id', 'caller_kind', 'source', 'error_class', 'usage_bound', 'batch'] as const
+export const MORE_FILTERS = ['actor_id', 'principal_id', 'client_id', 'caller_kind', 'source', 'error_class', 'usage_bound', 'batch', 'harness'] as const
 /** How many of the less common filters hold a value. */
 export const activeMoreFilters = (draft: FilterDraft): number => MORE_FILTERS.filter((n) => draft[n].trim() !== '').length
 
@@ -79,7 +82,7 @@ function FilterBar({ draft, onChange, onApply }: { draft: FilterDraft; onChange:
     <Field label="Principal"><input className={field} value={draft.principal_id} onChange={set('principal_id')} placeholder="user / principal ID" /></Field>
     <Field label="Client"><input className={field} value={draft.client_id} onChange={set('client_id')} placeholder="client ID" /></Field>
     <Field label="Caller kind"><select className={field} value={draft.caller_kind} onChange={set('caller_kind')}><option value="">Any caller kind</option><option value="agent">agent</option><option value="user">user</option><option value="client">client</option></select></Field>
-    <Field label="Source"><select className={field} value={draft.source} onChange={set('source')}><option value="">Any source</option><option value="managed">managed (through AIPlex)</option><option value="reported">reported (by the caller)</option></select></Field>
+    <Field label="Source"><select className={field} value={draft.source} onChange={set('source')}><option value="">Any source</option><option value="managed">managed (through AIPlex)</option><option value="reported">reported (by the client’s own telemetry)</option></select></Field>
     <Field label="Error class"><input className={field} value={draft.error_class} onChange={set('error_class')} placeholder="e.g. rate_limited" /></Field>
     <Field label="Usage bound"><select className={field} value={draft.usage_bound} onChange={set('usage_bound')}><option value="">Any</option><option value="lower_bound">lower bound</option><option value="ambiguous">ambiguous</option><option value="partial">partial</option><option value="none">exact (no bound)</option></select></Field>
     <Field label="Batch"><select className={field} value={draft.batch} onChange={set('batch')}><option value="">Batch and not</option><option value="true">Provider batches only</option><option value="false">Not batches</option></select></Field>
@@ -141,6 +144,7 @@ export function keyText(field: api.GroupField, value: string | undefined): strin
   if (field === 'batch') return value === 'true' ? 'provider batch' : value === 'false' ? 'not a batch' : '(none)'
   if (!value && field === 'model_id') return '(no model)'
   if (!value && field === 'tool_name') return '(no tool)'
+  if (field === 'source') return value === 'reported' ? 'reported (client telemetry)' : value === 'managed' ? 'managed (through AIPlex)' : value || '(none)'
   return value || '(none)'
 }
 function groupLabel(g: api.SummaryGroup, fields: readonly api.GroupField[]): string {
@@ -188,6 +192,7 @@ function Breakdown({ summary }: { summary: api.UsageSummary }) {
   }, [summary, sort, sortCurrency])
   const maxRequests = summary.groups.reduce((m, g) => Math.max(m, Number(g.requests)), 0)
   const bucketed = Boolean(summary.bucket)
+  const hasFeedback = summary.groups.some((g) => g.feedback !== undefined)
   const header = (key: SortKey, label: string) => <th scope="col" aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="py-2 pr-4">
     <button type="button" className="font-medium underline-offset-2 hover:underline" aria-label={`Sort by ${label}`} onClick={() => setSort((s) => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }))}>{label}{sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</button>
   </th>
@@ -196,10 +201,10 @@ function Breakdown({ summary }: { summary: api.UsageSummary }) {
     <div className="overflow-x-auto"><table className="w-full text-left text-sm">
       <caption className="sr-only">Usage breakdown</caption>
       <thead><tr className="border-b border-gray-200 dark:border-gray-800">
-        <th scope="col" className="py-2 pr-4">{summary.group_by.length ? summary.group_by.map((f) => GROUP_LABELS[f]).join(' · ') : 'Group'}</th>
+        <th scope="col" className="py-2 pr-4">{summary.group_by.length ? summary.group_by.map(groupName).join(' · ') : 'Group'}</th>
         {bucketed && <th scope="col" className="py-2 pr-4">Bucket</th>}
         {header('requests', 'Requests')}{header('input', 'Input tokens')}{header('output', 'Output tokens')}<th scope="col" className="py-2 pr-4">Cache write tokens</th><th scope="col" className="py-2 pr-4">Modality tokens (part of input / output)</th><th scope="col" className="py-2 pr-4">Units (not tokens)</th><th scope="col" className="py-2 pr-4">Batch</th>{header('cost', 'Cost')}
-        <th scope="col" className="py-2 pr-4">Errors / denied</th><th scope="col" className="py-2">Unknown</th>
+        <th scope="col" className="py-2 pr-4">Errors / denied</th>{hasFeedback && <th scope="col" className="py-2 pr-4">Feedback</th>}<th scope="col" className="py-2">Unknown</th>
       </tr></thead>
       <tbody>{rows.map(({ g }, i) => {
         const width = maxRequests > 0 ? Math.max(2, Math.round((Number(g.requests) / maxRequests) * 100)) : 0
@@ -215,30 +220,39 @@ function Breakdown({ summary }: { summary: api.UsageSummary }) {
           <td className="pr-4">{g.batch_records === undefined ? '—' : api.formatCount(g.batch_records)}</td>
           <td className="pr-4">{g.cost.length === 0 ? api.UNKNOWN : g.cost.map((c) => <div key={`${c.currency}-${c.basis}`}>{api.formatTotal(c)} <span className={muted}>{c.basis}</span></div>)}</td>
           <td className="pr-4">{api.formatCount(g.errors)} / {api.formatCount(g.denied)}</td>
+          {hasFeedback && <td className="pr-4 text-xs">{api.feedbackText(g.feedback)}</td>}
           <td>{api.toBig(g.unknown_usage_records) === 0n && api.toBig(g.unknown_cost_records) === 0n && boundedOf(g) === 0n ? '—' : <span>{(api.toBig(g.unknown_usage_records) > 0n || api.toBig(g.unknown_cost_records) > 0n) && <>usage: {api.formatCount(g.unknown_usage_records)}<br />cost: {api.formatCount(g.unknown_cost_records)}</>}{boundedOf(g) > 0n && <><br />bounded: {api.formatCount(boundedOf(g).toString())} ({boundedBreakdown([g])})</>}</span>}</td>
         </tr>
       })}</tbody>
     </table></div>
-    {currencies.length > 0 && <p className={muted}>Cost sorting uses {sortCurrency}; groups with no {sortCurrency} cost sort last. Settled and estimated amounts are never added together.</p>}
+    {currencies.length > 0 && <p className={muted}>Cost sorting uses {sortCurrency}; groups with no {sortCurrency} cost sort last. Settled, estimated and reported amounts are never added together.</p>}
   </div>
 }
 
 function SummarySection({ filter }: { filter: api.UsageFilter }) {
   const [groupBy, setGroupBy] = useState<api.GroupField[]>(['model_id'])
   const [bucket, setBucket] = useState<api.Bucket>('')
-  const query = useQuery({ queryKey: ['usage-summary', filter, groupBy, bucket], queryFn: () => api.usageSummary(filter, groupBy, bucket) })
+  const [tagKey, setTagKey] = useState('')
+  const [withFeedback, setWithFeedback] = useState(false)
+  const tagField: api.GroupField | undefined = /^[a-z][a-z0-9_.-]{0,31}$/.test(tagKey) ? `tag:${tagKey}` : undefined
+  const fields = useMemo(() => (tagField ? [...groupBy, tagField] : groupBy), [groupBy, tagField])
+  const query = useQuery({ queryKey: ['usage-summary', filter, fields, bucket, withFeedback], queryFn: () => api.usageSummary(filter, fields, bucket, { feedback: withFeedback }) })
   const toggle = (f: api.GroupField) => setGroupBy((cur) => cur.includes(f) ? cur.filter((x) => x !== f) : api.GROUP_FIELDS.filter((x) => x === f || cur.includes(x)))
   return <section className="space-y-4" aria-label="Usage summary">
     <h2 className="text-lg font-medium">Summary</h2>
     <div className="flex flex-wrap items-end gap-6">
       <fieldset><legend className="mb-1 text-xs text-gray-600 dark:text-gray-400">Group by</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{api.GROUP_FIELDS.map((f) => <label key={f} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={groupBy.includes(f)} onChange={() => toggle(f)} />{GROUP_LABELS[f]}</label>)}</div></fieldset>
+      <Field label="Group by tag"><input className={field} value={tagKey} onChange={(e) => setTagKey(e.target.value)} placeholder="experiment" aria-invalid={tagKey !== '' && !tagField} /></Field>
+      <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={withFeedback} onChange={(e) => setWithFeedback(e.target.checked)} />Show feedback</label>
       <Field label="Time bucket"><select className={field} value={bucket} onChange={(e) => setBucket(e.target.value as api.Bucket)}><option value="">No buckets</option><option value="hour">Hourly</option><option value="day">Daily</option></select></Field>
     </div>
     {query.isPending ? <p role="status">Loading usage summary…</p>
       : query.isError ? <ErrorPanel error={query.error} what="usage summaries" onRetry={() => void query.refetch()} />
       : <>
         {query.data.truncated && <p role="alert" className="rounded border border-status-warning-fg p-3 text-sm text-status-warning-fg">Truncated: totals cover only the newest {api.countNoun(query.data.records_scanned, 'record')} scanned. Narrow the time range or add filters for complete totals.</p>}
-        {query.data.groups.length === 0 ? <p>No usage recorded for this selection.</p> : <><Headline summary={query.data} /><Breakdown summary={query.data} /></>}
+        {query.data.groups.length === 0 ? <p>No usage recorded for this selection.</p> : <>{!query.data.source_split && <Headline summary={query.data} />}<Breakdown summary={query.data} /></>}
+        {(query.data.notes ?? []).map((note) => <p key={note} role="note" className="rounded border border-gray-300 p-2 text-sm dark:border-gray-700">{note}</p>)}
+        {query.data.excluded_correlated_reported !== undefined && api.toBig(query.data.excluded_correlated_reported) > 0n && <p className={muted}>{api.countNoun(query.data.excluded_correlated_reported, 'reported record')} {api.countVerb(query.data.excluded_correlated_reported)} been left out because {String(query.data.excluded_correlated_reported) === '1' ? 'it describes' : 'they describe'} a request that has a managed record.</p>}
       </>}
   </section>
 }
@@ -277,14 +291,16 @@ function StatusCell({ r }: { r: api.UsageRecord }) {
 }
 const when = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? iso : d.toLocaleString() }
 
+const labelText = (m: Record<string, string> | undefined): string => (m && Object.keys(m).length ? Object.keys(m).sort().map((k) => `${k}=${m[k]}`).join(' ') : none)
+
 const DETAIL_FIELDS: [string, (r: api.UsageRecord) => string][] = [
   ['ID', (r) => r.id], ['Tenant', (r) => r.tenant_id], ['Started', (r) => r.started_at], ['Finished', (r) => r.finished_at], ['Latency', (r) => `${r.latency_ms} ms`],
   ['Plane', (r) => r.plane], ['Provider', (r) => r.provider || none], ['Resource', (r) => r.resource_id || none], ['Operation', (r) => r.operation || none],
   ['Model', (r) => r.model_id || none], ['Model version', (r) => r.model_version || none], ['Tool', (r) => r.tool_name || none],
   ['Principal', (r) => r.principal_id || none], ['Agent', (r) => r.actor_id || none], ['Client', (r) => r.client_id || none], ['Access point', (r) => r.access_point_id || none], ['Caller kind', (r) => r.caller_kind || none],
-  ['Request ID', (r) => r.request_id || none], ['Trace ID', (r) => r.trace_id || none], ['Quota attempt', (r) => r.quota_attempt_id || none],
+  ['Request ID', (r) => r.request_id || none], ['Quota attempt', (r) => r.quota_attempt_id || none],
   ['Streaming', (r) => (r.streaming ? 'yes' : 'no')], ['Status', (r) => r.status], ['HTTP status', (r) => (r.http_status ? String(r.http_status) : none)],
-  ['Error class', (r) => r.error_class || none], ['Source', (r) => r.source], ['Requests', (r) => api.formatCount(r.requests)],
+  ['Error class', (r) => r.error_class || none], ['Source', (r) => r.source], ['Harness', (r) => (r.harness ? `${r.harness}${r.harness_version ? ` ${r.harness_version}` : ''}` : none)], ['Harness session', (r) => r.session_id || none], ['Client request ID', (r) => r.client_request_id || none], ['Caller span ID', (r) => r.caller_span_id || none], ['Tags', (r) => labelText(r.tags)], ['Reported attributes', (r) => labelText(r.reported_attributes)], ['Requests', (r) => api.formatCount(r.requests)],
   ['Input tokens', (r) => counter(r, 'input_tokens')], ['Output tokens', (r) => counter(r, 'output_tokens')], ['Cache read tokens', (r) => counter(r, 'cache_read_tokens')],
   ['Cache write tokens', (r) => counter(r, 'cache_write_tokens')], ['Reasoning tokens', (r) => counter(r, 'reasoning_tokens')], ['Total tokens', (r) => counter(r, 'total_tokens')],
   ['Batch', (r) => (r.batch ? 'yes' : 'no')], ['Image size', (r) => r.image_size || none], ['Image quality', (r) => r.image_quality || none],
@@ -293,8 +309,37 @@ const DETAIL_FIELDS: [string, (r: api.UsageRecord) => string][] = [
   ['Cost', (r) => api.formatCost(r.cost)], ['Cost basis', (r) => r.cost.basis], ['Cost currency', (r) => r.cost.currency || none], ['Cost amount (minor units)', (r) => r.cost.amount ?? none], ['Cost scale', (r) => (r.cost.scale === undefined ? none : String(r.cost.scale))],
 ]
 
-export function RecordDrawer({ record, onClose }: { record: api.UsageRecord; onClose: () => void }) {
+/** An identifier row with a copy button (and an optional link). The button reports its outcome in text, so it does not rely on the clipboard working. */
+function IdRow({ label, value, link }: { label: string; value?: string; link?: ReactNode }) {
+  const [state, setState] = useState<'' | 'copied' | 'failed'>('')
+  const copy = () => {
+    if (!value) return
+    const done = (ok: boolean) => setState(ok ? 'copied' : 'failed')
+    try { void navigator.clipboard.writeText(value).then(() => done(true), () => done(false)) } catch { done(false) }
+  }
+  return <>
+    <dt className="text-gray-600 dark:text-gray-400">{label}</dt>
+    <dd className="break-all font-mono text-xs leading-5">{value || none}</dd>
+    {value && <dd className="col-start-2 flex flex-wrap items-center gap-2 text-xs">
+      <button type="button" className="rounded border border-gray-300 px-1 dark:border-gray-700" aria-label={`Copy ${label}`} onClick={copy}>Copy</button>
+      {state && <span role="status" className={muted}>{state === 'copied' ? 'Copied' : 'Could not copy'}</span>}
+      {link}
+    </dd>}
+  </>
+}
+
+/** Where a record came from: managed through AIPlex, or reported by a client's own telemetry. */
+export function SourceBadge({ r }: { r: Pick<api.UsageRecord, 'source' | 'harness'> }) {
+  return r.source === 'reported'
+    ? <span className={`${muted} rounded border px-1`} title="Reported by the client's own telemetry, not measured by AIPlex. It can describe a request that also has a managed record.">reported{r.harness ? ` · ${r.harness}` : ''}</span>
+    : <span className={`${muted} rounded border px-1`} title="A request AIPlex admitted and measured through an access point">managed</span>
+}
+
+const SCORES: [string, number][] = [['Helpful', 1], ['Not helpful', -1]]
+
+export function RecordDrawer({ record, onClose, traceUrlTemplate, feedback, onRate }: { record: api.UsageRecord; onClose: () => void; traceUrlTemplate?: string; feedback?: api.UsageFeedback | null; onRate?: (score: number) => void }) {
   const ref = useFocusTrap<HTMLElement>(true, onClose)
+  const traceLink = api.traceURL(traceUrlTemplate, record.trace_id)
   return <aside ref={ref} role="dialog" aria-modal="true" aria-label="Usage record detail" tabIndex={-1} className="fixed inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950">
     <div className="mb-4 flex items-start justify-between gap-3"><h3 className="text-lg font-medium">Usage record</h3><button type="button" className="underline" onClick={onClose}>Close</button></div>
     {record.usage_bound && <p role="note" className="mb-3 rounded border border-status-warning-fg p-2 text-sm text-status-warning-fg"><strong>Not a final count.</strong> {api.USAGE_BOUND_TEXT[record.usage_bound]} Any cost computed from these counters is not final either.</p>}
@@ -302,7 +347,16 @@ export function RecordDrawer({ record, onClose }: { record: api.UsageRecord; onC
     {record.error_class && api.CAPACITY_REASONS[record.error_class] && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>{api.CAPACITY_REASONS[record.error_class].label}.</strong> {api.CAPACITY_REASONS[record.error_class].text}</p>}
     {record.batch && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>Provider batch.</strong> This exchange created a batch job or fetched the results that settled it. Batch usage arrives only when the results are fetched through AIPlex.</p>}
     {record.usage === null && <p className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700">No usage was reported for this request. Token counts are unknown, not zero.</p>}
+    <p className="mb-3 text-sm"><SourceBadge r={record} />{record.source === 'reported' && <span className={`${muted} ml-2`}>Reported by the client; AIPlex did not measure this request{record.access_point_id ? '' : ' and it did not go through an access point'}.</span>}</p>
+    <dl className="mb-3 grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 text-sm" aria-label="Correlation identifiers">
+      <IdRow label="Trace ID" value={record.trace_id} link={traceLink && <a className="underline" href={traceLink} target="_blank" rel="noopener noreferrer">Open in trace viewer</a>} />
+      <IdRow label="Span ID" value={record.span_id} />
+    </dl>
     <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 text-sm">{DETAIL_FIELDS.map(([label, read]) => <div key={label} className="contents"><dt className="text-gray-600 dark:text-gray-400">{label}</dt><dd className="break-all font-mono text-xs leading-5">{read(record)}</dd></div>)}</dl>
+    <section aria-label="Feedback" className="mt-4"><h4 className="text-sm font-medium">Feedback</h4>
+      <p className="text-xs text-gray-600 dark:text-gray-400">{feedback ? `Latest: ${feedback.score > 0 ? '+' : ''}${feedback.score}${feedback.label ? ` (${feedback.label})` : ''}, ${when(feedback.created_at)}. Earlier entries stay in the history.` : 'No feedback yet. No feedback is not a neutral score.'}</p>
+      {onRate && <div className="mt-1 flex gap-2">{SCORES.map(([label, score]) => <button key={label} type="button" className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700" onClick={() => onRate(score)}>{label}</button>)}</div>}
+    </section>
     {record.provider_limits && <section aria-label="Provider limits" className="mt-4"><h4 className="text-sm font-medium">Provider limits</h4><p className="text-xs text-gray-600 dark:text-gray-400">Rate-limit signals the upstream provider returned for this request, as received.</p><pre className="mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(record.provider_limits, null, 2)}</pre></section>}
     <details className="mt-4"><summary className="cursor-pointer text-sm">Raw record</summary><pre className="mt-2 max-h-72 overflow-auto rounded bg-gray-100 p-3 text-xs dark:bg-gray-900">{JSON.stringify(record, null, 2)}</pre></details>
   </aside>
@@ -316,6 +370,11 @@ function RecordsSection({ filter }: { filter: api.UsageFilter }) {
   const cursor = cursors[cursors.length - 1]
   const query = useQuery({ queryKey: ['usage-records', filter, cursor], queryFn: () => api.listUsageRecords(filter, 50, cursor) })
   const page = query.data
+  // The trace viewer link template and the record's feedback are optional extras: a failure to load them never hides a record.
+  const config = useQuery({ queryKey: ['usage-config'], queryFn: api.getUsageConfig, retry: false, staleTime: 60_000 })
+  const detail = useQuery({ queryKey: ['usage-record', selected?.id], queryFn: () => api.getUsageRecord(selected!.id), enabled: Boolean(selected), retry: false })
+  const queryClient = useQueryClient()
+  const rate = useMutation({ mutationFn: (score: number) => api.postFeedback(selected!.id, score), onSuccess: () => queryClient.invalidateQueries({ queryKey: ['usage-record', selected?.id] }) })
   return <section className="space-y-3" aria-label="Requests">
     <h2 className="text-lg font-medium">Requests</h2>
     {query.isPending ? <p role="status">Loading requests…</p>
@@ -323,19 +382,19 @@ function RecordsSection({ filter }: { filter: api.UsageFilter }) {
       : !page || page.records.length === 0 ? <p>{cursors.length > 1 ? 'No older requests.' : 'No requests match these filters.'}</p>
       : <div className="overflow-x-auto"><table className="w-full text-left text-sm">
         <caption className="sr-only">Usage records, newest first</caption>
-        <thead><tr className="border-b border-gray-200 dark:border-gray-800">{['Time', 'Plane', 'Model / tool', 'Agent', 'Principal', 'Client', 'Status', 'Tokens in', 'Tokens out', 'Cache write', 'Modality tokens', 'Units', 'Cost', 'Latency'].map((h) => <th key={h} scope="col" className="py-2 pr-4">{h}</th>)}</tr></thead>
+        <thead><tr className="border-b border-gray-200 dark:border-gray-800">{['Time', 'Plane', 'Model / tool', 'Agent', 'Principal', 'Client', 'Status', 'Tokens in', 'Tokens out', 'Cache write', 'Modality tokens', 'Units', 'Cost', 'Latency', 'Source'].map((h) => <th key={h} scope="col" className="py-2 pr-4">{h}</th>)}</tr></thead>
         <tbody>{page?.records.map((r) => <tr key={r.id} className="border-t border-gray-200 dark:border-gray-800">
           <td className="py-2 pr-4 whitespace-nowrap"><button type="button" className="underline" aria-label={`Open details for record ${r.id}`} onClick={() => setSelected(r)}>{when(r.started_at)}</button></td>
           <td className="pr-4">{r.plane}</td><td className="pr-4">{target(r)}{api.isSessionRecord(r) && <span className={`${muted} ml-1 rounded border px-1`} title="WebSocket session: metered as one request; usage is advisory">session</span>}{r.batch && <span className={`${muted} ml-1 rounded border px-1`} title="Part of a provider batch job">batch</span>}</td><td className="pr-4"><ShortId value={r.actor_id} /></td><td className="pr-4"><ShortId value={r.principal_id} /></td><td className="pr-4"><ShortId value={r.client_id} /></td>
           <td className={`pr-4 ${statusClass[r.status] ?? ''}`}><StatusCell r={r} /></td>
           <td className="pr-4">{counter(r, 'input_tokens')}</td><td className="pr-4">{counter(r, 'output_tokens')}</td><td className="pr-4">{counter(r, 'cache_write_tokens')}</td>
           <td className="pr-4 text-xs">{modalityText(r)}</td><td className="pr-4 text-xs">{unitsText(r)}</td>
-          <td className="pr-4 whitespace-nowrap">{api.formatCost(r.cost)}{r.usage_bound && <span className={`${muted} ml-1`}>(from bounded usage)</span>}{(r.cost.basis === 'settled' || r.cost.basis === 'estimated') && <span className={`${muted} ml-1`}>{r.cost.basis}</span>}</td>
-          <td className="whitespace-nowrap">{r.latency_ms} ms</td>
+          <td className="pr-4 whitespace-nowrap">{api.formatCost(r.cost)}{r.usage_bound && <span className={`${muted} ml-1`}>(from bounded usage)</span>}{(r.cost.basis === 'settled' || r.cost.basis === 'estimated' || r.cost.basis === 'reported') && <span className={`${muted} ml-1`}>{r.cost.basis}</span>}</td>
+          <td className="pr-4 whitespace-nowrap">{r.latency_ms} ms</td><td><SourceBadge r={r} /></td>
         </tr>)}</tbody>
       </table></div>}
     {page && <div className="flex items-center gap-3"><button type="button" className={button} disabled={cursors.length <= 1} onClick={() => setCursors((c) => c.slice(0, -1))}>Newer</button><span className={muted}>Page {cursors.length}</span><button type="button" className={button} disabled={!page.next_cursor} onClick={() => setCursors((c) => [...c, page.next_cursor!])}>Older</button></div>}
-    {selected && <RecordDrawer record={selected} onClose={() => setSelected(null)} />}
+    {selected && <RecordDrawer record={selected} onClose={() => setSelected(null)} traceUrlTemplate={config.data?.trace_url_template} feedback={detail.data?.feedback ?? null} onRate={config.data?.feedback ? (score) => rate.mutate(score) : undefined} />}
   </section>
 }
 

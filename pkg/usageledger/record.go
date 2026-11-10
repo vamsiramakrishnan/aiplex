@@ -235,8 +235,10 @@ type Record struct {
 	CallerKind    string `json:"caller_kind,omitempty"`
 	RequestID     string `json:"request_id,omitempty"`
 	// TraceID and SpanID are the W3C identifiers of the exchange's span (the
-	// CLIENT span of a managed exchange, the SERVER span of the request that
-	// reported a reported record). The trace continues the caller's
+	// CLIENT span of a managed exchange; for a record reported through the
+	// legacy usage report, the SERVER span of the request that reported it;
+	// for a record from harness telemetry, the ids on the harness's own log
+	// event, empty when the event carried none). The trace continues the caller's
 	// traceparent when it sent a valid one. They are generated whether or not
 	// telemetry export is on, so logs, traces and records correlate.
 	TraceID        string `json:"trace_id,omitempty"`
