@@ -70,6 +70,8 @@ func (p ToolPolicy) Permits(name string) bool {
 // Denial is an authorization refusal reported to the caller as a JSON-RPC
 // error that preserves the request ID. Message must be safe to publish.
 type Denial struct {
+	// Status is the HTTP status of the refusal (default 403).
+	Status  int
 	Code    int
 	Reason  string
 	Message string

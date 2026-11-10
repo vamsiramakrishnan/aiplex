@@ -235,6 +235,9 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 		_, e := h.validateAccessPoint(ctx, tenant, id, raw)
 		return e
 	}
+	if kind == HookPolicyKind {
+		return h.validateHookPolicy(ctx, tenant, id, raw)
+	}
 	validateNetworkRef := func(ref string) error {
 		if ref == "" {
 			return nil
@@ -647,6 +650,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	opts.Batches = resourceBatchStore{store: h.Store}
 	opts.BatchSettler = batchSettler{quota: h.Quota, capture: usage, tenant: tenant}
 	usage.instrumentModel(&opts, connection)
+	h.installModelHooks(r, tenant, id, &opts, usage)
 	defer h.installCapacityGate(r, tenant, id, connection, &opts, usage)()
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)
 	if e != nil {

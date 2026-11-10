@@ -39,10 +39,14 @@ type Filter struct {
 	UsageBound string
 	// Batch, when non-nil, selects records that are (true) or are not (false)
 	// part of a provider batch job. Nil matches everything.
-	Batch      *bool
-	Since      time.Time
-	Until      time.Time
-	Visibility []string
+	Batch *bool
+	// HookDecision selects records by hooks.decision (allow, deny,
+	// transform, error, skipped), or HookDecisionNone for records no hook
+	// ran on. Empty matches everything.
+	HookDecision string
+	Since        time.Time
+	Until        time.Time
+	Visibility   []string
 }
 
 // Matches applies every filter field, including visibility and the window.
@@ -62,6 +66,9 @@ func (f Filter) Matches(r Record) bool {
 		if r.UsageBound != f.UsageBound {
 			return false
 		}
+	}
+	if f.HookDecision != "" && hookDecision(r) != f.HookDecision {
+		return false
 	}
 	if f.Batch != nil && *f.Batch != r.Batch {
 		return false

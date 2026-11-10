@@ -132,6 +132,13 @@ var intendedRoutePolicy = map[string]string{
 	"PUT /api/v1/usage/prices/{id}":    "admin/t",
 	"DELETE /api/v1/usage/prices/{id}": "admin/t",
 
+	// Request-hook policies: operator only (they describe detection rules).
+	"GET /api/v1/hooks/policies":            "op/t",
+	"GET /api/v1/hooks/policies/{id}":       "op/t",
+	"PUT /api/v1/hooks/policies/{id}":       "op/t",
+	"DELETE /api/v1/hooks/policies/{id}":    "op/t",
+	"POST /api/v1/hooks/policies/{id}/test": "op/t",
+
 	// Overview (usage roll-ups inside it are admin-only; see overview tests).
 	"GET /api/v1/overview/subjects":             "op/t",
 	"GET /api/v1/overview/subjects/{kind}":      "op/t",

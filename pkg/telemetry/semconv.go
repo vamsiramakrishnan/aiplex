@@ -128,6 +128,29 @@ const (
 	MetricUpstreamErrors     = "aiplex.upstream.errors"
 )
 
+// Request hooks (AIPlex). Attributes and labels carry hook types,
+// decisions, phases and rule identifiers only, never content.
+const (
+	// AttrHooksDecision is the most significant hook decision of the
+	// exchange: deny, error, transform, allow or skipped.
+	AttrHooksDecision = "aiplex.hooks.decision"
+	// AttrHooksCount is the number of hook runs on the exchange.
+	AttrHooksCount = "aiplex.hooks.count"
+	// AttrHooksDeniedRule is the rule identifier of a denying hook.
+	AttrHooksDeniedRule = "aiplex.hooks.denied_rule"
+	// AttrHooksFailOpen is true when a fail_open hook failed and the
+	// exchange continued without its decision.
+	AttrHooksFailOpen = "aiplex.hooks.fail_open_used"
+	// Metric labels: the hook type (redact, size_limit, http, policy), its
+	// decision and its phase. Bounded sets.
+	AttrHookType     = "aiplex.hook.type"
+	AttrHookDecision = "aiplex.hook.decision"
+	AttrHookPhase    = "aiplex.hook.phase"
+
+	MetricHookDecisions = "aiplex.hooks.decisions"
+	MetricHookDuration  = "aiplex.hooks.duration"
+)
+
 // Configuration environment variables AIPlex reads in addition to the
 // standard OTEL_* variables the SDK and exporters read themselves.
 const (

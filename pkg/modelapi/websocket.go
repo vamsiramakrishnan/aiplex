@@ -324,6 +324,9 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "operation denied", http.StatusForbidden)
 		return
 	}
+	if !g.sessionHooks(w, r, op, metadata) {
+		return
+	}
 	var gate *responseGate
 	var run *executionRun
 	if g.surface.WebSocket.tokenMetering() && g.options.Execution != nil && op.ID != openAILiveOperation {

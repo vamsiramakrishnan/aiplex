@@ -165,6 +165,7 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 		opts.Prepare = h.ToolExecutionPreparer(r, record, connection)
 	}
 	usage.instrumentTool(&opts)
+	h.installToolHooks(r, tenant, id, &opts, usage)
 	gateway, err := toolexec.NewGateway(config, opts)
 	if err != nil {
 		Error(w, r, 503, "TOOL_EXECUTION_UNAVAILABLE", "managed tool execution is unavailable")

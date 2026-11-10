@@ -36,11 +36,22 @@ func (f ExecutionPreparerFunc) Prepare(ctx context.Context, request ExecutionReq
 }
 
 func (g *Gateway) prepareExecution(r *http.Request, trusted contracts.RequestContext, op Operation, metadata Metadata, body []byte) (execution.Lease, error) {
-	if g.options.Admit != nil && !sessionExchange(r.Context()) {
-		if err := g.options.Admit(r.Context(), trusted, op, metadata); err != nil {
-			return nil, err
-		}
+	if err := g.admit(r, trusted, op, metadata); err != nil {
+		return nil, err
 	}
+	return g.lease(r, trusted, op, metadata, body)
+}
+
+// admit runs the capacity hook (Options.Admit) outside admitted sessions.
+func (g *Gateway) admit(r *http.Request, trusted contracts.RequestContext, op Operation, metadata Metadata) error {
+	if g.options.Admit != nil && !sessionExchange(r.Context()) {
+		return g.options.Admit(r.Context(), trusted, op, metadata)
+	}
+	return nil
+}
+
+// lease prepares the quota lease for the body that will be dispatched.
+func (g *Gateway) lease(r *http.Request, trusted contracts.RequestContext, op Operation, metadata Metadata, body []byte) (execution.Lease, error) {
 	if g.options.Execution == nil {
 		return nil, nil
 	}

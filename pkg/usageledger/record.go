@@ -268,6 +268,9 @@ type Record struct {
 	// ProviderLimits is the provider rate-limit metadata observed on the
 	// managed exchange's native response, when any was reported.
 	ProviderLimits *providerlimits.Limits `json:"provider_limits,omitempty"`
+	// Hooks summarizes request-hook decisions on the exchange (hooks.go).
+	// It never holds content or matched text.
+	Hooks *HookSummary `json:"hooks,omitempty"`
 }
 
 // NewID returns a random record identifier.
@@ -364,6 +367,9 @@ func (r Record) Validate() error {
 			return err
 		}
 	}
+	if err := r.Hooks.validate(); err != nil {
+		return err
+	}
 	return r.Cost.Validate()
 }
 
@@ -407,6 +413,7 @@ func (r Record) Clone() Record {
 		u.UnitUsage = r.Usage.UnitUsage.clone()
 		r.Usage = &u
 	}
+	r.Hooks = cloneHooks(r.Hooks)
 	return r
 }
 

@@ -28,6 +28,15 @@ func configureUsageLedger(store registry.Store, cfg *config.Config, connected *a
 	return api.NewUsageHandler(ledger, connected.Tenant, cfg.DevelopmentMode)
 }
 
+// mountHookPolicies serves /api/v1/hooks/policies: hook-policy tenant
+// resources on the shared revisioned resource handler, plus a dry run.
+func mountHookPolicies(r chi.Router, connected *api.ConnectedHandler) {
+	r.Route("/hooks/policies", func(r chi.Router) {
+		resourceRoutes(r, connected, api.HookPolicyKind)
+		r.Post("/{id}/test", connected.TestHookPolicy)
+	})
+}
+
 // mountUsageLedger serves /api/v1/usage. Prices are tenant resources of kind
 // model-price and use the shared revisioned resource handler.
 func mountUsageLedger(r chi.Router, usage *api.UsageHandler, connected *api.ConnectedHandler) {

@@ -189,9 +189,24 @@ func nativeErrorBody(protocol string, status int, code, message string) []byte {
 	default:
 		value = map[string]any{"error": map[string]any{"message": message, "type": openAIErrorType(status), "param": nil, "code": strings.ToLower(code)}}
 	}
+	if hookCode(code) {
+		// Request-hook refusals carry their stable code in each protocol's
+		// own place for a machine-readable reason.
+		switch protocol {
+		case WireAnthropic:
+			value.(map[string]any)["error"].(map[string]any)["code"] = strings.ToLower(code)
+		case WireGenAI, WireGeminiLive:
+			value.(map[string]any)["error"].(map[string]any)["details"] = []any{map[string]any{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": code, "domain": "aiplex"}}
+		case WireBedrockConverse, WireBedrockInvoke:
+			value.(map[string]any)["code"] = strings.ToLower(code)
+		}
+	}
 	body, _ := json.Marshal(value)
 	return body
 }
+
+// hookCode reports a request-hook refusal code (HOOK_DENIED and friends).
+func hookCode(code string) bool { return strings.HasPrefix(strings.ToUpper(code), "HOOK_") }
 
 func writeNativeError(w http.ResponseWriter, protocol string, status int, code, message string) {
 	w.Header().Del("Content-Length")
@@ -202,6 +217,9 @@ func writeNativeError(w http.ResponseWriter, protocol string, status int, code, 
 	}
 	if protocol == WireBedrockConverse || protocol == WireBedrockInvoke {
 		w.Header().Set("X-Amzn-ErrorType", bedrockErrorType(status))
+	}
+	if hookCode(code) {
+		w.Header().Set("X-Aiplex-Error-Code", strings.ToLower(code))
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(nativeErrorBody(protocol, status, code, message))
