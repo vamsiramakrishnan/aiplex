@@ -345,17 +345,22 @@ No other credential type is accepted.
 | `Authorization: Bearer <token>` | All model routes, including the access point and facade routes below | Any |
 | `x-api-key` | `/ap/{id}/v1/messages`, `/ap/{id}/v1/messages/count_tokens`, `/ap/{id}/v1/models` (only when the request carries `anthropic-version`), `/api/v1/llm/gateway/{id}/v1/messages`, `/api/v1/llm/gateway/{id}/v1/messages/count_tokens` | Anthropic Messages |
 | `x-goog-api-key` | `/ap/{id}/v1beta/…`, `/ap/{id}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`, `/api/v1/llm/gateway/{id}/v1beta/…`, the same Live path on the facade, and facade paths ending in `:generateContent`, `:streamGenerateContent`, `:countTokens`, `:embedContent` or `:batchEmbedContents` | Google GenAI |
-| `api-key` | `/api/v1/llm/gateway/{id}/openai/…` only | Azure OpenAI |
+| `api-key` | `/ap/{id}/v1/…` (other than the Anthropic paths above, so this includes `/v1/models` without `anthropic-version`), `/ap/{id}/openai/…` (Azure OpenAI shapes), `/api/v1/llm/gateway/{id}/openai/…` | OpenAI and Azure OpenAI |
 
 Rules:
 
 - The header applies only to the routes in its row. For example, `x-goog-api-key` on an
   OpenAI path is ignored, and the request has no credential.
+- `api-key` is not read on `/api/v1/llm/gateway/{id}/v1/…` (the OpenAI paths of the facade). Those
+  requests need `Authorization: Bearer`.
+- Bedrock paths (`/ap/{id}/model/…` and `/api/v1/llm/gateway/{id}/model/…`) read no provider header.
+  Send `Authorization: Bearer`.
 - `/api/v1/llm/native/{id}/*` is not covered by this adapter. Send `Authorization: Bearer`.
 - A token in a URL query parameter is refused with `401` on these model routes. The refused
   parameter names are `key`, `api_key`, `api-key`, `apikey` and `access_token`.
 - If `Authorization` and a provider header are both present, they must carry the same token.
-  Conflicting values are refused with `401`.
+  Conflicting values are refused with `401`. So are repeated provider header values that differ,
+  and a provider key sent together with an `X-Goog-Iap-Jwt-Assertion` header.
 
 ## Routes
 
