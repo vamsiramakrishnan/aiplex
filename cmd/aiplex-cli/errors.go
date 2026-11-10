@@ -372,8 +372,8 @@ func explainNotFound(cmd *cobra.Command, args []string, apiErr *aiplex.Error, lo
 		return &cliError{msg: what("this API does not serve this command (the feature is not enabled on it, or the API is older than the CLI)"), code: exitNotFound, err: apiErr,
 			hints: []string{"See what the API has enabled with: aiplex modules list"}}
 	}
-	if local {
-		hints = append(hints, "aiplex dev keeps state in memory: anything created before it restarted is gone.")
+	if local && devRestartedSinceLastWrite(resolveTarget().URL) {
+		hints = append(hints, "aiplex dev keeps state in memory and was restarted after you last created something here: anything created before that is gone.")
 	}
 	return &cliError{msg: msg, hints: hints, code: exitNotFound, err: apiErr}
 }

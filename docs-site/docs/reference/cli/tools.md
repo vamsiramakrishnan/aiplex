@@ -1,16 +1,21 @@
 ---
 title: aiplex tools
 sidebar_label: tools
-description: "Configure MCP tool connection auth and tool policy"
+description: "Set a tool connection's credential type and which tools it allows"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.
 
 ```text
-Configure MCP tool connection auth and tool policy
+Set a tool connection's credential type and which tools it allows
 
 Usage:
+  aiplex tools [flags]
   aiplex tools [command]
+
+Examples:
+  aiplex tools auth-types
+  aiplex tools set-auth local-tools --deny reset_counter
 
 Available Commands:
   auth-types  List tool connection auth types, their fields and the tools policy
@@ -20,12 +25,23 @@ Flags:
   -h, --help   help for tools
 
 Global Flags:
-      --debug           Enable debug output
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
 
 Use "aiplex tools [command] --help" for more information about a command.
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
 ```
 
 ### `aiplex tools auth-types`
@@ -36,14 +52,29 @@ List tool connection auth types, their fields and the tools policy
 Usage:
   aiplex tools auth-types [flags]
 
+Examples:
+  aiplex tools auth-types
+  aiplex tools auth-types -o json
+
 Flags:
   -h, --help   help for auth-types
 
 Global Flags:
-      --debug           Enable debug output
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
 ```
 
 ### `aiplex tools set-auth`
@@ -97,9 +128,20 @@ Flags:
       --username string               basic: username
 
 Global Flags:
-      --debug           Enable debug output
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
 ```
 

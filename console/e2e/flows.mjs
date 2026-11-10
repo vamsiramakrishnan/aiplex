@@ -133,7 +133,10 @@ await section('usage', async () => {
   const cliErr = cliJSON('admin', 'usage', 'records', '-o', 'json', '--status', 'error')
   report.ok('status filter matches the CLI', errRows.length === cliErr.records.length && errRows.every((r) => r[6].startsWith('error')), `${errRows.length} vs ${cliErr.records.length}`)
   await fld('Status').selectOption('')
+  // Less common filters sit behind "More filters", with the active count on the toggle.
+  await page.getByRole('button', { name: 'More filters' }).click()
   await fld('Error class').fill('invalid_request')
+  report.ok('the More filters toggle shows the active count', (await page.getByRole('button', { name: /^Fewer filters \(1 active\)/ }).count()) === 1)
   await page.getByRole('button', { name: 'Apply filters' }).click()
   await settle(page)
   const ecRows = await rows()
@@ -257,11 +260,15 @@ await section('connect', async () => {
   await endpoints.getByRole('button', { name: /^Copy/ }).first().click()
   const copied = await page.evaluate(() => navigator.clipboard.readText())
   report.ok('endpoint Copy button puts the URL on the clipboard', copied.startsWith(`${h.api_url}/ap/team-research/`), copied)
+  // The copied URL is a POST-only model endpoint: call it with a model this access point serves.
+  const served = (await api('admin', 'GET', '/api/v1/overview/access-points/team-research/connect')).json.models?.find((m) => m.protocols?.includes('openai-chat-completions'))?.name
+  const answered = await fetch(copied, { method: 'POST', headers: { Authorization: `Bearer ${h.admin_token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: served, messages: [{ role: 'user', content: 'copied url check' }] }) }).catch((e) => ({ status: String(e) }))
+  report.ok('the copied endpoint URL answers a real request', answered.status === 200, `${copied} -> ${answered.status}`)
   report.ok('endpoints list no URL on the console origin', !(await endpoints.textContent()).includes(base))
   await page.getByRole('button', { name: 'Connect a client' }).click()
   const dialog = page.getByRole('dialog', { name: /Connect a client to team-research/ })
   report.ok('wizard opens as a modal with focus inside', await dialog.isVisible() && await page.evaluate(() => !!document.activeElement?.closest('[role=dialog]')))
-  const options = ['generic', ...profiles.map((p) => p.id)]
+  const options = ['generic', ...profiles.filter((p) => p.protocols.some((x) => x !== 'claude-apps')).map((p) => p.id)]
   for (const id of options) {
     await dialog.locator('select').selectOption(id)
     await dialog.getByRole('button', { name: 'Show connection details' }).click()
@@ -383,10 +390,15 @@ await section('no-role', async () => {
   const shown = await page.locator('section[aria-label="Your usage totals"], [aria-label="Your usage totals"]').locator('[aria-label=Requests] p').nth(1).textContent()
   report.ok('own usage on the home page equals the CLI summary', Number(shown.replace(/,/g, '')) === total, `${shown} vs ${total}`)
   await page.getByRole('button', { name: 'Connect a client to local' }).click()
-  const panel = page.getByRole('region', { name: 'Connect to local' })
-  report.ok('Connect shows server-built endpoint URLs and copy buttons', (await panel.textContent()).includes(`${h.api_url}/ap/local/`))
+  const panel = page.getByRole('dialog', { name: 'Connect a client to local' })
+  await panel.getByRole('button', { name: 'Show connection details' }).click()
+  const details = panel.getByLabel('Connection details')
+  await details.waitFor({ timeout: 10000 })
+  report.ok('the real Connect wizard shows server-built URLs and snippets to a no-role caller', (await details.textContent()).includes(`${h.api_url}/ap/local/`) && (await details.locator('pre').count()) > 0)
   await panel.getByRole('button', { name: /^Copy/ }).first().click()
-  report.ok('copy works for a no-role caller', (await page.evaluate(() => navigator.clipboard.readText())).startsWith(`${h.api_url}/ap/local/`))
+  const noRoleCopied = await page.evaluate(() => navigator.clipboard.readText())
+  report.ok('copy works for a no-role caller', noRoleCopied.startsWith(`${h.api_url}/ap/local`), noRoleCopied.slice(0, 80))
+  await page.keyboard.press('Escape')
   await page.goto(base + '/usage')
   await settle(page)
   report.ok('usage shows only bob\'s records', (await page.$$eval('section[aria-label="Requests"] tbody tr', (r) => r.length)) === cliJSON('norole', 'usage', 'records', '-o', 'json').records.length)
@@ -429,6 +441,41 @@ await section('deployer', async () => {
   await page.goto(base + '/usage')
   await settle(page)
   report.ok('deployer usage prices are listed but not editable', await page.getByRole('button', { name: 'Add price' }).isDisabled())
+  await s.context.close()
+})
+
+await section('overview', async () => {
+  const s = await session('admin')
+  const { page } = s
+  const kinds = {}
+  for (const kind of ['user', 'agent', 'client']) kinds[kind] = (cliJSON('admin', 'who', '--kind', kind, '-o', 'json').subjects ?? []).length
+  const expected = ['user', 'agent', 'client'].find((k) => kinds[k] > 0) ?? 'user'
+  const label = { user: 'Users', agent: 'Agents', client: 'Clients' }[expected]
+  // Count the tab changes the page makes while it loads: it must open on the right tab without flashing another.
+  await page.addInitScript(() => {
+    window.__tabs = []
+    new MutationObserver(() => {
+      const sel = document.querySelector('[role=tab][aria-selected=true]')?.textContent
+      if (sel && window.__tabs[window.__tabs.length - 1] !== sel) window.__tabs.push(sel)
+    }).observe(document, { subtree: true, childList: true, attributes: true })
+  })
+  await page.goto(base + '/overview')
+  await settle(page)
+  const selected = await page.locator('[role=tab][aria-selected=true]').textContent()
+  report.ok(`the Overview opens on the first tab with rows (${label}; users ${kinds.user}, agents ${kinds.agent}, clients ${kinds.client})`, selected === label, selected)
+  const tabs = await page.evaluate(() => window.__tabs)
+  report.ok('the Overview never flashes another tab first', tabs.length === 1 && tabs[0] === label, tabs.join(' > '))
+  report.ok('the tagline matches the README description', (await page.locator('aside').first().textContent()).includes('A control plane for agent interactions across models, tools, agents and skills'))
+  await page.goto(base + '/usage')
+  await settle(page)
+  const filters = page.getByRole('form', { name: 'Usage filters' })
+  const visible = await filters.locator('select:visible, input:visible').count()
+  report.ok('the Usage filters show at most seven controls until More filters is opened', visible <= 7, `${visible}`)
+  await page.keyboard.press('Tab')
+  const toggle = filters.getByRole('button', { name: /More filters/ })
+  await toggle.focus()
+  await page.keyboard.press('Enter')
+  report.ok('More filters opens from the keyboard and reveals the rest', (await filters.locator('select:visible, input:visible').count()) >= 13)
   await s.context.close()
 })
 

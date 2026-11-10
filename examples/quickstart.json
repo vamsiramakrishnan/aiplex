@@ -32,6 +32,12 @@
   ],
   "routes": [
     {
+      "model_id": "gpt-4.1-mini",
+      "backends": [
+        { "provider": "openai", "model_id": "gpt-4.1-mini", "weight": 100, "enabled": true }
+      ]
+    },
+    {
       "model_id": "gemini-2.5-flash",
       "backends": [
         {

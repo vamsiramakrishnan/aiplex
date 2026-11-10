@@ -91,7 +91,16 @@ func accessPointWireServes(s modelapi.Surface, wire, native string) error {
 	path, err := accessPointFacadePath(s, wire, native, accessPointWireSample(wire, native))
 	if err == nil {
 		probe := httptest.NewRequest(method, "/", strings.NewReader(`{"model":"probe"}`))
-		_, _, err = clientNativePath(s, probe, path)
+		var native string
+		native, _, err = clientNativePath(s, probe, path)
+		// A provider surface serves only the operations it installs: the
+		// media client paths are well formed for an OpenAI surface that
+		// installs chat or responses alone, so check the install.
+		if err == nil && s.Provider != nil && (wire == WireOpenAIImages || wire == WireOpenAIAudio) {
+			if _, _, ok := s.OperationFor(method, strings.SplitN(native, "?", 2)[0]); !ok {
+				err = fmt.Errorf("surface %q installs no operation for %s %s", s.ID, method, native)
+			}
+		}
 	}
 	return err
 }

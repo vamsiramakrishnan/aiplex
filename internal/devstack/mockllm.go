@@ -14,7 +14,8 @@ import (
 // formats so one listener can back several surfaces:
 //
 //   - OpenAI:    POST /v1/chat/completions (JSON, or SSE with a final usage
-//     chunk when stream_options.include_usage is true), POST /v1/embeddings,
+//     chunk when stream_options.include_usage is true), POST /v1/responses
+//     (JSON or SSE, usage on response.completed), POST /v1/embeddings,
 //     GET /v1/models
 //   - Anthropic: POST /v1/messages (JSON or SSE), POST /v1/messages/count_tokens
 //   - Gemini:    POST /v1beta/models/{model}:generateContent,
@@ -95,6 +96,8 @@ func (m *MockModels) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"object": "list", "data": []map[string]any{{"id": "mock-gpt", "object": "model", "owned_by": "aiplex-mock"}}})
 	case r.Method == http.MethodPost && path == "/v1/chat/completions":
 		m.openAIChat(w, r, body)
+	case r.Method == http.MethodPost && path == "/v1/responses":
+		m.openAIResponses(w, r, body)
 	case r.Method == http.MethodPost && path == "/v1/embeddings":
 		m.openAIEmbeddings(w, r, body)
 	case r.Method == http.MethodPost && path == "/v1/messages":
@@ -241,6 +244,98 @@ func (m *MockModels) openAIChat(w http.ResponseWriter, r *http.Request, body []b
 	if flusher != nil {
 		flusher.Flush()
 	}
+}
+
+// ── OpenAI Responses ───────────────────────────────────────────────────
+
+type openAIResponsesRequest struct {
+	Model        string          `json:"model"`
+	Input        json.RawMessage `json:"input"`
+	Instructions string          `json:"instructions"`
+	Stream       bool            `json:"stream"`
+}
+
+// text flattens the Responses input: a string, or a list of strings and
+// message items whose content is a string or a list of typed parts.
+func (q openAIResponsesRequest) text() string {
+	var one string
+	if json.Unmarshal(q.Input, &one) == nil {
+		return q.Instructions + " " + one
+	}
+	var items []struct {
+		Content json.RawMessage `json:"content"`
+	}
+	var b strings.Builder
+	b.WriteString(q.Instructions)
+	b.WriteString(" ")
+	if json.Unmarshal(q.Input, &items) == nil {
+		for _, it := range items {
+			b.WriteString(contentText(it.Content))
+			b.WriteString(" ")
+		}
+	}
+	return b.String()
+}
+
+func (m *MockModels) openAIResponses(w http.ResponseWriter, r *http.Request, body []byte) {
+	var req openAIResponsesRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" || len(req.Input) == 0 {
+		writeJSON(w, 400, map[string]any{"error": map[string]any{"message": "invalid request: model and input are required", "type": "invalid_request_error"}})
+		return
+	}
+	m.record(r, req.Model, req.Stream, len(body))
+	if m.behaviour(w, r, req.Model, func() {
+		writeJSON(w, 429, map[string]any{"error": map[string]any{"message": "Rate limit reached for mock model", "type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}})
+	}) {
+		return
+	}
+	prompt := req.text()
+	reply := MockReply(strings.TrimSpace(prompt))
+	in, out := countTokens(prompt), countTokens(reply)
+	usage := map[string]any{"input_tokens": in, "input_tokens_details": map[string]any{"cached_tokens": 0}, "output_tokens": out, "output_tokens_details": map[string]any{"reasoning_tokens": 0}, "total_tokens": in + out}
+	now := time.Now()
+	id := fmt.Sprintf("resp_mock_%d", now.UnixNano())
+	msgID := fmt.Sprintf("msg_mock_%d", now.UnixNano())
+	message := func(status string, text string) map[string]any {
+		content := []any{}
+		if status == "completed" {
+			content = append(content, map[string]any{"type": "output_text", "text": text, "annotations": []any{}})
+		}
+		return map[string]any{"id": msgID, "type": "message", "role": "assistant", "status": status, "content": content}
+	}
+	response := func(status string, output []any, u any) map[string]any {
+		return map[string]any{"id": id, "object": "response", "created_at": now.Unix(), "status": status, "error": nil, "incomplete_details": nil, "model": req.Model, "output": output, "usage": u}
+	}
+	if !req.Stream {
+		writeJSON(w, 200, response("completed", []any{message("completed", reply)}, usage))
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(200)
+	flusher, _ := w.(http.Flusher)
+	seq := 0
+	event := func(name string, v map[string]any) {
+		v["type"] = name
+		v["sequence_number"] = seq
+		seq++
+		b, _ := json.Marshal(v)
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, b)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	event("response.created", map[string]any{"response": response("in_progress", []any{}, nil)})
+	event("response.in_progress", map[string]any{"response": response("in_progress", []any{}, nil)})
+	event("response.output_item.added", map[string]any{"output_index": 0, "item": message("in_progress", "")})
+	event("response.content_part.added", map[string]any{"item_id": msgID, "output_index": 0, "content_index": 0, "part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}}})
+	for _, word := range strings.SplitAfter(reply, " ") {
+		event("response.output_text.delta", map[string]any{"item_id": msgID, "output_index": 0, "content_index": 0, "delta": word})
+	}
+	event("response.output_text.done", map[string]any{"item_id": msgID, "output_index": 0, "content_index": 0, "text": reply})
+	event("response.content_part.done", map[string]any{"item_id": msgID, "output_index": 0, "content_index": 0, "part": map[string]any{"type": "output_text", "text": reply, "annotations": []any{}}})
+	event("response.output_item.done", map[string]any{"output_index": 0, "item": message("completed", reply)})
+	event("response.completed", map[string]any{"response": response("completed", []any{message("completed", reply)}, usage)})
 }
 
 func lastLine(s string) string {

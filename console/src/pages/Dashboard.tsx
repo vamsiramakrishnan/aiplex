@@ -13,10 +13,12 @@ interface DashboardStats {
   a2aplex_instances: number
   llmplex_instances: number
   skillsplex_instances: number
-  daily_cost_usd: number
-  daily_tokens: number
-  daily_requests: number
-  tool_calls_24h: number
+  /** null = unknown or unavailable, never zero (see usage_source). */
+  daily_cost_usd: number | null
+  daily_tokens: number | null
+  daily_requests: number | null
+  tool_calls_24h: number | null
+  usage_source?: string
   a2a_delegations_24h: number
   policy_denials_24h: number
 }
@@ -34,7 +36,7 @@ interface PolicyDenial {
 const getStats = () => authenticatedRequest<DashboardStats>('/api/v1/dashboard/stats')
 const getDenials = () => authenticatedRequest<PolicyDenial[]>('/api/v1/dashboard/denials')
 
-const EMPTY_STATS: DashboardStats = { total_instances: 0, running_instances: 0, registered_agents: 0, active_planes: 0, mcplex_instances: 0, a2aplex_instances: 0, llmplex_instances: 0, skillsplex_instances: 0, daily_cost_usd: 0, daily_tokens: 0, daily_requests: 0, tool_calls_24h: 0, a2a_delegations_24h: 0, policy_denials_24h: 0 }
+const EMPTY_STATS: DashboardStats = { total_instances: 0, running_instances: 0, registered_agents: 0, active_planes: 0, mcplex_instances: 0, a2aplex_instances: 0, llmplex_instances: 0, skillsplex_instances: 0, daily_cost_usd: null, daily_tokens: null, daily_requests: null, tool_calls_24h: null, a2a_delegations_24h: 0, policy_denials_24h: 0 }
 
 export default function Dashboard() {
   // Real-time SSE stats (5s updates)

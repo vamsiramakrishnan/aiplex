@@ -31,6 +31,9 @@ type OverviewCost struct {
 	Basis    string `json:"basis"`
 	Amount   string `json:"amount"`
 	Scale    uint8  `json:"scale"`
+	// AmountDecimal is Amount written as a decimal string ("0.000006"); derived
+	// by the server, empty from an older one.
+	AmountDecimal string `json:"amount_decimal,omitempty"`
 }
 
 // OverviewUsage is a usage-ledger roll-up for a window.

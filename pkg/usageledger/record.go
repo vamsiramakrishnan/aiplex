@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -129,6 +130,9 @@ type Cost struct {
 }
 
 // MarshalJSON omits the scale of an unknown cost so it cannot be read as zero.
+// A known cost also carries amount_decimal, the same value written as a decimal
+// string ("6" at scale 6 is "0.000006"); it is derived from amount and scale,
+// never stored, and amount and scale stay authoritative.
 func (c Cost) MarshalJSON() ([]byte, error) {
 	if c.Basis == BasisUnknown || c.Basis == "" {
 		return json.Marshal(struct {
@@ -136,7 +140,49 @@ func (c Cost) MarshalJSON() ([]byte, error) {
 		}{BasisUnknown})
 	}
 	type plain Cost
-	return json.Marshal(plain(c))
+	decimal, _ := DecimalString(c.Amount, c.Scale)
+	return json.Marshal(struct {
+		plain
+		AmountDecimal string `json:"amount_decimal,omitempty"`
+	}{plain(c), decimal})
+}
+
+// DecimalString writes a decimal-integer string of minor units at scale decimal
+// places exactly, without floating point and without grouping: ("6", 6) is
+// "0.000006" and ("250", 2) is "2.50". ok is false when amount is not a
+// decimal integer.
+func DecimalString(amount string, scale uint8) (string, bool) {
+	sign, digits := "", amount
+	if strings.HasPrefix(digits, "-") {
+		sign, digits = "-", digits[1:]
+	}
+	if digits == "" {
+		return "", false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	digits = strings.TrimLeft(digits, "0")
+	if digits == "" {
+		digits = "0"
+	}
+	n := int(scale)
+	if n == 0 {
+		if digits == "0" {
+			sign = ""
+		}
+		return sign + digits, true
+	}
+	if len(digits) <= n {
+		digits = strings.Repeat("0", n-len(digits)+1) + digits
+	}
+	whole, frac := digits[:len(digits)-n], digits[len(digits)-n:]
+	if whole == "0" && strings.Trim(frac, "0") == "" {
+		sign = ""
+	}
+	return sign + whole + "." + frac, true
 }
 
 // UnknownCost is the cost of an exchange no settlement or price establishes.

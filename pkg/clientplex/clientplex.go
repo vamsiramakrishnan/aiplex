@@ -282,7 +282,7 @@ func buildPlan(ctx context.Context, tenant string, r Registration, resolver Dest
 		if d.Availability == "unavailable" {
 			return Plan{}, fmt.Errorf("destination unavailable")
 		}
-		endpoint, e := secureEndpoint(d.Endpoint)
+		endpoint, e := destinationEndpoint(d.Endpoint)
 		if e != nil {
 			return Plan{}, e
 		}
@@ -323,6 +323,24 @@ func buildPlan(ctx context.Context, tenant string, r Registration, resolver Dest
 	}
 	return p, nil
 }
+// destinationEndpoint is secureEndpoint, except that a plain-HTTP loopback
+// gateway (127.0.0.1, localhost or ::1) is accepted so a local development
+// stack can render client configuration. Nothing leaves the machine over it.
+func destinationEndpoint(raw string) (*url.URL, error) {
+	if u, e := url.Parse(raw); e == nil && u.Scheme == "http" {
+		switch strings.ToLower(u.Hostname()) {
+		case "127.0.0.1", "localhost", "::1":
+			u2 := *u
+			u2.Scheme = "https"
+			if _, e := secureEndpoint(u2.String()); e != nil {
+				return nil, fmt.Errorf("destination requires a URL without credentials, query or fragment")
+			}
+			return u, nil
+		}
+	}
+	return secureEndpoint(raw)
+}
+
 func secureEndpoint(raw string) (*url.URL, error) {
 	u, e := url.Parse(raw)
 	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {

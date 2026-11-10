@@ -189,6 +189,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	federationH.Providers = userFederationH.Providers
 	userFederationH.Bindings = federationH.Bindings
 	usageH := configureUsageLedger(store, cfg, connectedH, llmH)
+	dashH.Ledger, dashH.Tenant = usageH.Ledger, connectedH.Tenant
 	quotaRuntime, err := configureQuota(ctx, cfg, store, connectedH)
 	if err != nil {
 		return nil, fmt.Errorf("quota module configuration failed: %w", err)

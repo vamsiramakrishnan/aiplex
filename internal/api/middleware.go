@@ -163,17 +163,25 @@ func extractOwner(r *http.Request) string {
 func WIFAuth(wif *auth.WIFValidator) func(http.Handler) http.Handler { return WIFAuthMode(wif, false) }
 
 // WIFAuthMode attaches the verified identity to the request. A request whose
-// credential is missing or does not verify (including an invalid supplied
-// JWT) is passed on with no identity: routes that require one answer 401
-// (outside development mode; in development mode an unauthenticated request
-// is served as the local developer). Credentials for internal callbacks use
-// their independent route guard.
+// credential is missing or does not verify is passed on with no identity:
+// routes that require one answer 401. In development mode a request that
+// presents NO credential is served as the local developer, but one that
+// presents a credential which fails verification (a mistyped, expired or
+// foreign token) is refused with 401, so the caller is never silently given
+// admin data under a token that does not work. Credentials for internal
+// callbacks (/internal/, /auth/token-hook) use their independent route guard
+// and are not verified here.
 func WIFAuthMode(wif *auth.WIFValidator, development bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := context.WithValue(r.Context(), keyDevelopment, development)
 			identity, err := wif.ExtractIdentity(r)
 			if err != nil {
+				if development && credentialPresented(r) && anonymousDeveloperPath(r.URL.Path) && !independentCredentialPath(r.URL.Path) {
+					Error(w, r, http.StatusUnauthorized, "INVALID_CREDENTIAL",
+						"the credential you sent was not accepted ("+err.Error()+"). Send a valid token, or send none to use the anonymous local developer. With aiplex dev, run: eval \"$(aiplex dev env)\"")
+					return
+				}
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -187,6 +195,27 @@ func WIFAuthMode(wif *auth.WIFValidator, development bool) func(http.Handler) ht
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// credentialPresented reports whether the request carries any credential the
+// identity extractor reads.
+func credentialPresented(r *http.Request) bool {
+	return strings.TrimSpace(r.Header.Get("Authorization")) != "" || r.Header.Get("X-Goog-Iap-Jwt-Assertion") != ""
+}
+
+// independentCredentialPath lists routes whose Authorization header is a
+// shared secret checked by the route's own guard, not an identity token.
+func independentCredentialPath(path string) bool {
+	return strings.HasPrefix(path, "/internal/") || path == "/auth/token-hook"
+}
+
+// anonymousDeveloperPath lists the routes development mode serves to a caller
+// with no credential (the control API and its live stream). Everything else,
+// including the /ap/ model and tool wires, never treated a missing credential
+// as the developer: those answer their own wire-shaped 401, which a bad
+// credential keeps getting.
+func anonymousDeveloperPath(path string) bool {
+	return strings.HasPrefix(path, "/api/") || path == "/events/stream"
 }
 
 // RequireIdentity protects user-facing endpoints independently of gateway

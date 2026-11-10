@@ -2,6 +2,7 @@ package usageledger
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
@@ -87,6 +88,17 @@ type CostTotal struct {
 	Amount   string `json:"amount"`
 	Scale    uint8  `json:"scale"`
 	Records  int64  `json:"records"`
+}
+
+// MarshalJSON adds amount_decimal, the exact decimal form of amount at scale
+// (derived; amount and scale stay authoritative).
+func (c CostTotal) MarshalJSON() ([]byte, error) {
+	type plain CostTotal
+	decimal, _ := DecimalString(c.Amount, c.Scale)
+	return json.Marshal(struct {
+		plain
+		AmountDecimal string `json:"amount_decimal,omitempty"`
+	}{plain(c), decimal})
 }
 
 // ParseGroupBy validates a comma-separated group_by parameter.

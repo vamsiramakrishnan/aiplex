@@ -14,8 +14,8 @@ import EndpointList from '../components/EndpointList'
 import QuotaPlanPanel from '../components/QuotaPlanPanel'
 import { useAccess, ADMIN_REASON } from '../hooks/useAccess'
 import { ForbiddenNotice } from '../components/Forbidden'
-import { ReducedConnect } from '../components/YourAccess'
-import { YourAccessPoints } from '../components/YourAccess'
+import { YourAccessPoints, endpointLabel } from '../components/YourAccess'
+import CopyButton from '../components/CopyButton'
 import SubjectTable, { type SubjectRow } from '../components/SubjectTable'
 
 const btn = 'px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'
@@ -188,6 +188,7 @@ function AccessPointDetail() {
 /** What a caller who is not an operator sees of one access point: server-built endpoints, how to connect, their own usage. */
 function ReducedDetail() {
   const { id = '' } = useParams()
+  const [connecting, setConnecting] = useState(false)
   const record = useQuery({ queryKey: ['access-point', id], queryFn: () => getAccessPoint(id) })
   if (record.isLoading) return <p role="status">Loading access point…</p>
   if (record.isError) return <LoadError error={record.error} what="this access point" onRetry={() => void record.refetch()} />
@@ -195,8 +196,25 @@ function ReducedDetail() {
   return (
     <div className="space-y-6">
       <p className="text-sm"><Link to="/access-points" className="text-brand-600 hover:underline">← All access points</Link></p>
-      <h1 className="text-2xl font-bold">{view.display_name || view.id}</h1>
-      <ReducedConnect view={view} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">{view.display_name || view.id}</h1>
+        <button type="button" onClick={() => setConnecting(true)} className="px-3 py-1.5 text-sm bg-brand-600 text-brand-contrast rounded">Connect a client</button>
+      </div>
+      <section aria-label="Endpoints" className="space-y-1">
+        <h2 className="text-lg font-medium">Endpoints</h2>
+        <p className="text-xs text-gray-600 dark:text-gray-400">Send your AIPlex token on every request as <code>Authorization: Bearer $AIPLEX_TOKEN</code>. The access point decides what your token may reach.</p>
+        <ul className="space-y-1">
+          {view.endpoints.map((e) => (
+            <li key={`${e.kind}-${e.url}`} className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-xs text-gray-600 dark:text-gray-400 min-w-40">{endpointLabel(e)}</span>
+              <code className="font-mono text-xs break-all">{e.url}</code>
+              <CopyButton text={e.url} label={`${endpointLabel(e)} URL of ${view.id}`} />
+            </li>
+          ))}
+        </ul>
+        {view.endpoints.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-400">This access point has no endpoints for you yet.</p>}
+      </section>
+      {connecting && <ConnectWizard accessPointId={view.id} onClose={() => setConnecting(false)} />}
       <AccessPointUsagePanel accessPointId={view.id} />
     </div>
   )

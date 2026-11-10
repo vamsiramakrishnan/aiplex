@@ -307,7 +307,7 @@ func TestUsagePricesLifecycle(t *testing.T) {
 	if _, err = runUsage(t, server, "json", "prices", "set", "-f", file, "--revision", "3"); err == nil {
 		t.Fatal("stale revision accepted")
 	}
-	if out, err = runUsage(t, server, "table", "prices", "delete", "p1"); err != nil || !strings.Contains(out, "revision 4") {
+	if out, err = runUsage(t, server, "table", "prices", "delete", "p1", "--yes"); err != nil || !strings.Contains(out, "revision 4") {
 		t.Fatal(out, err)
 	}
 	if err = os.WriteFile(file, []byte(`{"id":"p1","bogus":true}`), 0o600); err != nil {

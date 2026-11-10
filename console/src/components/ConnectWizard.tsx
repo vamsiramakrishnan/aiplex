@@ -5,6 +5,9 @@ import CopyButton from './CopyButton'
 import { StepCode } from './SetupSteps'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 
+/** Profiles that speak only the Claude apps gateway protocol sign in through a gateway server, not an access point. */
+const connectable = (p: { protocols: string[] }) => p.protocols.some(x => x !== 'claude-apps')
+
 const input = 'border rounded px-2 py-1 text-sm bg-transparent border-gray-300 dark:border-gray-700 max-w-full'
 
 function UrlRow({ label, url }: { label: string; url: string }) {
@@ -90,7 +93,7 @@ export default function ConnectWizard({ accessPointId, onClose }: { accessPointI
           <label htmlFor={`${uid}-client`} className="block text-xs mb-1">Client</label>
           <select id={`${uid}-client`} value={choice} onChange={e => { setChoice(e.target.value); setShown(null) }} className={input}>
             <option value="generic">Generic (any OpenAI, Anthropic, Google or MCP client)</option>
-            {(profiles.data ?? []).map(p => <option key={p.id} value={p.id}>{p.name} ({p.protocols.join(', ')})</option>)}
+            {(profiles.data ?? []).filter(connectable).map(p => <option key={p.id} value={p.id}>{p.name} ({p.protocols.join(', ')})</option>)}
           </select>
         </div>
         <button type="button" onClick={() => setShown(choice)} className="px-3 py-1.5 text-sm bg-brand-600 text-brand-contrast rounded">Show connection details</button>

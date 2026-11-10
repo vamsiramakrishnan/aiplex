@@ -156,7 +156,7 @@ func TestAccessPointsDeleteAndQuotaPlan(t *testing.T) {
 		"DELETE /api/v1/access-points/ide":          "204",
 		"POST /api/v1/access-points/ide/quota-plan": `{"access_point_id":"ide","tenant_id":"t","applied":false,"fragment":{"rates":[{"id":"ap-ide-rpm","meter_id":"requests","rate":60,"interval":60000000000,"burst":60}],"concurrency":[{"id":"ap-ide-concurrency","limit":4}]},"scheduler":{"class":"gold","flow_id":"ap-ide","weight":10,"routes":[]},"policy":{},"validation":{"valid":true,"validator":"compile"},"warnings":["no quota policy is active"]}`,
 	})
-	out, err := runSP(t, "", accessPointsCmd(), "delete", "ide")
+	out, err := runSP(t, "", accessPointsCmd(), "delete", "ide", "--yes")
 	if err != nil || !strings.Contains(out, "Deleted access point ide") {
 		t.Fatal(out, err)
 	}

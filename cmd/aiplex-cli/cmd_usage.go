@@ -324,6 +324,10 @@ func usageCost(c usageledger.Cost) string {
 	return aiplex.FormatCost(c)
 }
 
+// usageTarget is what the request was for: the model, the tool called, or for
+// a tool exchange that is not a call (discovery) the connection with what was
+// done, such as "local-tools (list)". Nothing is shown under a model or tool
+// name that the request did not name.
 func usageTarget(r usageledger.Record) string {
 	switch {
 	case r.ModelID != "":
@@ -331,9 +335,25 @@ func usageTarget(r usageledger.Record) string {
 	case r.ToolName != "":
 		return r.ToolName
 	case r.ResourceID != "":
+		if what := usageExchangeLabel(r.Operation); what != "" {
+			return r.ResourceID + " (" + what + ")"
+		}
 		return r.ResourceID
 	}
 	return "—"
+}
+
+// usageExchangeLabel names a non-call tool exchange.
+func usageExchangeLabel(operation string) string {
+	switch operation {
+	case "tools/list":
+		return "list"
+	case "initialize":
+		return "initialize"
+	case "", "tools/call":
+		return ""
+	}
+	return operation
 }
 
 // usageRecordTable renders records under the table policy: by default the
@@ -342,7 +362,7 @@ func usageTarget(r usageledger.Record) string {
 func usageRecordTable(records []usageledger.Record) *outTable {
 	t := newTable(
 		wideCol("ID").trunc(truncNever), col("TIME"), wideCol("PLANE"), col("MODEL/TOOL"), col("CALLER").trunc(truncMiddle),
-		wideCol("AGENT"), wideCol("USER").trunc(truncNever), wideCol("CLIENT"), col("ACCESS POINT"), wideCol("SESSION"), wideCol("BATCH"),
+		wideCol("AGENT"), wideCol("USER").trunc(truncNever), wideCol("PRINCIPAL ID").trunc(truncNever), wideCol("CLIENT"), col("ACCESS POINT"), wideCol("SESSION"), wideCol("BATCH"),
 		col("STATUS"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST").trunc(truncNever), wideCol("LATENCY"),
 	)
 	for _, r := range records {
@@ -353,7 +373,7 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 		} else {
 			cost = shortMoney(r.Cost.Currency, r.Cost.Amount, r.Cost.Scale, r.Cost.Basis)
 		}
-		t.add(r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalID), usageDash(r.ClientID),
+		t.add(r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalDisplay), usageDash(r.PrincipalID), usageDash(r.ClientID),
 			usageDash(r.AccessPointID), usageSessionCell(r), usageBatchCell(r), usageStatusCell(r),
 			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageRecordCounter(r, usageledger.CounterCacheWrite),
 			usageModalityCell(r), usageUnitsCell(r), cost, latency)
@@ -711,6 +731,16 @@ func usageSummaryTable(s *usageledger.Summary) *outTable {
 			} else if field == "principal_id" && !wideOutput() {
 				v = shortPrincipal(v)
 			}
+			if v == "" {
+				// A request that names no model (a tool call) or no tool (a
+				// model call) falls in the empty group; say so plainly.
+				switch field {
+				case "model_id":
+					v = "(no model)"
+				case "tool_name":
+					v = "(no tool)"
+				}
+			}
 			row = append(row, usageDash(v))
 		}
 		if s.Bucket != "" {
@@ -1036,7 +1066,7 @@ func usagePricesDeleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Uint64Var(&revision, "revision", 0, "Expected revision")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
 	return cmd
 }
 

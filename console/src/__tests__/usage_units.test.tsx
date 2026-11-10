@@ -137,6 +137,7 @@ describe('Usage records with units', () => {
   it('filters by batch, source, error class and usage bound, and passes them to the API', async () => {
     show()
     const form = await screen.findByRole('form', { name: 'Usage filters' })
+    fireEvent.click(within(form).getByRole('button', { name: 'More filters' }))
     fireEvent.change(within(form).getByLabelText('Batch'), { target: { value: 'true' } })
     fireEvent.change(within(form).getByLabelText('Source'), { target: { value: 'reported' } })
     fireEvent.change(within(form).getByLabelText('Error class'), { target: { value: 'rate_limited' } })
@@ -176,7 +177,7 @@ describe('Usage summary with units', () => {
     const at = (cells: (string | null)[], header: string) => cells[heads.indexOf(header) - 1] // the group name is a row header, not a cell
     expect(at(rt, 'Cache write tokens')).toBe('0')
     expect(at(rt, 'Modality tokens (part of input / output)')).toBe('Input text: 7Input audio: 0')
-    expect(at(rt, 'Units (not tokens)')).toBe('Voice session: 2m 30s (2 records)Generated images: 0 images (1 records)')
+    expect(at(rt, 'Units (not tokens)')).toBe('Voice session: 2m 30s (2 records)Generated images: 0 images (1 record)')
     expect(at(rt, 'Batch')).toBe('1')
     expect(at(plain, 'Cache write tokens')).toBe('unknown')
     expect(at(plain, 'Modality tokens (part of input / output)')).toBe('—')

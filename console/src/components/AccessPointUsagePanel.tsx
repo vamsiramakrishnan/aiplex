@@ -1,7 +1,7 @@
 import { useId, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { accessPointUsageSummary, type APGroupField } from '../api/accessPointUsage'
-import { TIME_PRESETS, presetSince, formatCount, type TimePreset } from '../api/usage'
+import { TIME_PRESETS, presetSince, countNoun, type TimePreset } from '../api/usage'
 import { ErrorPanel } from './UsageError'
 import UsageSummaryTable, { UsageHeadline } from './UsageSummaryTable'
 
@@ -15,7 +15,7 @@ function Section({ accessPointId, groupBy, heading, since, headline }: { accessP
   const { groups, truncated, records_scanned } = query.data
   return (
     <div className="space-y-2">
-      {truncated && <p role="alert" className="rounded border border-status-warning-fg p-2 text-sm text-status-warning-fg">Truncated: totals cover only the newest {formatCount(records_scanned)} records scanned. Choose a shorter window for complete totals.</p>}
+      {truncated && <p role="alert" className="rounded border border-status-warning-fg p-2 text-sm text-status-warning-fg">Truncated: totals cover only the newest {countNoun(records_scanned, 'record')} scanned. Choose a shorter window for complete totals.</p>}
       {groups.length === 0 ? <p className="text-sm text-gray-600 dark:text-gray-400">No {heading.toLowerCase()} usage recorded in this window.</p> : (
         <>
           {headline && <UsageHeadline groups={groups} label="Access point usage totals" />}

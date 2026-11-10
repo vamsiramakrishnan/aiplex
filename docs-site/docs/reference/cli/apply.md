@@ -1,13 +1,17 @@
 ---
 title: aiplex apply
 sidebar_label: apply
-description: "Apply a declarative configuration file"
+description: "Apply a declarative AIPlex configuration file"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.
 
 ```text
-Apply instances, agents, and routes from a YAML/JSON file.
+Apply instances, agents, and routes from a YAML/JSON file. The file is checked
+first with the same checks as "aiplex validate"; nothing is applied if it fails.
+Routes are applied in file order, so a route named as a fallback must come
+before the route that lists it. Under "aiplex dev", instances are skipped
+(they need Kubernetes and a template catalog).
 
 Example aiplex.yaml:
   version: v1
@@ -48,14 +52,28 @@ Usage:
 Usage:
   aiplex apply -f <file> [flags]
 
+Examples:
+  aiplex apply -f aiplex.yaml
+
 Flags:
   -f, --file string   Path to manifest file (YAML or JSON)
   -h, --help          help for apply
 
 Global Flags:
-      --debug           Enable debug output
-  -o, --output string   Output format: table, json, yaml (default "table")
-      --token string    Bearer token (env: AIPLEX_TOKEN)
-      --url string      AIPlex API URL (env: AIPLEX_URL)
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
 ```
 

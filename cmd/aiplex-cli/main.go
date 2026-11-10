@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,13 @@ func newClient() *aiplex.Client {
 	c := aiplex.NewClient(t.URL)
 	if t.Token != "" {
 		c.SetToken(t.Token)
+	}
+	if isLoopbackURL(t.URL) && c.HTTPClient != nil {
+		base := c.HTTPClient.Transport
+		if base == nil {
+			base = http.DefaultTransport
+		}
+		c.HTTPClient.Transport = &writeRecorder{base: base, url: t.URL}
 	}
 	return c
 }

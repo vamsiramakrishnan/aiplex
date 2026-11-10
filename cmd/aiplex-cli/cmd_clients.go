@@ -58,7 +58,28 @@ func clientsCmd() *cobra.Command {
 		if e != nil {
 			return e
 		}
-		printJSON(result)
+		if spStructured(cmd, result) {
+			return nil
+		}
+		var reg aiplex.ClientRegistration
+		if json.Unmarshal(result.Spec, &reg) != nil {
+			printJSON(result)
+			return nil
+		}
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Client registration %s (revision %d)\n", result.ID, result.Revision)
+		fmt.Fprintf(out, "  Profile:     %s\n  Mode:        %s\n  Protocol:    %s\n", reg.ProfileID, reg.Mode, reg.Protocol)
+		if reg.DestinationRef != "" {
+			fmt.Fprintf(out, "  Destination: %s\n", reg.DestinationRef)
+		}
+		if reg.ModelID != "" {
+			fmt.Fprintf(out, "  Model:       %s\n", reg.ModelID)
+		}
+		if len(reg.AllowedModels) > 0 {
+			fmt.Fprintf(out, "  Allowed:     %s\n", strings.Join(reg.AllowedModels, ", "))
+		}
+		fmt.Fprintf(out, "  Auth:        %s\n  Binding:     %s\n", reg.AuthMode, reg.PrincipalBinding)
+		fmt.Fprintf(out, "Full specification: aiplex clients get %s -o json   Configuration: aiplex clients plan %s\n", result.ID, result.ID)
 		return nil
 	}}, &cobra.Command{Use: "plan <id>", Short: "Render reviewed configuration fragments without applying them", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		result, e := newClient().PlanClientConnection(cmd.Context(), args[0])

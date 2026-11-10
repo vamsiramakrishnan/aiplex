@@ -2,11 +2,11 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../hooks/useAuth'
-import { accessPointView, listAccessPointViews, type AccessPointView } from '../api/accessPoints'
+import { accessPointView, listAccessPointViews } from '../api/accessPoints'
 import { TIME_PRESETS, presetSince, usageSummary, type TimePreset } from '../api/usage'
 import CopyButton from './CopyButton'
 import { ErrorNotice } from './Forbidden'
-import { StepCode } from './SetupSteps'
+import ConnectWizard from './ConnectWizard'
 import UsageSummaryTable, { UsageHeadline } from './UsageSummaryTable'
 
 const ENDPOINT_LABELS: Record<string, string> = {
@@ -34,33 +34,6 @@ export function IdentityCard() {
         <dd>{user.scopes.length ? <span className="font-mono text-xs break-all">{user.scopes.join(' ')}</span> : 'none yet. Ask an administrator for model and tool grants.'}</dd>
         {ambient && <><dt className="text-gray-600 dark:text-gray-400">Session</dt><dd>Signed in by this server.</dd></>}
       </dl>
-    </section>
-  )
-}
-
-/** Server-built endpoint URLs of one access point, with how to authenticate. Nothing here is constructed in the browser. */
-export function ReducedConnect({ view, onClose }: { view: AccessPointView; onClose?: () => void }) {
-  const models = view.endpoints.find((e) => e.kind === 'models')
-  const mcp = view.endpoints.find((e) => e.kind === 'mcp')
-  return (
-    <section aria-label={`Connect to ${view.id}`} className="space-y-3 rounded border border-gray-200 dark:border-gray-800 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-base font-medium">Connect to {view.display_name || view.id}</h3>
-        {onClose && <button type="button" onClick={onClose} className="text-sm underline">Close</button>}
-      </div>
-      <p className="text-sm text-gray-700 dark:text-gray-300">Send your AIPlex token on every request as <code>Authorization: Bearer $AIPLEX_TOKEN</code>. The access point decides what your token may reach.</p>
-      {view.endpoints.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-400">This access point has no endpoints for you yet.</p>}
-      <ul className="space-y-1">
-        {view.endpoints.map((e) => (
-          <li key={`${e.kind}-${e.url}`} className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-xs text-gray-600 dark:text-gray-400 min-w-40">{endpointLabel(e)}</span>
-            <code className="font-mono text-xs break-all">{e.url}</code>
-            <CopyButton text={e.url} label={`${endpointLabel(e)} URL of ${view.id}`} />
-          </li>
-        ))}
-      </ul>
-      {models && <StepCode step={{ title: 'List the models you can call', language: 'bash', content: `curl -sS ${models.url} \\\n  -H "Authorization: Bearer $AIPLEX_TOKEN"` }} />}
-      {mcp && <StepCode step={{ title: 'MCP client configuration', language: 'json', content: JSON.stringify({ mcpServers: { [`aiplex-${view.id}`]: { type: 'http', url: mcp.url, headers: { Authorization: 'Bearer ${AIPLEX_TOKEN}' } } } }, null, 2) }} />}
     </section>
   )
 }
@@ -98,7 +71,7 @@ export function YourAccessPoints({ hideHeading }: { hideHeading?: boolean } = {}
               <Link to={`/access-points/${encodeURIComponent(v.id)}`} className="text-brand-600 hover:underline" aria-label={`Open ${v.display_name || v.id}`}>Open</Link>
               <button type="button" className="text-brand-600 hover:underline" aria-label={`Connect a client to ${v.id}`} onClick={() => setConnecting(connecting === v.id ? null : v.id)} aria-expanded={connecting === v.id}>Connect</button>
             </div>
-            {connecting === v.id && <ReducedConnect view={v} onClose={() => setConnecting(null)} />}
+            {connecting === v.id && <ConnectWizard accessPointId={v.id} onClose={() => setConnecting(null)} />}
           </li>
         ))}
       </ul>

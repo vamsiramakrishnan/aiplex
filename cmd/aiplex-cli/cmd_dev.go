@@ -27,16 +27,20 @@ import (
 // devState is what `aiplex dev` records for `aiplex dev env` while it runs.
 // It holds no secrets; the token is in the encrypted credentials file.
 type devState struct {
-	URL         string `json:"url"`
-	Context     string `json:"context"`
-	AccessPoint string `json:"access_point"`
-	Model       string `json:"model"`
-	Protocol    string `json:"protocol"`
-	PID         int    `json:"pid"`
-	Console     string `json:"console,omitempty"`
-	ConsoleNote string `json:"console_note,omitempty"`
-	StartedAt   string `json:"started_at,omitempty"`
-	APILog      string `json:"api_log,omitempty"`
+	URL         string   `json:"url"`
+	Context     string   `json:"context"`
+	AccessPoint string   `json:"access_point"`
+	Model       string   `json:"model"`
+	Protocol    string   `json:"protocol"`
+	Provider    string   `json:"provider,omitempty"`
+	Models      []string `json:"models,omitempty"`
+	PID         int      `json:"pid"`
+	IssuerURL   string   `json:"issuer_url,omitempty"`
+	Console     string   `json:"console,omitempty"`
+	ConsoleNote string   `json:"console_note,omitempty"`
+	StartedAt   string   `json:"started_at,omitempty"`
+	APILog      string   `json:"api_log,omitempty"`
+	DevLog      string   `json:"dev_log,omitempty"`
 }
 
 func devStatePath() (string, error) {
@@ -65,20 +69,33 @@ func devCmd() *cobra.Command {
 What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
   - aiplex-api in development mode (in-memory stores, loopback only)
   - a local token issuer: you are "developer@localhost" with the admin role
-  - a built-in mock model provider speaking the OpenAI Chat Completions wire
-    (or a real provider with --provider and --api-key-env)
+  - a built-in mock model provider with four deterministic models, one per
+    wire: mock-gpt (OpenAI Chat Completions), mock-responses (OpenAI
+    Responses), mock-claude (Anthropic Messages) and mock-gemini (Gemini
+    generateContent), so Claude Code, Codex and the OpenAI, Anthropic and
+    Google SDKs all work with no key (or a real provider with --provider and
+    --api-key-env, which exposes one model)
   - a built-in MCP server with three tools (echo, add, reset_counter)
   - the Console, when this binary carries a built Console
 
 What is created through the normal APIs:
-  - model surface "local-models", access point "local", tool connection
-    "local-tools" and, for the mock model, a placeholder price
+  - model surfaces "local-models", "local-responses", "local-messages" and
+    "local-gemini", access point "local", tool connection "local-tools" and,
+    for the mock models, placeholder prices
+
+To see role-based behaviour, "aiplex dev token --user bob [--role deployer]" mints
+a token for a second caller (bob@localhost) from the same local issuer; use it
+as AIPLEX_TOKEN. Only your own developer token can ask for one, and only from
+this machine.
 
 The CLI context "local" is created and made current while this runs. The
 previous context is restored when you stop it.
 
---detach runs it in the background (output in ~/.aiplex/dev.log); stop it with
-"aiplex dev stop" and check it with "aiplex dev status". When aiplex dev stops
+--detach runs it in the background; stop it with
+"aiplex dev stop" and check it with "aiplex dev status". Two logs are kept:
+~/.aiplex/dev-api.log holds what aiplex-api prints (requests, errors) and, for
+a background run, ~/.aiplex/dev.log holds what aiplex dev itself prints (this
+summary and its messages). When aiplex dev stops
 or is killed, the local API stops with it.
 
 The local API calls only loopback upstreams and the public OpenAI, Anthropic
@@ -116,7 +133,7 @@ is never printed, accepted as a flag value, or written to disk.`,
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Do not start the built-in MCP server's tool connection")
 	cmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in the background; stop with: aiplex dev stop")
 	cmd.Flags().StringSliceVar(&allowOrigins, "allow-origin", nil, "Extra upstream origin the local API may call, e.g. https://mcp.example.com (repeatable)")
-	cmd.AddCommand(devEnvCmd(), devStatusCmd(), devStopCmd())
+	cmd.AddCommand(devEnvCmd(), devStatusCmd(), devStopCmd(), devTokenCmd())
 	return cmd
 }
 
@@ -188,7 +205,7 @@ func runDev(parent context.Context, o devOptions) error {
 		consoleURL, consoleNote = startDevConsole(ctx, stack.APIURL, stack.Token, o.consolePort)
 	}
 	statePath, _ := devStatePath()
-	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath}
+	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, IssuerURL: stack.IssuerURL, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339Nano), APILog: logPath, DevLog: detachedLogPath()}
 	if raw, e := json.MarshalIndent(state, "", "  "); e == nil && statePath != "" {
 		_ = os.WriteFile(statePath, raw, 0o600)
 		defer os.Remove(statePath)
@@ -207,6 +224,19 @@ func runDev(parent context.Context, o devOptions) error {
 		return fmt.Errorf("aiplex-api exited unexpectedly (%v); see %s", stack.ExitErr(), logPath)
 	}
 	return nil
+}
+
+// detachedLogPath is where a background aiplex dev writes its own output, or ""
+// when it runs in a terminal.
+func detachedLogPath() string {
+	if os.Getenv(devDetachedEnv) == "" {
+		return ""
+	}
+	dir, err := cliconfig.Dir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "dev.log")
 }
 
 func validEnvName(name string) bool {
@@ -402,7 +432,13 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	row("You", devstack.DevEmail+"  (admin; token from a local issuer, valid 12h)")
 	switch seeded.Provider {
 	case "mock":
-		row("Model", seeded.Model+"  via the built-in mock provider (OpenAI Chat Completions wire, no API key)")
+		names, wires := make([]string, 0, len(seeded.Models)), make([]string, 0, len(seeded.Models))
+		for _, m := range seeded.Models {
+			names = append(names, m.Name)
+			wires = append(wires, devWireLabel(m.Protocol))
+		}
+		row("Models", strings.Join(names, ", ")+"  (built-in mock provider, no API key)")
+		row("", "wires: "+strings.Join(wires, ", "))
 	default:
 		row("Model", seeded.Model+"  via "+seeded.Provider+" (key from $"+o.keyEnv+")")
 	}
@@ -411,7 +447,7 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	}
 	row("Access point", seeded.AccessPoint+"  ->  "+s.APIURL+"/ap/"+seeded.AccessPoint)
 	if seeded.Price != "" {
-		row("Price", seeded.Price+"  (placeholder rates, so estimated cost shows in usage)")
+		row("Price", "placeholder rates for each mock model, so estimated cost shows in usage")
 	} else {
 		row("Price", "none (prices are your contracted rates: aiplex usage prices set -f price.json)")
 	}
@@ -426,7 +462,12 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	} else if !o.noConsole {
 		row("Console", consoleNote)
 	}
-	row("API log", logPath)
+	row("API log", logPath+"  (what aiplex-api prints: requests, errors, startup)")
+	if detached {
+		if dir, err := cliconfig.Dir(); err == nil {
+			row("Dev log", filepath.Join(dir, "dev.log")+"  (what aiplex dev prints: this summary and its own messages)")
+		}
+	}
 	fmt.Println()
 	fmt.Println("  WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy " + strings.TrimPrefix(s.APIURL, "http://") + ".")
 	fmt.Printf("\n  Ready in %.1fs. Try next, in another terminal:\n\n", took.Seconds())
@@ -448,11 +489,30 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		fmt.Println("    aiplex dev status")
 	}
 	fmt.Println()
+	fmt.Println("    # 4. Optional: see what a caller with no role gets")
+	fmt.Println("    aiplex access-points create team --model " + seeded.Model + "=" + seeded.Surface + " --allow-users bob@localhost")
+	fmt.Println("    AIPLEX_TOKEN=$(aiplex dev token --user bob 2>/dev/null) aiplex connect team")
+	fmt.Println()
 	if detached {
 		fmt.Println("  Running in the background. Stop it with: aiplex dev stop")
 	} else {
 		fmt.Println("  Press Ctrl+C to stop. State is in memory and is discarded on stop.")
 	}
+}
+
+// devWireLabel is the short name of a model wire protocol for the summary.
+func devWireLabel(protocol string) string {
+	switch protocol {
+	case "openai-chat":
+		return "OpenAI Chat"
+	case "openai-responses":
+		return "OpenAI Responses"
+	case "anthropic-messages":
+		return "Anthropic Messages"
+	case "google-genai":
+		return "Gemini generateContent"
+	}
+	return protocol
 }
 
 // openCommand is the shell command that opens a URL on this OS.
@@ -532,11 +592,19 @@ the local API that issued it and expires when that API stops.`,
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "export AIPLEX_URL=%s\n", shellQuote(st.URL))
 			fmt.Fprintf(w, "export AIPLEX_TOKEN=%s\n", shellQuote(entry.AccessToken))
-			switch st.Protocol {
-			case "anthropic-messages":
+			switch {
+			case st.Provider == "mock":
+				// The mock serves every wire: export each SDK family.
+				fmt.Fprintf(w, "export OPENAI_BASE_URL=%s\n", shellQuote(ap+"/v1"))
+				fmt.Fprintln(w, `export OPENAI_API_KEY="$AIPLEX_TOKEN"`)
 				fmt.Fprintf(w, "export ANTHROPIC_BASE_URL=%s\n", shellQuote(ap))
 				fmt.Fprintln(w, `export ANTHROPIC_API_KEY="$AIPLEX_TOKEN"`)
-			case "google-genai":
+				fmt.Fprintf(w, "export GOOGLE_GEMINI_BASE_URL=%s\n", shellQuote(ap))
+				fmt.Fprintln(w, `export GEMINI_API_KEY="$AIPLEX_TOKEN"`)
+			case st.Protocol == "anthropic-messages":
+				fmt.Fprintf(w, "export ANTHROPIC_BASE_URL=%s\n", shellQuote(ap))
+				fmt.Fprintln(w, `export ANTHROPIC_API_KEY="$AIPLEX_TOKEN"`)
+			case st.Protocol == "google-genai":
 				fmt.Fprintf(w, "export GOOGLE_GEMINI_BASE_URL=%s\n", shellQuote(ap))
 				fmt.Fprintln(w, `export GEMINI_API_KEY="$AIPLEX_TOKEN"`)
 			default:
@@ -560,3 +628,11 @@ func devReachable(url string) bool {
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+func seededModelNames(seeded *devstack.Seeded) []string {
+	names := make([]string, 0, len(seeded.Models))
+	for _, m := range seeded.Models {
+		names = append(names, m.Name)
+	}
+	return names
+}

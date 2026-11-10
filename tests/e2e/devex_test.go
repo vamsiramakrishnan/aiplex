@@ -47,6 +47,13 @@ func TestGuidedCreationWithoutFiles(t *testing.T) {
 		if r.Code != 2 || strings.Contains(r.Err, "sk-live") {
 			t.Fatalf("secret value accepted or echoed: %s", r)
 		}
+		// With no terminal, a delete without --yes is refused (exit 2) and
+		// nothing is deleted.
+		r = e.cli("mcp", "connections", "delete", "tools2")
+		if r.Code != 2 || !strings.Contains(r.Err, "--yes") {
+			t.Fatalf("delete without --yes and without a terminal: %s", r)
+		}
+		e.mustCLI("mcp", "connections", "get", "tools2")
 		e.mustCLI("mcp", "connections", "delete", "tools2", "--yes")
 	})
 
@@ -215,6 +222,13 @@ func TestDevDetachStatusStopAndNoOrphan(t *testing.T) {
 	}
 	contains(t, out, "Running in the background", "detach summary")
 	contains(t, out, "# 2. See what it cost", "next steps")
+	contains(t, out, "# 4. Optional: see what a caller with no role gets", "optional fourth step")
+	contains(t, out, "aiplex dev token --user bob", "fourth step command")
+	contains(t, out, "dev-api.log  (what aiplex-api prints", "summary says what the API log holds")
+	contains(t, out, "dev.log  (what aiplex dev prints", "summary says what the dev log holds")
+	if status, _ := run("dev", "status"); !strings.Contains(status, "API log") || !strings.Contains(status, "Dev log") || !strings.Contains(status, "what aiplex dev prints") {
+		t.Fatalf("status lacks both logs with a description: %s", status)
+	}
 	out, code = run("dev", "status", "-o", "json")
 	if code != 0 {
 		t.Fatalf("status: %s", out)

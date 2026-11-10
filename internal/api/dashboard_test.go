@@ -78,8 +78,8 @@ func TestDashboard_Stats(t *testing.T) {
 	if stats.MCPlexInstances != 1 {
 		t.Errorf("expected 1 MCPlex, got %d", stats.MCPlexInstances)
 	}
-	if stats.DailyCostUSD != 0.50 {
-		t.Errorf("expected $0.50 daily cost, got %f", stats.DailyCostUSD)
+	if stats.DailyCostUSD == nil || *stats.DailyCostUSD != 0.50 {
+		t.Errorf("expected $0.50 daily cost, got %v", stats.DailyCostUSD)
 	}
 	if stats.PolicyDenials != 1 {
 		t.Errorf("expected 1 denial, got %d", stats.PolicyDenials)

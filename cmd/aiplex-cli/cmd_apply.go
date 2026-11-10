@@ -5,12 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
-
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
@@ -36,6 +33,10 @@ type ManifestAgent struct {
 	AuthMethod    string   `json:"auth_method" yaml:"auth_method"`
 	GrantTypes    []string `json:"grant_types" yaml:"grant_types"`
 	AllowedScopes []string `json:"allowed_scopes" yaml:"allowed_scopes"`
+	WIFPrincipal  string   `json:"wif_principal,omitempty" yaml:"wif_principal,omitempty"`
+	// RedirectURIs are required for auth_method authorization_code (an IDE or
+	// other PKCE client) and rejected for any other method.
+	RedirectURIs []string `json:"redirect_uris,omitempty" yaml:"redirect_uris,omitempty"`
 }
 
 type ManifestRoute struct {
@@ -50,7 +51,11 @@ func applyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "apply -f <file>",
 		Short: "Apply a declarative configuration file",
-		Long: `Apply instances, agents, and routes from a YAML/JSON file.
+		Long: `Apply instances, agents, and routes from a YAML/JSON file. The file is checked
+first with the same checks as "aiplex validate"; nothing is applied if it fails.
+Routes are applied in file order, so a route named as a fallback must come
+before the route that lists it. Under "aiplex dev", instances are skipped
+(they need Kubernetes and a template catalog).
 
 Example aiplex.yaml:
   version: v1
@@ -98,12 +103,32 @@ Usage:
 				return fmt.Errorf("load manifest: %w", err)
 			}
 
+			// The same checks `aiplex validate` runs, before anything is written.
+			if problems := validateManifest(manifest); len(problems) > 0 {
+				fmt.Fprintf(os.Stderr, "Nothing was applied: %s is not valid:\n", file)
+				for _, p := range problems {
+					fmt.Fprintf(os.Stderr, "  - %s\n", p)
+				}
+				return fmt.Errorf("%d validation error(s)", len(problems))
+			}
+
 			c := newClient()
 			ctx := context.Background()
 			var errors []string
 
+			// Instances deploy onto Kubernetes from the platform's template
+			// catalog. aiplex dev has neither, so say so instead of failing
+			// with "template not found".
+			skipped := 0
+			instances := manifest.Instances
+			if len(instances) > 0 && localDevAPI() {
+				fmt.Printf("Skipping %d instance(s): deploying MCP servers and agents needs a Kubernetes cluster and a template catalog, which aiplex dev does not have.\n", len(instances))
+				fmt.Println("  Agents and routes in this file are applied. Apply the instances against a cloud deployment.")
+				skipped, instances = len(instances), nil
+			}
+
 			// Apply instances
-			for _, inst := range manifest.Instances {
+			for _, inst := range instances {
 				fmt.Printf("Deploying %s (%s/%s)... ", inst.Name, inst.Plane, inst.Template)
 				result, err := c.Deploy(ctx, &aiplex.DeployRequest{
 					Plane:       inst.Plane,
@@ -129,6 +154,8 @@ Usage:
 					AuthMethod:    agent.AuthMethod,
 					GrantTypes:    agent.GrantTypes,
 					AllowedScopes: agent.AllowedScopes,
+					WIFPrincipal:  agent.WIFPrincipal,
+					RedirectURIs:  agent.RedirectURIs,
 				})
 				if err != nil {
 					fmt.Printf("FAILED: %v\n", err)
@@ -157,7 +184,7 @@ Usage:
 			}
 
 			fmt.Println()
-			total := len(manifest.Instances) + len(manifest.Agents) + len(manifest.Routes)
+			total := len(instances) + len(manifest.Agents) + len(manifest.Routes)
 			if len(errors) > 0 {
 				fmt.Printf("Applied %d/%d resources (%d failed)\n", total-len(errors), total, len(errors))
 				for _, e := range errors {
@@ -167,6 +194,9 @@ Usage:
 			}
 
 			fmt.Printf("Applied %d resource(s) successfully.\n", total)
+			if skipped > 0 {
+				fmt.Printf("%d instance(s) were skipped (not available under aiplex dev).\n", skipped)
+			}
 			return nil
 		},
 	}
@@ -176,35 +206,19 @@ Usage:
 	return cmd
 }
 
-func loadManifest(path string) (*AiplexManifest, error) {
-	data, err := os.ReadFile(path)
+// localDevAPI reports whether the current API is the one `aiplex dev` started.
+func localDevAPI() bool {
+	path, err := devStatePath()
 	if err != nil {
-		return nil, err
+		return false
 	}
-
-	ext := strings.ToLower(filepath.Ext(path))
-	var manifest AiplexManifest
-
-	switch ext {
-	case ".json":
-		if err := json.Unmarshal(data, &manifest); err != nil {
-			return nil, fmt.Errorf("parse JSON: %w", err)
-		}
-	case ".yaml", ".yml":
-		if err := yaml.Unmarshal(data, &manifest); err != nil {
-			return nil, fmt.Errorf("parse YAML: %w", err)
-		}
-	default:
-		// Try YAML first (superset of JSON), then JSON
-		if err := yaml.Unmarshal(data, &manifest); err != nil {
-			if err2 := json.Unmarshal(data, &manifest); err2 != nil {
-				return nil, fmt.Errorf("unsupported format %s — use .json or .yaml", ext)
-			}
-		}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
 	}
-
-	if manifest.Version == "" {
-		manifest.Version = "v1"
+	var st devState
+	if json.Unmarshal(raw, &st) != nil || st.URL == "" {
+		return false
 	}
-	return &manifest, nil
+	return strings.TrimRight(st.URL, "/") == strings.TrimRight(resolveAPIURL(), "/")
 }

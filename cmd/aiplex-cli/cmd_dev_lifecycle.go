@@ -134,7 +134,7 @@ func runDevDetached(cmd *cobra.Command, o devOptions) error {
 			if st != nil && st.PID == child.Process.Pid && devReachable(st.URL) {
 				out, _ := os.ReadFile(logPath)
 				fmt.Fprint(cmd.OutOrStdout(), string(out))
-				fmt.Fprintf(cmd.OutOrStdout(), "  Background pid %d; its output goes to %s\n", st.PID, logPath)
+				fmt.Fprintf(cmd.OutOrStdout(), "  Background pid %d. Logs: %s (aiplex dev's output), %s (aiplex-api's output)\n", st.PID, logPath, st.APILog)
 				return nil
 			}
 		}
@@ -177,7 +177,11 @@ func devStatusCmd() *cobra.Command {
 			}
 			fmt.Fprintf(out, "  API            %s  %s\n", st.URL, health)
 			fmt.Fprintf(out, "  Access point   %s  ->  %s/ap/%s\n", st.AccessPoint, st.URL, st.AccessPoint)
-			fmt.Fprintf(out, "  Model          %s\n", st.Model)
+			if len(st.Models) > 1 {
+				fmt.Fprintf(out, "  Models         %s\n", strings.Join(st.Models, ", "))
+			} else {
+				fmt.Fprintf(out, "  Model          %s\n", st.Model)
+			}
 			fmt.Fprintf(out, "  CLI context    %s\n", st.Context)
 			switch {
 			case st.Console != "":
@@ -188,7 +192,10 @@ func devStatusCmd() *cobra.Command {
 				fmt.Fprintln(out, "  Console        off (--no-console)")
 			}
 			if st.APILog != "" {
-				fmt.Fprintf(out, "  API log        %s\n", st.APILog)
+				fmt.Fprintf(out, "  API log        %s  (what aiplex-api prints: requests, errors)\n", st.APILog)
+			}
+			if st.DevLog != "" {
+				fmt.Fprintf(out, "  Dev log        %s  (what aiplex dev prints: its summary and messages)\n", st.DevLog)
 			}
 			if !healthy {
 				return newCLIError(exitError, "the local API is not answering", "Restart it: aiplex dev stop && aiplex dev --detach")

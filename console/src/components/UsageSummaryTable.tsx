@@ -20,7 +20,7 @@ export function UsageHeadline({ groups, label }: { groups: APSummaryGroup[]; lab
   const unknownCost = usage.sumCounts(groups.map(g => g.unknown_cost_records))
   const tokenLine = (name: string, t: usage.TokenHeadline) => (
     <p>{name} <strong>{t.reported ? usage.formatCount(t.total.toString()) : UNKNOWN}</strong>
-      {t.reported && t.unknownRecords > 0n && <span className={muted}> (+{usage.formatCount(t.unknownRecords.toString())} records unreported)</span>}</p>
+      {t.reported && t.unknownRecords > 0n && <span className={muted}> (+{usage.countNoun(t.unknownRecords.toString(), 'record')} unreported)</span>}</p>
   )
   return (
     <div aria-label={label} className="grid gap-4 md:grid-cols-3">
@@ -35,7 +35,7 @@ export function UsageHeadline({ groups, label }: { groups: APSummaryGroup[]; lab
         {costs.length === 0 ? <p>{UNKNOWN}</p> : (
           <ul>{costs.map(c => <li key={`${c.currency}-${c.basis}`}><strong>{usage.formatTotal(c)}</strong> <span className={muted}>{c.basis}</span></li>)}</ul>
         )}
-        {unknownCost > 0n && <p className={muted}>{usage.formatCount(unknownCost.toString())} records have unknown cost and are not counted above.</p>}
+        {unknownCost > 0n && <p className={muted}>{usage.countNoun(unknownCost.toString(), 'record')} {usage.countVerb(unknownCost.toString())} unknown cost and are not counted above.</p>}
       </div>
     </div>
   )

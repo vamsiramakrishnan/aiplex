@@ -192,7 +192,7 @@ The legacy form "resources put <kind> <id> <file> <revision>" still works.`,
 			fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s %s.\n", kind, args[1])
 			return nil
 		}}
-	del.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
+	del.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
 	cmd.AddCommand(del)
 	var idempotency string
 	plan := &cobra.Command{

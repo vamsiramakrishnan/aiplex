@@ -170,8 +170,26 @@ func resolveUserPrincipal(ctx context.Context, c *aiplex.Client, value, provider
 				}
 			}
 		}
+		// Local mode: the dev issuer names a user "name" with the email
+		// "name@localhost", so the subject is the part before the @.
+		if name, domain, _ := strings.Cut(value, "@"); localDevAPI() && strings.EqualFold(domain, "localhost") && name != "" && provider != "" {
+			return auth.CanonicalPrincipalID(provider, pool, name), nil
+		}
+		// A configured user identity provider identifies users by the sub or oid
+		// claim, never the email, so no principal can be derived from an email
+		// without a directory lookup. Say what to pass instead.
+		if providers, err := c.ListUserIdentityProviders(ctx); err == nil && len(providers) > 0 {
+			var described []string
+			for _, p := range providers {
+				described = append(described, fmt.Sprintf("%s (issuer %s, subject claim %q)", p.ID, p.Issuer, p.SubjectClaim))
+			}
+			return "", usageError(fmt.Sprintf("--allow-users %q: this deployment's user identity providers identify a user by their subject claim, not their email: %s", value, strings.Join(described, "; ")),
+				"Pass the user's subject (the value of that claim in their token), for example --allow-users 00u1abcdEXAMPLE",
+				"Or pass their principal-... ID, which `aiplex who --kind user` shows after their first request")
+		}
 		return "", usageError(fmt.Sprintf("--allow-users %q: no known user has this email", value),
 			"Users become known after their first request; give their subject (the token's sub) or principal ID instead",
+			"Under aiplex dev, a user from `aiplex dev token --user <name>` has the email <name>@localhost, so --allow-users <name>@localhost works",
 			"See known users with: aiplex who --kind user")
 	}
 	if provider == "" {

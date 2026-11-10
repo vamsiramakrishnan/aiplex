@@ -96,6 +96,9 @@ func terminalWidth() int {
 // stdoutIsTerminal reports whether stdout is attached to a terminal.
 func stdoutIsTerminal() bool { return term.IsTerminal(os.Stdout.Fd()) }
 
+// stderrIsTerminal reports whether stderr (where prompts are written) is a terminal.
+func stderrIsTerminal() bool { return term.IsTerminal(os.Stderr.Fd()) }
+
 // stdinIsTerminal reports whether stdin is attached to a terminal.
 func stdinIsTerminal() bool { return term.IsTerminal(os.Stdin.Fd()) }
 

@@ -618,15 +618,21 @@ func mcpConnDeleteCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
 	return cmd
 }
 
-// confirm asks before a destructive change when stdin and stdout are a
-// terminal. --yes skips the question; scripts (no terminal) are not prompted.
+// confirm guards a destructive change. On a terminal (stdin, and stderr where
+// the question is written) it asks; --yes skips the question. With no
+// terminal there is nobody to ask, so the command refuses (exit 2) unless
+// --yes was given: a script that deletes something must say so.
 func confirm(cmd *cobra.Command, yes bool, question string) error {
-	if yes || !stdinIsTerminal() || !stdoutIsTerminal() {
+	if yes {
 		return nil
+	}
+	if !stdinIsTerminal() || !stderrIsTerminal() {
+		return usageError("refusing to proceed: this is destructive and there is no terminal to ask for confirmation. "+question,
+			"Add --yes (-y) to run it non-interactively")
 	}
 	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)
 	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
@@ -647,7 +653,7 @@ func confirmDestructive(c *cobra.Command) {
 		return
 	}
 	var yes bool
-	c.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation")
+	c.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
 	run := c.RunE
 	c.RunE = func(cmd *cobra.Command, args []string) error {
 		what := strings.TrimPrefix(strings.TrimPrefix(cmd.Parent().CommandPath(), "aiplex"), " ")

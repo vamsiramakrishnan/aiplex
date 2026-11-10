@@ -234,7 +234,26 @@ func (h *IAMHandler) ResolveIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	JSON(w, http.StatusOK, access)
+	JSON(w, http.StatusOK, nonNullAccess(access))
+}
+
+// nonNullAccess makes the list fields of a whoami answer empty arrays rather
+// than null, so a caller with no role, scope or group reads as having none.
+func nonNullAccess(access *models.ResolvedAccess) *models.ResolvedAccess {
+	if access == nil {
+		return nil
+	}
+	out := *access
+	if out.Roles == nil {
+		out.Roles = []models.IAMRole{}
+	}
+	if out.Scopes == nil {
+		out.Scopes = []string{}
+	}
+	if out.Identity.Groups == nil {
+		out.Identity.Groups = []string{}
+	}
+	return &out
 }
 
 // ListRoles returns the available AIPlex roles and their default scopes.

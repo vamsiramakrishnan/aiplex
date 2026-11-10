@@ -37,7 +37,7 @@ export default function Login() {
             <img src={logoReversed} alt="AIPlex" className="h-10 w-auto hidden dark:block" />
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Unified AI Control Plane
+            A control plane for agent interactions across models, tools, agents and skills
           </p>
         </div>
 

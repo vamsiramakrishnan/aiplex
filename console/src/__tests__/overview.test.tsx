@@ -54,7 +54,8 @@ const ap = (id: string): aps.AccessPointRecord => ({ id, revision: 1, spec: { id
 
 beforeEach(() => {
   vi.resetAllMocks()
-  vi.mocked(api.listSubjects).mockResolvedValue(page())
+  // Only agents have rows, so the Overview opens on the Agents tab.
+  vi.mocked(api.listSubjects).mockImplementation(async (kind) => (kind === 'agent' ? page() : page({ kind, subjects: [] })))
   vi.mocked(api.getSubject).mockResolvedValue(detail())
   vi.mocked(aps.listAccessPoints).mockResolvedValue([ap('ide-team'), ap('batch')])
   vi.mocked(api.listAllOverviewAccessPoints).mockResolvedValue([listRow('ide-team', 'uncovered', 'no active quota binding matches'), listRow('batch', 'covered', 'bound')])
@@ -109,7 +110,7 @@ describe('subject tabs', () => {
   })
 
   it('does not fold costs of different currencies together', async () => {
-    vi.mocked(api.listSubjects).mockResolvedValue(page({ subjects: [subject({ usage: usage({ cost: [
+    vi.mocked(api.listSubjects).mockImplementation(async (kind) => kind !== 'agent' ? page({ kind, subjects: [] }) : page({ subjects: [subject({ usage: usage({ cost: [
       { currency: 'USD', basis: 'settled', amount: '100', scale: 2 }, { currency: 'EUR', basis: 'estimated', amount: '5', scale: 2 },
     ], unknown_cost_records: 2 }) })] }))
     show()
@@ -120,7 +121,7 @@ describe('subject tabs', () => {
   })
 
   it('pages with the server cursor and passes the chosen range', async () => {
-    vi.mocked(api.listSubjects).mockResolvedValueOnce(page({ next_cursor: 'abc' })).mockResolvedValue(page({ subjects: [subject({ id: 'second', display_name: undefined })] }))
+    vi.mocked(api.listSubjects).mockImplementation(async (kind, _since, cursor) => kind !== 'agent' ? page({ kind, subjects: [] }) : cursor === 'abc' ? page({ subjects: [subject({ id: 'second', display_name: undefined })] }) : page({ next_cursor: 'abc' }))
     show()
     await screen.findByText('Tutor (tutor-agent)')
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -139,9 +140,10 @@ describe('subject tabs', () => {
   })
 
   it('explains an empty tab', async () => {
-    vi.mocked(api.listSubjects).mockResolvedValue(page({ subjects: [] }))
+    vi.mocked(api.listSubjects).mockImplementation(async (kind) => page({ kind, subjects: [] }))
     show()
-    expect(await screen.findByText(/No agents found/)).toBeInTheDocument()
+    // Nothing has rows anywhere: the Overview opens on Users.
+    expect(await screen.findByText(/No users found/)).toBeInTheDocument()
   })
 })
 
@@ -273,7 +275,7 @@ describe('connect wizard', () => {
     [422, 'CLIENT_NOT_APPLICABLE', 'no model reaches this client', /cannot be connected to this access point: no model reaches this client/],
     [404, 'UNKNOWN_CLIENT', 'client must be one of: generic, codex', /Not found: client must be one of/],
     [409, 'PUBLIC_URL_REQUIRED', 'public URL is not set', /no public URL configured.*public URL is not set/],
-    [403, 'FORBIDDEN', 'nope', /administrator or deployer role/],
+    [403, 'FORBIDDEN', 'nope', /do not have access to connection details for this access point/],
   ])('explains a %i error with the server message', async (status, code, message, expected) => {
     vi.mocked(api.getConnect).mockRejectedValue(apiError(message, status, code))
     wizard()
