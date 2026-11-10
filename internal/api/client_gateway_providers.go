@@ -28,6 +28,9 @@ var (
 )
 
 func providerClientNativePath(s modelapi.Surface, r *http.Request, path string) (string, []byte, error) {
+	if native, ok := utilityClientPath(s, r.Method, path); ok {
+		return native, nil, nil
+	}
 	if native, ok := extendedClientNativePath(s, r, path); ok {
 		return native, nil, nil
 	}

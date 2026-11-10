@@ -36,6 +36,11 @@ func (f ExecutionPreparerFunc) Prepare(ctx context.Context, request ExecutionReq
 }
 
 func (g *Gateway) prepareExecution(r *http.Request, trusted contracts.RequestContext, op Operation, metadata Metadata, body []byte) (execution.Lease, error) {
+	if g.options.Admit != nil {
+		if err := g.options.Admit(r.Context(), trusted, op, metadata); err != nil {
+			return nil, err
+		}
+	}
 	if g.options.Execution == nil {
 		return nil, nil
 	}

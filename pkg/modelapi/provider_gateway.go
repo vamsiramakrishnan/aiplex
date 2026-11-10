@@ -73,6 +73,10 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "model is not allowed", http.StatusForbidden)
 		return
 	}
+	if e = g.preflightUtility(r.Context(), trusted, owner, op, params, &metadata); e != nil {
+		writeProviderRequestError(w, e)
+		return
+	}
 	body, e := io.ReadAll(io.LimitReader(r.Body, g.options.MaxBodyBytes+1))
 	if e != nil || int64(len(body)) > g.options.MaxBodyBytes {
 		http.Error(w, "invalid or oversized request body", http.StatusBadRequest)
@@ -113,7 +117,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Caller query parameters never cross: only operator-pinned values do.
-	upstream.RawQuery = ""
+	upstream.RawQuery = utilityQuery(op, r.URL.Query())
 	if strings.Contains(op.Path, "/openai/deployments/") {
 		upstream.RawQuery = url.Values{"api-version": {g.surface.Provider.APIVersion}}.Encode()
 	}
@@ -231,6 +235,9 @@ func (g *Gateway) providerRequestHeaders(in http.Header) (http.Header, error) {
 		}
 	}
 	p := g.surface.Provider
+	if err := utilityRequestHeaders(p.ID, in, out); err != nil {
+		return nil, err
+	}
 	switch p.ID {
 	case ProviderOpenAI:
 		if p.Organization != "" {
@@ -287,6 +294,9 @@ func (g *Gateway) copyProviderResponseHeaders(out, in http.Header, status int) {
 }
 
 func (g *Gateway) validateProviderBody(ctx context.Context, owner Owner, op Operation, metadata *Metadata, body []byte) ([]byte, error) {
+	if out, handled, err := g.utilityBody(ctx, owner, op, metadata, body); handled {
+		return out, err
+	}
 	format := UsageFormat(g.surface.Provider.ID, op.ID)
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, badRequest("a native JSON request body is required")

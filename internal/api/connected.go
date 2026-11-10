@@ -70,6 +70,8 @@ type ConnectedHandler struct {
 	AccessPoint     AccessPointOptions
 	// Capacity holds the last provider limit observation per tenant+surface.
 	Capacity *providerlimits.Store
+	// CapacityGate acts on Capacity for surfaces with a capacity_policy.
+	CapacityGate *providerlimits.Gate
 }
 
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
@@ -244,6 +246,9 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			return fmt.Errorf("surface id mismatch")
 		}
 		if e := c.Surface.Validate(); e != nil {
+			return e
+		}
+		if e := validateCapacityPolicy(c); e != nil {
 			return e
 		}
 		if c.Surface.Provider != nil {
@@ -614,6 +619,7 @@ func (h *ConnectedHandler) NativeModel(w http.ResponseWriter, r *http.Request) {
 	opts.Batches = resourceBatchStore{store: h.Store}
 	opts.BatchSettler = batchSettler{quota: h.Quota, capture: usage, tenant: tenant}
 	usage.instrumentModel(&opts, connection)
+	defer h.installCapacityGate(r, tenant, id, connection, &opts, usage)()
 	gateway, e := modelapi.NewGateway(connection.Surface, opts)
 	if e != nil {
 		Error(w, r, 503, "SURFACE_UNAVAILABLE", e.Error())

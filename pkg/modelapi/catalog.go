@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolcredential"
 )
 
@@ -301,4 +302,7 @@ type Connection struct {
 	// Auth selects a tenant-scoped secret-reference credential for provider
 	// surfaces, using the same reference scheme as tool connections.
 	Auth *toolcredential.Auth `json:"auth,omitempty"`
+	// CapacityPolicy opts a provider surface into advisory enforcement of
+	// provider limit signals. Nil is off.
+	CapacityPolicy *providerlimits.Policy `json:"capacity_policy,omitempty"`
 }

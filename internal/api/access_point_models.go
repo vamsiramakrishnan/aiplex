@@ -53,6 +53,9 @@ var accessPointWires = []accessPointWire{
 	{WireBedrockInvoke, "/model/{model}/invoke[-with-response-stream]", []string{modelapi.ProtocolBedrockInvoke}},
 	{WireOpenAIRealtime, "/v1/realtime?model={model} (WebSocket)", []string{modelapi.ProtocolOpenAIRealtime}},
 	{WireGeminiLive, geminiLivePath + "?model={model} (WebSocket)", []string{clientplex.GenAI}},
+	// Text and utility wires (client_gateway_utility.go).
+	{WireOpenAIEmbeddings, "/v1/embeddings", []string{modelapi.ProtocolOpenAIEmbeddings}},
+	{WireOpenAIModerations, "/v1/moderations", []string{modelapi.ProtocolOpenAIModerations}},
 }
 
 func init() { accessPointWires = append(accessPointWires, accessPointMediaWires()...) }
@@ -393,11 +396,19 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 		switch {
 		case protocol == WireGenAI:
 			match := genaiClientPath.FindStringSubmatch(local)
+			if match == nil && genaiBodyModelPath(local) {
+				// Developer API creations carry models/{model} in the body.
+				name, err = bodyModel(data)
+				name = strings.TrimPrefix(name, "models/")
+				break
+			}
 			if match == nil {
 				fail(w, r, http.StatusNotFound, "UNSUPPORTED_OPERATION", "unsupported GenAI model operation")
 				return
 			}
 			name, method = match[1], match[2]
+		case protocol == WireOpenAIModerations:
+			name, err = moderationModelName(data)
 		case protocol == WireBedrockConverse || protocol == WireBedrockInvoke:
 			match := bedrockClientPath.FindStringSubmatch(local)
 			converse := match != nil && strings.HasPrefix(match[2], "converse")
@@ -467,7 +478,7 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 		}
 		if entry.Name != entry.NativeModel {
 			switch {
-			case protocol == WireGenAI:
+			case protocol == WireGenAI && method != "":
 				path = "/v1beta/models/" + entry.NativeModel + ":" + method
 			case protocol == WireBedrockConverse || protocol == WireBedrockInvoke:
 				// The path selects the model; the body is relayed untouched.
@@ -483,6 +494,10 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 				fail(w, r, http.StatusServiceUnavailable, "MODEL_ALIAS_UNSUPPORTED", "this surface relays the body verbatim; the model name must be the native name")
 				return
 			}
+		}
+		if path, err = accessPointFacadePath(connection.Surface, protocol, entry.NativeModel, path); err != nil {
+			fail(w, r, http.StatusServiceUnavailable, "SURFACE_UNSUPPORTED", "model surface cannot serve this protocol")
+			return
 		}
 		inner := delegateRequest(r, call, "/api/v1/llm/gateway/"+entry.SurfaceRef+path, entry.SurfaceRef, body)
 		inner.URL.RawQuery = rawQuery
