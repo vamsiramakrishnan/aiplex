@@ -75,6 +75,7 @@ Flags:
       --cursor string           Continue from a next_cursor value
       --error-class string      Error class (error_class)
   -h, --help                    help for records
+      --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
       --limit int               Page size, 1 to 1000 (default 100)
       --model string            Model ID (model_id)
       --plane string            Plane: llmplex, mcplex or a2aplex
@@ -168,6 +169,7 @@ Flags:
       --client string           Client ID (client_id)
       --error-class string      Error class (error_class)
   -h, --help                    help for summary
+      --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
       --model string            Model ID (model_id)
       --plane string            Plane: llmplex, mcplex or a2aplex
       --provider string         Provider

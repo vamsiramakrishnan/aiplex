@@ -48,6 +48,7 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex a2a`](./a2a.md) | Discover agents and delegate tasks between them (A2A) |
 | [`aiplex usage`](./usage.md) | See what each request cost: records, totals and model prices |
 | [`aiplex quota`](./quota.md) | Inspect quota policy, balances, loans and admission decisions |
+| [`aiplex hooks`](./hooks.md) | Request hooks — inspect, mask or refuse prompts, responses and tool calls |
 | [`aiplex status`](./status.md) | Show a dashboard summary of the platform |
 | [`aiplex resources`](./resources.md) | Low-level access to any resource kind (prefer the guided commands) |
 | [`aiplex apply`](./apply.md) | Apply a declarative AIPlex configuration file |
@@ -118,6 +119,7 @@ Agents and identity:
 Usage and quota:
   usage         See what each request cost: records, totals and model prices
   quota         Inspect quota policy, balances, loans and admission decisions
+  hooks         Request hooks — inspect, mask or refuse prompts, responses and tool calls
 
 Operate:
   status        Show a dashboard summary of the platform
