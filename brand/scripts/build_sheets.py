@@ -364,17 +364,59 @@ def sheet(theme):
     return d
 
 
+# ---------------------------------------------------------------- mark explorations
+def embed(rel, x, y, size, lane, gate):
+    """Inline a 32-unit mark file at (x, y), size px, recoloured; ids stripped to stay unique."""
+    s = open(os.path.join(ROOT, rel)).read()
+    inner = re.search(r"</desc>\n(.*)</svg>", s, re.S).group(1)
+    inner = re.sub(r' id="[^"]+"', "", inner)
+    inner = inner.replace("#141A2E", "LANE").replace("#2F4FD8", "GATE")
+    inner = inner.replace("LANE", lane).replace("GATE", gate)
+    inner = " ".join(l.strip() for l in inner.splitlines() if l.strip())
+    return f'<g transform="translate({x} {y}) scale({size / 32:g})">{inner}</g>'
+
+
+def explorations():
+    W, H = 1240, 760
+    d = Doc("aiplex-mark-explorations", W, H, "AIPlex mark explorations",
+            "The current mark beside two explorations, each at 16, 32 and 128 px in colour on light, reversed on "
+            "dark and in one colour. The current mark is unchanged; the owner chooses.")
+    bg = "#FFFFFF"
+    d.add(f'<rect width="{W}" height="{H}" fill="{bg}"/>')
+    d.text(40, 52, "Mark explorations (real sizes: 16, 32, 128 px)", 22, INK, bg, 600)
+    rows = [("Current", "logo/aiplex-mark.svg", "Three lanes into one gate, one lane out"),
+            ("A  Split gate", "explorations/aiplex-mark-alt-a-split-gate.svg", "Merged lane passes between two jaws"),
+            ("B  Checkpoint gap", "explorations/aiplex-mark-alt-b-checkpoint.svg", "Lanes merge 2 units short of the gate")]
+    cols = [("Colour on light", "#FFFFFF", INK, GATE), ("Reversed on dark", N["950"], INKD, GATED),
+            ("One colour", "#FFFFFF", INK, INK)]
+    for c, (lab, *_rest) in enumerate(cols):
+        d.text(300 + c * 310, 96, lab, 14, N["600"], bg, 600)
+    for r, (name, rel, note) in enumerate(rows):
+        y = 116 + r * 210
+        d.text(40, y + 60, name, 18, INK, bg, 600)
+        d.text(40, y + 84, note, 13, N["600"], bg)
+        for c, (lab, pbg, la, ga) in enumerate(cols):
+            x = 300 + c * 310
+            d.add(f'<rect x="{x}" y="{y}" width="290" height="180" fill="{pbg}" stroke="{N["200"]}"/>')
+            d.add(embed(rel, x + 16, y + 16, 16, la, ga))
+            d.add(embed(rel, x + 16, y + 48, 32, la, ga))
+            d.add(embed(rel, x + 146, y + 26, 128, la, ga))
+    return d
+
+
 def build(which):
     out = []
     if "social" in which:
         out += [(social(), "social/aiplex-social-card.svg"), (banner(), "social/aiplex-readme-banner.svg")]
     if "sheet" in which:
         out += [(sheet("light"), "brand-sheet.svg"), (sheet("dark"), "brand-sheet-dark.svg")]
+    if "explorations" in which:
+        out += [(explorations(), "explorations/aiplex-mark-explorations.svg")]
     return out
 
 
 if __name__ == "__main__":
-    targets = ["social", "sheet"]
+    targets = ["social", "sheet", "explorations"]
     docs = build(targets)
     if "--check" not in sys.argv:
         for d, rel in docs:

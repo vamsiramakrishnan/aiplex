@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-labelledby="alt-a-title alt-a-desc">
+  <title id="alt-a-title">AIPlex mark, exploration A: split gate</title>
+  <desc id="alt-a-desc">Exploration, not in use. The three lanes merge into one lane, which passes through the gate between two jaws and continues as the exit.</desc>
+  <path id="lanes" d="M2 6h4l10 10M2 26h4l10-10M2 16h28" fill="none" stroke="#141A2E" stroke-width="4"/>
+  <path id="gate" d="M18 8h10v4H18ZM18 20h10v4H18Z" fill="#2F4FD8"/>
+</svg>

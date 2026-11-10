@@ -22,7 +22,9 @@ const BG = { light: { bg: '#FFFFFF', fg: '#141A2E' }, dark: { bg: '#0B0D13', fg:
 const uri = (svg) => 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
 const read = (p) => fs.readFileSync(p, 'utf8');
 const composed = () => [...fs.readdirSync(BRAND).filter((f) => /^brand-sheet.*\.svg$/.test(f)).map((f) => path.join(BRAND, f)),
-  ...['social', 'launch'].filter((d) => fs.existsSync(path.join(BRAND, d))).flatMap((d) => list(d))];
+  ...['social', 'launch'].filter((d) => fs.existsSync(path.join(BRAND, d))).flatMap((d) => list(d)),
+  ...exploration().filter((f) => f.endsWith('-explorations.svg'))];
+const exploration = () => (fs.existsSync(path.join(BRAND, 'explorations')) ? list('explorations') : []);
 const list = (dir) => fs.readdirSync(path.join(BRAND, dir)).filter((f) => f.endsWith('.svg')).sort()
   .map((f) => path.join(BRAND, dir, f));
 
@@ -50,7 +52,7 @@ async function shot(page, html, out, width = 1400) {
   let problems = 0;
 
   // 1. logos
-  for (const file of list('logo')) {
+  for (const file of [...list('logo'), ...exploration().filter((f) => !f.endsWith('-explorations.svg'))]) {
     if (filter && !file.includes(filter)) continue;
     const name = path.basename(file, '.svg');
     // one screenshot per mode so prefers-color-scheme inside the SVG (favicon) is exercised too
