@@ -87,11 +87,21 @@ type AccessPointSkill struct {
 // block requires an active quota binding and a policy control that matches
 // the access point, and fails closed otherwise.
 type AccessPointQoS struct {
-	Class      string            `json:"class"`
-	Weight     uint32            `json:"weight,omitempty"`
+	Class  string `json:"class"`
+	Weight uint32 `json:"weight,omitempty"`
+	// Scope selects who shares the rate and concurrency limits: "principal"
+	// (the default; each caller principal has its own allowance) or
+	// "access_point" (one pool shared by every caller of the access point).
+	Scope      string            `json:"scope,omitempty"`
 	Limits     *AccessPointLimit `json:"limits,omitempty"`
 	BudgetRefs []string          `json:"budget_refs,omitempty"`
 }
+
+// QoS limit scopes.
+const (
+	QoSScopePrincipal   = "principal"
+	QoSScopeAccessPoint = "access_point"
+)
 
 type AccessPointLimit struct {
 	RequestsPerMinute int64 `json:"requests_per_minute,omitempty"`
@@ -380,6 +390,9 @@ func (h *ConnectedHandler) validateAccessPointQoS(tenant string, q *AccessPointQ
 	}
 	if q.Weight > 1000 {
 		return fmt.Errorf("qos.weight is bounded to 1..1000")
+	}
+	if q.Scope != "" && q.Scope != QoSScopePrincipal && q.Scope != QoSScopeAccessPoint {
+		return fmt.Errorf("qos.scope must be principal or access_point")
 	}
 	if q.Limits != nil {
 		l := q.Limits
