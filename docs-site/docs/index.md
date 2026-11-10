@@ -20,7 +20,7 @@ Four more modules share the same identity, permissions, revisioned storage and a
 
 ## How to read these docs
 
-1. [Getting started](./getting-started/index.md) builds the CLI and API and runs them locally, or points to the platform install.
+1. [Getting started](./getting-started/index.md) builds the CLI and API and runs them locally with one command, `aiplex dev`, then points to the Docker stack and the platform install.
 2. [Concepts](./concepts/index.md) explains callers, resources, access points, identity, and quota and usage.
 3. [Guides](./guides/index.md) cover each module and the identity features.
 4. [Operations](./operations/index.md) covers configuration, identity configuration for Helm, networking and production qualification.

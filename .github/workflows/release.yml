@@ -1,9 +1,14 @@
 name: Release
 
+# Runs when a version tag is pushed (git tag -a v0.1.0 -m "v0.1.0" && git push origin v0.1.0).
+# The release notes are the matching section of CHANGELOG.md, so the changelog
+# must be updated (the "Unreleased" heading renamed to the version) before tagging.
+
 on:
   push:
     tags: ["v*"]
 
+# Publishing a GitHub release needs contents: write. Nothing else is granted.
 permissions:
   contents: write
 
@@ -11,6 +16,7 @@ jobs:
   release:
     name: GoReleaser
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,9 +39,23 @@ jobs:
       - name: Run tests before release
         run: go test ./... -count=1
 
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            /^## \[/ { found = 0 }
+            /^\[[^]]+\]: / { found = 0 }
+            found
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          if [ ! -s "$RUNNER_TEMP/release-notes.md" ]; then
+            echo "CHANGELOG.md has no section '## [$version]'. Rename 'Unreleased' and commit before tagging." >&2
+            exit 1
+          fi
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

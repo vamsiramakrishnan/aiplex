@@ -21,6 +21,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Go build
+        run: go build ./...
+
       - name: Go vet
         run: go vet ./...
 
@@ -37,7 +44,13 @@ jobs:
         run: make demo
 
       - name: End-to-end (real binaries, local mocks; API under -race)
-        run: E2E_RACE=1 go test -tags e2e ./tests/e2e/ -count=1 -v
+        run: make e2e-race
+
+      - name: Examples (against aiplex dev; installs the OpenAI SDKs temporarily)
+        run: make examples-test
+        env:
+          EXAMPLES_INSTALL_SDKS: "1"
+          EXAMPLES_REQUIRE_SDKS: "1"
 
   console:
     name: Console Build
@@ -55,8 +68,64 @@ jobs:
           cache-dependency-path: console/package-lock.json
 
       - run: npm ci
+      - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
+
+  docs-site:
+    name: Docs site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - run: npm ci
+      - name: Build (broken links and anchors are errors)
+        run: npm run build
+      - run: npm run check:links
+      - run: npm run typecheck
+
+  release-config:
+    name: Release config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: check
+
+      - name: Snapshot release (no publish)
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+
+      - name: Archives contain both binaries and checksums exist
+        run: |
+          set -euo pipefail
+          test -s dist/checksums.txt
+          archive=$(ls dist/aiplex_*_linux_amd64.tar.gz)
+          tar -tzf "$archive" | tee /dev/stderr | grep -qx 'aiplex'
+          tar -tzf "$archive" | grep -qx 'aiplex-api'
+          mkdir "$RUNNER_TEMP/x" && tar -xzf "$archive" -C "$RUNNER_TEMP/x"
+          "$RUNNER_TEMP/x/aiplex" version
 
   firestore:
     name: Firestore emulator

@@ -7,17 +7,19 @@
 #
 # Installs the pre-built aiplex CLI (and aiplex-api, used by `aiplex dev`,
 # when the release archive carries it) to ~/.local/bin (AIPLEX_INSTALL_DIR).
+# AIPLEX_DOWNLOAD_BASE overrides the release download URL (for mirrors and tests).
 
 set -euo pipefail
 
 REPO="vamsiramakrishnan/aiplex"
 INSTALL_DIR="${AIPLEX_INSTALL_DIR:-$HOME/.local/bin}"
+DOWNLOAD_BASE="${AIPLEX_DOWNLOAD_BASE:-https://github.com/${REPO}/releases/download}"
 VERSION="latest"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version) [[ $# -ge 2 ]] || { echo "--version needs a value, e.g. --version v0.2.0" >&2; exit 1; }; VERSION="$2"; shift 2 ;;
         --version=*) VERSION="${1#--version=}"; shift ;;
-        -h|--help) sed -n '2,10p' "$0" 2>/dev/null || true; exit 0 ;;
+        -h|--help) sed -n '2,11p' "$0" 2>/dev/null || true; exit 0 ;;
         v[0-9]*) VERSION="$1"; shift ;;  # bare version, as before
         *) echo "unknown argument: $1 (use --version vX.Y.Z)" >&2; exit 1 ;;
     esac
@@ -65,13 +67,12 @@ install() {
     [[ "$OS" == "windows" ]] && ext="zip"
 
     local filename="aiplex_${VERSION_NUM}_${OS}_${ARCH}.${ext}"
-    local url="https://github.com/${REPO}/releases/download/${VERSION}/${filename}"
+    local url="${DOWNLOAD_BASE}/${VERSION}/${filename}"
 
     info "Downloading aiplex ${VERSION} for ${OS}/${ARCH}..."
 
-    local tmpdir
     tmpdir="$(mktemp -d)"
-    trap 'rm -rf "$tmpdir"' EXIT
+    trap 'rm -rf "${tmpdir:-}"' EXIT
 
     curl -fsSL "$url" -o "${tmpdir}/${filename}" || err "Download failed. Check version: $VERSION"
 
@@ -84,12 +85,14 @@ install() {
         tar -xzf "${tmpdir}/${filename}" -C "$tmpdir"
     fi
 
-    [[ -f "${tmpdir}/aiplex" ]] || err "archive ${filename} does not contain the aiplex binary"
-    mv "${tmpdir}/aiplex" "${INSTALL_DIR}/aiplex"
-    chmod +x "${INSTALL_DIR}/aiplex"
-    if [[ -f "${tmpdir}/aiplex-api" ]]; then
-        mv "${tmpdir}/aiplex-api" "${INSTALL_DIR}/aiplex-api"
-        chmod +x "${INSTALL_DIR}/aiplex-api"
+    local suffix=""
+    [[ "$OS" == "windows" ]] && suffix=".exe"
+    [[ -f "${tmpdir}/aiplex${suffix}" ]] || err "archive ${filename} does not contain the aiplex binary"
+    mv "${tmpdir}/aiplex${suffix}" "${INSTALL_DIR}/aiplex${suffix}"
+    chmod +x "${INSTALL_DIR}/aiplex${suffix}"
+    if [[ -f "${tmpdir}/aiplex-api${suffix}" ]]; then
+        mv "${tmpdir}/aiplex-api${suffix}" "${INSTALL_DIR}/aiplex-api${suffix}"
+        chmod +x "${INSTALL_DIR}/aiplex-api${suffix}"
         HAVE_API=1
     fi
 }

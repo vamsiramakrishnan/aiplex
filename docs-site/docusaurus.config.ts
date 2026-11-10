@@ -5,6 +5,15 @@ import remarkRepoLinks from './plugins/remark-repo-links.mjs';
 
 const REPO = 'https://github.com/vamsiramakrishnan/aiplex';
 
+// The documentation address, in one place. The site deploys to GitHub Pages
+// (.github/workflows/deploy-docs.yml). Nothing in the repository shows that a
+// custom domain exists (no CNAME file, no DNS notes). If one is added later,
+// change these two constants (for example origin 'https://docs.example.com',
+// base '/'), add static/CNAME, and update the link block at the bottom of
+// README.md, which is the only other place that spells the address out.
+const DOCS_ORIGIN = 'https://vamsiramakrishnan.github.io';
+const DOCS_BASE_URL = '/aiplex/';
+
 const config: Config = {
   title: 'AIPlex',
   tagline: 'One control plane for agent access to models, tools, skills and other agents.',
@@ -14,10 +23,8 @@ const config: Config = {
     v4: true,
   },
 
-  // For custom domain: url: 'https://docs.aiplex.dev', baseUrl: '/'
-  // For GitHub Pages without custom domain:
-  url: 'https://vamsiramakrishnan.github.io',
-  baseUrl: '/aiplex/',
+  url: DOCS_ORIGIN,
+  baseUrl: DOCS_BASE_URL,
 
   organizationName: 'vamsiramakrishnan',
   projectName: 'aiplex',
@@ -105,7 +112,7 @@ const config: Config = {
       ],
     },
     footer: {
-      style: 'dark',
+      style: 'light',
       links: [
         {
           title: 'Start',

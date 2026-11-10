@@ -1,7 +1,7 @@
 # AIPlex + Tape — Treasury Agent (end-to-end)
 
 The worked end-to-end story for the integration documented in
-[`docs-site/docs/guides/tape-runtime.md`](../../docs-site/docs/guides/tape-runtime.md).
+[`docs-site/docs/guides/runs.md`](../../docs-site/docs/guides/runs.md).
 A treasury agent runs on Tape's durable runtime, AIPlex governs its
 scope grants and surfaces its journal in the Console.
 

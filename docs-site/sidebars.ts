@@ -17,6 +17,7 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'getting-started/index'},
       items: [
         'getting-started/local-development',
+        'getting-started/docker-stack',
         'getting-started/install-platform',
         'getting-started/first-deploy',
         'getting-started/connect-client',
@@ -152,6 +153,14 @@ const sidebars: SidebarsConfig = {
             'api/model-batches',
             'api/mcp-connections',
             'api/quota',
+            'api/clients',
+            'api/a2a-connections',
+            'api/skills',
+            'api/runs',
+            'api/iam',
+            'api/llm-routes',
+            'api/network',
+            'api/platform',
           ],
         },
         {

@@ -4,6 +4,7 @@
 #   make build && bin/aiplex dev   Local API + mock model + mock MCP server
 #   make demo         Scripted end-to-end run of `aiplex dev` (CI-safe)
 #   make e2e          End-to-end tests against the real binaries
+#   make examples-test  Run the examples in examples/ against `aiplex dev`
 #   make deps         Check the tools each workflow needs
 #   make test         Run all tests
 #
@@ -15,7 +16,7 @@
 #   make deploy       Helm install
 #   make verify       Health check + status
 
-.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race \
+.PHONY: help build test lint run-local dev deps clean demo e2e e2e-race examples-test \
         infra infra-plan infra-destroy deploy deploy-dry verify \
         docker-up docker-down console
 
@@ -69,6 +70,9 @@ e2e: ## End-to-end tests: real aiplex-api + aiplex CLI against local mock upstre
 
 e2e-race: ## End-to-end tests with aiplex-api built with the race detector
 	E2E_RACE=1 $(GO) test -tags e2e ./tests/e2e/ -count=1 -v
+
+examples-test: ## Run the examples in examples/ against `aiplex dev` (EXAMPLES_INSTALL_SDKS=1 installs the OpenAI SDKs temporarily)
+	@bash examples/test.sh
 
 e2e-aiplex-tape: ## Run the AIPlex+Tape end-to-end demo as an in-process smoke test
 	$(GO) test ./tests/... -run "AIPlexTape" -v -count=1
@@ -217,10 +221,13 @@ deps: ## Check the tools each workflow needs
 
 # ─── Release ────────────────────────────────────────────
 
-release-dry: ## Preview release (no publish)
-	goreleaser build --snapshot --clean
+release-check: ## Validate .goreleaser.yaml
+	goreleaser check
 
-release: ## Tag and release (requires GITHUB_TOKEN)
+release-dry: ## Build release archives locally into dist/ (no publish)
+	goreleaser release --snapshot --clean --skip=publish
+
+release: ## Publish a release from the current tag (CI does this on a v* tag; requires GITHUB_TOKEN)
 	goreleaser release --clean
 
 # ─── Clean ──────────────────────────────────────────────
