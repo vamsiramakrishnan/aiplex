@@ -37,7 +37,7 @@ callers may use. Expose it to callers by adding it to an access point:
 		Example: `  aiplex mcp connections list
   aiplex mcp connections add docs --url http://127.0.0.1:3000/mcp`,
 	}
-	cmd.AddCommand(mcpConnectionsCmd(), mcpServeCmd())
+	cmd.AddCommand(mcpConnectionsCmd(), mcpRegistryCmd(), mcpServeCmd())
 	return cmd
 }
 
@@ -423,7 +423,16 @@ func buildToolConnectionSpec(ctx context.Context, id string, f mcpAddFlags, out 
 // discoverMCPTools calls initialize and tools/list on an MCP server directly
 // (no credential), accepting JSON or SSE responses.
 func discoverMCPTools(ctx context.Context, endpoint, version string) ([]string, error) {
+	return discoverMCPToolsWith(ctx, endpoint, version, false)
+}
+
+// discoverMCPToolsWith is discoverMCPTools; noRedirect refuses to follow a
+// redirect, for URLs that came from untrusted content.
+func discoverMCPToolsWith(ctx context.Context, endpoint, version string, noRedirect bool) ([]string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
+	if noRedirect {
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 	session := ""
 	call := func(id int, method string, params any) (json.RawMessage, error) {
 		msg := map[string]any{"jsonrpc": "2.0", "method": method}

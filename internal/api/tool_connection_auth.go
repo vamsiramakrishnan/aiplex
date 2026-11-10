@@ -40,6 +40,11 @@ var toolCredentialsMu sync.Mutex
 
 // validateToolAuth checks the auth and tools blocks of a saved connection.
 func (h *ConnectedHandler) validateToolAuth(ctx context.Context, tenant string, c ToolConnection) error {
+	if c.Provenance != nil {
+		if e := c.Provenance.Validate(); e != nil {
+			return e
+		}
+	}
 	if c.Tools != nil {
 		if c.Execution == nil {
 			return fmt.Errorf("tools policy requires managed execution")

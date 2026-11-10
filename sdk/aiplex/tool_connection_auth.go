@@ -149,6 +149,18 @@ type ToolConnection struct {
 	Execution   *ToolExecution `json:"execution,omitempty"`
 	Auth        *ToolAuth      `json:"auth,omitempty"`
 	Tools       *ToolPolicy    `json:"tools,omitempty"`
+	// Provenance is set on connections imported from an MCP Registry.
+	Provenance *ToolProvenance `json:"provenance,omitempty"`
+}
+
+// ToolProvenance records the MCP Registry entry a connection was imported
+// from. It is informational: nothing in authorization or dispatch reads it.
+type ToolProvenance struct {
+	Registry    string `json:"registry"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	RetrievedAt string `json:"retrieved_at"`
+	SHA256      string `json:"sha256"`
 }
 
 // ToolConnectionRecord is a tool connection with its stored revision.
