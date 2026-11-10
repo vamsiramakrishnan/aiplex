@@ -34,8 +34,8 @@ export default function Agents() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold">Agents</h2>
-          <p className="text-gray-500">Registered OAuth clients across all planes</p>
+          <h1 className="text-2xl font-bold">Agents</h1>
+          <p className="text-gray-600 dark:text-gray-400">Registered OAuth clients across all planes</p>
         </div>
         <button
           onClick={() => setShowRegister(!showRegister)}
@@ -61,7 +61,7 @@ export default function Agents() {
       <div className="mb-4">
         <input
           type="text"
-          placeholder="Search agents..."
+          aria-label="Search agents" placeholder="Search agents..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="w-full border rounded px-3 py-2 text-sm"
@@ -70,8 +70,8 @@ export default function Agents() {
 
       <div className="bg-white rounded-lg shadow">
         {agents.isLoading && <p role="status" className="p-4">Loading registered OAuth clients…</p>}
-        {agents.error && <p role="alert" className="p-4 text-red-600">Could not load agents: {agents.error.message}</p>}
-        {remove.error && <p role="alert" className="p-4 text-red-600">Could not delete agent: {remove.error.message}</p>}
+        {agents.error && <p role="alert" className="p-4 text-status-denied-fg">Could not load agents: {agents.error.message}</p>}
+        {remove.error && <p role="alert" className="p-4 text-status-denied-fg">Could not delete agent: {remove.error.message}</p>}
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
@@ -92,9 +92,9 @@ export default function Agents() {
                   onClick={() => setExpanded(expanded === agent.client_id ? null : agent.client_id)}
                 >
                   <td className="px-4 py-3 font-medium">{agent.display_name}</td>
-                  <td className="px-4 py-3 text-gray-500 font-mono text-xs">{agent.client_id}</td>
-                  <td className="px-4 py-3 text-gray-500">{agent.auth_method}</td>
-                  <td className="px-4 py-3 text-gray-500">{agent.allowed_scopes?.length ?? 0} scopes</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">{agent.client_id}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{agent.auth_method}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{agent.allowed_scopes?.length ?? 0} scopes</td>
                   <td className="px-4 py-3"><StatusBadge status={agent.status} /></td>
                   <td className="px-4 py-3">
                     <button
@@ -104,7 +104,7 @@ export default function Agents() {
                           remove.mutate(agent.client_id)
                         }
                       }}
-                      className="text-xs text-red-500 hover:text-red-700"
+                      className="text-xs text-status-denied-fg hover:text-status-denied-fg"
                     >
                       Delete
                     </button>
@@ -116,16 +116,16 @@ export default function Agents() {
                       {agent.description && (
                         <p className="text-sm text-gray-600 mb-2">{agent.description}</p>
                       )}
-                      <div className="text-xs font-medium text-gray-500 mb-1">Allowed Scopes (Dimension A):</div>
+                      <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Allowed Scopes (Dimension A):</div>
                       <div className="flex flex-wrap gap-1">
                         {agent.allowed_scopes?.map(scope => {
                           const plane = scope.startsWith('mcp:') ? 'mcp' :
                                        scope.startsWith('a2a:') ? 'a2a' :
                                        scope.startsWith('llm:') ? 'llm' : 'other'
                           const colors: Record<string, string> = {
-                            mcp: 'bg-blue-100 text-blue-700',
-                            a2a: 'bg-purple-100 text-purple-700',
-                            llm: 'bg-green-100 text-green-700',
+                            mcp: 'bg-brand-100 text-brand-700',
+                            a2a: 'bg-brand-100 text-brand-700',
+                            llm: 'bg-status-ok-bg text-status-ok-fg',
                             other: 'bg-gray-100 text-gray-700',
                           }
                           return (
@@ -135,7 +135,7 @@ export default function Agents() {
                           )
                         })}
                       </div>
-                      <div className="mt-2 text-xs text-gray-400">
+                      <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                         Registered: {new Date(agent.registered_at).toLocaleDateString()}
                       </div>
                       <AgentIdentities agentId={agent.client_id} />
@@ -146,7 +146,7 @@ export default function Agents() {
             ))}
             {!agents.isLoading && !agents.error && filteredAgents.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-600 dark:text-gray-400">
                   {agents.data?.length === 0
                     ? 'No agents registered yet. Click "Register Agent" to get started.'
                     : 'No agents match your search.'}
@@ -192,12 +192,12 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
         {['Identity', 'Auth Method', 'Permissions', 'Review'].map((label, i) => (
           <div key={label} className="flex items-center gap-2">
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs
-              ${step > i + 1 ? 'bg-green-100 text-green-700' :
+              ${step > i + 1 ? 'bg-status-ok-bg text-status-ok-fg' :
                 step === i + 1 ? 'bg-brand-600 text-white' :
-                'bg-gray-100 text-gray-400'}`}>
+                'bg-gray-100 text-gray-600 dark:text-gray-400'}`}>
               {step > i + 1 ? '\u2713' : i + 1}
             </div>
-            <span className={`text-sm ${step === i + 1 ? 'font-medium' : 'text-gray-400'}`}>
+            <span className={`text-sm ${step === i + 1 ? 'font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
               {label}
             </span>
           </div>
@@ -215,7 +215,7 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
               className="w-full border rounded px-3 py-2 text-sm font-mono"
               placeholder="tutor-agent"
             />
-            <p className="text-xs text-gray-400 mt-1">Unique identifier. Lowercase, hyphens only.</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Unique identifier. Lowercase, hyphens only.</p>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Display Name</label>
@@ -259,11 +259,11 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
                   authMethod === m.value ? 'border-brand-500 bg-brand-50' : 'border-gray-200'}`}
               >
                 <div className="text-sm font-medium">{m.label}</div>
-                <div className="text-xs text-gray-500">{m.desc}</div>
+                <div className="text-xs text-gray-600 dark:text-gray-400">{m.desc}</div>
               </button>
             ))}
           </div>
-          {authMethod === 'authorization_code' && <div><label htmlFor="agent-redirects" className="block text-sm font-medium">OAuth callback URIs</label><textarea id="agent-redirects" value={redirects} onChange={(event) => setRedirects(event.target.value)} rows={3} className="w-full border rounded p-2 text-sm font-mono" placeholder="One HTTPS or approved local callback URI per line" /><p className="text-xs text-gray-500">The server validates callbacks before registering the authorization-code client.</p></div>}
+          {authMethod === 'authorization_code' && <div><label htmlFor="agent-redirects" className="block text-sm font-medium">OAuth callback URIs</label><textarea id="agent-redirects" value={redirects} onChange={(event) => setRedirects(event.target.value)} rows={3} className="w-full border rounded p-2 text-sm font-mono" placeholder="One HTTPS or approved local callback URI per line" /><p className="text-xs text-gray-600 dark:text-gray-400">The server validates callbacks before registering the authorization-code client.</p></div>}
           <div className="flex gap-2">
             <button onClick={() => setStep(1)} className="px-4 py-2 border text-sm rounded">Back</button>
             <button disabled={authMethod === 'authorization_code' && redirectURIs.length === 0} onClick={() => setStep(3)} className="px-4 py-2 bg-brand-600 text-white text-sm rounded disabled:opacity-50">
@@ -280,8 +280,8 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
             Set the maximum scopes this agent can ever request (Dimension A ceiling).
             Users can further restrict these at consent time.
           </p>
-          <p className="text-xs text-gray-500">Options come from deployed instances. Add exact scopes for other configured capabilities.</p>
-          {instances.error && <p role="alert" className="text-red-600">Scope discovery unavailable: {instances.error.message}</p>}
+          <p className="text-xs text-gray-600 dark:text-gray-400">Options come from deployed instances. Add exact scopes for other configured capabilities.</p>
+          {instances.error && <p role="alert" className="text-status-denied-fg">Scope discovery unavailable: {instances.error.message}</p>}
           <ScopeSelector available={availableScopes} selected={scopes} onChange={setScopes} />
           <div className="flex gap-2">
             <button onClick={() => setStep(2)} className="px-4 py-2 border text-sm rounded">Back</button>
@@ -297,37 +297,37 @@ function RegisterAgentForm({ onSuccess }: { onSuccess: (agent: Agent) => void })
         <div className="space-y-3">
           <div className="bg-gray-50 rounded p-4 text-sm space-y-2">
             <div className="flex justify-between">
-              <span className="text-gray-500">Client ID</span>
+              <span className="text-gray-600 dark:text-gray-400">Client ID</span>
               <span className="font-mono">{clientId}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Name</span>
+              <span className="text-gray-600 dark:text-gray-400">Name</span>
               <span>{displayName}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Auth</span>
+              <span className="text-gray-600 dark:text-gray-400">Auth</span>
               <span>{authMethod}</span>
             </div>
             <div>
-              <span className="text-gray-500">Scopes ({scopes.length}):</span>
+              <span className="text-gray-600 dark:text-gray-400">Scopes ({scopes.length}):</span>
               <div className="flex flex-wrap gap-1 mt-1">
                 {scopes.map(s => (
                   <span key={s} className="px-2 py-0.5 bg-gray-200 rounded text-xs">{s}</span>
                 ))}
-                {scopes.length === 0 && <span className="text-gray-400 text-xs">No scopes selected</span>}
+                {scopes.length === 0 && <span className="text-gray-600 dark:text-gray-400 text-xs">No scopes selected</span>}
               </div>
             </div>
           </div>
 
           {/* JSON preserves user-entered strings without YAML interpolation. */}
           <details className="text-sm">
-            <summary className="cursor-pointer text-gray-500">View as JSON</summary>
+            <summary className="cursor-pointer text-gray-600 dark:text-gray-400">View as JSON</summary>
             <pre className="mt-2 bg-gray-900 text-gray-100 p-3 rounded text-xs">
 {JSON.stringify({ agents: [{ client_id: clientId, display_name: displayName, description: description || undefined, auth_method: authMethod, grant_types: grantTypes, allowed_scopes: scopes, redirect_uris: authMethod === 'authorization_code' ? redirectURIs : undefined }] }, null, 2)}
             </pre>
           </details>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-status-denied-fg">{error}</p>}
 
           <div className="flex gap-2">
             <button onClick={() => setStep(3)} className="px-4 py-2 border text-sm rounded">Back</button>

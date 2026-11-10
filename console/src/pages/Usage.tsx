@@ -9,7 +9,7 @@ import { useFocusTrap } from '../hooks/useFocusTrap'
 const field = 'w-full rounded border border-gray-300 bg-transparent px-3 py-2 text-sm dark:border-gray-700'
 const button = 'rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40 dark:bg-gray-200 dark:text-gray-900'
 const card = 'rounded border border-gray-200 p-4 dark:border-gray-800'
-const muted = 'text-xs text-gray-500 dark:text-gray-400'
+const muted = 'text-xs text-gray-600 dark:text-gray-400'
 
 export const GROUP_LABELS: Record<api.GroupField, string> = {
   plane: 'Plane', provider: 'Provider', model_id: 'Model', tool_name: 'Tool', actor_id: 'Agent', principal_id: 'Principal', client_id: 'Client', access_point_id: 'Access point', caller_kind: 'Caller kind', status: 'Status', source: 'Source', error_class: 'Error class', usage_bound: 'Usage bound', batch: 'Batch',
@@ -46,7 +46,7 @@ export function buildFilter(draft: FilterDraft, now: Date = new Date()): api.Usa
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
-  return <label className="block text-sm"><span className="mb-1 block text-xs text-gray-500">{label}</span>{children}</label>
+  return <label className="block text-sm"><span className="mb-1 block text-xs text-gray-600 dark:text-gray-400">{label}</span>{children}</label>
 }
 
 function FilterBar({ draft, onChange, onApply }: { draft: FilterDraft; onChange: (next: FilterDraft) => void; onApply: () => void }) {
@@ -144,12 +144,12 @@ function Headline({ summary }: { summary: api.UsageSummary }) {
   const tokenLine = (label: string, t: api.TokenHeadline) => <p>{label} <strong>{t.reported ? api.formatCount(t.total.toString()) : api.UNKNOWN}</strong>{t.reported && t.unknownRecords > 0n && <span className={muted}> (+{api.formatCount(t.unknownRecords.toString())} records unreported)</span>}</p>
   return <section aria-label="Usage totals" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
     <div className={card} role="group" aria-label="Requests"><p className={muted}>Requests</p><p className="mt-1 text-2xl font-semibold">{api.formatCount(requests.toString())}</p><p className={`${muted} mt-1`}>{api.formatCount(errors.toString())} errors · {api.formatCount(denied.toString())} denied · {api.formatCount(summary.records_scanned)} records scanned</p></div>
-    <div className={card} role="group" aria-label="Tokens"><p className={muted}>Tokens</p><div className="mt-1 text-lg">{tokenLine('Input', input)}{tokenLine('Output', output)}</div>{unknownUsage > 0n && <p className={`${muted} mt-1`}>{api.formatCount(unknownUsage.toString())} records reported no usage at all</p>}{bounded > 0n && <p role="note" className="mt-1 text-xs text-amber-800 dark:text-amber-300">Not final: includes {api.formatCount(bounded.toString())} bounded {bounded === 1n ? 'record' : 'records'} ({boundedBreakdown(summary.groups)}). Their counters are summed as reported.</p>}</div>
+    <div className={card} role="group" aria-label="Tokens"><p className={muted}>Tokens</p><div className="mt-1 text-lg">{tokenLine('Input', input)}{tokenLine('Output', output)}</div>{unknownUsage > 0n && <p className={`${muted} mt-1`}>{api.formatCount(unknownUsage.toString())} records reported no usage at all</p>}{bounded > 0n && <p role="note" className="mt-1 text-xs text-status-warning-fg">Not final: includes {api.formatCount(bounded.toString())} bounded {bounded === 1n ? 'record' : 'records'} ({boundedBreakdown(summary.groups)}). Their counters are summed as reported.</p>}</div>
     {(unitNames.length > 0 || batchRecords > 0n) && <div className={card} role="group" aria-label="Units"><p className={muted}>Units (not tokens)</p>
       {unitNames.length === 0 ? <p className="mt-1 text-sm">No unit usage reported</p> : <ul className="mt-1 space-y-1">{unitNames.map((n) => <li key={n}>{api.UNIT_LABEL[n]} <strong>{api.formatUnit(n, units[n]!.total.toString())}</strong> <span className={muted}>({api.formatCount(units[n]!.records.toString())} records)</span></li>)}</ul>}
       <p className={`${muted} mt-1`}>Durations and image counts are separate from token totals and are never added to them.{batchRecords > 0n && ` ${api.formatCount(batchRecords.toString())} batch ${batchRecords === 1n ? 'record' : 'records'}.`}</p></div>}
     <div className={card} role="group" aria-label="Cost"><p className={muted}>Cost (per currency and basis)</p>
-      {costs.length === 0 ? <p className="mt-1 text-lg">unknown</p> : <ul className="mt-1 space-y-1">{costs.map((c) => <li key={`${c.currency}-${c.basis}`} className="text-lg"><strong>{api.formatTotal(c)}</strong> <span className={`rounded px-1.5 py-0.5 text-xs ${c.basis === 'settled' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'}`}>{c.basis}</span> <span className={muted}>{api.formatCount(c.records)} records</span></li>)}</ul>}
+      {costs.length === 0 ? <p className="mt-1 text-lg">unknown</p> : <ul className="mt-1 space-y-1">{costs.map((c) => <li key={`${c.currency}-${c.basis}`} className="text-lg"><strong>{api.formatTotal(c)}</strong> <span className={`rounded px-1.5 py-0.5 text-xs ${c.basis === 'settled' ? 'bg-status-ok-bg text-status-ok-fg' : 'bg-status-warning-bg text-status-warning-fg'}`}>{c.basis}</span> <span className={muted}>{api.formatCount(c.records)} records</span></li>)}</ul>}
       {unknownCost > 0n && <p className={`${muted} mt-1`}>{api.formatCount(unknownCost.toString())} records have unknown cost (no price configured and not settled by quota); they are not counted above.</p>}
     </div>
   </section>
@@ -212,13 +212,13 @@ function SummarySection({ filter }: { filter: api.UsageFilter }) {
   return <section className="space-y-4" aria-label="Usage summary">
     <h2 className="text-lg font-medium">Summary</h2>
     <div className="flex flex-wrap items-end gap-6">
-      <fieldset><legend className="mb-1 text-xs text-gray-500">Group by</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{api.GROUP_FIELDS.map((f) => <label key={f} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={groupBy.includes(f)} onChange={() => toggle(f)} />{GROUP_LABELS[f]}</label>)}</div></fieldset>
+      <fieldset><legend className="mb-1 text-xs text-gray-600 dark:text-gray-400">Group by</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{api.GROUP_FIELDS.map((f) => <label key={f} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={groupBy.includes(f)} onChange={() => toggle(f)} />{GROUP_LABELS[f]}</label>)}</div></fieldset>
       <Field label="Time bucket"><select className={field} value={bucket} onChange={(e) => setBucket(e.target.value as api.Bucket)}><option value="">No buckets</option><option value="hour">Hourly</option><option value="day">Daily</option></select></Field>
     </div>
     {query.isPending ? <p role="status">Loading usage summary…</p>
       : query.isError ? <ErrorPanel error={query.error} what="usage summaries" onRetry={() => void query.refetch()} />
       : <>
-        {query.data.truncated && <p role="alert" className="rounded border border-amber-400 p-3 text-sm text-amber-800 dark:text-amber-300">Truncated: totals cover only the newest {api.formatCount(query.data.records_scanned)} records scanned. Narrow the time range or add filters for complete totals.</p>}
+        {query.data.truncated && <p role="alert" className="rounded border border-status-warning-fg p-3 text-sm text-status-warning-fg">Truncated: totals cover only the newest {api.formatCount(query.data.records_scanned)} records scanned. Narrow the time range or add filters for complete totals.</p>}
         {query.data.groups.length === 0 ? <p>No usage recorded for this selection.</p> : <><Headline summary={query.data} /><Breakdown summary={query.data} /></>}
       </>}
   </section>
@@ -226,7 +226,7 @@ function SummarySection({ filter }: { filter: api.UsageFilter }) {
 
 // ---- records -------------------------------------------------------------
 
-const statusClass: Record<string, string> = { ok: 'text-green-700 dark:text-green-400', error: 'text-red-700 dark:text-red-400', denied: 'text-amber-700 dark:text-amber-400', unknown: 'text-gray-500' }
+const statusClass: Record<string, string> = { ok: 'text-status-ok-fg', error: 'text-status-denied-fg', denied: 'text-status-warning-fg', unknown: 'text-gray-600 dark:text-gray-400' }
 const none = '—'
 const target = (r: api.UsageRecord) => r.model_id || r.tool_name || r.resource_id || none
 const counter = (r: api.UsageRecord, name: api.TokenCounter) => {
@@ -270,13 +270,13 @@ export function RecordDrawer({ record, onClose }: { record: api.UsageRecord; onC
   const ref = useFocusTrap<HTMLElement>(true, onClose)
   return <aside ref={ref} role="dialog" aria-modal="true" aria-label="Usage record detail" tabIndex={-1} className="fixed inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950">
     <div className="mb-4 flex items-start justify-between gap-3"><h3 className="text-lg font-medium">Usage record</h3><button type="button" className="underline" onClick={onClose}>Close</button></div>
-    {record.usage_bound && <p role="note" className="mb-3 rounded border border-amber-400 p-2 text-sm text-amber-900 dark:text-amber-200"><strong>Not a final count.</strong> {api.USAGE_BOUND_TEXT[record.usage_bound]} Any cost computed from these counters is not final either.</p>}
+    {record.usage_bound && <p role="note" className="mb-3 rounded border border-status-warning-fg p-2 text-sm text-status-warning-fg"><strong>Not a final count.</strong> {api.USAGE_BOUND_TEXT[record.usage_bound]} Any cost computed from these counters is not final either.</p>}
     {api.isSessionRecord(record) && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>WebSocket session.</strong> One request was admitted and settled for the whole session; token usage reported during the session is advisory.</p>}
     {record.error_class && api.CAPACITY_REASONS[record.error_class] && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>{api.CAPACITY_REASONS[record.error_class].label}.</strong> {api.CAPACITY_REASONS[record.error_class].text}</p>}
     {record.batch && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>Provider batch.</strong> This exchange created a batch job or fetched the results that settled it. Batch usage arrives only when the results are fetched through AIPlex.</p>}
     {record.usage === null && <p className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700">No usage was reported for this request. Token counts are unknown, not zero.</p>}
-    <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 text-sm">{DETAIL_FIELDS.map(([label, read]) => <div key={label} className="contents"><dt className="text-gray-500">{label}</dt><dd className="break-all font-mono text-xs leading-5">{read(record)}</dd></div>)}</dl>
-    {record.provider_limits && <section aria-label="Provider limits" className="mt-4"><h4 className="text-sm font-medium">Provider limits</h4><p className="text-xs text-gray-500">Rate-limit signals the upstream provider returned for this request, as received.</p><pre className="mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(record.provider_limits, null, 2)}</pre></section>}
+    <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 text-sm">{DETAIL_FIELDS.map(([label, read]) => <div key={label} className="contents"><dt className="text-gray-600 dark:text-gray-400">{label}</dt><dd className="break-all font-mono text-xs leading-5">{read(record)}</dd></div>)}</dl>
+    {record.provider_limits && <section aria-label="Provider limits" className="mt-4"><h4 className="text-sm font-medium">Provider limits</h4><p className="text-xs text-gray-600 dark:text-gray-400">Rate-limit signals the upstream provider returned for this request, as received.</p><pre className="mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(record.provider_limits, null, 2)}</pre></section>}
     <details className="mt-4"><summary className="cursor-pointer text-sm">Raw record</summary><pre className="mt-2 max-h-72 overflow-auto rounded bg-gray-100 p-3 text-xs dark:bg-gray-900">{JSON.stringify(record, null, 2)}</pre></details>
   </aside>
 }
@@ -321,7 +321,7 @@ export default function Usage() {
   return <div className="space-y-8">
     <header>
       <h1 className="text-2xl font-semibold">Usage</h1>
-      <p className="mt-2 text-sm text-gray-500">What each request to any model or tool, by any client or agent, cost in requests, tokens and dollars. Unknown usage and cost are shown as “unknown”, never as zero. {access.isAdmin ? 'You see every record in the tenant.' : 'You see only the requests where you are the principal or the agent.'}</p>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">What each request to any model or tool, by any client or agent, cost in requests, tokens and dollars. Unknown usage and cost are shown as “unknown”, never as zero. {access.isAdmin ? 'You see every record in the tenant.' : 'You see only the requests where you are the principal or the agent.'}</p>
     </header>
     <FilterBar draft={draft} onChange={setDraft} onApply={() => setApplied(buildFilter(draft))} />
     <SummarySection filter={applied} />

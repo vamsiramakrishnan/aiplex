@@ -17,15 +17,15 @@ export default function AccessPointSummaryCard({ spec, revision, footer, heading
   return (
     <article aria-label={`Access point ${spec.display_name || spec.id}`} className="rounded border border-gray-200 dark:border-gray-800 p-4 bg-white dark:bg-gray-900">
       <Heading className="font-semibold">{spec.display_name || spec.id}</Heading>
-      {spec.display_name && <p className="font-mono text-xs text-gray-500">{spec.id}</p>}
+      {spec.display_name && <p className="font-mono text-xs text-gray-600 dark:text-gray-400">{spec.id}</p>}
       <dl className="mt-2 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-gray-500">Callers</dt>
+        <dt className="text-gray-600 dark:text-gray-400">Callers</dt>
         <dd>{spec.caller_kinds.join(', ') || '—'}</dd>
-        {counts.map(([label, n]) => <div key={label} className="contents"><dt className="text-gray-500">{label}</dt><dd>{n}</dd></div>)}
-        <dt className="text-gray-500">QoS class</dt>
+        {counts.map(([label, n]) => <div key={label} className="contents"><dt className="text-gray-600 dark:text-gray-400">{label}</dt><dd>{n}</dd></div>)}
+        <dt className="text-gray-600 dark:text-gray-400">QoS class</dt>
         <dd>{spec.qos ? spec.qos.class : 'none'}</dd>
-        {spec.qos && <><dt className="text-gray-500">Limit scope</dt><dd>{qosScopeLabel(spec.qos.scope)}</dd></>}
-        {revision !== undefined && <><dt className="text-gray-500">Revision</dt><dd>{revision}</dd></>}
+        {spec.qos && <><dt className="text-gray-600 dark:text-gray-400">Limit scope</dt><dd>{qosScopeLabel(spec.qos.scope)}</dd></>}
+        {revision !== undefined && <><dt className="text-gray-600 dark:text-gray-400">Revision</dt><dd>{revision}</dd></>}
       </dl>
       {footer && <div className="mt-3">{footer}</div>}
     </article>

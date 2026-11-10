@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import * as api from '../api/modelSurfaces'
 
-const muted = 'text-xs text-gray-500 dark:text-gray-400'
+const muted = 'text-xs text-gray-600 dark:text-gray-400'
 
 /**
  * Last provider limits a server replica observed for a surface, and the
@@ -10,10 +10,10 @@ const muted = 'text-xs text-gray-500 dark:text-gray-400'
  */
 export default function SurfaceCapacityPanel({ surfaceId }: { surfaceId: string }) {
   const q = useQuery({ queryKey: ['surface-capacity', surfaceId], queryFn: () => api.getSurfaceCapacity(surfaceId), retry: false })
-  if (q.isPending) return <p role="status" className="text-sm text-gray-500">Loading capacity…</p>
+  if (q.isPending) return <p role="status" className="text-sm text-gray-600 dark:text-gray-400">Loading capacity…</p>
   if (q.isError) {
     const status = (q.error as { status?: number }).status
-    return <p role="alert" className="text-sm text-red-700 dark:text-red-400">{status === 403 ? 'Capacity details need an administrator.' : `Could not load capacity: ${(q.error as Error).message}`}</p>
+    return <p role="alert" className="text-sm text-status-denied-fg">{status === 403 ? 'Capacity details need an administrator.' : `Could not load capacity: ${(q.error as Error).message}`}</p>
   }
   const c = q.data
   const l = c.limits
@@ -25,14 +25,14 @@ export default function SurfaceCapacityPanel({ surfaceId }: { surfaceId: string 
     <div role="group" aria-label="Last observed limits">
       <h5 className="text-sm font-medium">Last observed provider limits</h5>
       {!c.observed || !l ? <p className="text-sm">No provider limit has been observed on this replica yet.</p> : <dl className="mt-1 grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt className="text-gray-500">Observed</dt><dd>{l.observed_at} ({l.provider})</dd>
-        <dt className="text-gray-500">Classification</dt><dd>{l.classification || 'none'}</dd>
-        {l.http_status !== undefined && <><dt className="text-gray-500">HTTP status</dt><dd>{l.http_status}</dd></>}
-        <dt className="text-gray-500">Retry after</dt><dd>{l.retry_after_ms === undefined ? api.UNKNOWN : `${l.retry_after_ms.toLocaleString('en-US')} ms`}</dd>
-        <dt className="text-gray-500">Requests</dt><dd>{api.describeWindow(l.requests)}</dd>
-        <dt className="text-gray-500">Tokens</dt><dd>{api.describeWindow(l.tokens)}</dd>
-        <dt className="text-gray-500">Input tokens</dt><dd>{api.describeWindow(l.input_tokens)}</dd>
-        <dt className="text-gray-500">Output tokens</dt><dd>{api.describeWindow(l.output_tokens)}</dd>
+        <dt className="text-gray-600 dark:text-gray-400">Observed</dt><dd>{l.observed_at} ({l.provider})</dd>
+        <dt className="text-gray-600 dark:text-gray-400">Classification</dt><dd>{l.classification || 'none'}</dd>
+        {l.http_status !== undefined && <><dt className="text-gray-600 dark:text-gray-400">HTTP status</dt><dd>{l.http_status}</dd></>}
+        <dt className="text-gray-600 dark:text-gray-400">Retry after</dt><dd>{l.retry_after_ms === undefined ? api.UNKNOWN : `${l.retry_after_ms.toLocaleString('en-US')} ms`}</dd>
+        <dt className="text-gray-600 dark:text-gray-400">Requests</dt><dd>{api.describeWindow(l.requests)}</dd>
+        <dt className="text-gray-600 dark:text-gray-400">Tokens</dt><dd>{api.describeWindow(l.tokens)}</dd>
+        <dt className="text-gray-600 dark:text-gray-400">Input tokens</dt><dd>{api.describeWindow(l.input_tokens)}</dd>
+        <dt className="text-gray-600 dark:text-gray-400">Output tokens</dt><dd>{api.describeWindow(l.output_tokens)}</dd>
       </dl>}
     </div>
 

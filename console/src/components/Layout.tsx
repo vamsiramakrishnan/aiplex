@@ -117,8 +117,8 @@ export default function Layout() {
             const blocked = item.need === 'admin' && !access.isAdmin
             if (blocked) {
               return (
-                <span key={item.to} role="link" aria-disabled="true" title={ADMIN_REASON} className={`${linkBase} text-gray-400 cursor-not-allowed`}>
-                  {item.label}<span className="block text-xs text-gray-400">Admin only</span>
+                <span key={item.to} role="link" aria-disabled="true" title={ADMIN_REASON} className={`${linkBase} text-gray-300 cursor-not-allowed`}>
+                  {item.label}<span className="block text-xs text-gray-300">Admin only</span>
                 </span>
               )
             }
@@ -128,7 +128,7 @@ export default function Layout() {
               </NavLink>
             )
           })}
-          {hiddenForRole > 0 && <p className="px-4 pt-3 text-xs text-gray-400">Configuration screens need the admin or deployer role.</p>}
+          {hiddenForRole > 0 && <p className="px-4 pt-3 text-xs text-gray-300">Configuration screens need the admin or deployer role.</p>}
         </nav>
 
         <div className="border-t border-gray-700 p-4 space-y-3">
@@ -144,7 +144,7 @@ export default function Layout() {
             </div>
           </div>
           {ambient
-            ? <p className="text-xs text-gray-400">Signed in by this server.</p>
+            ? <p className="text-xs text-gray-300">Signed in by this server.</p>
             : <button type="button" onClick={handleLogout} className="w-full text-left text-sm text-gray-300 hover:text-white underline-offset-2 hover:underline">Sign out</button>}
         </div>
       </aside>

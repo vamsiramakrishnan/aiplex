@@ -10,7 +10,7 @@ const input = 'border rounded px-2 py-1 text-sm bg-transparent border-gray-300 d
 function UrlRow({ label, url }: { label: string; url: string }) {
   return (
     <li className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="text-xs text-gray-500 min-w-40">{label}</span>
+      <span className="text-xs text-gray-600 dark:text-gray-400 min-w-40">{label}</span>
       <code className="font-mono text-xs break-all">{url}</code>
       <CopyButton text={url} label={`${label} URL`} />
     </li>
@@ -20,7 +20,7 @@ function UrlRow({ label, url }: { label: string; url: string }) {
 /** Step 2: server-built connection details for one client profile. */
 export function ConnectDetails({ accessPointId, client }: { accessPointId: string; client: string }) {
   const q = useQuery({ queryKey: ['ap-connect', accessPointId, client], queryFn: () => getConnect(accessPointId, client), retry: false })
-  if (q.isLoading) return <p role="status" className="text-sm text-gray-500">Building connection details…</p>
+  if (q.isLoading) return <p role="status" className="text-sm text-gray-600 dark:text-gray-400">Building connection details…</p>
   if (q.isError) return <p role="alert" className="text-sm text-status-denied-fg">{connectErrorMessage(q.error)}</p>
   const c = q.data!
   const urls = Object.entries(c.base_urls ?? {})
@@ -36,7 +36,7 @@ export function ConnectDetails({ accessPointId, client }: { accessPointId: strin
           {c.mcp_catalog_url && <UrlRow label="MCP catalog URL" url={c.mcp_catalog_url} />}
           {c.skills_url && <UrlRow label="Skills URL" url={c.skills_url} />}
         </ul>
-        {urls.length === 0 && endpoints.length === 0 && !c.mcp_url && !c.skills_url && <p className="text-sm text-gray-500">This access point has nothing a client can connect to yet.</p>}
+        {urls.length === 0 && endpoints.length === 0 && !c.mcp_url && !c.skills_url && <p className="text-sm text-gray-600 dark:text-gray-400">This access point has nothing a client can connect to yet.</p>}
       </section>
       {!!c.models?.length && (
         <section aria-label="Models" className="text-sm">

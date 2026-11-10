@@ -48,7 +48,7 @@ export default function A2APlex() {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-2xl font-bold">A2APlex</h2>
+        <h1 className="text-2xl font-bold">A2APlex</h1>
         <button
           onClick={() => navigate('/deploy?plane=a2aplex')}
           className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
@@ -56,7 +56,7 @@ export default function A2APlex() {
           Deploy A2A Agent
         </button>
       </div>
-      <p className="text-gray-500 mb-6">Agent &harr; Agent (A2A delegation)</p>
+      <p className="text-gray-600 dark:text-gray-400 mb-6">Agent &harr; Agent (A2A delegation)</p>
 
       <div className="flex gap-2 mb-6">
         {(['agents', 'catalog', 'delegations'] as const).map((t) => (
@@ -73,7 +73,7 @@ export default function A2APlex() {
       </div>
 
       {activeQuery.isLoading && <p role="status">Loading module data…</p>}
-      {activeQuery.error && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeQuery.error.message}</p>}
+      {activeQuery.error && <p role="alert" className="text-status-denied-fg mb-4">Could not load module data: {activeQuery.error.message}</p>}
 
       {tab === 'agents' && !activeQuery.isLoading && !activeQuery.error && (
         <div>
@@ -81,7 +81,7 @@ export default function A2APlex() {
           <div className="mb-4">
             <input
               type="text"
-              placeholder="Search agents..."
+              aria-label="Search agents" placeholder="Search agents..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm"
@@ -95,12 +95,12 @@ export default function A2APlex() {
                     <h4 className="font-semibold">{card.name || card.instance_id}</h4>
                     <StatusBadge status={card.status} />
                   </div>
-                  <p className="text-xs text-gray-400 mb-2 font-mono">{card.url}</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mb-2 font-mono">{card.url}</p>
                   <div className="flex gap-1 flex-wrap">
                     {card.task_types?.map((scope) => {
                       const label = scope.replace('a2a:task:', '')
                       return (
-                        <span key={scope} className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-xs rounded">
+                        <span key={scope} className="px-1.5 py-0.5 bg-brand-50 text-brand-700 text-xs rounded">
                           {label}
                         </span>
                       )
@@ -116,7 +116,7 @@ export default function A2APlex() {
               ))}
             </div>
           ) : (
-            <div className="text-gray-500 text-sm">
+            <div className="text-gray-600 dark:text-gray-400 text-sm">
               {agentCards.data?.length === 0 ? (
                 <div className="bg-white rounded-lg shadow p-6 text-center">
                   <p className="mb-3">No A2A agents deployed yet.</p>
@@ -141,9 +141,9 @@ export default function A2APlex() {
             <div key={t.id} className="bg-white rounded-lg shadow p-4">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold">{t.name}</h3>
-                {t.verified && <span className="text-xs text-green-600">Verified</span>}
+                {t.verified && <span className="text-xs text-status-ok-fg">Verified</span>}
               </div>
-              <p className="text-sm text-gray-500 mb-3">{t.description}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">{t.description}</p>
               <button
                 onClick={() => navigate(`/deploy?plane=a2aplex&template=${t.id}`)}
                 className="px-3 py-1.5 bg-brand-600 text-white text-sm rounded hover:bg-brand-700"
@@ -178,25 +178,25 @@ export default function A2APlex() {
                       <td className="px-4 py-3 font-mono text-xs">{d.caller_agent_id}</td>
                       <td className="px-4 py-3 font-mono text-xs">{d.callee_agent_id}</td>
                       <td className="px-4 py-3">
-                        <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 text-xs rounded">
+                        <span className="px-1.5 py-0.5 bg-brand-50 text-brand-700 text-xs rounded">
                           {d.task_type}
                         </span>
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={d.status} /></td>
-                      <td className="px-4 py-3 text-gray-500">
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
                         {d.duration_ms ? `${d.duration_ms}ms` : '-'}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 font-mono text-xs">
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">
                         {d.trace_id ? d.trace_id.slice(0, 8) : '-'}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs">{d.user_id}</td>
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{d.user_id}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">No delegations recorded.</p>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">No delegations recorded.</p>
           )}
         </div>
       )}

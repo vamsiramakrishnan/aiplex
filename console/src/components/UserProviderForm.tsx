@@ -146,14 +146,14 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
       {preset && (
         <>
           <p className="text-xs text-gray-600 dark:text-gray-400">{preset.description}</p>
-          <p className="text-xs text-gray-500">Issuer: <code>{preset.issuer_shape}</code> · Subject: <code>{preset.subject_shape}</code></p>
-          {preset.tenant_pinning && <p className="text-xs text-gray-500">Organisation pinned by claim: <code>{preset.tenant_pinning}</code></p>}
-          <p className="text-xs text-gray-500">Group source: {preset.group_sources.join(' or ')}</p>
-          {preset.notes?.map(n => <p key={n} className="text-xs text-yellow-800 bg-yellow-50 dark:bg-yellow-950 dark:text-yellow-200 rounded p-1">{n}</p>)}
+          <p className="text-xs text-gray-600 dark:text-gray-400">Issuer: <code>{preset.issuer_shape}</code> · Subject: <code>{preset.subject_shape}</code></p>
+          {preset.tenant_pinning && <p className="text-xs text-gray-600 dark:text-gray-400">Organisation pinned by claim: <code>{preset.tenant_pinning}</code></p>}
+          <p className="text-xs text-gray-600 dark:text-gray-400">Group source: {preset.group_sources.join(' or ')}</p>
+          {preset.notes?.map(n => <p key={n} className="text-xs text-status-warning-fg bg-status-warning-bg rounded p-1">{n}</p>)}
           <div>
-            <label htmlFor={`${uid}-id`} className="block text-xs font-medium mb-1">Provider ID <span aria-hidden="true" className="text-red-600">*</span></label>
+            <label htmlFor={`${uid}-id`} className="block text-xs font-medium mb-1">Provider ID <span aria-hidden="true" className="text-status-denied-fg">*</span></label>
             <input id={`${uid}-id`} value={providerId} required aria-required="true" readOnly={editing} onChange={e => setProviderId(e.target.value)} placeholder="corp-okta" className={`${input} font-mono`} />
-            {providerId && !idValid && <p role="alert" className="text-xs text-red-600 mt-1">Use lower-case letters, digits and hyphens (a DNS label, at most 64 characters).</p>}
+            {providerId && !idValid && <p role="alert" className="text-xs text-status-denied-fg mt-1">Use lower-case letters, digits and hyphens (a DNS label, at most 64 characters).</p>}
           </div>
           <div>
             <label htmlFor={`${uid}-name`} className="block text-xs font-medium mb-1">Display name (optional)</label>
@@ -163,7 +163,7 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
             const id = `${uid}-in-${f.name}`
             return (
               <div key={f.name}>
-                <label htmlFor={id} className="block text-xs font-medium mb-1">{f.label}{f.required && <span aria-hidden="true" className="text-red-600"> *</span>}</label>
+                <label htmlFor={id} className="block text-xs font-medium mb-1">{f.label}{f.required && <span aria-hidden="true" className="text-status-denied-fg"> *</span>}</label>
                 {f.enum?.length ? (
                   <select id={id} required={f.required} aria-required={f.required} value={inputs[f.name] ?? ''} onChange={e => setInputs({ ...inputs, [f.name]: e.target.value })} className={input}>
                     <option value="">{f.required ? 'Select…' : 'Not set'}</option>
@@ -172,7 +172,7 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
                 ) : (
                   <input id={id} required={f.required} aria-required={f.required} value={inputs[f.name] ?? ''} placeholder={f.example} onChange={e => setInputs({ ...inputs, [f.name]: e.target.value })} className={`${input} font-mono`} />
                 )}
-                {f.description && <p className="text-xs text-gray-400 mt-1">{f.description}</p>}
+                {f.description && <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{f.description}</p>}
               </div>
             )
           })}
@@ -185,7 +185,7 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
 
           <fieldset className="border border-gray-200 dark:border-gray-800 rounded p-2 space-y-2">
             <legend className="text-xs font-semibold px-1">Client application</legend>
-            <p className="text-xs text-gray-500">A client claim attributes requests to the application the token was issued to (for example an IDE). {preset.client_claim_default && <>Preset default: {preset.client_claim_default}</>}</p>
+            <p className="text-xs text-gray-600 dark:text-gray-400">A client claim attributes requests to the application the token was issued to (for example an IDE). {preset.client_claim_default && <>Preset default: {preset.client_claim_default}</>}</p>
             <div>
               <label htmlFor={`${uid}-cmode`} className="block text-xs mb-1">Client claim</label>
               <select id={`${uid}-cmode`} value={claimMode} onChange={e => setClaimMode(e.target.value as ClaimMode)} className={input}>
@@ -203,7 +203,7 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
             <div>
               <label htmlFor={`${uid}-cids`} className="block text-xs mb-1">Allowed client IDs (optional, one per line)</label>
               <textarea id={`${uid}-cids`} rows={2} value={clientIds} onChange={e => setClientIds(e.target.value)} className={`${input} font-mono`} />
-              <p className="text-xs text-gray-400">When set, only tokens issued to these applications are accepted; a token with no client claim is rejected.</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">When set, only tokens issued to these applications are accepted; a token with no client claim is rejected.</p>
             </div>
           </fieldset>
 
@@ -227,7 +227,7 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
                       <option value="fallback">Fallback: use the token&apos;s groups, ask the directory when they are missing</option>
                       <option value="always">Always: the directory is the group authority</option>
                     </select>
-                    {groupsFromAuthority && <p className="text-xs text-gray-400">Groups come from the membership authority, so the directory is always consulted.</p>}
+                    {groupsFromAuthority && <p className="text-xs text-gray-600 dark:text-gray-400">Groups come from the membership authority, so the directory is always consulted.</p>}
                   </div>
                   {dir.kind === 'okta' && (
                     <>
@@ -242,16 +242,16 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
                           <option value="id">id: immutable group ID</option>
                           <option value="name">name: group name (matches Okta&apos;s default groups claim)</option>
                         </select>
-                        <p className="text-xs text-gray-400">In fallback mode you must choose one.</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">In fallback mode you must choose one.</p>
                       </div>
                     </>
                   )}
-                  <p className="text-xs text-gray-500">Credentials are references to stored secrets or identity profiles. Never type a secret value here.</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Credentials are references to stored secrets or identity profiles. Never type a secret value here.</p>
                   {CREDENTIAL_FIELDS[dir.kind].map(f => (
                     <div key={f.name}>
                       <label htmlFor={`${uid}-cred-${f.name}`} className="block text-xs mb-1">{f.label}</label>
                       <input id={`${uid}-cred-${f.name}`} value={dir.credential[f.name] ?? ''} onChange={e => setCred(f.name, e.target.value)} autoComplete="off" className={`${input} font-mono`} />
-                      <p className="text-xs text-gray-400">{f.help}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">{f.help}</p>
                     </div>
                   ))}
                 </div>
@@ -261,15 +261,15 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
 
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={disabled} onChange={e => setDisabled(e.target.checked)} /> Disabled (keep configured but do not trust)</label>
           {carried.length > 0 && (
-            <p role="note" className="text-xs text-gray-500">This provider has additional settings this console does not edit ({carried.join(', ')}). They are kept unchanged when you save.</p>
+            <p role="note" className="text-xs text-gray-600 dark:text-gray-400">This provider has additional settings this console does not edit ({carried.join(', ')}). They are kept unchanged when you save.</p>
           )}
-          {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+          {error && <p role="alert" className="text-xs text-status-denied-fg">{error}</p>}
           {overlap && (
-            <div role="alert" className="text-xs border border-amber-400 bg-amber-50 text-amber-900 rounded p-2 space-y-1">
+            <div role="alert" className="text-xs border border-status-warning-fg bg-status-warning-bg text-status-warning-fg rounded p-2 space-y-1">
               <p>{overlap.message}</p>
               {overlap.conflict.id && <p>Conflicting {overlap.conflict.kind ?? 'resource'}: <code>{overlap.conflict.id}</code>{overlap.conflict.issuer && <> (issuer <code>{overlap.conflict.issuer}</code>)</>}</p>}
               <p>Live authentication rejects tokens claimed by both an agent identity binding and a user identity provider. You can save anyway, knowing those tokens will be rejected.</p>
-              <button type="button" disabled={save.isPending || !pending} className="px-2 py-1 border border-amber-600 rounded"
+              <button type="button" disabled={save.isPending || !pending} className="px-2 py-1 border border-status-warning-fg rounded"
                 onClick={() => { const body = build(true); if (body) { setOverlap(undefined); save.mutate(body) } }}>Save anyway (acknowledge overlap)</button>
             </div>
           )}
@@ -277,7 +277,7 @@ export default function UserProviderForm({ presets, existing, onDone, onCancel }
             <button type="submit" disabled={!idValid || missing.length > 0 || !claimOk || !dirOk || save.isPending} className="px-3 py-1 text-sm bg-brand-600 text-white rounded disabled:opacity-50">{save.isPending ? 'Saving…' : editing ? 'Save changes' : 'Save provider'}</button>
             <button type="button" onClick={onCancel} className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-gray-700">Cancel</button>
           </div>
-          {missing.length > 0 && <p className="text-xs text-gray-500">Still required: {missing.map(f => f.label).join(', ')}</p>}
+          {missing.length > 0 && <p className="text-xs text-gray-600 dark:text-gray-400">Still required: {missing.map(f => f.label).join(', ')}</p>}
         </>
       )}
     </form>

@@ -103,14 +103,14 @@ export function specFromDraft(d: Draft, original?: AccessPointSpec): AccessPoint
 }
 
 function FieldError({ id, message }: { id: string; message?: string }) {
-  return message ? <p id={id} role="alert" className="text-xs text-red-600 mt-1">{message}</p> : null
+  return message ? <p id={id} role="alert" className="text-xs text-status-denied-fg mt-1">{message}</p> : null
 }
 
 function Section({ title, hint, error, errorId, children }: { title: string; hint?: ReactNode; error?: string; errorId: string; children: ReactNode }) {
   return (
     <fieldset className="border border-gray-200 dark:border-gray-800 rounded p-3 space-y-2" aria-describedby={error ? errorId : undefined}>
       <legend className="text-sm font-semibold px-1">{title}</legend>
-      {hint && <p className="text-xs text-gray-500">{hint}</p>}
+      {hint && <p className="text-xs text-gray-600 dark:text-gray-400">{hint}</p>}
       {children}
       <FieldError id={errorId} message={error} />
     </fieldset>
@@ -127,11 +127,11 @@ function CheckList({ legend, options, selected, onChange, loading, error, empty 
   error?: Error | null
   empty: string
 }) {
-  if (loading) return <p role="status" className="text-xs text-gray-500">Loading {legend.toLowerCase()}…</p>
-  if (error) return <p role="alert" className="text-xs text-red-600">Could not load {legend.toLowerCase()}: {error.message}</p>
+  if (loading) return <p role="status" className="text-xs text-gray-600 dark:text-gray-400">Loading {legend.toLowerCase()}…</p>
+  if (error) return <p role="alert" className="text-xs text-status-denied-fg">Could not load {legend.toLowerCase()}: {error.message}</p>
   const known = new Set(options.map(o => o.id))
   const all = [...options, ...selected.filter(s => !known.has(s)).map(s => ({ id: s, label: `${s} (not found)` }))]
-  if (all.length === 0) return <p className="text-xs text-gray-500">{empty}</p>
+  if (all.length === 0) return <p className="text-xs text-gray-600 dark:text-gray-400">{empty}</p>
   const toggle = (id: string) => onChange(selected.includes(id) ? selected.filter(s => s !== id) : [...selected, id])
   return (
     <div role="group" aria-label={legend} className="flex flex-wrap gap-x-4 gap-y-1">
@@ -200,12 +200,12 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
     <form onSubmit={submit} aria-label={editing ? `Edit access point ${initial!.id}` : 'Create access point'} className="space-y-4 max-w-3xl">
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <label htmlFor={`${uid}-id`} className="block text-xs font-medium mb-1">Access point ID <span aria-hidden="true" className="text-red-600">*</span></label>
+          <label htmlFor={`${uid}-id`} className="block text-xs font-medium mb-1">Access point ID <span aria-hidden="true" className="text-status-denied-fg">*</span></label>
           <input id={`${uid}-id`} value={d.id} required aria-required="true" readOnly={editing}
             aria-invalid={(!!d.id && !idValid) || serverField === 'id'} aria-describedby={`${uid}-id-err`}
             onChange={e => patch({ id: e.target.value })} placeholder="ide-platform-team" className={`${input} font-mono ${editing ? 'opacity-70' : ''}`} />
-          <p className="text-xs text-gray-500 mt-1">Becomes the URL prefix <code>/ap/{d.id || '{id}'}</code>. Cannot be changed after creation.</p>
-          {d.id && !idValid && <p role="alert" className="text-xs text-red-600">Use letters, digits, dots, hyphens and underscores, starting with a letter or digit.</p>}
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Becomes the URL prefix <code>/ap/{d.id || '{id}'}</code>. Cannot be changed after creation.</p>
+          {d.id && !idValid && <p role="alert" className="text-xs text-status-denied-fg">Use letters, digits, dots, hyphens and underscores, starting with a letter or digit.</p>}
           <FieldError id={`${uid}-id-err`} message={sectionMsg('id')} />
         </div>
         <div>
@@ -233,7 +233,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
         <div>
           <label htmlFor={`${uid}-principals`} className="block text-xs font-medium mb-1">Principals (one per line)</label>
           <textarea id={`${uid}-principals`} rows={2} value={d.principals} onChange={e => patch({ principals: e.target.value })} className={`${input} font-mono`} />
-          <p className="text-xs text-gray-400">Canonical principal IDs. There is no directory to pick from, so these are typed.</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">Canonical principal IDs. There is no directory to pick from, so these are typed.</p>
         </div>
         <div>
           <span className="block text-xs font-medium mb-1">Groups (source and ID)</span>
@@ -262,8 +262,8 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
 
       <Section title="Models" errorId={`${uid}-models-err`} error={wholeSectionMsg('models')}
         hint={`Each entry maps a client-facing model name to a saved model surface and the provider-native model. A model is reachable only through the wire protocols its surface speaks natively. Wires an access point can serve: ${WIRES.map(w => w.label).join(', ')}.`}>
-        {surfaces.isLoading && <p role="status" className="text-xs text-gray-500">Loading model surfaces…</p>}
-        {surfaces.error && <p role="alert" className="text-xs text-red-600">Could not load model surfaces: {(surfaces.error as Error).message}</p>}
+        {surfaces.isLoading && <p role="status" className="text-xs text-gray-600 dark:text-gray-400">Loading model surfaces…</p>}
+        {surfaces.error && <p role="alert" className="text-xs text-status-denied-fg">Could not load model surfaces: {(surfaces.error as Error).message}</p>}
         {d.models.map((m, i) => (
           <div key={i} role="group" aria-label={`Model ${i + 1}`} className="grid gap-2 sm:grid-cols-[1fr,1fr,1fr,auto] items-end">
             <div>
@@ -283,8 +283,8 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
               <label htmlFor={`${uid}-m${i}-name`} className="block text-xs mb-1">Name clients use</label>
               <input id={`${uid}-m${i}-name`} aria-invalid={!!rowMsg('models', i, 'name')} value={m.name} onChange={e => updateModel(i, { name: e.target.value })} className={`${input} font-mono`} />
             </div>
-            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); return surf && !surfaceUnroutableReason(surf.spec.surface) ? <p className="text-xs text-gray-500 sm:col-span-4">Reachable through: {wiresForProtocol(surf.spec.surface.protocol).map(w => w.label).join(', ')}.</p> : null })()}
-            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); const why = surf && surfaceUnroutableReason(surf.spec.surface); return why ? <p role="alert" className="text-xs text-red-600 sm:col-span-4">Surface {m.surface_ref} is unavailable for access points: {why}. Choose another surface.</p> : null })()}
+            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); return surf && !surfaceUnroutableReason(surf.spec.surface) ? <p className="text-xs text-gray-600 dark:text-gray-400 sm:col-span-4">Reachable through: {wiresForProtocol(surf.spec.surface.protocol).map(w => w.label).join(', ')}.</p> : null })()}
+            {(() => { const surf = surfaces.data?.find(x => x.id === m.surface_ref); const why = surf && surfaceUnroutableReason(surf.spec.surface); return why ? <p role="alert" className="text-xs text-status-denied-fg sm:col-span-4">Surface {m.surface_ref} is unavailable for access points: {why}. Choose another surface.</p> : null })()}
             {rowMsg('models', i) && <p role="alert" className="text-xs text-status-denied-fg sm:col-span-4">{rowMsg('models', i)}</p>}
             <button type="button" className={btn} aria-label={`Remove model ${i + 1}`} onClick={() => patch({ models: d.models.filter((_, j) => j !== i) })}>Remove</button>
           </div>
@@ -294,8 +294,8 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
 
       <Section title="Tools" errorId={`${uid}-tools-err`} error={wholeSectionMsg('tools')}
         hint="Expose saved tool connections (managed execution connections only). Expose patterns narrow the tools: names or prefixes ending in *, one per line. Empty exposes every tool the connection itself permits.">
-        {connections.isLoading && <p role="status" className="text-xs text-gray-500">Loading tool connections…</p>}
-        {connections.error && <p role="alert" className="text-xs text-red-600">Could not load tool connections: {(connections.error as Error).message}</p>}
+        {connections.isLoading && <p role="status" className="text-xs text-gray-600 dark:text-gray-400">Loading tool connections…</p>}
+        {connections.error && <p role="alert" className="text-xs text-status-denied-fg">Could not load tool connections: {(connections.error as Error).message}</p>}
         {d.tools.map((t, i) => {
           const taken = new Set(d.tools.filter((_, j) => j !== i).map(x => x.connection_ref))
           return (
@@ -325,7 +325,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
           options={(skillInstances.data ?? []).map(i => ({ id: i.id, label: i.display_name && i.display_name !== i.id ? `${i.display_name} (${i.id})` : i.id }))}
           empty="No skill instances are deployed." />
       </Section>
-            {resources === 0 && <p className="text-xs text-gray-500">Add at least one model, tool connection or skill.</p>}
+            {resources === 0 && <p className="text-xs text-gray-600 dark:text-gray-400">Add at least one model, tool connection or skill.</p>}
 
       <Section title="Quality of service" errorId={`${uid}-qos-err`}
         error={sectionMsg('qos')}
@@ -334,9 +334,9 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
         {d.qosOn && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label htmlFor={`${uid}-qclass`} className="block text-xs mb-1">Class <span aria-hidden="true" className="text-red-600">*</span></label>
+              <label htmlFor={`${uid}-qclass`} className="block text-xs mb-1">Class <span aria-hidden="true" className="text-status-denied-fg">*</span></label>
               <input id={`${uid}-qclass`} value={d.qosClass} required aria-required="true" aria-invalid={!!d.qosClass && !CLASS_PATTERN.test(d.qosClass)} onChange={e => patch({ qosClass: e.target.value })} placeholder="interactive" className={`${input} font-mono`} />
-              {d.qosClass && !CLASS_PATTERN.test(d.qosClass) && <p role="alert" className="text-xs text-red-600">Lower-case letters, digits and hyphens, starting with a letter.</p>}
+              {d.qosClass && !CLASS_PATTERN.test(d.qosClass) && <p role="alert" className="text-xs text-status-denied-fg">Lower-case letters, digits and hyphens, starting with a letter.</p>}
             </div>
             <div>
               <label htmlFor={`${uid}-qweight`} className="block text-xs mb-1">Weight (1-1000)</label>
@@ -349,7 +349,7 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
                 <option value="principal">Per caller: each principal gets the full limits</option>
                 <option value="access_point">Shared pool: every caller draws from one set of limits</option>
               </select>
-              <p className="text-xs text-gray-500 mt-1">Applies to the rate and concurrency limits.</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">Applies to the rate and concurrency limits.</p>
             </div>
             <div>
               <label htmlFor={`${uid}-rpm`} className="block text-xs mb-1">Requests per minute</label>
@@ -366,13 +366,13 @@ export default function AccessPointForm({ initial, saving, serverError, locked, 
             <div>
               <label htmlFor={`${uid}-budgets`} className="block text-xs mb-1">Budget references (one per line)</label>
               <textarea id={`${uid}-budgets`} rows={2} value={d.budgets} onChange={e => patch({ budgets: e.target.value })} className={`${input} font-mono`} />
-              <p className="text-xs text-gray-400">IDs of budgets in the tenant&apos;s quota policy; the server checks they exist.</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400">IDs of budgets in the tenant&apos;s quota policy; the server checks they exist.</p>
             </div>
           </div>
         )}
       </Section>
 
-      {formLevel && <p role="alert" className="text-sm text-red-600">{formLevel}</p>}
+      {formLevel && <p role="alert" className="text-sm text-status-denied-fg">{formLevel}</p>}
       <div className="flex gap-2">
         <button type="submit" disabled={!canSave} className="px-4 py-2 text-sm bg-brand-600 text-white rounded disabled:opacity-50">{saving ? 'Saving…' : editing ? 'Save changes' : 'Create access point'}</button>
         <button type="button" onClick={onCancel} className={btn}>Cancel</button>

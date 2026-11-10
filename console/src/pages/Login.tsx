@@ -36,7 +36,7 @@ export default function Login() {
             <img src={logoLight} alt="AIPlex" className="h-10 w-auto dark:hidden" />
             <img src={logoReversed} alt="AIPlex" className="h-10 w-auto hidden dark:block" />
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
             Unified AI Control Plane
           </p>
         </div>
@@ -60,7 +60,7 @@ export default function Login() {
           </div>
 
           {(error || sessionError) && (
-            <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error || sessionError}</p>
+            <p role="alert" className="text-sm text-status-denied-fg">{error || sessionError}</p>
           )}
 
           <button
@@ -72,7 +72,7 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="mt-6 text-xs text-gray-400 dark:text-gray-500 text-center">
+        <p className="mt-6 text-xs text-gray-600 dark:text-gray-500 text-center">
           Obtain a token via OAuth 2.1 device grant or authorization code flow.
         </p>
       </div>

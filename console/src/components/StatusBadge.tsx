@@ -1,12 +1,12 @@
 const statusColors: Record<string, string> = {
-  running: 'bg-green-100 text-green-800',
-  provisioning: 'bg-yellow-100 text-yellow-800',
-  degraded: 'bg-orange-100 text-orange-800',
+  running: 'bg-status-ok-bg text-status-ok-fg',
+  provisioning: 'bg-status-warning-bg text-status-warning-fg',
+  degraded: 'bg-status-warning-bg text-status-warning-fg',
   stopped: 'bg-gray-100 text-gray-800',
-  failed: 'bg-red-100 text-red-800',
-  terminated: 'bg-gray-100 text-gray-500',
-  active: 'bg-green-100 text-green-800',
-  suspended: 'bg-red-100 text-red-800',
+  failed: 'bg-status-denied-bg text-status-denied-fg',
+  terminated: 'bg-gray-100 text-gray-600 dark:text-gray-400',
+  active: 'bg-status-ok-bg text-status-ok-fg',
+  suspended: 'bg-status-denied-bg text-status-denied-fg',
 }
 
 interface StatusBadgeProps {

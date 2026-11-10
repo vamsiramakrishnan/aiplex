@@ -73,7 +73,7 @@ export default function ScopeSelector({ available, selected, onChange, disabled 
     <fieldset disabled={disabled} className="space-y-4 min-w-0">
       <input
         type="text"
-        placeholder="Filter scopes..."
+        aria-label="Filter scopes" placeholder="Filter scopes..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="w-full border rounded px-3 py-2 text-sm"
@@ -100,7 +100,7 @@ export default function ScopeSelector({ available, selected, onChange, disabled 
                   className="rounded"
                 />
                 <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">{scopeLabel(scope)}</code>
-                <span className="text-gray-400 text-xs">{scope}</span>
+                <span className="text-gray-600 dark:text-gray-400 text-xs">{scope}</span>
               </label>
             ))}
           </div>
@@ -111,7 +111,7 @@ export default function ScopeSelector({ available, selected, onChange, disabled 
       <div className="flex gap-2">
         <input
           type="text"
-          placeholder="Add custom scope (e.g. mcp:tools:my_tool)"
+          aria-label="Add custom scope" placeholder="Add custom scope (e.g. mcp:tools:my_tool)"
           value={customScope}
           onChange={(e) => setCustomScope(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && addCustom()}
@@ -126,7 +126,7 @@ export default function ScopeSelector({ available, selected, onChange, disabled 
         </button>
       </div>
 
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-gray-600 dark:text-gray-400">
         {selected.length} scope{selected.length !== 1 ? 's' : ''} selected
       </div>
     </fieldset>

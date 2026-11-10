@@ -1,7 +1,7 @@
 import * as usage from '../api/usage'
 import type { APSummaryGroup } from '../api/accessPointUsage'
 
-const muted = 'text-xs text-gray-500 dark:text-gray-400'
+const muted = 'text-xs text-gray-600 dark:text-gray-400'
 const UNKNOWN = usage.UNKNOWN
 
 function tokenCell(g: APSummaryGroup, name: usage.TokenCounter): string {
@@ -53,7 +53,7 @@ export default function UsageSummaryTable({ groups, keyField, heading }: {
       <table className="w-full text-left text-sm">
         <caption className="sr-only">{`Usage by ${heading}`}</caption>
         <thead>
-          <tr className="border-b border-gray-200 dark:border-gray-800 text-xs text-gray-500">
+          <tr className="border-b border-gray-200 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400">
             <th scope="col" className="py-1 pr-4">{heading}</th>
             <th scope="col" className="pr-4">Requests</th>
             <th scope="col" className="pr-4">Input tokens</th>

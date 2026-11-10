@@ -176,8 +176,8 @@ export default function LLMPlex() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-2">LLMPlex</h2>
-      <p className="text-gray-500 mb-6">Agent &harr; Model (LLM providers)</p>
+      <h1 className="text-2xl font-bold mb-2">LLMPlex</h1>
+      <p className="text-gray-600 dark:text-gray-400 mb-6">Agent &harr; Model (LLM providers)</p>
 
       <div className="flex gap-2 mb-6">
         {(['providers', 'routes', 'costs', 'surfaces', 'batches'] as const).map((t) => (
@@ -192,7 +192,7 @@ export default function LLMPlex() {
       </div>
 
       {activeLoading && <p role="status">Loading module data…</p>}
-      {activeError && <p role="alert" className="text-red-600 mb-4">Could not load module data: {activeError.message}</p>}
+      {activeError && <p role="alert" className="text-status-denied-fg mb-4">Could not load module data: {activeError.message}</p>}
 
       {tab === 'surfaces' && <ModelSurfacesPanel />}
       {tab === 'batches' && <OpenBatches />}
@@ -205,18 +205,18 @@ export default function LLMPlex() {
               <div key={t.id} className="bg-white rounded-lg shadow p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="font-semibold">{t.name}</h4>
-                  <span className="text-xs text-gray-500 capitalize">{t.provider}</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-400 capitalize">{t.provider}</span>
                 </div>
-                <p className="text-sm text-gray-500 mb-2">{t.description}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{t.description}</p>
                 {t.pricing && (
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
                     ${t.pricing.input}/M input &middot; ${t.pricing.output}/M output
                   </p>
                 )}
                 {t.capabilities && (
                   <div className="flex gap-1 mt-2 flex-wrap">
                     {t.capabilities.map((cap) => (
-                      <span key={cap} className="px-1.5 py-0.5 bg-blue-50 text-blue-700 text-xs rounded">
+                      <span key={cap} className="px-1.5 py-0.5 bg-brand-50 text-brand-700 text-xs rounded">
                         {cap}
                       </span>
                     ))}
@@ -241,7 +241,7 @@ export default function LLMPlex() {
                   {instances.data.map((inst) => (
                     <tr key={inst.id} className="border-t">
                       <td className="px-4 py-3 font-medium">{inst.display_name || inst.id}</td>
-                      <td className="px-4 py-3 text-gray-500">{inst.template_id}</td>
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{inst.template_id}</td>
                       <td className="px-4 py-3"><StatusBadge status={inst.status} /></td>
                     </tr>
                   ))}
@@ -249,7 +249,7 @@ export default function LLMPlex() {
               </table>
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">No model routes configured yet.</p>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">No model routes configured yet.</p>
           )}
         </div>
       )}
@@ -267,7 +267,7 @@ export default function LLMPlex() {
           </div>
 
           {feedback && (
-            <div className={`mb-4 p-3 rounded ${feedback.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+            <div className={`mb-4 p-3 rounded ${feedback.type === 'success' ? 'bg-status-ok-bg text-status-ok-fg' : 'bg-status-denied-bg text-status-denied-fg'}`}>
               {feedback.message}
             </div>
           )}
@@ -287,7 +287,7 @@ export default function LLMPlex() {
                       </button>
                       <button
                         onClick={() => setDeleteConfirm(rc.model_id)}
-                        className="px-3 py-1 text-sm bg-red-100 text-red-700 hover:bg-red-200 rounded"
+                        className="px-3 py-1 text-sm bg-status-denied-bg text-status-denied-fg hover:bg-status-denied-bg rounded"
                       >
                         Delete
                       </button>
@@ -296,25 +296,25 @@ export default function LLMPlex() {
                   <div className="space-y-2">
                     {rc.backends.map((b, i) => (
                       <div key={i} className="flex items-center gap-3 text-sm">
-                        <span className={`w-2 h-2 rounded-full ${b.enabled ? 'bg-green-500' : 'bg-gray-300'}`} />
+                        <span className={`w-2 h-2 rounded-full ${b.enabled ? 'bg-status-ok-fg' : 'bg-gray-300'}`} />
                         <span className="font-medium capitalize">{b.provider}</span>
-                        <span className="text-gray-500">{b.model_id}</span>
+                        <span className="text-gray-600 dark:text-gray-400">{b.model_id}</span>
                         <div className="flex-1">
                           <div className="bg-gray-100 rounded-full h-2">
                             <div className="bg-brand-600 rounded-full h-2" style={{ width: `${b.weight}%` }} />
                           </div>
                         </div>
-                        <span className="text-gray-500 w-12 text-right">{b.weight}%</span>
+                        <span className="text-gray-600 dark:text-gray-400 w-12 text-right">{b.weight}%</span>
                       </div>
                     ))}
                   </div>
                   {rc.fallbacks && rc.fallbacks.length > 0 && (
-                    <p className="text-xs text-gray-400 mt-2">
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-2">
                       Fallback: {rc.fallbacks.join(' → ')}
                     </p>
                   )}
                   {rc.budget && (
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                       Budget: ${rc.budget.max_daily_cost_usd}/day
                       {rc.budget.alert_threshold_pct > 0 && ` (alert at ${rc.budget.alert_threshold_pct}%)`}
                     </p>
@@ -323,7 +323,7 @@ export default function LLMPlex() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">No routing rules configured. Click "New Route" to get started.</p>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">No routing rules configured. Click "New Route" to get started.</p>
           )}
 
           {/* Delete confirmation modal */}
@@ -343,7 +343,7 @@ export default function LLMPlex() {
                   </button>
                   <button
                     onClick={() => deleteRouteMutation.mutate(deleteConfirm)}
-                    className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded"
+                    className="px-4 py-2 bg-status-denied-fg text-status-denied-bg hover:bg-status-denied-fg rounded"
                     disabled={deleteRouteMutation.isPending}
                   >
                     {deleteRouteMutation.isPending ? 'Deleting...' : 'Delete'}
@@ -371,7 +371,7 @@ export default function LLMPlex() {
                       onChange={(e) => setFormData({ ...formData, model_id: e.target.value })}
                       disabled={!!editingRoute}
                       className="w-full px-3 py-2 border rounded disabled:bg-gray-100"
-                      placeholder="e.g., gemini-2.5-flash"
+                      aria-label="Model ID" placeholder="e.g., gemini-2.5-flash"
                     />
                   </div>
 
@@ -405,14 +405,14 @@ export default function LLMPlex() {
                               type="text"
                               value={backend.model_id}
                               onChange={(e) => updateBackend(idx, 'model_id', e.target.value)}
-                              placeholder="Model ID"
+                              aria-label="Model ID" placeholder="Model ID"
                               className="flex-1 px-2 py-1 border rounded text-sm"
                             />
                             <input
                               type="number"
                               value={backend.weight}
                               onChange={(e) => updateBackend(idx, 'weight', parseInt(e.target.value) || 0)}
-                              placeholder="Weight"
+                              aria-label="Weight" placeholder="Weight"
                               className="w-20 px-2 py-1 border rounded text-sm"
                             />
                             <label className="flex items-center gap-1 text-sm">
@@ -425,7 +425,7 @@ export default function LLMPlex() {
                             </label>
                             <button
                               onClick={() => removeBackend(idx)}
-                              className="px-2 py-1 bg-red-100 text-red-700 text-sm rounded hover:bg-red-200"
+                              className="px-2 py-1 bg-status-denied-bg text-status-denied-fg text-sm rounded hover:bg-status-denied-bg"
                             >
                               Remove
                             </button>
@@ -433,7 +433,7 @@ export default function LLMPlex() {
                         </div>
                       ))}
                       {formData.backends.length === 0 && (
-                        <p className="text-sm text-gray-400">No backends added yet. Click "Add Backend" to start.</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">No backends added yet. Click "Add Backend" to start.</p>
                       )}
                     </div>
                   </div>
@@ -455,7 +455,7 @@ export default function LLMPlex() {
                           <span className="text-sm text-gray-600">{fb}</span>
                           <button
                             onClick={() => removeFallback(idx)}
-                            className="text-xs text-red-600 hover:text-red-800"
+                            className="text-xs text-status-denied-fg hover:text-status-denied-fg"
                           >
                             Remove
                           </button>
@@ -529,24 +529,24 @@ export default function LLMPlex() {
           {usage.data ? (
             <div className="grid grid-cols-4 gap-4 mb-6">
               <div className="bg-white rounded-lg shadow p-4">
-                <p className="text-sm text-gray-500">Total Cost</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Total Cost</p>
                 <p className="text-2xl font-bold">${usage.data.total_cost_usd.toFixed(2)}</p>
               </div>
               <div className="bg-white rounded-lg shadow p-4">
-                <p className="text-sm text-gray-500">Total Tokens</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Total Tokens</p>
                 <p className="text-2xl font-bold">{(usage.data.total_tokens / 1000).toFixed(1)}K</p>
               </div>
               <div className="bg-white rounded-lg shadow p-4">
-                <p className="text-sm text-gray-500">Requests</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Requests</p>
                 <p className="text-2xl font-bold">{usage.data.request_count}</p>
               </div>
               <div className="bg-white rounded-lg shadow p-4">
-                <p className="text-sm text-gray-500">Avg Latency</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Avg Latency</p>
                 <p className="text-2xl font-bold">{usage.data.avg_latency_ms.toFixed(0)}ms</p>
               </div>
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">No usage data yet.</p>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">No usage data yet.</p>
           )}
         </div>
       )}

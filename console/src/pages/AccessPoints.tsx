@@ -24,7 +24,7 @@ const primary = 'px-3 py-1.5 text-sm bg-brand-600 text-white rounded disabled:op
 function LoadError({ error, what, onRetry }: { error: unknown; what: string; onRetry?: () => void }) {
   const status = errorStatus(error)
   return (
-    <div role="alert" className="rounded border border-red-300 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-400">
+    <div role="alert" className="rounded border border-status-denied-fg p-3 text-sm text-status-denied-fg">
       {status === 403 ? <p>You do not have access to {what}.</p>
         : status === 404 ? <p>{what[0].toUpperCase() + what.slice(1)} not found. It may have been deleted.</p>
         : <p>Could not load {what}: {error instanceof Error ? error.message : String(error)}</p>}
@@ -61,7 +61,7 @@ function OperatorList() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Access points</h1>
-          <p className="text-gray-500">One stable URL per team, tool or client that enforces who can reach which models, tools and skills.</p>
+          <p className="text-gray-600 dark:text-gray-400">One stable URL per team, tool or client that enforces who can reach which models, tools and skills.</p>
         </div>
         {access.isAdmin
           ? <Link to="/access-points/new" className={primary}>Create access point</Link>
@@ -70,7 +70,7 @@ function OperatorList() {
       {list.isLoading && <p role="status">Loading access points…</p>}
       {list.isError && <LoadError error={list.error} what="access points" onRetry={() => void list.refetch()} />}
       {list.data && list.data.length === 0 && (
-        <p className="text-gray-500">No access points yet. Create one to give IDEs, agents and users a single URL for models and tools.</p>
+        <p className="text-gray-600 dark:text-gray-400">No access points yet. Create one to give IDEs, agents and users a single URL for models and tools.</p>
       )}
       {!!list.data?.length && (
         <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Access points">
@@ -148,7 +148,7 @@ function AccessPointEditorForm() {
       {editing && record.isLoading && <p role="status">Loading access point…</p>}
       {editing && record.isError && <LoadError error={record.error} what="this access point" onRetry={() => void record.refetch()} />}
       {conflict && (
-        <div role="alert" className="mb-4 rounded border border-amber-400 bg-amber-50 dark:bg-amber-950 p-3 text-sm text-amber-900 dark:text-amber-200">
+        <div role="alert" className="mb-4 rounded border border-status-warning-fg bg-status-warning-bg p-3 text-sm text-status-warning-fg">
           <p>{conflict}</p>
           {editing && <button type="button" className={`${btn} mt-2`} onClick={() => void reload()}>Reload latest version</button>}
         </div>
@@ -248,10 +248,10 @@ function OperatorDetail() {
 
       {connecting && <ConnectWizard accessPointId={id} onClose={() => setConnecting(false)} />}
       {confirming && (
-        <div role="alertdialog" aria-label={`Confirm delete of ${spec.id}`} className="rounded border border-red-300 dark:border-red-800 p-3 text-sm">
+        <div role="alertdialog" aria-label={`Confirm delete of ${spec.id}`} className="rounded border border-status-denied-fg p-3 text-sm">
           <p>Delete access point <strong>{spec.id}</strong>? Clients using <code>/ap/{spec.id}</code> will stop working. This cannot be undone.</p>
           <div className="mt-2 flex gap-2">
-            <button type="button" className="px-3 py-1.5 text-sm bg-red-600 text-white rounded disabled:opacity-50" disabled={remove.isPending} onClick={() => remove.mutate(r)}>
+            <button type="button" className="px-3 py-1.5 text-sm bg-status-denied-fg text-status-denied-bg rounded disabled:opacity-50" disabled={remove.isPending} onClick={() => remove.mutate(r)}>
               {remove.isPending ? 'Deleting…' : 'Confirm delete'}
             </button>
             <button type="button" className={btn} onClick={() => { setConfirming(false); setConflict(false); remove.reset() }}>Cancel</button>
@@ -259,13 +259,13 @@ function OperatorDetail() {
         </div>
       )}
       {conflict && (
-        <div role="alert" className="rounded border border-amber-400 bg-amber-50 dark:bg-amber-950 p-3 text-sm text-amber-900 dark:text-amber-200">
+        <div role="alert" className="rounded border border-status-warning-fg bg-status-warning-bg p-3 text-sm text-status-warning-fg">
           <p>This access point was changed by someone else, so it was not deleted. Reload to review the latest version before deleting.</p>
           <button type="button" className={`${btn} mt-2`} onClick={() => { setConflict(false); setConfirming(false); remove.reset(); void record.refetch() }}>Reload latest version</button>
         </div>
       )}
       {remove.isError && !conflict && (
-        <p role="alert" className="text-sm text-red-600">{errorStatus(remove.error) === 403 ? 'Deleting access points requires the admin role.' : `Could not delete: ${(remove.error as Error).message}`}</p>
+        <p role="alert" className="text-sm text-status-denied-fg">{errorStatus(remove.error) === 403 ? 'Deleting access points requires the admin role.' : `Could not delete: ${(remove.error as Error).message}`}</p>
       )}
 
       <AccessPointSummaryCard spec={spec} revision={r.revision} headingLevel={3} />
@@ -281,14 +281,14 @@ function OperatorDetail() {
         {!!spec.models?.length && (
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Models</caption>
-            <thead><tr className="text-xs text-gray-500"><th scope="col" className="py-1 pr-4">Model name</th><th scope="col" className="pr-4">Surface</th><th scope="col">Native model</th></tr></thead>
+            <thead><tr className="text-xs text-gray-600 dark:text-gray-400"><th scope="col" className="py-1 pr-4">Model name</th><th scope="col" className="pr-4">Surface</th><th scope="col">Native model</th></tr></thead>
             <tbody>{spec.models.map(m => <tr key={m.name} className="border-t border-gray-200 dark:border-gray-800"><th scope="row" className="py-1 pr-4 font-mono text-xs font-normal">{m.name}</th><td className="pr-4 font-mono text-xs">{m.surface_ref}</td><td className="font-mono text-xs">{m.native_model}</td></tr>)}</tbody>
           </table>
         )}
         {!!spec.tools?.length && (
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Tool connections</caption>
-            <thead><tr className="text-xs text-gray-500"><th scope="col" className="py-1 pr-4">Tool connection</th><th scope="col">Exposed tools</th></tr></thead>
+            <thead><tr className="text-xs text-gray-600 dark:text-gray-400"><th scope="col" className="py-1 pr-4">Tool connection</th><th scope="col">Exposed tools</th></tr></thead>
             <tbody>{spec.tools.map(t => <tr key={t.connection_ref} className="border-t border-gray-200 dark:border-gray-800"><th scope="row" className="py-1 pr-4 font-mono text-xs font-normal">{t.connection_ref}</th><td className="font-mono text-xs">{t.expose?.length ? t.expose.join(', ') : 'everything the connection permits'}</td></tr>)}</tbody>
           </table>
         )}

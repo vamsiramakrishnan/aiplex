@@ -60,7 +60,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Dashboard</h2>
+      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
       {/* Top-level stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
@@ -86,16 +86,16 @@ export default function Dashboard() {
           <h3 className="font-semibold text-lg mb-3">LLM Costs (24h)</h3>
           <div className="space-y-3">
             <div>
-              <p className="text-sm text-gray-500">Total Spend</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total Spend</p>
               <p className="text-2xl font-bold">${(s?.daily_cost_usd ?? 0).toFixed(2)}</p>
             </div>
             <div className="flex gap-4">
               <div>
-                <p className="text-xs text-gray-400">Tokens</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400">Tokens</p>
                 <p className="font-semibold">{((s?.daily_tokens ?? 0) / 1000).toFixed(1)}K</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Requests</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400">Requests</p>
                 <p className="font-semibold">{s?.daily_requests ?? 0}</p>
               </div>
             </div>
@@ -106,12 +106,12 @@ export default function Dashboard() {
           <h3 className="font-semibold text-lg mb-3">Activity (24h)</h3>
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">A2A Delegations</span>
+              <span className="text-gray-600 dark:text-gray-400">A2A Delegations</span>
               <span className="font-semibold">{s?.a2a_delegations_24h ?? 0}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Policy Denials</span>
-              <span className={`font-semibold ${(s?.policy_denials_24h ?? 0) > 0 ? 'text-red-600' : ''}`}>
+              <span className="text-gray-600 dark:text-gray-400">Policy Denials</span>
+              <span className={`font-semibold ${(s?.policy_denials_24h ?? 0) > 0 ? 'text-status-denied-fg' : ''}`}>
                 {s?.policy_denials_24h ?? 0}
               </span>
             </div>
@@ -136,7 +136,7 @@ export default function Dashboard() {
             <tbody>
               {denials.data.map((d) => (
                 <tr key={d.id} className="border-t">
-                  <td className="px-4 py-3 text-gray-500 text-xs">
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
                     {d.timestamp ? new Date(d.timestamp).toLocaleTimeString() : '-'}
                   </td>
                   <td className="px-4 py-3">
@@ -145,7 +145,7 @@ export default function Dashboard() {
                   <td className="px-4 py-3 font-mono text-xs">{d.agent_id}</td>
                   <td className="px-4 py-3 font-mono text-xs">{d.action}</td>
                   <td className="px-4 py-3">
-                    <span className="px-1.5 py-0.5 bg-red-50 text-red-700 text-xs rounded">{d.reason}</span>
+                    <span className="px-1.5 py-0.5 bg-status-denied-bg text-status-denied-fg text-xs rounded">{d.reason}</span>
                   </td>
                 </tr>
               ))}
@@ -153,7 +153,7 @@ export default function Dashboard() {
           </table>
         </div>
       ) : (
-        <p className="text-gray-400 text-sm">No policy denials recorded.</p>
+        <p className="text-gray-600 dark:text-gray-400 text-sm">No policy denials recorded.</p>
       )}
     </div>
   )
@@ -162,17 +162,17 @@ export default function Dashboard() {
 function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
   return (
     <div className="bg-white rounded-lg shadow p-4">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className={`text-3xl font-bold mt-1 ${color === 'green' ? 'text-green-600' : ''}`}>{value}</p>
+      <p className="text-sm text-gray-600 dark:text-gray-400">{label}</p>
+      <p className={`text-3xl font-bold mt-1 ${color === 'green' ? 'text-status-ok-fg' : ''}`}>{value}</p>
     </div>
   )
 }
 
 function PlaneRow({ label, count, color }: { label: string; count: number; color: string }) {
   const colors: Record<string, string> = {
-    blue: 'bg-blue-500',
-    purple: 'bg-purple-500',
-    amber: 'bg-amber-500',
+    blue: 'bg-brand-500',
+    purple: 'bg-brand-500',
+    amber: 'bg-status-warning-fg',
   }
   return (
     <div className="flex items-center gap-3">

@@ -29,8 +29,8 @@ export function CostText({ usage }: { usage: OverviewUsage | null | undefined })
   if (costs.length === 0) return <>{hasRecords(usage) ? UNKNOWN : '—'}</>
   return (
     <>
-      {costs.map(c => <div key={`${c.currency}-${c.basis}`}>{formatTotal(c)} <span className="text-xs text-gray-500">{c.basis}</span></div>)}
-      {Number(usage.unknown_cost_records) > 0 && <div className="text-xs text-gray-500">+{formatCount(usage.unknown_cost_records)} records with unknown cost</div>}
+      {costs.map(c => <div key={`${c.currency}-${c.basis}`}>{formatTotal(c)} <span className="text-xs text-gray-600 dark:text-gray-400">{c.basis}</span></div>)}
+      {Number(usage.unknown_cost_records) > 0 && <div className="text-xs text-gray-600 dark:text-gray-400">+{formatCount(usage.unknown_cost_records)} records with unknown cost</div>}
     </>
   )
 }
@@ -43,12 +43,12 @@ export function lastSeenText(iso: string | null | undefined): string {
 
 /** Usage grouped by model or tool, with the same unknown-vs-zero rules. */
 export function UsageGroupsTable({ groups, field, heading }: { groups: OverviewUsageGroup[] | null; field: string; heading: string }) {
-  if (!groups || groups.length === 0) return <p className="text-sm text-gray-500">No {heading.toLowerCase()} usage in this window.</p>
+  if (!groups || groups.length === 0) return <p className="text-sm text-gray-600 dark:text-gray-400">No {heading.toLowerCase()} usage in this window.</p>
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
         <caption className="sr-only">{`Usage by ${heading.toLowerCase()}`}</caption>
-        <thead><tr className="text-xs text-gray-500 border-b border-gray-200 dark:border-gray-800"><th scope="col" className="py-1 pr-4">{heading}</th><th scope="col" className="pr-4">Requests</th><th scope="col" className="pr-4">Tokens</th><th scope="col">Cost</th></tr></thead>
+        <thead><tr className="text-xs text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800"><th scope="col" className="py-1 pr-4">{heading}</th><th scope="col" className="pr-4">Requests</th><th scope="col" className="pr-4">Tokens</th><th scope="col">Cost</th></tr></thead>
         <tbody>
           {groups.map((g, i) => (
             <tr key={`${g.key[field]}-${i}`} className="border-t border-gray-200 dark:border-gray-800 align-top">

@@ -6,7 +6,7 @@ import { useAccess } from '../hooks/useAccess'
 
 const field = 'w-full rounded border border-gray-300 bg-transparent px-3 py-2 text-sm dark:border-gray-700'
 const button = 'rounded bg-gray-900 px-4 py-2 text-sm text-white disabled:opacity-40 dark:bg-gray-200 dark:text-gray-900'
-const muted = 'text-xs text-gray-500 dark:text-gray-400'
+const muted = 'text-xs text-gray-600 dark:text-gray-400'
 
 export interface PriceDraft {
   id: string
@@ -145,9 +145,9 @@ export default function UsagePrices() {
 
   return <section className="space-y-3" aria-label="Model prices">
     <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-medium">Model prices</h2><button type="button" className={button} disabled={!access.isAdmin} title={access.reason('admin')} onClick={() => open({ mode: 'create' }, blankDraft())}>Add price</button></div>
-    <p className="text-sm text-gray-500">Prices turn reported token usage into an estimated cost. Without a matching price, a request’s cost stays unknown unless QuotaPlex settles it. Only administrators can change prices.</p>
-    {message && <p role="alert" className="rounded border border-red-300 p-3 text-sm text-red-700 dark:border-red-800 dark:text-red-400">{message}</p>}
-    {conflict && <div role="alert" className="rounded border border-amber-400 p-3 text-sm text-amber-800 dark:text-amber-300"><p>This price was changed by someone else (or already exists), so nothing was saved.</p>{editing ? <button type="button" className="mt-2 underline" disabled={busy} onClick={() => void loadLatest()}>Load latest revision</button> : <p className="mt-1">The list below has been refreshed.</p>}</div>}
+    <p className="text-sm text-gray-600 dark:text-gray-400">Prices turn reported token usage into an estimated cost. Without a matching price, a request’s cost stays unknown unless QuotaPlex settles it. Only administrators can change prices.</p>
+    {message && <p role="alert" className="rounded border border-status-denied-fg p-3 text-sm text-status-denied-fg">{message}</p>}
+    {conflict && <div role="alert" className="rounded border border-status-warning-fg p-3 text-sm text-status-warning-fg"><p>This price was changed by someone else (or already exists), so nothing was saved.</p>{editing ? <button type="button" className="mt-2 underline" disabled={busy} onClick={() => void loadLatest()}>Load latest revision</button> : <p className="mt-1">The list below has been refreshed.</p>}</div>}
 
     {query.isPending ? <p role="status">Loading prices…</p>
       : query.isError ? <ErrorPanel error={query.error} what="model prices" onRetry={() => void query.refetch()} />
@@ -169,7 +169,7 @@ export default function UsagePrices() {
 
     {editing && <form ref={formRef} aria-label={editing.mode === 'create' ? 'Add price' : `Edit price ${draft.id}`} onSubmit={(e) => void save(e)} className="space-y-4 rounded border border-gray-200 p-4 dark:border-gray-800">
       <h3 className="font-medium">{editing.mode === 'create' ? 'Add price' : `Edit price (revision ${editing.revision})`}</h3>
-      {problems.length > 0 && <ul role="alert" className="list-disc pl-5 text-sm text-red-700 dark:text-red-400">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
+      {problems.length > 0 && <ul role="alert" className="list-disc pl-5 text-sm text-status-denied-fg">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="text-sm">Price ID<input className={field} {...text('id')} readOnly={editing.mode === 'edit'} /></label>
         <label className="text-sm">Model ID<input className={field} {...text('model_id')} /></label>
