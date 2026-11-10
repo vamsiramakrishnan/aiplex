@@ -26,6 +26,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
 	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
@@ -61,6 +62,12 @@ type usageCapture struct {
 	genAIProvider string
 	// hooks summarizes request-hook decisions (hooks.go); nil when none ran.
 	hooks *usageledger.HookSummary
+	// route is set for an attempt of a routed access-point model: the
+	// finished record goes to the router, which submits one record per
+	// exchange (access_point_routing.go).
+	route *routeAttempt
+	// cacheHit is the cached answer this exchange was served from.
+	cacheHit *routing.CacheEntry
 }
 
 // beginUsage starts capturing an exchange for a verified tenant. The returned
@@ -89,6 +96,7 @@ func (h *ConnectedHandler) beginUsage(w http.ResponseWriter, r *http.Request, te
 		c.record.AccessPointID = call.ID
 		c.record.CallerKind = call.CallerKind
 	}
+	c.route = routeAttemptFrom(r.Context())
 	return c.writer, r, c
 }
 
@@ -477,13 +485,51 @@ func (c *usageCapture) finish() {
 		record.UsageBound = usageledger.UsagePartial
 	}
 	record.Cost = usageledger.UnknownCost()
+	c.mu.Lock()
+	hit := c.cacheHit
+	c.mu.Unlock()
+	if hit != nil {
+		// Served from the response cache: the provider produced nothing for
+		// this exchange (zero usage, a "cached" cost of 0); the original
+		// usage is kept apart so summaries never count it as provider usage.
+		zero := func() *int64 { n := int64(0); return &n }
+		record.Usage = &usageledger.Usage{InputTokens: zero(), OutputTokens: zero(), CacheReadTokens: zero(), CacheWriteTokens: zero(), ReasoningTokens: zero(), TotalTokens: zero()}
+		counters := map[string]int64{}
+		for k, v := range hit.Counters {
+			counters[k] = v
+		}
+		record.CachedResponseUsage = usageledger.FromCounters(counters)
+		record.UsageBound = ""
+		record.Cost = usageledger.CachedCost()
+		if hit.ModelVersion != "" {
+			record.ModelVersion = hit.ModelVersion
+		}
+	}
 	h := c.h
 	span, genAIProvider := c.span, c.genAIProvider
 	firstWrite := c.writer.firstWriteAt()
-	h.Ledger.Submit(c.r.Context(), func(ctx context.Context) (out usageledger.Record, err error) {
-		// The span ends once the cost is resolved (settlement or price), at
-		// the exchange's own finish time.
+	submit := func(record usageledger.Record) {
+		h.submitExchange(c.r.Context(), span, record, genAIProvider, firstWrite, attemptID)
+	}
+	if c.route != nil {
+		if span != nil {
+			span.SetAttributes(c.route.spanAttributes()...)
+		}
+		c.route.deliver(&deliveredRecord{record: record, span: span, genAIProvider: genAIProvider, firstWrite: firstWrite, submit: submit})
+		return
+	}
+	submit(record)
+}
+
+// submitExchange resolves the record's cost (quota settlement, else an
+// operator price) and submits it; the span ends once the cost is resolved,
+// at the exchange's own finish time.
+func (h *ConnectedHandler) submitExchange(parent context.Context, span trace.Span, record usageledger.Record, genAIProvider string, firstWrite time.Time, attemptID string) {
+	h.Ledger.Submit(parent, func(ctx context.Context) (out usageledger.Record, err error) {
 		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
+		if record.Cost.Basis == usageledger.BasisCached {
+			return record, nil
+		}
 		if attemptID != "" && h.Quota != nil {
 			if cost, ok := h.Quota.settledCost(ctx, record.TenantID, attemptID); ok {
 				record.Cost = cost

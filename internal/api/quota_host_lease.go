@@ -12,21 +12,21 @@ import (
 )
 
 type quotaHostLease struct {
-	mu                sync.Mutex
-	host              *QuotaHost
-	engine            *quotaplex.Engine
-	bound             *quotaplex.BoundProvider
-	ticket            *enforcement.Ticket
-	demand            quotaplex.Demand
-	binding           QuotaBinding
-	proof             *QuotaBoundsProof
-	claim             *quotaplex.DispatchClaim
-	claimUncertain    bool
-	resource          string
-	modelVersion      string
+	mu             sync.Mutex
+	host           *QuotaHost
+	engine         *quotaplex.Engine
+	bound          *quotaplex.BoundProvider
+	ticket         *enforcement.Ticket
+	demand         quotaplex.Demand
+	binding        QuotaBinding
+	proof          *QuotaBoundsProof
+	claim          *quotaplex.DispatchClaim
+	claimUncertain bool
+	resource       string
+	modelVersion   string
 	// notSent marks an attempt whose request provably never left (no
 	// connection was established): it settles as zero requests.
-	notSent bool
+	notSent           bool
 	counters          execution.CumulativeUsage
 	evidence          *quotaplex.TerminalEvidence
 	acknowledged      bool

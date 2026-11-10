@@ -118,11 +118,13 @@ var intendedRoutePolicy = map[string]string{
 	"GET /api/v1/clients/profiles":               "auth/t",
 
 	// Access points: operators read the resource, others a filtered view.
-	"GET /api/v1/access-points":                  "auth/t",
-	"GET /api/v1/access-points/{id}":             "auth/t",
-	"PUT /api/v1/access-points/{id}":             "admin/t",
-	"DELETE /api/v1/access-points/{id}":          "admin/t",
-	"POST /api/v1/access-points/{id}/quota-plan": "admin/t",
+	"GET /api/v1/access-points":                   "auth/t",
+	"GET /api/v1/access-points/{id}":              "auth/t",
+	"PUT /api/v1/access-points/{id}":              "admin/t",
+	"DELETE /api/v1/access-points/{id}":           "admin/t",
+	"POST /api/v1/access-points/{id}/quota-plan":  "admin/t",
+	"GET /api/v1/access-points/{id}/routing":      "op/t",
+	"POST /api/v1/access-points/{id}/cache/purge": "admin/t",
 
 	// Usage ledger.
 	"GET /api/v1/usage/records":        "auth/t",

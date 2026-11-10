@@ -17,6 +17,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 )
 
@@ -63,11 +64,39 @@ type AccessPointSubjects struct {
 	ClientRegistrations []string             `json:"client_registrations,omitempty"`
 }
 
-// AccessPointModel maps a client-facing model name to a saved model surface.
+// AccessPointModel maps a client-facing model name to a saved model surface
+// (surface_ref and native_model), or to an ordered list of backends with a
+// routing block (reliability-and-routing). cache turns on the exact-match
+// response cache for the model; it is off unless present.
 type AccessPointModel struct {
-	Name        string `json:"name"`
-	SurfaceRef  string `json:"surface_ref"`
-	NativeModel string `json:"native_model"`
+	Name        string            `json:"name"`
+	SurfaceRef  string            `json:"surface_ref,omitempty"`
+	NativeModel string            `json:"native_model,omitempty"`
+	Backends    []routing.Backend `json:"backends,omitempty"`
+	Routing     *routing.Routing  `json:"routing,omitempty"`
+	Cache       *routing.Cache    `json:"cache,omitempty"`
+	// derived marks SurfaceRef/NativeModel filled from Backends[0] when the
+	// specification was decoded (see decodeAccessPoint); never serialized.
+	derived bool
+}
+
+// allBackends lists the model's backends: the backends list, or the single
+// surface_ref/native_model pair.
+func (m AccessPointModel) allBackends() []routing.Backend {
+	if len(m.Backends) > 0 {
+		return m.Backends
+	}
+	return []routing.Backend{{SurfaceRef: m.SurfaceRef, NativeModel: m.NativeModel}}
+}
+
+// primary is the first listed backend.
+func (m AccessPointModel) primary() routing.Backend { return m.allBackends()[0] }
+
+// routed reports whether the model goes through the router (several
+// backends, a routing block or a cache). A plain surface_ref model is served
+// exactly as before.
+func (m AccessPointModel) routed() bool {
+	return len(m.Backends) > 0 || m.Routing != nil || m.Cache != nil
 }
 
 // AccessPointTool exposes one saved tool connection. Expose is an optional
@@ -192,6 +221,14 @@ func decodeAccessPoint(id string, raw []byte) (AccessPoint, error) {
 	if ap.ID != id || !accessPointIDPattern.MatchString(id) {
 		return ap, withField("id", fmt.Errorf("access point id must match the resource id and [A-Za-z0-9._-]{1,128}"))
 	}
+	for i := range ap.Models {
+		// A backends list fills the single-backend fields with its first
+		// backend, so readers that describe one surface per model (connect,
+		// overview, quota plan) describe the primary backend.
+		if m := &ap.Models[i]; len(m.Backends) > 0 && m.SurfaceRef == "" && m.NativeModel == "" {
+			m.SurfaceRef, m.NativeModel, m.derived = m.Backends[0].SurfaceRef, m.Backends[0].NativeModel, true
+		}
+	}
 	return ap, nil
 }
 
@@ -295,6 +332,18 @@ func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant
 	names := map[string]bool{}
 	for i, m := range entries {
 		at := func(field string) string { return fmt.Sprintf("models/%d/%s", i, field) }
+		if len(m.Backends) > 0 || m.Routing != nil || m.Cache != nil {
+			if err := h.validateRoutedModel(ctx, tenant, i, m); err != nil {
+				return err
+			}
+			if names[m.Name] {
+				return withField(at("name"), fmt.Errorf("model name %q is not unique", m.Name))
+			}
+			names[m.Name] = true
+			if len(m.Backends) > 0 {
+				continue
+			}
+		}
 		if !accessPointModelPattern.MatchString(m.Name) || !accessPointModelPattern.MatchString(m.NativeModel) || strings.Contains(m.Name+m.NativeModel, "..") || m.SurfaceRef == "" {
 			field := "surface_ref"
 			switch {
@@ -305,7 +354,7 @@ func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant
 			}
 			return withField(at(field), fmt.Errorf("models entries need name, surface_ref and native_model ([A-Za-z0-9._@/:-], no '..')"))
 		}
-		if names[m.Name] {
+		if names[m.Name] && !m.routed() {
 			return withField(at("name"), fmt.Errorf("model name %q is not unique", m.Name))
 		}
 		names[m.Name] = true
@@ -497,6 +546,8 @@ func (h *ConnectedHandler) MountAccessPoints(r chi.Router) {
 		r.Put("/{id}", write)
 		r.Delete("/{id}", write)
 		r.Post("/{id}/quota-plan", h.AccessPointQuotaPlan)
+		r.Get("/{id}/routing", h.AccessPointRouting)
+		r.Post("/{id}/cache/purge", h.AccessPointCachePurge)
 	})
 }
 

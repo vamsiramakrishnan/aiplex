@@ -153,10 +153,27 @@ func (x *hookExchange) refuse(ctx context.Context, phase, rule, message string) 
 type modelHooks struct {
 	*hookExchange
 	surfaceID string
+	// route is set for an attempt of a routed access-point model: the
+	// request hooks then run once per exchange, with the policies of every
+	// backend's surface (access_point_routing.go).
+	route *routeExchange
 }
 
 func (h *ConnectedHandler) installModelHooks(r *http.Request, tenant, surfaceID string, opts *modelapi.Options, usage *usageCapture) {
-	opts.Hooks = &modelHooks{hookExchange: h.newHookExchange(r, tenant, usage, hooks.PlaneModels), surfaceID: surfaceID}
+	m := &modelHooks{hookExchange: h.newHookExchange(r, tenant, usage, hooks.PlaneModels), surfaceID: surfaceID}
+	if attempt := routeAttemptFrom(r.Context()); attempt != nil {
+		m.route = attempt.route
+	}
+	opts.Hooks = m
+}
+
+// target is the policy target of the exchange.
+func (m *modelHooks) target() hooks.Target {
+	t := hooks.Target{Plane: hooks.PlaneModels, ModelSurface: m.surfaceID}
+	if m.route != nil {
+		t.ModelSurfaces = m.route.surfaces
+	}
+	return t
 }
 
 // modelHookFormat maps a native operation to the hook wire format, or ""
@@ -228,7 +245,14 @@ func streamingRequest(op modelapi.Operation, body []byte) bool {
 }
 
 func (m *modelHooks) Request(ctx context.Context, x modelapi.HookExchange, body []byte) ([]byte, bool, error) {
-	if err := m.load(ctx, hooks.Target{Plane: hooks.PlaneModels, ModelSurface: m.surfaceID}); err != nil {
+	if m.route != nil && len(body) > 0 && x.Operation.Transport != modelapi.WebSocket && x.Metadata.Transport != modelapi.WebSocket {
+		return m.routedRequest(ctx, x, body, func() ([]byte, bool, error) { return m.request(ctx, x, body) })
+	}
+	return m.request(ctx, x, body)
+}
+
+func (m *modelHooks) request(ctx context.Context, x modelapi.HookExchange, body []byte) ([]byte, bool, error) {
+	if err := m.load(ctx, m.target()); err != nil {
 		return nil, false, &modelapi.HookRefusal{Status: http.StatusServiceUnavailable, Code: hooks.CodeUnavailableConfig, Message: "hook policies are unavailable; the request was refused"}
 	}
 	if len(m.resolved.Hooks) == 0 {

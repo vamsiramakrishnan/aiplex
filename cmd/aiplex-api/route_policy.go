@@ -71,6 +71,10 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(get, "/api/v1/access-points/{id}", api.RouteAuthenticated),
 		tenantRule([]string{http.MethodPut, http.MethodDelete}, "/api/v1/access-points/{id}", api.RouteAdmin),
 		tenantRule(post, "/api/v1/access-points/{id}/quota-plan", api.RouteAdmin),
+		// Routing state (breakers, recent outcomes) names backends: operators
+		// only. Purging the response cache: admins.
+		tenantRule(get, "/api/v1/access-points/{id}/routing", api.RouteOperator),
+		tenantRule(post, "/api/v1/access-points/{id}/cache/purge", api.RouteAdmin),
 		// Client configuration for an access point: operators read it in full;
 		// any other verified caller only for an access point that admits it,
 		// without operator-only detail (handler: OverviewHandler.ConnectForCaller).
