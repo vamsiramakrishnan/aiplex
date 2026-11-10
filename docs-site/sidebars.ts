@@ -166,6 +166,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         {type: 'link', label: 'Metering profiles', href: '/docs/library/model-metering-profiles'},
+        'reference/brand',
       ],
     },
     {

@@ -44,17 +44,28 @@ The build fails on broken links, broken anchors and broken Markdown links/images
 
 ## Brand assets
 
-Brand assets are copied into `static/img/` from `brand/`. The site expects exactly these paths; until the real assets arrive they hold neutral text-only placeholders:
+`brand/` in the repository root is the only place brand assets are edited. `scripts/sync-brand.mjs` (run by `npm run sync`, so by `npm run build` and `npm start`) copies them into the site. The copies are git-ignored and regenerated on every build, so they cannot drift, and they work in CI because the job checks out the whole repository.
 
-| Path | Used for |
-| --- | --- |
-| `static/img/aiplex-logo.svg` | Navbar logo (light) |
-| `static/img/aiplex-logo-dark.svg` | Navbar logo (dark) |
-| `static/img/favicon.svg` | Favicon |
-| `static/img/aiplex-social-card.png` | Social card (`og:image`) |
+| Source | Copied to | Used for |
+| --- | --- | --- |
+| `brand/logo/aiplex-lockup-horizontal.svg` | `static/img/aiplex-logo.svg` | Navbar logo (light) |
+| `brand/logo/aiplex-lockup-horizontal-reversed.svg` | `static/img/aiplex-logo-dark.svg` | Navbar logo (dark) |
+| `brand/logo/aiplex-favicon.svg` | `static/img/favicon.svg` | Favicon |
+| `brand/tokens/tokens.css` | `src/css/brand-tokens.css` | Imported by `src/css/custom.css`; Infima variables map onto it |
+| `brand/icons/*.svg` | `src/brand/icons/` | Landing page icons (imported as React components so `currentColor` works) |
+| `brand/logo`, `icons`, `social`, `brand-sheet.svg` | `static/img/brand/` | The Brand page |
 
-Colours are CSS variables (`--aiplex-*`) at the top of `src/css/custom.css`, which marks where the brand tokens are imported.
+### Social card
+
+Social sites need a PNG and the docs CI job has no Playwright, so `static/img/aiplex-social-card.png` is committed. Regenerate it whenever `brand/social/aiplex-social-card.svg` changes:
+
+```bash
+node brand/scripts/render.js social                      # from the repository root; needs Playwright
+cp brand/.renders/social-card.png docs-site/static/img/aiplex-social-card.png
+```
+
+The output is 1200 x 630.
 
 ## Deployment
 
-On a push to `main` that changes `docs-site/**`, `docs/**` or the workflow file, the workflow runs `npm ci && npm run build` in this directory and publishes `build/`.
+On a push to `main` that changes `docs-site/**`, `docs/**`, `brand/**` or the workflow file, the workflow runs `npm ci && npm run build` in this directory and publishes `build/`.

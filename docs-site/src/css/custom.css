@@ -1,23 +1,26 @@
 /*
  * Theme tokens
  *
- * All colours live behind the --aiplex-* variables below. The values here are
- * neutral placeholders. BRAND TOKENS: when the brand package lands, import its
- * token file here (for example `@import url('./brand-tokens.css');`, copied from
- * brand/) and override only the --aiplex-* variables; no other rule in this
- * file or in src/pages/ hard-codes a colour.
+ * brand-tokens.css is copied from brand/tokens/tokens.css by scripts/sync-brand.mjs
+ * (run by `npm run build` and `npm start`); it is generated and git-ignored. It
+ * defines the --aiplex-* brand variables for light and dark (data-theme). Nothing
+ * below retypes a brand hex value: Infima and the page styles are mapped onto
+ * those variables. The only literal colours left are the code-block token colours,
+ * which the brand does not define (see --aiplex-code-*).
  */
+@import url('./brand-tokens.css');
+
 :root {
-  --aiplex-accent: #25598f;
-  --aiplex-accent-hover: #1d4873;
-  --aiplex-surface: #f5f7f9;
-  --aiplex-surface-border: #d5dbe1;
-  --aiplex-text-muted: #4b5563;
-  --aiplex-diagram-bg: #ffffff;
-  --aiplex-diagram-line: #5b6674;
-  --aiplex-diagram-box: #eef2f6;
-  --aiplex-diagram-text: #1b1f24;
-  --aiplex-diagram-accent: #25598f;
+  /* Diagram and card styling, derived from brand tokens. */
+  --aiplex-diagram-bg: var(--aiplex-bg);
+  --aiplex-diagram-line: var(--aiplex-text-muted);
+  --aiplex-diagram-box: var(--aiplex-surface);
+  --aiplex-diagram-text: var(--aiplex-text);
+  --aiplex-diagram-accent: var(--aiplex-gate);
+  --aiplex-surface-border: var(--aiplex-border);
+
+  /* Code-block token colours: not brand colours; chosen to pass AA on the Prism
+     code backgrounds (github light, dracula dark). */
   --aiplex-code-comment: #5a6370;
   --aiplex-code-literal: #0a6560;
   --aiplex-code-string: #9d1450;
@@ -25,35 +28,56 @@
 }
 
 [data-theme='dark'] {
-  --aiplex-accent: #8ab8e6;
-  --aiplex-accent-hover: #b3d3f2;
-  --aiplex-surface: #1f242b;
-  --aiplex-surface-border: #384049;
-  --aiplex-text-muted: #aeb7c2;
-  --aiplex-diagram-bg: #14181d;
-  --aiplex-diagram-line: #9aa5b1;
-  --aiplex-diagram-box: #222a33;
-  --aiplex-diagram-text: #eef1f4;
-  --aiplex-diagram-accent: #8ab8e6;
   --aiplex-code-comment: #9aa7d6;
 }
 
-/* Map the tokens onto Infima. */
-:root {
-  --ifm-color-primary: var(--aiplex-accent);
-  --ifm-color-primary-dark: var(--aiplex-accent-hover);
-  --ifm-color-primary-darker: var(--aiplex-accent-hover);
-  --ifm-color-primary-darkest: var(--aiplex-accent-hover);
-  --ifm-color-primary-light: var(--aiplex-accent);
-  --ifm-color-primary-lighter: var(--aiplex-accent);
-  --ifm-color-primary-lightest: var(--aiplex-accent);
+/*
+ * Map the brand tokens onto Infima. `html[data-theme]` outranks Infima's own
+ * `html[data-theme=dark]` defaults only by order, so this file must load last.
+ * The primary scale is derived from the gate colour with color-mix: lighter
+ * steps mix toward white, darker steps toward black.
+ */
+html[data-theme] {
+  --ifm-color-primary: var(--aiplex-gate);
+  --ifm-color-primary-dark: color-mix(in srgb, var(--aiplex-gate), black 10%);
+  --ifm-color-primary-darker: color-mix(in srgb, var(--aiplex-gate), black 18%);
+  --ifm-color-primary-darkest: color-mix(in srgb, var(--aiplex-gate), black 35%);
+  --ifm-color-primary-light: color-mix(in srgb, var(--aiplex-gate), white 12%);
+  --ifm-color-primary-lighter: color-mix(in srgb, var(--aiplex-gate), white 22%);
+  --ifm-color-primary-lightest: color-mix(in srgb, var(--aiplex-gate), white 42%);
+  --ifm-background-color: var(--aiplex-bg);
+  --ifm-background-surface-color: var(--aiplex-surface);
+  --ifm-font-color-base: var(--aiplex-text);
+  --ifm-color-content-secondary: var(--aiplex-text-muted);
+  --ifm-toc-border-color: var(--aiplex-border);
+  --ifm-color-emphasis-200: var(--aiplex-border);
+  --ifm-navbar-background-color: var(--aiplex-bg);
+  --ifm-menu-color-background-active: var(--aiplex-mist);
+  --ifm-menu-color-background-hover: var(--aiplex-mist);
   --ifm-code-font-size: 95%;
+  --ifm-font-family-base: var(--aiplex-font-sans);
+  --ifm-font-family-monospace: var(--aiplex-font-mono);
+}
+
+html[data-theme='dark'] {
+  --ifm-color-primary-dark: color-mix(in srgb, var(--aiplex-gate), white 10%);
+  --ifm-color-primary-darker: color-mix(in srgb, var(--aiplex-gate), white 18%);
+  --ifm-color-primary-darkest: color-mix(in srgb, var(--aiplex-gate), white 35%);
+  --ifm-color-primary-light: color-mix(in srgb, var(--aiplex-gate), black 12%);
+  --ifm-color-primary-lighter: color-mix(in srgb, var(--aiplex-gate), black 22%);
+  --ifm-color-primary-lightest: color-mix(in srgb, var(--aiplex-gate), black 42%);
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme='light'] {
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 }
 
-[data-theme='dark'] {
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+/* Footer uses Infima's fixed dark style; keep it on the brand dark surface. */
+.footer--dark {
+  --ifm-footer-background-color: var(--aiplex-neutral-950);
 }
+
 
 /*
  * Wide tables scroll inside their own box, never the page. Markdown tables are
@@ -124,14 +148,14 @@
 }
 
 .aiplex-link-card:hover {
-  border-color: var(--aiplex-accent);
+  border-color: var(--aiplex-gate);
   color: inherit;
   text-decoration: none;
 }
 
 .aiplex-link-card strong {
   display: block;
-  color: var(--aiplex-accent);
+  color: var(--aiplex-gate);
   margin-bottom: 0.25rem;
 }
 
@@ -187,4 +211,15 @@
 [data-theme='dark'] .token.doctype,
 [data-theme='dark'] .token.cdata {
   color: var(--aiplex-code-comment) !important;
+}
+
+.aiplex-module-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.aiplex-module-name svg {
+  flex: none;
 }

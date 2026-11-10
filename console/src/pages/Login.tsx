@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import logoLight from '../brand/aiplex-lockup-horizontal.svg'
+import logoReversed from '../brand/aiplex-lockup-horizontal-reversed.svg'
 
 export default function Login() {
   const [token, setToken] = useState('')
@@ -30,7 +32,10 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950 px-4">
       <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-xl shadow-lg p-8">
         <div className="mb-6 text-center">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AIPlex</h1>
+          <h1 className="flex justify-center">
+            <img src={logoLight} alt="AIPlex" className="h-10 w-auto dark:hidden" />
+            <img src={logoReversed} alt="AIPlex" className="h-10 w-auto hidden dark:block" />
+          </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Unified AI Control Plane
           </p>

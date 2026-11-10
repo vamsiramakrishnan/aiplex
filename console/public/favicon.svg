@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" role="img" aria-labelledby="aiplex-favicon-title aiplex-favicon-desc">
+  <title id="aiplex-favicon-title">AIPlex</title>
+  <desc id="aiplex-favicon-desc">AIPlex favicon: the gate mark drawn on a 16-pixel grid with 2-pixel lanes. Switches to light lanes when the browser prefers a dark colour scheme.</desc>
+  <style>
+    .lanes { stroke: #141A2E; }
+    .gate { fill: #2F4FD8; }
+    @media (prefers-color-scheme: dark) {
+      .lanes { stroke: #E8EBF2; }
+      .gate { fill: #8DA2FF; }
+    }
+  </style>
+  <path id="lanes" class="lanes" d="M1 3h2l5 5M1 13h2l5-5M1 8h7M12 8h3" fill="none" stroke="#141A2E" stroke-width="2"/>
+  <rect id="gate" class="gate" x="7" y="5" width="6" height="6" fill="#2F4FD8"/>
+</svg>

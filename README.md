@@ -1,3 +1,5 @@
+<p align="center"><img src="brand/social/aiplex-readme-banner.svg" alt="AIPlex: a control plane for agent interactions across models, tools, agents and skills" width="100%"></p>
+
 # AIPlex
 
 AIPlex is a control plane for agent interactions. It puts MCP, A2A, and model traffic behind one gateway, one auth stack, one policy layer, and one audit trail.

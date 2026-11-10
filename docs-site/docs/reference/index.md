@@ -15,3 +15,4 @@ description: CLI, SDK, API, usage formats, the coverage matrix and metering prof
 | Native model execution and metering profiles | [Metering profiles](../library/model-metering-profiles.md) |
 | Configuration consistency across files | [Configuration consistency](../library/configuration-consistency.md) |
 | Environment variables | [Configuration](../operations/configuration.md) |
+| Logo, colours, icons and the brand guide | [Brand](./brand.md) |
