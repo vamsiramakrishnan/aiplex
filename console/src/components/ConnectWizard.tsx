@@ -3,8 +3,9 @@ import { useQuery } from '@tanstack/react-query'
 import { connectErrorMessage, getConnect, listClientProfiles } from '../api/overview'
 import CopyButton from './CopyButton'
 import { StepCode } from './SetupSteps'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
-const input = 'border rounded px-2 py-1 text-sm bg-transparent border-gray-300 dark:border-gray-700'
+const input = 'border rounded px-2 py-1 text-sm bg-transparent border-gray-300 dark:border-gray-700 max-w-full'
 
 function UrlRow({ label, url }: { label: string; url: string }) {
   return (
@@ -20,7 +21,7 @@ function UrlRow({ label, url }: { label: string; url: string }) {
 export function ConnectDetails({ accessPointId, client }: { accessPointId: string; client: string }) {
   const q = useQuery({ queryKey: ['ap-connect', accessPointId, client], queryFn: () => getConnect(accessPointId, client), retry: false })
   if (q.isLoading) return <p role="status" className="text-sm text-gray-500">Building connection details…</p>
-  if (q.isError) return <p role="alert" className="text-sm text-red-600">{connectErrorMessage(q.error)}</p>
+  if (q.isError) return <p role="alert" className="text-sm text-status-denied-fg">{connectErrorMessage(q.error)}</p>
   const c = q.data!
   const urls = Object.entries(c.base_urls ?? {})
   const endpoints = c.endpoints ?? []
@@ -76,11 +77,13 @@ export default function ConnectWizard({ accessPointId, onClose }: { accessPointI
   const profiles = useQuery({ queryKey: ['client-profiles'], queryFn: listClientProfiles })
   const [choice, setChoice] = useState('generic')
   const [shown, setShown] = useState<string | null>(null)
+  const ref = useFocusTrap<HTMLElement>(true, onClose)
   return (
-    <section role="dialog" aria-label={`Connect a client to ${accessPointId}`} className="rounded border border-gray-300 dark:border-gray-700 p-4 space-y-3 bg-white dark:bg-gray-900">
-      <div className="flex justify-between">
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+    <section ref={ref} role="dialog" aria-modal="true" aria-label={`Connect a client to ${accessPointId}`} tabIndex={-1} className="w-full max-w-3xl rounded-lg border border-gray-300 dark:border-gray-700 p-4 space-y-3 bg-white dark:bg-gray-900 shadow-xl">
+      <div className="flex justify-between gap-3">
         <h3 className="text-lg font-medium">Connect a client to {accessPointId}</h3>
-        <button type="button" className="text-sm text-gray-500" onClick={onClose}>Close</button>
+        <button type="button" className="text-sm underline" onClick={onClose}>Close</button>
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <div>
@@ -92,8 +95,9 @@ export default function ConnectWizard({ accessPointId, onClose }: { accessPointI
         </div>
         <button type="button" onClick={() => setShown(choice)} className="px-3 py-1.5 text-sm bg-brand-600 text-white rounded">Show connection details</button>
       </div>
-      {profiles.isError && <p role="alert" className="text-xs text-amber-700">Could not load client profiles ({(profiles.error as Error).message}); only the generic option is available.</p>}
+      {profiles.isError && <p role="alert" className="text-xs text-status-warning-fg">Could not load client profiles ({(profiles.error as Error).message}); only the generic option is available.</p>}
       {shown && <ConnectDetails key={shown} accessPointId={accessPointId} client={shown} />}
     </section>
+    </div>
   )
 }

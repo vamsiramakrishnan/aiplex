@@ -152,9 +152,13 @@ export interface ModelBatch {
   ended: boolean
   /** The provider's item count; null while unknown (never zero). */
   expected: number | null
+  /** When the exchange that created the batch finished; absent on records that predate it. */
+  created_at?: string
+  /** When the results were fetched and the batch settled; absent while open. */
+  settled_at?: string
 }
 export interface BatchPage { batches: ModelBatch[]; next_cursor?: string }
-export function listBatches(params: { state?: 'open' | 'settled'; surface_id?: string; cursor?: string; limit?: number } = {}) {
+export function listBatches(params: { state?: 'open' | 'settled'; surface_id?: string; cursor?: string; limit?: number; order?: 'id' | 'newest'; older_than?: string } = {}) {
   const q = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') q.set(k, String(v))
   const qs = q.toString()

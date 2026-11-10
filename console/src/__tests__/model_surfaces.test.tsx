@@ -340,6 +340,30 @@ describe('Open batches', () => {
     expect(calls.at(-1)!.url.searchParams.get('cursor')).toBe('i2')
   })
 
+  it('asks for newest first, shows created and settled times, and highlights open batches older than a day', async () => {
+    const old = new Date(Date.now() - 3 * 86_400_000).toISOString()
+    const fresh = new Date(Date.now() - 3_600_000).toISOString()
+    routes['GET /api/v1/llm/batches'] = () => ({ body: { batches: [
+      batch({ id: 'i1', batch_id: 'batch_old', created_at: old }),
+      batch({ id: 'i2', batch_id: 'batch_new', created_at: fresh }),
+      batch({ id: 'i3', batch_id: 'batch_done', state: 'settled', created_at: old, settled_at: fresh }),
+    ] } })
+    show(<OpenBatches />)
+    const rows = within(await screen.findByRole('table')).getAllByRole('row')
+    expect(calls[0].url.searchParams.get('order')).toBe('newest')
+    const row = (id: string) => rows.find((r) => r.textContent?.includes(id))!
+    expect(row('batch_old')).toHaveAttribute('data-stale', 'true')
+    expect(row('batch_old')).toHaveTextContent('open for 3 days')
+    expect(row('batch_new')).not.toHaveAttribute('data-stale')
+    expect(row('batch_done')).not.toHaveAttribute('data-stale')
+    expect(row('batch_done')).toHaveTextContent(/settled/)
+    fireEvent.change(screen.getByLabelText('Created'), { target: { value: '1d' } })
+    await waitFor(() => expect(calls.at(-1)!.url.searchParams.get('older_than')).toMatch(/^\d{4}-\d\d-\d\dT/))
+    expect(Date.now() - Date.parse(calls.at(-1)!.url.searchParams.get('older_than')!)).toBeGreaterThanOrEqual(86_000_000)
+    fireEvent.change(screen.getByLabelText('Order'), { target: { value: 'id' } })
+    await waitFor(() => expect(calls.at(-1)!.url.searchParams.get('order')).toBe('id'))
+  })
+
   it('says plainly when nothing is open, and explains a 403', async () => {
     routes['GET /api/v1/llm/batches'] = () => ({ body: { batches: [] } })
     const first = show(<OpenBatches />)
@@ -347,6 +371,6 @@ describe('Open batches', () => {
     first.unmount()
     routes['GET /api/v1/llm/batches'] = () => ({ status: 403, body: { message: 'ADMIN_REQUIRED' } })
     show(<OpenBatches />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Listing batches needs an administrator.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('You need the admin role for this.')
   })
 })
