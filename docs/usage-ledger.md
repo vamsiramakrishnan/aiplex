@@ -56,6 +56,7 @@ Unknown query parameters and unknown `group_by` fields are rejected with
 | `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`) and `scale`. |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
+| `session` | `true` for a WebSocket session. One record covers the whole session, and its usage is final only with a terminal observation. Omitted otherwise. |
 | `request_id`, `trace_id` | Correlation identifiers. |
 
 ## Unknown is not zero
@@ -96,8 +97,10 @@ when the cause is a session. A record with no `usage_bound` has final counters, 
 is `null` when nothing was observed.
 
 **Summaries add bounded records into totals.** `GET /api/v1/usage/summary` sums every
-record's counters, including records with a `usage_bound`. The summary has no separate
-count of bounded records, and `usage_bound` is not a `group_by` field or a filter. A record
+record's counters, including records with a `usage_bound`. The summary also reports
+`bounded_usage_records`, `lower_bound_records`, `ambiguous_usage_records` and
+`partial_usage_records`. Each is omitted when zero. `usage_bound` itself is not a
+`group_by` field or a filter. A record
 counts toward `unknown_usage_records` only when its `usage` is `null`. A bounded record with
 counters is therefore counted in the token totals as observed, not as unknown. Read the
 records (`GET /api/v1/usage/records`, which returns the `usage_bound` field) when a total
@@ -150,9 +153,15 @@ aiplex usage prices get example-flash
 # Records for one agent in the last day, errors only
 aiplex usage records --agent tutor-agent --since 24h --status error
 
+# Records that entered through one access point, by a user or agent caller
+aiplex usage records --access-point ide-team --caller-kind agent --since 24h
+
 # Daily totals by model and status for the last week
 # (--by model,status is the same as --by model_id,status)
 aiplex usage summary --by model,status --bucket day --since 7d
+
+# Totals per access point and caller kind
+aiplex usage summary --by access-point,caller-kind --since 7d
 
 # One record in full
 aiplex usage get ul_<id>
@@ -163,7 +172,9 @@ aiplex usage get ul_<id>
 `agent` or `actor` to `actor_id`, `user` or `principal` to `principal_id`, `client` to
 `client_id` and `tool` to `tool_name`, before the request is sent. The API field names
 (`model_id`, `actor_id`, `principal_id`, `client_id`, `tool_name`, `plane`, `provider`,
-`status`, `access_point_id`, `caller_kind`) are also accepted. Repeating a field is an error.
+`status`, `access_point_id`, `caller_kind`) are also accepted. The CLI aliases `access-point`
+(`access_point_id`) and `caller-kind` (`caller_kind`) are accepted too. Repeating a field is
+an error.
 Summary responses carry `truncated` and `records_scanned`. A truncated total covers only the
 records scanned.
 
@@ -202,8 +213,9 @@ not change the response to the client.
   records.
 - Summaries group only on the fields listed above. There is no free-text search
   and no export route.
-- Summaries count bounded records in full (see [bounded usage](#bounded-usage)). The
-  record routes can show `usage_bound`, but no route filters on it.
+- Summaries count bounded records in full and report them in the `*_records` counts (see
+  [bounded usage](#bounded-usage)). The record routes can show `usage_bound`, but no route
+  filters on it.
 - The memory store is not durable. Firestore-backed records follow the bundled
   90-day retention bound.
 - Live and asynchronous job billing is outside this ledger. A managed request that

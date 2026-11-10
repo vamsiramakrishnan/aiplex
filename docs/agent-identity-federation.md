@@ -89,6 +89,9 @@ valid. Read the token from a file or from stdin (`--token-file -`). It is never
 accepted as a flag. The global `--token` flag is your AIPlex API token, not the
 workload token under test.
 
+The CLI prints each warning from the server's response after a successful write. An
+acknowledged overlap is one such warning.
+
 To change a binding, pass `--replace`. The CLI reads the current revision and sends it
 as `If-Match`, so a concurrent edit is rejected rather than overwritten. Remove a
 binding with `aiplex agents identity delete tutor-agent gh-ci`.
@@ -136,8 +139,6 @@ provider is rejected. Restart the API after changing these variables.
   and ES256, so request RS256 from AWS.
 - `pull_request` subjects are not offered for GitHub Actions because every pull
   request, including ones from forks, shares them.
-- The overlap acknowledgement (`acknowledge_overlap`) is available only in the API
-  body. The CLI `agents identity bind` command has no flag for it, so a CLI write that
-  overlaps a user identity provider returns a 409 that the CLI cannot acknowledge.
-- The CLI help example for `aws-sts-web-identity` uses `account_id` and `role_name`
-  inputs. The preset takes `issuer` and `role_arn`, so use those.
+- An overlap with a user identity provider is refused with a 409 unless the write sends
+  `acknowledge_overlap`. The CLI `--acknowledge-overlap` flag sends it, and the acknowledgement
+  is not stored, so it must be repeated on every write that keeps the overlap.
