@@ -185,6 +185,10 @@ func (h *ConnectedHandler) Resources(kind string) http.HandlerFunc {
 				return
 			}
 			if e = h.validate(r.Context(), tenant, kind, id, payload); e != nil {
+				if field, ok := specErrorField(e); ok {
+					JSON(w, 400, models.APIError{Code: "INVALID_SPEC", Message: e.Error(), Details: map[string]any{"field": field}, RequestID: GetRequestID(r.Context())})
+					return
+				}
 				Error(w, r, 400, "INVALID_SPEC", e.Error())
 				return
 			}

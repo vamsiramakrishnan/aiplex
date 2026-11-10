@@ -80,3 +80,30 @@ func TestUsageSummaryByAccessPointShowsBoundedCounts(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageBatchErrorClassAndBoundFlags(t *testing.T) {
+	var query map[string][]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		w.Write([]byte(`{"records":[]}`))
+	}))
+	defer server.Close()
+	if _, err := runUsage(t, server, "table", "records", "--batch=false", "--error-class", "timeout", "--bound", "none"); err != nil {
+		t.Fatal(err)
+	}
+	if query["batch"][0] != "false" || query["error_class"][0] != "timeout" || query["usage_bound"][0] != "none" {
+		t.Fatalf("query = %v", query)
+	}
+	if _, err := runUsage(t, server, "table", "records", "--batch"); err != nil || query["batch"][0] != "true" {
+		t.Fatalf("bare --batch means true: %v %v", err, query)
+	}
+	if _, err := runUsage(t, server, "table", "records", "--bound", "final"); err == nil {
+		t.Fatal("unknown bound must be rejected before the request")
+	}
+	if _, err := runUsage(t, server, "table", "summary", "--by", "error-class,bound,batch,source"); err != nil {
+		t.Fatal(err)
+	}
+	if query["group_by"][0] != "error_class,usage_bound,batch,source" {
+		t.Fatalf("query = %v", query)
+	}
+}

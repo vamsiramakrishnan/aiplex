@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
@@ -61,6 +62,7 @@ type batchHarness struct {
 	auth      atomic.Value
 	routes    map[string]func(http.ResponseWriter, *http.Request)
 	mu        sync.Mutex
+	clock     func() time.Time
 }
 
 func newBatchHarness(t *testing.T, provider Provider, protocol string, models []string, ids ...string) *batchHarness {
@@ -102,7 +104,7 @@ func (h *batchHarness) gateway(lease *collectingLease) *Gateway {
 		}
 		return nil
 	})
-	opts.Batches, opts.BatchSettler = h.store, h.settler
+	opts.Batches, opts.BatchSettler, opts.Clock = h.store, h.settler, h.clock
 	opts.AllowShared = func(context.Context, contracts.RequestContext, Surface, Operation) bool { return true }
 	if lease != nil {
 		opts.Execution = ExecutionPreparerFunc(func(context.Context, ExecutionRequest) (execution.Lease, error) { return lease, nil })

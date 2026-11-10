@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
+	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
@@ -229,7 +231,7 @@ func (h *OverviewHandler) AccessPointOverview(w http.ResponseWriter, r *http.Req
 	id := chi.URLParam(r, "id")
 	record, ap, err := h.Connected.loadAccessPointRecord(r.Context(), tenant, id)
 	if err != nil {
-		writeAccessPointLoadError(w, r, err)
+		accessPointLoadError(w, r, err, func(err error) bool { return errors.Is(err, resources.ErrNotFound) })
 		return
 	}
 	ap = overviewNormalizeAccessPoint(ap)

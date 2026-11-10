@@ -90,8 +90,17 @@ var intendedRoutePolicy = map[string]string{
 	"POST /ap/{apid}/model/{target}/invoke":                                           "auth/t",
 	"POST /ap/{apid}/model/{target}/invoke-with-response-stream":                      "auth/t",
 	"GET /ap/{apid}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent": "auth/t",
-	"GET /ap/{apid}/v0.1/servers":                                                     "auth/t",
-	"GET /ap/{apid}/skills":                                                           "auth/t",
+	// Azure OpenAI wire shapes of the same endpoints.
+	"POST /ap/{apid}/openai/v1/chat/completions":                       "auth/t",
+	"POST /ap/{apid}/openai/v1/responses":                              "auth/t",
+	"GET /ap/{apid}/openai/v1/responses/{rid}":                         "auth/t",
+	"DELETE /ap/{apid}/openai/v1/responses/{rid}":                      "auth/t",
+	"POST /ap/{apid}/openai/v1/responses/{rid}/cancel":                 "auth/t",
+	"POST /ap/{apid}/openai/v1/embeddings":                             "auth/t",
+	"POST /ap/{apid}/openai/deployments/{deployment}/chat/completions": "auth/t",
+	"POST /ap/{apid}/openai/deployments/{deployment}/embeddings":       "auth/t",
+	"GET /ap/{apid}/v0.1/servers":                                      "auth/t",
+	"GET /ap/{apid}/skills":                                            "auth/t",
 	// MCP Streamable HTTP is mounted for every method.
 	"* /ap/{apid}/mcp":              "auth/t",
 	"* /ap/{apid}/mcp/{connection}": "auth/t",
@@ -356,7 +365,7 @@ func concretePath(pattern string) string {
 		"{apid}", "ap-1", "{connection}", "conn-1", "{rid}", "resp-1", "{target}", "model-1",
 		"{id}", "id-1", "{clientId}", "client-1", "{userId}", "principal-"+strings.Repeat("0", 64),
 		"{kind}", "user", "{provider}", "provider-1", "{binding}", "binding-1", "{modelId}", "model-1",
-		"{run_id}", "run-1", "{instanceId}", "instance-1",
+		"{run_id}", "run-1", "{instanceId}", "instance-1", "{deployment}", "deployment-1",
 	)
 	path := replacer.Replace(pattern)
 	if strings.HasSuffix(path, "/*") {

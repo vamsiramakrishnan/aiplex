@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -550,5 +551,45 @@ func TestUsagePriceResourceValidation(t *testing.T) {
 	prices, err := h.ModelPrices(context.Background(), "tenant")
 	if err != nil || len(prices) != 1 || prices[0].ID != "flash" {
 		t.Fatalf("stored prices %+v %v", prices, err)
+	}
+}
+
+func TestUsageAPIBatchErrorClassAndBoundFilters(t *testing.T) {
+	store := usageledger.NewMemoryStore()
+	now := time.Now().UTC().Truncate(time.Second)
+	add := func(id string, mutate func(*usageledger.Record)) {
+		r := usageledger.Record{ID: id, TenantID: "tenant", StartedAt: now, FinishedAt: now, Plane: usageledger.PlaneLLM, Status: usageledger.StatusOK, Source: usageledger.SourceManaged, Requests: 1, Cost: usageledger.UnknownCost()}
+		mutate(&r)
+		if err := store.Append(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("plain", func(*usageledger.Record) {})
+	add("batch", func(r *usageledger.Record) { r.Batch = true })
+	add("limited", func(r *usageledger.Record) { r.Status, r.ErrorClass = usageledger.StatusError, "rate_limited" })
+	add("bounded", func(r *usageledger.Record) { r.UsageBound = usageledger.UsageAmbiguous })
+	h := NewUsageHandler(store, func(*http.Request) (string, error) { return "tenant", nil }, false)
+	admin := adminAccess("root")
+	for query, want := range map[string]string{
+		"batch=true":               "batch",
+		"batch=false":              "bounded,limited,plain",
+		"error_class=rate_limited": "limited",
+		"usage_bound=ambiguous":    "bounded",
+		"usage_bound=none":         "batch,limited,plain",
+	} {
+		got := recordIDs(t, usageGet(t, h.ListRecords, "/api/v1/usage/records?"+query, admin, 200))
+		sort.Strings(got)
+		if strings.Join(got, ",") != want {
+			t.Errorf("%s: got %v want %s", query, got, want)
+		}
+	}
+	for _, bad := range []string{"batch=1", "batch=yes", "usage_bound=final"} {
+		usageGet(t, h.ListRecords, "/api/v1/usage/records?"+bad, admin, 400)
+		usageGet(t, h.Summary, "/api/v1/usage/summary?"+bad, admin, 400)
+	}
+	var s usageledger.Summary
+	_ = json.Unmarshal(usageGet(t, h.Summary, "/api/v1/usage/summary?batch=false&group_by=error_class,source", admin, 200), &s)
+	if s.RecordsScanned != 3 || len(s.Groups) != 2 {
+		t.Fatalf("%+v", s)
 	}
 }

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 103 92" width="103" height="92" role="img" aria-labelledby="aiplex-lockup-s-mono-title aiplex-lockup-s-mono-desc">
   <title id="aiplex-lockup-s-mono-title">AIPlex</title>
-  <desc id="aiplex-lockup-s-mono-desc">AIPlex stacked lockup in one colour (inherits currentColor): the gate mark at twice the wordmark cap height, centred above the wordmark.</desc>
-  <g id="mark" transform="translate(19.5 -4) scale(2)">
+  <desc id="aiplex-lockup-s-mono-desc">AIPlex stacked lockup in one colour (inherits currentColor): the gate mark at twice the wordmark cap height, centred above the wordmark, shifted 0.8 mark units left of geometric centre to balance the weight of the gate.</desc>
+  <g id="mark" transform="translate(17.9 -4) scale(2)">
     <path id="lanes" d="M2 6h4l10 10M2 26h4l10-10M2 16h14M24 16h6" fill="none" stroke="currentColor" stroke-width="4"/>
     <rect id="gate" x="14" y="10" width="12" height="12" fill="currentColor"/>
   </g>

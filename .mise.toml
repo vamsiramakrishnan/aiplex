@@ -5,7 +5,7 @@
 # Activate:      eval "$(mise activate bash)"  (add to ~/.bashrc)
 
 [tools]
-go       = "1.24"
+go       = "1.25"
 node     = "22"
 terraform = "1.12"
 helm     = "3.17"
@@ -13,8 +13,8 @@ kubectl  = "1.32"
 
 [env]
 # Local development defaults (override in .env for production)
-AIPLEX_HOST = "0.0.0.0"
-AIPLEX_PORT = "8080"
+HOST = "0.0.0.0"
+PORT = "8080"
 LOG_LEVEL = "debug"
 FIRESTORE_EMULATOR_HOST = "localhost:8086"
 FIRESTORE_PROJECT_ID = "aiplex-dev"

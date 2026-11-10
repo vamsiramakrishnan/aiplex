@@ -32,7 +32,9 @@ import (
 //     https://learn.microsoft.com/en-us/azure/foundry/openai/reference
 //     (the openai package's AzureOpenAI client sends api-key.)
 //
-// OpenAI's SDKs send Authorization: Bearer, so OpenAI paths need no adapter.
+// OpenAI's SDKs send Authorization: Bearer, so OpenAI paths need no adapter;
+// the access-point OpenAI wires (/ap/{id}/v1/... and the Azure-shaped
+// /ap/{id}/openai/...) also accept the api-key header.
 // AWS SDKs sign with SigV4 (not an AIPlex-accepted token) and are not handled.
 //
 // Never accepted: a token in a URL query parameter. Such requests on these
@@ -84,8 +86,12 @@ func nativeKeyRoute(r *http.Request) (model bool, kind nativeKeyKind, errWire st
 			return true, nativeKeyGenAI, WireGenAI
 		case strings.HasPrefix(rest, "/model/"):
 			return true, nativeKeyNone, WireBedrockConverse
-		case strings.HasPrefix(rest, "/v1/"):
-			return true, nativeKeyNone, WireOpenAIChat
+		case strings.HasPrefix(rest, "/openai/"), strings.HasPrefix(rest, "/v1/"):
+			// OpenAI wires, including the Azure OpenAI SDK's /openai/... shapes
+			// (access_point_azure.go): the Azure SDK's api-key header is
+			// accepted as the AIPlex token. An Authorization header that
+			// differs from it is refused, never merged.
+			return true, nativeKeyAzure, WireOpenAIChat
 		}
 		return false, nativeKeyNone, ""
 	case strings.HasPrefix(path, "/api/v1/llm/gateway/"):

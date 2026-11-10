@@ -121,7 +121,7 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	_, ap, err := h.Connected.loadAccessPointRecord(r.Context(), tenant, id)
 	if err != nil {
-		writeAccessPointLoadError(w, r, err)
+		accessPointLoadError(w, r, err, errorsIsNotFound)
 		return
 	}
 	ap = overviewNormalizeAccessPoint(ap)

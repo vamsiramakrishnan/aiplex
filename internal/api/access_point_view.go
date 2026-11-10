@@ -71,7 +71,7 @@ func (h *ConnectedHandler) accessPointReads(resource http.HandlerFunc) http.Hand
 				JSON(w, http.StatusOK, h.accessPointCallerView(ap))
 				return
 			}
-			if err != nil && !errors.Is(err, resources.ErrNotFound) && !errors.Is(err, errAccessPointInvalid) {
+			if err != nil && !errors.Is(err, resources.ErrNotFound) && !errors.Is(err, errAccessPointRecordInvalid) {
 				Error(w, r, http.StatusServiceUnavailable, "ACCESS_POINT_UNAVAILABLE", "access point configuration is unavailable")
 				return
 			}

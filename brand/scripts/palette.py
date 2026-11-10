@@ -157,6 +157,86 @@ SURFACES = {
 ON_GATE = {"light": "#FFFFFF", "dark": NEUTRAL["950"]}
 
 
+# ---------------------------------------------------------------- primary tonal scale
+# Computed in OKLCH around Gate Blue's hue. Step 600 is the primary itself in each
+# mode (#2F4FD8 light, #8DA2FF dark); the other steps follow a lightness ladder.
+# Light: 50 is the palest tint, 950 the deepest shade. Dark: the ladder is
+# reversed so that the same step plays the same role on a dark page (50 = the
+# most subtle tint against neutral-950, 950 = nearly white). A component that
+# uses primary-100 for a selected background and primary-600 for its text
+# therefore works in both modes. Chroma follows the anchor and tapers towards
+# the ends of the ladder, then is reduced further if needed to stay in sRGB.
+
+def hex_to_oklch(h):
+    L, a, b = lin_to_oklab(*[to_lin(c) for c in hex_to_rgb(h)])
+    return L, math.hypot(a, b), math.degrees(math.atan2(b, a)) % 360
+
+
+STEPS = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900", "950"]
+PRIMARY_LADDER = {
+    "light": [0.975, 0.945, 0.89, 0.80, 0.70, 0.60, None, 0.44, 0.37, 0.30, 0.24],
+    "dark":  [0.19, 0.23, 0.29, 0.37, 0.46, 0.61, None, 0.80, 0.86, 0.92, 0.96],
+}
+
+
+def primary_scale(mode):
+    anchor = BRAND["gate"][mode]
+    L0, C0, H0 = hex_to_oklch(anchor)
+    out = {}
+    for step, L in zip(STEPS, PRIMARY_LADDER[mode]):
+        if L is None:
+            out[step] = anchor
+            continue
+        taper = max(0.12, 1 - abs(L - L0) * (1.5 if mode == "light" else 0.9))
+        if mode == "dark":
+            taper *= min(1.0, L / 0.45)  # keep the darkest tints near-neutral against neutral-950
+        out[step] = oklch(L, C0 * taper, H0)
+    return out
+
+
+PRIMARY = {m: primary_scale(m) for m in ("light", "dark")}
+
+
+def best_on(bg):
+    """Text colour for a filled step: white or neutral-950, whichever contrasts more."""
+    w, k = contrast("#FFFFFF", bg), contrast(NEUTRAL["950"], bg)
+    return ("#FFFFFF", w) if w >= k else (NEUTRAL["950"], k)
+
+
+# Semantic aliases: a product can theme itself from these alone.
+ALIASES = {
+    mode: {
+        "bg": SURFACES[mode]["bg"],
+        "surface": SURFACES[mode]["surface"],
+        "surface-raised": SURFACES[mode]["surface-raised"],
+        "border": SURFACES[mode]["border"],
+        "text": SURFACES[mode]["text"],
+        "text-muted": SURFACES[mode]["text-muted"],
+        "primary": PRIMARY[mode]["600"],
+        "primary-hover": PRIMARY[mode]["700"],
+        "primary-contrast": ON_GATE[mode],
+        "primary-subtle": PRIMARY[mode]["100"],
+        "focus-ring": PRIMARY[mode]["600"],
+        **{f"status-{n}-{k}": v[mode][k] for n, v in STATUS.items() for k in ("fg", "bg")},
+    }
+    for mode in ("light", "dark")
+}
+
+
+def primary_step_rows():
+    rows = []
+    for mode in ("light", "dark"):
+        page = SURFACES[mode]["bg"]
+        for step, hx in PRIMARY[mode].items():
+            on, r = best_on(hx)
+            rows.append({"mode": mode, "step": step, "hex": hx,
+                         "best_text_on_step": on, "ratio_text_on_step": round(r, 2),
+                         "white_on_step": round(contrast("#FFFFFF", hx), 2),
+                         "neutral950_on_step": round(contrast(NEUTRAL["950"], hx), 2),
+                         "step_as_text_on_page": round(contrast(hx, page), 2)})
+    return rows
+
+
 def pairings():
     """(mode, foreground name, fg, background name, bg, minimum)"""
     out = []
@@ -177,6 +257,11 @@ def pairings():
             out.append((mode, f"module-{m} (graphic)", v[mode], "bg", s["bg"], 3.0))
             out.append((mode, f"module-{m} (graphic)", v[mode], "surface", s["surface"], 3.0))
         out.append((mode, "border (graphic, decorative)", s["border"], "bg", s["bg"], None))
+        a = ALIASES[mode]
+        for fg_name, bg_name in (("primary-contrast", "primary"), ("primary-contrast", "primary-hover"),
+                                 ("primary", "bg"), ("primary", "surface"), ("primary-hover", "bg"),
+                                 ("primary", "primary-subtle"), ("text", "primary-subtle")):
+            out.append((mode, f"alias {fg_name}", a[fg_name], f"alias {bg_name}", a[bg_name], 4.5))
     return out
 
 
@@ -214,6 +299,13 @@ def report():
         print(f"worst of all {len(names) * (len(names) - 1) // 2} pairs ({mode}): "
               f"{worst[1]}/{worst[2]} under {worst[3]} = {worst[0]:.3f}")
     print(f"\nminimum required for adjacent pairs: {MIN_ADJACENT_DE}")
+
+    print("\n## Primary tonal scale: best text colour on each step, and the step as text on the page\n")
+    print("| mode | step | hex | text on step | ratio | step on page |")
+    print("|---|---|---|---|---|---|")
+    for r in primary_step_rows():
+        print(f"| {r['mode']} | {r['step']} | {r['hex']} | {r['best_text_on_step']} | "
+              f"{r['ratio_text_on_step']:.2f} | {r['step_as_text_on_page']:.2f} |")
     print("\nRESULT:", "all checks pass" if ok else "FAILURES above")
     return ok, rows, cvd
 
@@ -228,6 +320,8 @@ def token_tree():
             "brand": BRAND,
             "status": STATUS,
             "module": MODULES,
+            "primary": PRIMARY,
+            "alias": ALIASES,
             "semantic": {
                 mode: {**SURFACES[mode], "gate": BRAND["gate"][mode], "on-gate": ON_GATE[mode],
                        "mist": BRAND["mist"][mode], "focus-ring": BRAND["gate"][mode]}
@@ -253,11 +347,14 @@ def css():
         b += [f"  --aiplex-status-{n}: {v[mode]['fg']};\n  --aiplex-status-{n}-bg: {v[mode]['bg']};"
               for n, v in STATUS.items()]
         b += [f"  --aiplex-module-{n}: {v[mode]};" for n, v in MODULES.items()]
+        b += [f"  --aiplex-primary-{k}: {v};" for k, v in PRIMARY[mode].items()]
+        b += [f"  --aiplex-color-{k}: {v};" for k, v in ALIASES[mode].items()]
         return b
 
     lines.append(":root {")
     lines += [f"  --aiplex-neutral-{k}: {v};" for k, v in NEUTRAL.items()]
     lines += [f"  --aiplex-brand-{n}-{m}: {v[m]};" for n, v in BRAND.items() for m in ("light", "dark")]
+    lines += [f"  --aiplex-primary-{m}-{k}: {v};" for m in ("light", "dark") for k, v in PRIMARY[m].items()]
     f = token_tree()["font"]
     lines += [f"  --aiplex-font-sans: {f['sans']};", f"  --aiplex-font-mono: {f['mono']};"]
     lines += ["", "  color-scheme: light dark;"]
@@ -279,7 +376,7 @@ if __name__ == "__main__":
     passed, rows, cvd = report()
     if "--write" in sys.argv:
         tree = token_tree()
-        tree["checks"] = {"contrast": rows, "module_cvd_adjacent": cvd,
+        tree["checks"] = {"contrast": rows, "primary_steps": primary_step_rows(), "module_cvd_adjacent": cvd,
                           "module_cvd_min_adjacent_oklab": MIN_ADJACENT_DE}
         os.makedirs(TOKENS, exist_ok=True)
         with open(os.path.join(TOKENS, "tokens.json"), "w") as fh:

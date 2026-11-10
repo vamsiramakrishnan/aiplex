@@ -68,7 +68,7 @@ lint: ## Run Go vet
 # ─── Run ────────────────────────────────────────────────
 
 run-local: ## Run API server locally (port 8080)
-	AIPLEX_HOST=0.0.0.0 AIPLEX_PORT=8080 LOG_LEVEL=debug \
+	HOST=0.0.0.0 PORT=8080 LOG_LEVEL=debug \
 		$(GO) run ./cmd/aiplex-api
 
 dev: docker-up run-local ## Start local deps + API server
@@ -102,7 +102,7 @@ dev-tape: ## Start AIPlex API with tape-server alongside (full pipeline locally)
 		trap "echo '→ Stopping tape-server'; kill $$TAPE_PID 2>/dev/null" EXIT INT TERM; \
 		sleep 1; \
 		echo "→ Starting AIPlex API with TAPE_URL + TAPE_INGEST_TOKEN wired..."; \
-		AIPLEX_HOST=0.0.0.0 AIPLEX_PORT=8080 LOG_LEVEL=debug \
+		HOST=0.0.0.0 PORT=8080 LOG_LEVEL=debug \
 		TAPE_URL=tape://127.0.0.1:7878 \
 		TAPE_INGEST_TOKEN=$(TAPE_INGEST_TOKEN) \
 		TAPE_INGEST_RPS=1000 \
