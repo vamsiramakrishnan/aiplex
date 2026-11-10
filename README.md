@@ -2,223 +2,158 @@
 
 # AIPlex
 
-AIPlex is a control plane for agent interactions. It puts MCP, A2A, and model traffic behind one gateway, one auth stack, one policy layer, and one audit trail.
+AIPlex is a gateway that sits between the people, agents and developer tools that call AI models and MCP tools, and those models and tools, so that access, identity and usage are decided and recorded in one place.
 
-| Plane | Protocol | Governs | Route CRD | First integration |
-| --- | --- | --- | --- | --- |
-| MCPlex | MCP (JSON-RPC) | Agent to tool | `MCPRoute` | [Deploy a tool](#quick-start) |
-| A2APlex | A2A (HTTP/JSON) | Agent to agent | `HTTPRoute` | [Connect a native agent](docs/connected-plexes.md) |
-| LLMPlex | Provider APIs | Agent to model | `LLMRoute` | [Configure model routing](#declarative-deployment) |
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/launch/architecture-dark.svg">
+  <img alt="Callers (agents, users, clients) reach one access point, which checks identity and policy and writes a usage record before forwarding to models, tools and skills." src="brand/launch/architecture.svg">
+</picture>
 
-These three planes carry traffic. ClientPlex configures developer clients, SkillsPlex exposes skill discovery and reported history, QuotaPlex governs shared consumption, and Networking prepares connectivity and infrastructure plans. They share identity, permissions, revisioned storage and audit. See [how the modules fit together](#how-the-plex-modules-fit-together).
+## Try it in 60 seconds
 
-## Choose a first-use path
-
-Start with one interaction and its identity policy. Use [local development](#local-development) for a local API and Console, or [quick start](#quick-start) to deploy a platform. [Declarative deployment](#declarative-deployment) adds tools, agent permissions and model routes to an existing platform.
-
-For an existing developer client, start with [ClientPlex setup](#developer-setup-with-clientplex). For optional shared budgets and admission, read [QuotaPlex](#shared-quotas-with-quotaplex) and its [execution coverage matrix](docs/quotaplex-execution-coverage.md).
-
-## Quick start
-
-Use Go 1.25+ and Node 22, and prepare [operator-values.yaml](docs/helm-identity-config.md) with your verified identity configuration. This path provisions GCP infrastructure and requires project credentials and the deployment tools installed by `aiplex init`.
+You need Go 1.25 or newer, `curl` and a terminal. No Docker, cloud account or API key.
 
 ```bash
 git clone https://github.com/vamsiramakrishnan/aiplex.git
 cd aiplex
-make console
 make build
 export PATH="$PWD/bin:$PATH"
-
-aiplex init
-aiplex platform apply --values operator-values.yaml
+aiplex dev
 ```
 
-On an existing platform, deploy a tool from its catalog. Replace `TEMPLATE_ID` with a listed template and `INSTANCE_ID` with the ID returned by deployment:
+`aiplex dev` starts the API in memory on `127.0.0.1:8080` with a built-in mock model and a built-in MCP server, creates an access point called `local`, and signs you in as a local admin. It prints this (trimmed; the full text also lists the CLI context and log file, and repeats the commands below):
+
+```text
+  AIPlex local development
+
+  API            http://127.0.0.1:8080  (development mode, in memory, loopback only)
+  You            developer@localhost  (admin; token from a local issuer, valid 12h)
+  Model          mock-gpt  via the built-in mock provider (OpenAI Chat Completions wire, no API key)
+  Tools          local-tools: echo, add, reset_counter  (built-in MCP server)
+  Access point   local  ->  http://127.0.0.1:8080/ap/local
+  Price          mock-gpt  (placeholder rates, so estimated cost shows in usage)
+  Quota          off. QuotaPlex needs an operator quota policy file (AIPLEX_QUOTA_FILE); see docs/quotaplex-administration.md
+
+  WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy 127.0.0.1:8080.
+
+  Ready in 0.1s. In another terminal:
+    ...
+  Press Ctrl+C to stop. State is in memory and is discarded on stop.
+```
+
+In a second terminal (from the same directory), send a request through the access point:
 
 ```bash
-aiplex login
-aiplex catalog list --plane mcplex
-aiplex deploy TEMPLATE_ID --plane mcplex --name my-tool
-aiplex get instance INSTANCE_ID
+export PATH="$PWD/bin:$PATH"
+eval "$(aiplex dev env)"
+
+curl -s "$AIPLEX_URL/ap/local/v1/chat/completions" \
+  -H "Authorization: Bearer $AIPLEX_TOKEN" -H "Content-Type: application/json" \
+  -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-Operator surfaces:
+```json
+{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from the AIPlex mock model. You said: Hello","role":"assistant"}}],"created":1794283277,"id":"chatcmpl-mock-1794283277328460091","model":"mock-gpt","object":"chat.completion","usage":{"completion_tokens":9,"prompt_tokens":1,"total_tokens":10}}
+```
+
+Now ask who used what:
 
 ```bash
-aiplex tui      # terminal dashboard
-aiplex console  # local web console
+aiplex usage summary
 ```
 
-[Documentation](https://docs.aiplex.dev) · [Getting started](https://docs.aiplex.dev/docs/getting-started/local-development)
+```text
+REQUESTS  ERRORS  DENIED  IN  OUT  CACHE-W  MODALITY  UNITS  BATCH  COST  UNKNOWN  BOUNDED
+──────────────────────────────────────────────────────────────────────────────────────────
+1  0  0  1  9  unknown  —  —  —  USD 0.000006 (estimated)  —  —
 
-## Request path
+1 records scanned.
+```
+
+(The separator line is shortened here. Column layout may change as the CLI output is reworked.)
+
+Stop `aiplex dev` with Ctrl+C. State is in memory and is discarded.
+
+### What you just saw
+
+- A request went to an **access point**, one stable URL (`/ap/local/...`) that admits callers by kind and identity before any model or tool work happens. Your OpenAI-style client only needed a base URL and a token (`OPENAI_BASE_URL` and `OPENAI_API_KEY` are set by the `eval` line, so an OpenAI SDK works unchanged).
+- The call was recorded in a **usage ledger**: who called, which model, tokens in and out, and cost. The cost says `(estimated)` because the price is a placeholder; a token count or price that is not known is shown as unknown, never as zero.
+- The same access point serves MCP tools at `http://127.0.0.1:8080/ap/local/mcp`. `aiplex connect local` prints ready-to-paste configuration for curl, MCP clients and several developer clients.
+
+More to try with `aiplex dev` running: `aiplex usage records`, `aiplex usage summary --by model`, `aiplex connect local`, and the [examples](examples/README.md). `make demo` scripts the whole run, including a streaming request and an MCP tool call, and exits non-zero on the first failure.
+
+## What it does
+
+AIPlex separates **who is calling** from **what they are calling**, and puts one policy and one record in between.
+
+| Callers | How AIPlex tells them apart |
+| --- | --- |
+| **Agents** | Registered workloads. They authenticate with a token from their own platform, bound to a registered agent ([agent identity federation](docs/agent-identity-federation.md)). A delegated call keeps both the user and the agent identity. |
+| **Users** | People who sign in through a corporate identity provider such as Google Workspace, Microsoft Entra ID or Okta, or any OIDC issuer ([user identity federation](docs/user-identity-federation.md)). Groups come from verified claims or a signed directory authority. |
+| **Clients** | Registered developer clients such as Claude, Codex and Antigravity ([ClientPlex](docs/clientplex.md)). AIPlex produces reviewed configuration for them; it does not install them. |
+
+| Resources | What AIPlex does |
+| --- | --- |
+| **Models** (LLMPlex) | Forwards native model operations to OpenAI, Anthropic, Azure OpenAI, Bedrock, Gemini Developer and OpenAI-compatible endpoints, and Google Cloud endpoints, over HTTP, SSE and WebSocket where the surface supports it. Provider credentials are references, not values. See [model providers](docs/model-providers.md). |
+| **Tools** (MCPlex) | Fronts MCP servers with upstream authentication and allow/deny and read-only tool policy. See [tool connection auth](docs/tool-connection-auth.md). |
+| **Skills** (SkillsPlex) | Lists deployed skills and records reported invocation history. A report does not execute a skill or prove authorization. |
+
+Around those:
+
+- **Access points** give a group of callers one URL in front of models, tools and skills ([specification](docs/access-points.md)).
+- **The usage ledger** records every managed exchange ([specification](docs/usage-ledger.md)).
+- **QuotaPlex** (opt-in) shares budgets and admission controls on covered execution paths ([guide](docs/quotaplex-core.md)).
+- **A2APlex** invokes native cloud agents (Google, AWS, Foundry, Copilot) and records delegation history ([guide](docs/connected-plexes.md)).
+- **Networking** prepares private-connectivity and egress plans ([guide](docs/anvil-deployment-provider.md)).
+
+### Request paths
 
 ```text
 Agents / IDEs / CLIs
        │
-       ▼
-┌──────────────────────────────┐
-│  Envoy AI Gateway            │
-│  /mcp/*  → MCPlex  (tools)   │
-│  /a2a/*  → A2APlex (agents)  │
-│  /llm/*  → LLMPlex (models)  │
-│  ext_authz + rate limiting   │
-└──────────────────────────────┘
-       │ mTLS
-       ▼
-  K8s namespaces: mcplex, a2aplex, llmplex
+       ├── managed path ─────────► AIPlex API  /ap/{id}/...  (models, MCP tools, skills)
+       │                             verifies the caller, applies admission and, when
+       │                             enabled, quota; writes the usage ledger
+       │
+       └── gateway path ─────────► Envoy AI Gateway  /mcp/*  /a2a/*  /llm/*
+                                     ext_authz (aiplex-authz) + rate limiting
 ```
 
-A JWT carries scopes across the three planes:
+These are two separate paths. A request on one is not metered or admitted by the other, and access points do not intercept traffic that bypasses them. See the [access-point specification](docs/access-points.md) and the [execution coverage matrix](docs/quotaplex-execution-coverage.md) for what each path covers.
 
-```json
-{
-  "sub": "student@school.edu",
-  "azp": "tutor-agent",
-  "act": { "sub": "spiffe://.../sa/tutor-agent" },
-  "scope": "mcp:tools:search_curriculum a2a:task:research llm:model:gemini-2.5-flash"
-}
-```
+Effective access for a delegated call is the intersection of three limits: what the agent may use, what the user may use, and what the user consented to for this session. The authorization path is implemented by [`policies/aiplex_authz.rego`](policies/aiplex_authz.rego) and the Rust service in [`authz/`](authz/).
 
-## Declarative deployment
+## What is implemented, and what is not
 
-Save this as `aiplex.json`. Choose templates and their configuration from the target catalog, and use model IDs and provider credentials enabled in that environment:
+### Components
 
-```json
-{
-  "version": "v1",
-  "instances": [{
-    "name": "kb-search",
-    "template": "kb-search-server",
-    "plane": "mcplex",
-    "config": { "INDEX_PATH": "/data/curriculum" }
-  }],
-  "routes": [{
-    "model_id": "gemini-2.5-flash",
-    "backends": [
-      { "provider": "google", "model_id": "gemini-2.5-flash", "weight": 80, "enabled": true },
-      { "provider": "anthropic", "model_id": "claude-sonnet-4-20250514", "weight": 20, "enabled": true }
-    ]
-  }],
-  "agents": [{
-    "client_id": "tutor-agent",
-    "display_name": "Tutor Agent",
-    "auth_method": "client_credentials",
-    "grant_types": ["client_credentials"],
-    "allowed_scopes": [
-      "mcp:tools:search_curriculum",
-      "a2a:task:research",
-      "llm:model:gemini-2.5-flash"
-    ]
-  }]
-}
-```
-
-Apply it with:
-
-```bash
-aiplex apply -f aiplex.json
-```
-
-These model routes configure Envoy. A ClientPlex gateway registration references a separately saved [LLMPlex model surface](docs/connected-plexes.md#client-compatibility); applying a route does not create that surface. Managed tool authorization and invocation follow the [MCP runtime guide](docs/mcp-runtime-authorization.md).
-
-## Components
-
-| Component | Language | Purpose |
-|-----------|----------|---------|
-| **AIPlex API** | Go | REST API, deploy engine, consent handler |
-| **AIPlex Console** | React/TS | Web UI for all three planes |
-| **aiplex-authz** | Rust | Scope authorization and JWT verification |
-| **AIPlex CLI** | Go | Command-line interface |
-| **Ory Hydra** | Go (configured) | OAuth 2.1 token issuance |
-| **Ory Kratos** | Go (configured) | Identity, social sign-in |
-| **Envoy AI Gateway** | C++ (configured) | MCPRoute, HTTPRoute, LLMRoute |
-
-Infrastructure: GKE Autopilot, Cloud Service Mesh with mTLS, Firestore, AlloyDB, and Secret Manager.
-
-## Authorization model
-
-Effective access is the intersection of three limits:
-
-```text
-Agent ceiling ∩ user ceiling ∩ session consent = effective access
-```
-
-- Agent ceiling: resources the agent may access.
-- User ceiling: resources the user may access.
-- Session consent: resources the user approved for the current session.
-
-The authorization path is implemented by [`policies/aiplex_authz.rego`](policies/aiplex_authz.rego) and the Rust `ext_authz` service.
-
-## How the Plex modules fit together
-
-| Module | What it does | Ownership and current boundary |
+| Component | Language | State |
 | --- | --- | --- |
-| **MCPlex** | Connect tools, register OAuth clients, authorize users and invoke configured tools | Tool connections, delegated OAuth, eight upstream auth types, allow/deny and read-only tool policy, and stateless JSON/finite-SSE execution. Registration alone does not execute or meter a tool. See [tool connection auth](docs/tool-connection-auth.md). |
+| AIPlex API (`cmd/aiplex-api`) | Go | Runs locally in memory with `aiplex dev`. Firestore-backed storage is covered by tests against the Firestore emulator; it has not been run against managed Firestore. |
+| AIPlex CLI (`cmd/aiplex-cli`) | Go | Builds and passes tests. Includes `aiplex dev`. |
+| Console (`console/`) | React and TypeScript | Embedded in the CLI binary when built first (`make console`). |
+| `aiplex-authz` (`authz/`) | Rust | Scope authorization for the gateway `ext_authz` hook; has its own tests in CI. |
+| Go SDK (`sdk/`) | Go | Client for the API. |
+| Deployment (`deploy/`) | Terraform, Helm, Kubernetes, Ory config | Helm charts are linted in CI. No deployment to a live cloud project is recorded in this repository. |
+| Docs site (`docs-site/`) | Docusaurus | Builds with broken links as errors. |
+
+### Modules
+
+| Module | What it does | Boundary |
+| --- | --- | --- |
+| **MCPlex** | Connect tools, register OAuth clients, authorize users and invoke configured tools | Tool connections, delegated OAuth, eight upstream auth types, allow/deny and read-only tool policy, and stateless JSON/finite-SSE execution. Registration alone does not execute or meter a tool. |
 | **A2APlex** | Invoke native cloud agents and inspect delegation history | Google, AWS, Foundry and Copilot connections, actor-separated sessions and reported delegation chains. Opaque agent-internal model/tool calls need their own instrumentation. |
-| **LLMPlex** | Configure model routes/surfaces and forward native model operations | HTTP/SSE/Live protocols, client wire facades, OpenAI/Anthropic/Azure/Bedrock/OpenAI-compatible/Gemini Developer provider surfaces, media and [batch](docs/model-batches.md) operations, and stateful resource ownership. Available protocols and models are explicit operator configuration. See [model providers](docs/model-providers.md). |
-| **ClientPlex** | Connect Antigravity, Codex and Claude clients to supported model endpoints | Client profiles, saved registrations, protocol checks and reviewed configuration fragments. It does not install clients, issue credentials or grant model access. |
-| **SkillsPlex** | Discover deployed skills and inspect invocation history | Skill manifests, capabilities and attributed audit records. An invocation report does not execute a skill or prove authorization. |
+| **LLMPlex** | Configure model routes/surfaces and forward native model operations | HTTP/SSE/Live protocols, client wire facades, OpenAI/Anthropic/Azure/Bedrock/OpenAI-compatible/Gemini Developer provider surfaces, media and [batch](docs/model-batches.md) operations, and stateful resource ownership. Available protocols and models are explicit operator configuration. |
+| **ClientPlex** | Connect Antigravity, Codex and Claude clients to supported model endpoints | Client profiles, saved registrations, protocol checks and reviewed configuration fragments. It does not install clients, issue credentials or grant model access. A rendered plan stays `configured-unverified` until the installed client, provider access and deployment are qualified. |
+| **SkillsPlex** | Discover deployed skills and inspect invocation history | Skill manifests, capabilities and attributed audit records. |
 | **QuotaPlex** | Share budgets and admission controls across supported execution paths | Allocations, prices, funding, budget holds, admitted rates, permits, scheduling and settlement. Opt-in; only explicitly covered paths are protected. |
 | **Networking** | Prepare private connectivity, identity and egress configuration | Native network artifacts and optional reviewed Anvil execution. Saved intent, successful apply and observed readiness are separate states. |
 
-The shared identity layer verifies workforce/workload/native-agent credentials, resolves permissions and keeps principal/actor memberships separate. Modules use the same tenant-scoped resource store and credential-destination policy. See [configuration and API ownership](docs/connected-plexes.md), [module contracts](docs/modules.md), and [native networking/Anvil](docs/anvil-deployment-provider.md).
+The shared identity layer verifies workforce, workload and native-agent credentials and keeps principal and actor memberships separate. Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity and Microsoft Entra Agent ID through scoped inventory, reviewed policy plans and durable apply receipts ([native governance](docs/native-agent-governance.md)). See [module contracts](docs/modules.md).
 
-Identity also connects native Google Agent Registry/IAM, AWS AgentCore Identity and Microsoft Entra Agent ID through scoped inventory, reviewed policy plans and durable apply receipts. See [native governance](docs/native-agent-governance.md) for credential brokers, provider limits and configuration.
+### QuotaPlex
 
-## Developer setup with ClientPlex
-
-ClientPlex answers: which client is being configured, which protocol can it speak, which tenant-owned destination can serve it, and what configuration does the developer need?
-
-```text
-Choose a client profile: Antigravity / Codex / Claude
-                         |
-                         v
-       Save registration + credential/network references
-                         |
-                         v
-       Resolve destination + check installed protocol
-                         |
-                         v
-       Review configuration fragments and required hosts
-                         |
-                         v
-       Developer merges configuration into native client
-```
-
-Use `aiplex clients profiles` to inspect supported clients. Registrations and plans are also available through the API, Go SDK and ClientPlex Console. A destination can be a managed LLMPlex facade or an explicitly configured external gateway; direct mode uses the client's native provider authentication. Credentials remain opaque references, and plans leave existing workstation files intact.
-
-Client setup and execution have different owners: ClientPlex produces the configuration; LLMPlex handles the resulting model request; identity authorizes it; QuotaPlex applies only when that request crosses a configured managed quota path. A rendered plan remains `configured-unverified` until the installed client, provider access and deployment have been qualified. See the [ClientPlex guide](docs/clientplex.md) for profile/mode compatibility and native Claude gateway artifacts.
-
-## Shared quotas with QuotaPlex
-
-QuotaPlex is an opt-in control module shared by the existing planes. It supports unequal token, money and request allocations, independent human/agent attribution, fixed/anchored/calendar periods, explicit budget loans, atomic admission, rate limits, concurrency and weighted scheduling.
-
-For configured calls through the Go API's managed endpoints:
-
-```text
-Verified principal (+ independent delegated actor)
-                        |
-                        v
-          Managed model / tool / agent endpoint
-                        |
-                        v
- QuotaPlex: budget hold + admitted-rate debit + permit
-                        |
-                        v
-             Claim once -> native provider
-                                |
-                                v
-                    Trusted terminal evidence
-                                |
-                         +------+------+
-                         |             |
-                       known        unknown
-                         |             |
-                    settle once   retain holds
-```
-
-LLMPlex and MCPlex keep their native HTTP, SSE and tool protocols. QuotaPlex owns admission and accounting. A request-count profile measures the managed exchange; it does not measure an async job's lifetime or an agent's internal model/tool work.
+QuotaPlex supports unequal token, money and request allocations, independent human and agent attribution, fixed, anchored and calendar periods, explicit budget loans, atomic admission, rate limits, concurrency and weighted scheduling. LLMPlex and MCPlex keep their native protocols; QuotaPlex owns admission and accounting. A request-count profile measures the managed exchange; it does not measure an async job's lifetime or an agent's internal work.
 
 | Capability | Implemented | Still missing |
 | --- | --- | --- |
@@ -230,81 +165,60 @@ LLMPlex and MCPlex keep their native HTTP, SSE and tool protocols. QuotaPlex own
 | Operations | Policy preview/export, attempt/balance inspection, loans and corrections in API/CLI/Console | Isolated shadow evaluation, runtime coverage qualification and alerts for aging unknown exposure |
 | Throughput | Shared admitted-demand rates, concurrency and atomic weighted capacity admission; opt-in provider-limit cooldown and headroom gate per surface and replica ([details](docs/model-providers.md#capacity-policy)) | Provider capacity reservation, stream token pacing, preemption and provider minimum-throughput guarantees |
 
-Existing Envoy routes and direct provider calls do not automatically pass through this quota path. Admitted tokens/s and requests/s are separate from actual provider generation throughput. Hard limits require verified provider bounds, prices, identity sources and routing for each enabled profile; live billing, load and backup-restore qualification remain deployment work.
+Existing Envoy routes and direct provider calls do not automatically pass through this quota path. Admitted tokens/s and requests/s are separate from actual provider generation throughput. Hard limits need verified provider bounds, prices, identity sources and routing for each enabled profile.
 
-Read the [core guide](docs/quotaplex-core.md), [managed execution guide](docs/quotaplex-integration.md), [execution coverage and regression matrix](docs/quotaplex-execution-coverage.md), or [full readiness register](docs/quotaplex-prerequisites.md). The [foundation design](docs/quotaplex-foundation-design.md) records allocation, metering and scheduling contracts.
+### Usage coverage
 
-## Access points and the single pane
+The [usage-format coverage matrix](docs/reference/usage-formats/coverage.md) lists, per provider, surface and transport, whether usage is `exact`, `advisory` or `unsupported`. At this commit it has 47 exact rows, 9 advisory and 5 unsupported. "Exact" means the gateway reproduces the recorded fixture; the fixtures are recorded or documented provider responses, not live calls.
 
-An access point gives a group of agents, users or clients one stable URL, `https://<aiplex>/ap/{id}/…`, in front of models, MCP tools and skills. Admission checks the caller's kind and subjects before any model or tool work. A QoS block renders to reviewable QuotaPlex controls and fails closed when no control covers it. Callers can authenticate through [agent identity federation](docs/agent-identity-federation.md) or [user identity federation](docs/user-identity-federation.md). Every exchange is recorded in the [usage ledger](docs/usage-ledger.md). Start with [access points](docs/access-points.md). Access points do not translate between model wire protocols and do not intercept traffic that bypasses them.
+## Try a real provider
 
-## Module foundations
-
-Built-in Plex modules can be selected independently; external services register through versioned descriptors. See [module contracts](docs/modules.md) and [deployment migration and bugbash](docs/foundations-bugbash.md) before upgrading an existing deployment.
-
-[Foundation completion](docs/foundation-completion.md) connects revisioned configuration, directory membership, native model profiles, delegated MCP authorization, quota operations, atomic scheduling and reviewed infrastructure execution. [Production qualification](docs/production-qualification.md) supplies emulator CI, reference benchmarks and billing-evidence comparison.
-
-The [feature cohesion bugbash](docs/feature-cohesion-bugbash.md) records repairs to existing OAuth, routing, persistence, audit, SDK/CLI and Console handoffs, including deployment compatibility.
-The latest [Plex cohesion bugbash](docs/plex-cohesion-bugbash.md) covers client plans through protected execution, native protocol ambiguity, cleanup dependencies, SDK acknowledgements and Console response races.
-
-## Local Development
-
-`setup.sh` installs development tools and runs the GCP configuration wizard:
+`aiplex dev` can forward to OpenAI, Anthropic or Gemini instead of the mock model. Name the environment variable that holds your key; the key is not accepted as a flag and is never printed or written to disk:
 
 ```bash
-git clone https://github.com/vamsiramakrishnan/aiplex.git
-cd aiplex
-
-./setup.sh
+export OPENAI_API_KEY=...          # your own key
+aiplex dev --provider openai --api-key-env OPENAI_API_KEY
 ```
 
-For a local API and Console, use Go 1.25+, Node 22 and Docker Compose. From a checkout:
+Use `--provider anthropic` or `--provider gemini` with the matching variable, and `--model` to choose a model. Without the variable set, `aiplex dev` stops with an error that names it. **This path has not been run against a live provider by the project**, so treat the first run as a test. Real-provider requests cost whatever your provider charges.
 
-```bash
-make deps
-make docker-up
-make build
-export PATH="$PWD/bin:$PATH"
+## Deploy
 
-export AIPLEX_DEV_MODE=true HOST=127.0.0.1
-export FIRESTORE_EMULATOR_HOST=127.0.0.1:8086 GCP_PROJECT=aiplex-dev
-export HYDRA_ADMIN_URL=http://127.0.0.1:4445 HYDRA_PUBLIC_URL=http://127.0.0.1:4444
-export KRATOS_ADMIN_URL=http://127.0.0.1:4434 KRATOS_PUBLIC_URL=http://127.0.0.1:4433
-make run-local
+Deploying to a cluster is a multi-step operation, not a single command: Terraform for the infrastructure, Helm for the application, identity configuration for your own identity providers, and operator-supplied provider credentials. Start from [Install the platform][docs-install] and the [Helm identity configuration](docs/helm-identity-config.md), and read the [production qualification](docs/production-qualification.md) notes before enabling hard limits.
 
-# In another terminal, from the repository root:
-npm --prefix console ci
-npm --prefix console run dev -- --host 127.0.0.1
-```
+## Project status
 
-Development mode requires a loopback listener and uses development authentication. Outside a cluster, Kubernetes deployment is a no-op; local success does not establish cloud routing or provider access.
+AIPlex is **pre-1.0**. Interfaces, flags and output formats can change between releases, and the CLI's output is being reworked.
 
-Useful CLI commands:
+What has been validated, from the repository's own tests and CI:
 
-```bash
-aiplex whoami
-aiplex completion bash >> ~/.bashrc
-```
+- Go unit and integration tests, an end-to-end suite that runs the real `aiplex-api` and `aiplex` binaries against local mock upstreams (`make e2e`), and a scripted first run (`make demo`).
+- Provider usage formats replayed from recorded fixtures.
+- Firestore transactions and recovery against the official Firestore emulator.
+- Console tests and build, Helm lint, Rust tests, and JSON schema checks.
 
-The Go requirement is in `go.mod`; it takes precedence over the older Go entry in `.mise.toml`. Terraform, Helm, kubectl and Node versions are pinned in `.mise.toml`.
+What has not been validated, and is not recorded anywhere in this repository:
 
-See [Installation](https://docs.aiplex.dev/docs/getting-started/install-platform) for the full setup path.
+- Any run against live OpenAI, Anthropic, Google, Azure or AWS model endpoints.
+- Any comparison of AIPlex's usage or cost figures against a provider invoice.
+- A deployment to a live cloud project, and load, availability or backup-restore behaviour.
+- Cost shown by `aiplex dev` is from placeholder prices. The local development server is unauthenticated and must stay on loopback.
 
-## Repository layout
+See [SECURITY.md](SECURITY.md) for the security model's current limits.
 
-```text
-cmd/           Go binaries: API server and CLI
-internal/      Core packages: API, auth, catalog, deploy, registry
-authz/         Rust ext_authz service
-console/       React application
-sdk/           Go SDK
-deploy/        Terraform, Helm, Kubernetes manifests, Ory config
-policies/      OPA/Rego authorization policy
-examples/      Example aiplex.yaml files
-design/        Architecture documents
-docs-site/     Docusaurus documentation
-```
+## Documentation and community
+
+- [Documentation site][docs] · [Run it locally][docs-local] · [Concepts][docs-concepts]
+- [Examples](examples/README.md)
+- [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Security policy](SECURITY.md) · [Changelog](CHANGELOG.md)
+- Repository layout: `cmd/` (API and CLI), `internal/` and `pkg/` (Go packages), `console/` (React), `authz/` (Rust), `sdk/` (Go SDK), `deploy/` (Terraform, Helm, Kubernetes, Ory), `docs/` (verified guides), `docs-site/` (the site), `brand/`, `examples/`, `tests/`. [CLAUDE.md](CLAUDE.md) has a short orientation for contributors and coding assistants.
 
 ## License
 
-Apache 2.0
+Apache License 2.0. See [LICENSE](LICENSE).
+
+<!-- The documentation address. This block is the only place the README spells it out. -->
+[docs]: https://vamsiramakrishnan.github.io/aiplex/
+[docs-local]: https://vamsiramakrishnan.github.io/aiplex/docs/getting-started/local-development
+[docs-concepts]: https://vamsiramakrishnan.github.io/aiplex/docs/concepts
+[docs-install]: https://vamsiramakrishnan.github.io/aiplex/docs/getting-started/install-platform
