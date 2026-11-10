@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -339,18 +341,34 @@ func (w *routeWriter) Flush() {
 	}
 }
 
-// Unwrap lets a WebSocket upgrade reach the caller's connection; a session
-// is stateful and is committed before it is upgraded.
-func (w *routeWriter) Unwrap() http.ResponseWriter {
-	if !w.decided {
-		w.decided, w.status = true, http.StatusSwitchingProtocols
-		w.attempt.classify(http.StatusOK)
-		w.committed = true
-		out := w.w.Header()
-		for k, v := range w.header {
-			out[k] = append([]string(nil), v...)
-		}
+// upgrade commits the attempt for a WebSocket upgrade: a session is
+// stateful and is never retried or failed over once it is being upgraded.
+func (w *routeWriter) upgrade() {
+	if w.decided {
+		return
 	}
+	w.decided, w.status = true, http.StatusSwitchingProtocols
+	w.attempt.classify(http.StatusOK)
+	w.committed = true
+	out := w.w.Header()
+	for k, v := range w.header {
+		out[k] = append([]string(nil), v...)
+	}
+}
+
+// Hijack lets a WebSocket upgrade reach the caller's connection.
+func (w *routeWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.w.(http.Hijacker)
+	if !ok || (w.decided && !w.committed) {
+		return nil, nil, fmt.Errorf("response does not support hijacking")
+	}
+	w.upgrade()
+	return hijacker.Hijack()
+}
+
+// Unwrap exposes the caller's writer for an upgrade.
+func (w *routeWriter) Unwrap() http.ResponseWriter {
+	w.upgrade()
 	return w.w
 }
 
@@ -608,11 +626,17 @@ backends:
 				continue backends
 			}
 			call.missingGrant = ""
-			rw := &routeWriter{w: w, attempt: attempt, header: http.Header{}}
+			// A delivered AIPlex refusal is re-rendered in the caller's
+			// protocol, exactly as for a single-backend model.
+			native := &nativeErrorWriter{ResponseWriter: w, protocol: in.protocol, call: call}
+			rw := &routeWriter{w: native, attempt: attempt, header: http.Header{}}
 			h.ClientGateway(rw, inner)
 			if !rw.decided {
 				// The handler returned without a status: an empty 200.
 				rw.WriteHeader(http.StatusOK)
+			}
+			if rw.committed {
+				native.finish()
 			}
 			attempt.mu.Lock()
 			outcome, upstream, hint, dispatched := attempt.outcome, attempt.upstream, attempt.retryAfter, attempt.dispatched

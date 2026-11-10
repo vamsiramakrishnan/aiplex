@@ -142,7 +142,8 @@ func (s *Breakers) Allow(key string, e Effective) Admission {
 
 // Record reports an attempt's outcome. A breaker failure counts towards the
 // threshold; a success closes the breaker; any other outcome (a refusal by
-// AIPlex, a client error, a skip) leaves the counts alone but ends a probe.
+// AIPlex, a client error, a skip, a cache hit, which says nothing about the
+// backend) leaves the counts alone but ends a probe.
 func (s *Breakers) Record(key string, e Effective, a Admission, outcome string, upstreamStatus int) {
 	if !e.Breaker {
 		return
@@ -159,7 +160,7 @@ func (s *Breakers) Record(key string, e Effective, a Admission, outcome string, 
 		b.probing = false
 	}
 	switch {
-	case outcome == OutcomeOK || outcome == OutcomeCacheHit:
+	case outcome == OutcomeOK:
 		if b.state != StateClosed {
 			transition = StateClosed
 		}
