@@ -1,0 +1,90 @@
+{
+  "_comment": "Built by hand from the documented Claude Code events (code.claude.com/docs/en/monitoring-usage, read 2026-11-10). Not captured from a real client. OTLP/JSON shape: hex trace and span ids, int64 as strings.",
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "claude-code"}},
+          {"key": "service.version", "value": {"stringValue": "2.1.312"}},
+          {"key": "user.email", "value": {"stringValue": "someone@example.com"}},
+          {"key": "organization.id", "value": {"stringValue": "org-untrusted"}},
+          {"key": "aiplex.principal.id", "value": {"stringValue": "spoofed-principal"}}
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {"name": "com.anthropic.claude_code.events", "version": "2.1.312"},
+          "logRecords": [
+            {
+              "timeUnixNano": "1794312000000000000",
+              "observedTimeUnixNano": "1794312000100000000",
+              "severityNumber": 9,
+              "body": {"stringValue": "claude_code.api_request"},
+              "traceId": "0af7651916cd43dd8448eb211c80319c",
+              "spanId": "b7ad6b7169203331",
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "api_request"}},
+                {"key": "event.timestamp", "value": {"stringValue": "2026-11-10T12:00:00.000Z"}},
+                {"key": "event.sequence", "value": {"intValue": "41"}},
+                {"key": "session.id", "value": {"stringValue": "session-aaa"}},
+                {"key": "prompt.id", "value": {"stringValue": "prompt-111"}},
+                {"key": "user.email", "value": {"stringValue": "someone@example.com"}},
+                {"key": "user.account_uuid", "value": {"stringValue": "acct-untrusted"}},
+                {"key": "model", "value": {"stringValue": "claude-sonnet-4-5"}},
+                {"key": "cost_usd", "value": {"doubleValue": 0.0123456}},
+                {"key": "cost_usd_micros", "value": {"intValue": "12346"}},
+                {"key": "duration_ms", "value": {"intValue": "2500"}},
+                {"key": "input_tokens", "value": {"intValue": "1500"}},
+                {"key": "output_tokens", "value": {"intValue": "300"}},
+                {"key": "cache_read_tokens", "value": {"intValue": "200"}},
+                {"key": "cache_creation_tokens", "value": {"intValue": "50"}},
+                {"key": "request_id", "value": {"stringValue": "req_011CUabc"}},
+                {"key": "client_request_id", "value": {"stringValue": "c0ffee00-0000-4000-8000-000000000001"}},
+                {"key": "speed", "value": {"stringValue": "normal"}},
+                {"key": "effort", "value": {"stringValue": "medium"}},
+                {"key": "query_source", "value": {"stringValue": "main"}},
+                {"key": "prompt", "value": {"stringValue": "[REDACTED]"}}
+              ]
+            },
+            {
+              "timeUnixNano": "1794312001000000000",
+              "body": {"stringValue": "claude_code.api_error"},
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "api_error"}},
+                {"key": "event.sequence", "value": {"intValue": "42"}},
+                {"key": "session.id", "value": {"stringValue": "session-aaa"}},
+                {"key": "model", "value": {"stringValue": "claude-sonnet-4-5"}},
+                {"key": "error", "value": {"stringValue": "secret error text that must not be stored"}},
+                {"key": "status_code", "value": {"stringValue": "429"}},
+                {"key": "duration_ms", "value": {"intValue": "120"}},
+                {"key": "attempt", "value": {"intValue": "1"}}
+              ]
+            },
+            {
+              "timeUnixNano": "1794312002000000000",
+              "body": {"stringValue": "claude_code.user_prompt"},
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "user_prompt"}},
+                {"key": "event.sequence", "value": {"intValue": "43"}},
+                {"key": "session.id", "value": {"stringValue": "session-aaa"}},
+                {"key": "prompt_length", "value": {"intValue": "120"}}
+              ]
+            },
+            {
+              "timeUnixNano": "1794312003000000000",
+              "body": {"stringValue": "claude_code.tool_result"},
+              "attributes": [
+                {"key": "event.name", "value": {"stringValue": "tool_result"}},
+                {"key": "event.sequence", "value": {"intValue": "44"}},
+                {"key": "session.id", "value": {"stringValue": "session-aaa"}},
+                {"key": "tool_name", "value": {"stringValue": "Bash"}},
+                {"key": "success", "value": {"stringValue": "true"}},
+                {"key": "duration_ms", "value": {"intValue": "35"}}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

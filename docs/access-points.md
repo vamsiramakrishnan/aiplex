@@ -85,6 +85,7 @@ not flags: use `aiplex access-points apply -f <file>` for them, and the [specifi
 | `tools[]` | `connection_ref` names a saved tool connection. `expose` is an optional list of tool names or prefixes ending in `*`. Omitted means every tool the connection permits. |
 | `skills[]` | `instance_ref` names a deployed skill instance. Requires the `skillsplex` module. |
 | `qos` | `class` (lower-case, up to 63 characters), `weight`, `limits` (`requests_per_minute`, `tokens_per_minute`, `concurrency`) and `budget_refs`. Rendered into QuotaPlex controls. See [QoS and quota](#qos-and-quota). |
+| `labels` | Up to 8 trusted experiment tags (`key: value`), stored as `tags` on every usage record of an exchange through this access point. Keys are `[a-z][a-z0-9_.-]{0,31}`; values up to 64 characters of `[A-Za-z0-9_.:/@+() -]`, not `(other)`. A caller can add tags only with the `X-AIPlex-Tags` header for keys the operator allowed (`AIPLEX_TAG_KEYS_ALLOWED`), and cannot override a label. Filter and group usage by tag: see the [usage ledger](usage-ledger.md#tags). Invalid labels are refused on save as `labels`. |
 
 Unknown fields are rejected. The API returns a validation error for any reference that
 does not resolve in the tenant.

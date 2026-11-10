@@ -149,6 +149,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'api/overview'},
           items: [
             'api/usage',
+            'api/otlp',
             'api/hooks',
             'api/access-points',
             'api/overview-pane',

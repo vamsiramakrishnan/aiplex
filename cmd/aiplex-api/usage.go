@@ -43,7 +43,10 @@ func mountUsageLedger(r chi.Router, usage *api.UsageHandler, connected *api.Conn
 	r.Route("/usage", func(r chi.Router) {
 		r.Get("/records", usage.ListRecords)
 		r.Get("/records/{id}", usage.GetRecord)
+		r.Get("/records/{id}/feedback", usage.ListFeedback)
+		r.Post("/records/{id}/feedback", usage.PostFeedback)
 		r.Get("/summary", usage.Summary)
+		r.Get("/config", usage.Config)
 		r.Route("/prices", func(r chi.Router) { resourceRoutes(r, connected, usageledger.PriceKind) })
 	})
 }

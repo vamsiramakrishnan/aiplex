@@ -40,6 +40,10 @@ type Filter struct {
 	// Batch, when non-nil, selects records that are (true) or are not (false)
 	// part of a provider batch job. Nil matches everything.
 	Batch *bool
+	// Harness selects reported records from one harness. Tags selects records
+	// whose tags contain every pair.
+	Harness string
+	Tags    map[string]string
 	// HookDecision selects records by hooks.decision (allow, deny,
 	// transform, error, skipped), or HookDecisionNone for records no hook
 	// ran on. Empty matches everything.
@@ -51,7 +55,7 @@ type Filter struct {
 
 // Matches applies every filter field, including visibility and the window.
 func (f Filter) Matches(r Record) bool {
-	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}, {f.ErrorClass, r.ErrorClass}} {
+	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}, {f.ErrorClass, r.ErrorClass}, {f.Harness, r.Harness}} {
 		if c[0] != "" && c[0] != c[1] {
 			return false
 		}
@@ -64,6 +68,11 @@ func (f Filter) Matches(r Record) bool {
 		}
 	default:
 		if r.UsageBound != f.UsageBound {
+			return false
+		}
+	}
+	for k, v := range f.Tags {
+		if got, ok := r.Tags[k]; !ok || got != v {
 			return false
 		}
 	}

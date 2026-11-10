@@ -125,13 +125,19 @@ var intendedRoutePolicy = map[string]string{
 	"POST /api/v1/access-points/{id}/quota-plan": "admin/t",
 
 	// Usage ledger.
-	"GET /api/v1/usage/records":        "auth/t",
-	"GET /api/v1/usage/records/{id}":   "auth/t",
-	"GET /api/v1/usage/summary":        "auth/t",
-	"GET /api/v1/usage/prices":         "op/t",
-	"GET /api/v1/usage/prices/{id}":    "op/t",
-	"PUT /api/v1/usage/prices/{id}":    "admin/t",
-	"DELETE /api/v1/usage/prices/{id}": "admin/t",
+	"GET /api/v1/usage/records":                "auth/t",
+	"GET /api/v1/usage/records/{id}":           "auth/t",
+	"GET /api/v1/usage/summary":                "auth/t",
+	"GET /api/v1/usage/config":                 "auth/t",
+	"GET /api/v1/usage/records/{id}/feedback":  "auth/t",
+	"POST /api/v1/usage/records/{id}/feedback": "auth/t",
+	"POST /otlp/v1/logs":                       "auth/t",
+	"POST /otlp/v1/metrics":                    "auth/t",
+	"POST /otlp/v1/traces":                     "auth/t",
+	"GET /api/v1/usage/prices":                 "op/t",
+	"GET /api/v1/usage/prices/{id}":            "op/t",
+	"PUT /api/v1/usage/prices/{id}":            "admin/t",
+	"DELETE /api/v1/usage/prices/{id}":         "admin/t",
 
 	// Request-hook policies: operator only (they describe detection rules).
 	"GET /api/v1/hooks/policies":            "op/t",
