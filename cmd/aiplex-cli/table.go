@@ -321,8 +321,9 @@ func humanDuration(ms int64) string {
 	return d.Round(time.Second).String()
 }
 
-// shortMoney renders a fixed-point amount for a table: "USD 0.000006 est.",
-// "USD 12.40". Unknown stays "unknown"; it is never shown as 0.
+// shortMoney renders a fixed-point amount for a table: "USD 0.000006
+// (estimated)", "USD 12.40 (settled)": trailing zeros beyond cents trimmed,
+// basis always shown. Unknown stays "unknown"; it is never shown as 0.
 func shortMoney(currency, amount string, scale uint8, basis string) string {
 	if basis != "settled" && basis != "estimated" {
 		return usageUnknown
@@ -331,11 +332,7 @@ func shortMoney(currency, amount string, scale uint8, basis string) string {
 	if err != nil {
 		return "invalid"
 	}
-	s := currency + " " + value
-	if basis == "estimated" {
-		s += " est."
-	}
-	return s
+	return currency + " " + value + " (" + basis + ")"
 }
 
 // formatFixed renders an integer amount of minor units at scale as a decimal,

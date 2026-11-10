@@ -81,7 +81,7 @@ func TestUsageLedgerPricesSummaryUnknownVersusZero(t *testing.T) {
 
 	// Table output distinguishes unknown from zero and shows estimated cost.
 	r = e.mustCLI("usage", "records", "--model", "gpt-e2e")
-	contains(t, r.Out, "est.", "records table cost basis")
+	contains(t, r.Out, "(estimated)", "records table cost")
 	r = e.mustCLI("usage", "records", "--model", "compat-e2e")
 	contains(t, r.Out, "unknown", "records table unknown")
 
