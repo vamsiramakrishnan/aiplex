@@ -177,7 +177,7 @@ func WIFAuthMode(wif *auth.WIFValidator, development bool) func(http.Handler) ht
 			ctx := context.WithValue(r.Context(), keyDevelopment, development)
 			identity, err := wif.ExtractIdentity(r)
 			if err != nil {
-				if development && credentialPresented(r) && !independentCredentialPath(r.URL.Path) {
+				if development && credentialPresented(r) && anonymousDeveloperPath(r.URL.Path) && !independentCredentialPath(r.URL.Path) {
 					Error(w, r, http.StatusUnauthorized, "INVALID_CREDENTIAL",
 						"the credential you sent was not accepted ("+err.Error()+"). Send a valid token, or send none to use the anonymous local developer. With aiplex dev, run: eval \"$(aiplex dev env)\"")
 					return
@@ -207,6 +207,15 @@ func credentialPresented(r *http.Request) bool {
 // shared secret checked by the route's own guard, not an identity token.
 func independentCredentialPath(path string) bool {
 	return strings.HasPrefix(path, "/internal/") || path == "/auth/token-hook"
+}
+
+// anonymousDeveloperPath lists the routes development mode serves to a caller
+// with no credential (the control API and its live stream). Everything else,
+// including the /ap/ model and tool wires, never treated a missing credential
+// as the developer: those answer their own wire-shaped 401, which a bad
+// credential keeps getting.
+func anonymousDeveloperPath(path string) bool {
+	return strings.HasPrefix(path, "/api/") || path == "/events/stream"
 }
 
 // RequireIdentity protects user-facing endpoints independently of gateway
