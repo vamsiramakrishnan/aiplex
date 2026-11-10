@@ -35,6 +35,12 @@ operator bearer identity:
 }
 ```
 
+Delegated OAuth is one of eight `auth` types on a tool connection. The other types
+(`none`, `api_key`, `bearer`, `basic`, `oauth_client_credentials`, `token_exchange` and
+`google_id_token`) use secret references or an operator identity instead of a per-user
+grant. The `auth` block and the `tools` allow, deny and read-only policy are described in
+[tool connection auth](tool-connection-auth.md). This page covers only `oauth_user`.
+
 The issuer must be explicit and advertised by the resource's validated metadata.
 All metadata/token/resource endpoints must pass the operator's endpoint policy.
 The resource endpoint must match the saved execution endpoint. Requested provider
