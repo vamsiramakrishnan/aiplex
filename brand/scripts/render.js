@@ -21,6 +21,8 @@ const filter = process.argv[2] || '';
 const BG = { light: { bg: '#FFFFFF', fg: '#141A2E' }, dark: { bg: '#0B0D13', fg: '#E8EBF2' } };
 const uri = (svg) => 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
 const read = (p) => fs.readFileSync(p, 'utf8');
+const composed = () => [...fs.readdirSync(BRAND).filter((f) => /^brand-sheet.*\.svg$/.test(f)).map((f) => path.join(BRAND, f)),
+  ...['social', 'launch'].filter((d) => fs.existsSync(path.join(BRAND, d))).flatMap((d) => list(d))];
 const list = (dir) => fs.readdirSync(path.join(BRAND, dir)).filter((f) => f.endsWith('.svg')).sort()
   .map((f) => path.join(BRAND, dir, f));
 
@@ -86,8 +88,8 @@ async function shot(page, html, out, width = 1400) {
     console.log('rendered icons/ (' + icons.length + ')');
   }
 
-  // 3. sheets: render inline at 1:1 and check text boxes
-  const sheets = [path.join(BRAND, 'brand-sheet.svg'), ...list('social')].filter((f) => fs.existsSync(f));
+  // 3. composed sheets: render inline at 1:1 and check the outlined text runs (aria-label groups)
+  const sheets = composed();
   for (const file of sheets) {
     if (filter && !file.includes(filter)) continue;
     const name = path.basename(file, '.svg');
@@ -106,7 +108,7 @@ async function shot(page, html, out, width = 1400) {
     const issues = await page.evaluate(([x0, y0, w, h]) => {
       const out = [];
       const svgEl = document.querySelector('svg');
-      const texts = [...svgEl.querySelectorAll('text')];
+      const texts = [...svgEl.querySelectorAll('text, g[aria-label], path[aria-label]')];
       const boxes = texts.map((t) => {
         const b = t.getBBox();
         const m = t.getCTM();
@@ -115,7 +117,7 @@ async function shot(page, html, out, width = 1400) {
         });
         // CTM is in viewport (CSS px) space; convert back to viewBox units
         const s = w / svgEl.getBoundingClientRect().width;
-        return { t: t.textContent.trim().slice(0, 40), x1: pts[0].x * s + x0, y1: pts[0].y * s + y0, x2: pts[1].x * s + x0, y2: pts[1].y * s + y0 };
+        return { t: (t.getAttribute('aria-label') || t.textContent).trim().slice(0, 40), x1: pts[0].x * s + x0, y1: pts[0].y * s + y0, x2: pts[1].x * s + x0, y2: pts[1].y * s + y0 };
       });
       for (const b of boxes) {
         if (b.x1 < x0 - 0.5 || b.y1 < y0 - 0.5 || b.x2 > x0 + w + 0.5 || b.y2 > y0 + h + 0.5) out.push(`outside viewBox: "${b.t}"`);
@@ -127,8 +129,40 @@ async function shot(page, html, out, width = 1400) {
       }
       return { n: boxes.length, out };
     }, vb);
-    console.log(`checked ${path.relative(BRAND, file)}: ${issues.n} text elements, ${issues.out.length} problems`);
+    console.log(`checked ${path.relative(BRAND, file)}: ${issues.n} text runs, ${issues.out.length} problems`);
     for (const i of issues.out) { console.log('  - ' + i); problems++; }
+  }
+
+  // 4. font independence: render every composed file in a second Chromium that has no fonts at all
+  //    (empty fontconfig) and require pixel-identical output. A live-text control must differ.
+  if (!filter || filter === 'fonts') {
+    const conf = path.join(OUT, 'no-fonts.conf');
+    fs.writeFileSync(conf, '<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig>' +
+      `<cachedir>${path.join(OUT, 'fc-cache')}</cachedir></fontconfig>`);
+    const bare = await chromium.launch({ env: { ...process.env, FONTCONFIG_FILE: conf } });
+    const bp = await bare.newPage();
+    const raster = async (pg, svg) => {
+      const vb = svg.match(/viewBox="([^"]+)"/)[1].split(/\s+/).map(Number);
+      const w = Math.min(vb[2], 1600), h = Math.round(w * vb[3] / vb[2]);
+      await pg.setViewportSize({ width: w, height: h });
+      await pg.setContent(`<body style="margin:0"><img style="display:block;width:${w}px" src="${uri(svg)}"></body>`);
+      await pg.waitForTimeout(150);
+      return pg.screenshot();
+    };
+    const control = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 60"><rect width="300" height="60" fill="#fff"/>' +
+      '<text x="10" y="40" font-family="Inter" font-size="32">AIPlex</text></svg>';
+    const ctrlSame = Buffer.compare(await raster(page, control), await raster(bp, control)) === 0;
+    console.log(`no-font browser: live-text control ${ctrlSame ? 'IDENTICAL (fonts were not removed)' : 'differs, as expected'}`);
+    if (ctrlSame) problems++;
+    let n = 0;
+    for (const file of [...composed(), ...list('logo'), ...list('icons')]) {
+      const svg = read(file);
+      const same = Buffer.compare(await raster(page, svg), await raster(bp, svg)) === 0;
+      n++;
+      if (!same) { problems++; console.log('  FONT-DEPENDENT: ' + path.relative(BRAND, file)); }
+    }
+    console.log(`font independence: ${n} files rendered with and without fonts`);
+    await bare.close();
   }
 
   await browser.close();
