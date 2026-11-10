@@ -8,7 +8,9 @@ There has been no tagged release yet. This section summarises what exists in the
 
 ### Local development
 
-- `aiplex dev` starts the API in memory on loopback with a built-in mock model and MCP server, seeds an access point `local`, signs you in as a local admin, and prints next steps. `aiplex dev env` exports `AIPLEX_URL`, `AIPLEX_TOKEN` and the base-URL and key variables read by OpenAI, Anthropic and Gemini SDKs. `--provider openai|anthropic|gemini --api-key-env NAME` forwards to a real provider.
+- `aiplex dev` starts the API in memory on loopback with a built-in mock provider and MCP server, seeds an access point `local`, signs you in as a local admin, and prints next steps. The mock provider has four models, one per wire: `mock-gpt` (OpenAI Chat Completions), `mock-responses` (OpenAI Responses), `mock-claude` (Anthropic Messages) and `mock-gemini` (Gemini generateContent). `aiplex dev env` exports `AIPLEX_URL`, `AIPLEX_TOKEN` and, with the mock provider, the base-URL and key variables read by the OpenAI, Anthropic and Gemini SDKs. `--provider openai|anthropic|gemini --api-key-env NAME` forwards to a real provider.
+- `aiplex dev token --user NAME [--role none|deployer|admin] [--groups a,b]` prints a one-hour token for another local caller, `NAME@localhost`, to see what a caller with no role, a deployer or another admin gets. In development mode, a request to `/api/...` with a credential that does not verify is refused with `401 INVALID_CREDENTIAL`.
+- `aiplex dev` can admit a second caller with `--allow-users name@localhost`.
 - `make demo` scripts a first run; `make e2e` runs the real binaries against local mock upstreams; `make deps` reports the tools each workflow needs.
 - Loopback JWKS issuer and a local agent registry in development mode.
 - `aiplex dev --detach` runs the local stack in the background, with its output in `~/.aiplex/dev.log`. `aiplex dev status` says whether it runs and where, and `aiplex dev stop` stops it. A second `aiplex dev` is refused. `--allow-origin` lets the local API call one more upstream origin.
@@ -21,7 +23,13 @@ There has been no tagged release yet. This section summarises what exists in the
 - A single-pane overview of callers and what each can reach (`aiplex who`, `aiplex access-points`, `aiplex connect`).
 - A tenant-scoped usage ledger for managed and reported exchanges, with filters and grouping (by model, user, source, error class, usage bound and batch), explicit usage bounds, and non-token units and modality splits. Unknown values stay unknown.
 - Guided creation from flags: `aiplex access-points create`, `aiplex mcp connections create|list|get|test|delete`, `aiplex llm surfaces create`, and `aiplex usage prices set <model> --input-per-mtok ... --output-per-mtok ...`. The file forms (`apply -f`, `prices set -f`) remain for full specifications.
-- Usage tables fit the terminal width, and show the caller by a readable name (`principal_display`, `actor_display`) instead of a principal hash. `aiplex usage records -o wide` and `summary -o wide` add the columns the default tables leave out.
+- Usage tables fit the terminal width, and show the caller by a readable name (`principal_display`, `actor_display`) instead of a principal hash. `aiplex usage records -o wide` adds a `PRINCIPAL ID` column, and `summary -o wide` adds the columns the default tables leave out. Summaries label empty groups `(no model)` and `(no tool)`.
+- Cost objects carry `amount_decimal`, the exact decimal form of `amount`. `tools/list` exchanges are recorded with operation `tools/list`.
+- `GET /api/v1/dashboard/stats` totals the last 24 hours from the usage ledger. Cost and tokens are `null` when unknown, with `daily_unknown_cost_records`, `daily_unknown_usage_records` and `usage_source` alongside.
+- `aiplex connect <access-point>` works for any caller the access point admits. Callers without an operator role get a reduced response. `--client claude-desktop` is refused with a reason, because that client needs a Claude apps gateway server.
+- `aiplex validate` runs the same checks as `aiplex apply`, and `apply` validates first. Under `aiplex dev`, instances in a manifest are skipped with a message.
+- `aiplex llm surfaces get` and `aiplex clients get` print a readable summary by default. Use `-o json` or `-o yaml` for the full specification.
+- Destructive commands (`delete`, `undeploy`, `delete-context`) refuse to run without a terminal unless `--yes` is given.
 - CLI errors name the cause and give hints, such as `Did you mean` for a mistyped ID. Every command uses fixed exit codes (0 to 6, listed in `aiplex --help`), `--debug` shows the raw API error, and destructive commands ask on a terminal unless `--yes` is given.
 
 ### Models (LLMPlex)

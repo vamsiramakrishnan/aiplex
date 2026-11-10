@@ -36,10 +36,10 @@ Put that block in your MCP client's configuration (where depends on the client; 
 
 ### About `--client`
 
-`aiplex connect local --client <profile>` renders profile-specific configuration only when the access point offers a wire that the client speaks. The `local` access point offers OpenAI chat only, so `--client claude-code`, `--client claude-desktop` and `--client codex` are refused:
+`aiplex connect local --client <profile>` renders profile-specific configuration only when the access point offers a wire that the client speaks. The `local` access point offers the mock wires (OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini), so `--client claude-code`, `--client codex` and `--client antigravity` render. `--client claude-desktop` is always refused, because that client signs in through a Claude apps gateway server rather than an access point:
 
 ```text
-Error: connect: aiplex: CLIENT_NOT_APPLICABLE (422): client claude-code speaks anthropic-messages, vertex-anthropic, claude-apps, but this access point offers openai-chat
+Error: connect: client claude-desktop speaks claude-apps, which signs in through a Claude apps gateway server rather than an access point; use claude-code (Anthropic Messages) for an access point
 ```
 
 The default (`generic`) output above is the MCP configuration to use. Named client profiles become useful on an access point whose models match the client; see [ClientPlex](../../docs/clientplex.md).

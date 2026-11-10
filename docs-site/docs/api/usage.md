@@ -78,7 +78,7 @@ The response is a page object.
 | `operation` | string | Omitted when empty |
 | `model_id` | string | Omitted when empty |
 | `model_version` | string | Omitted when empty |
-| `tool_name` | string | Omitted when empty |
+| `tool_name` | string | Omitted when empty. Set for `tools/call`. A `tools/list` exchange carries `operation` `tools/list` and no tool name. |
 | `principal_id` | string | Omitted when empty |
 | `actor_id` | string | Omitted when empty |
 | `client_id` | string | Omitted when empty. Attribution only, not a security boundary. |
@@ -232,7 +232,7 @@ Aggregates the visible records that match the filters. It accepts every filter p
 | `lower_bound_records` | integer | Omitted when zero |
 | `ambiguous_usage_records` | integer | Omitted when zero |
 | `partial_usage_records` | integer | Omitted when zero |
-| `cost` | array of object | Exact totals per currency and basis. Each entry has `currency`, `basis`, `amount` (decimal string), `scale` and `records`. |
+| `cost` | array of object | Exact totals per currency and basis. Each entry has `currency`, `basis`, `amount` (decimal string), `amount_decimal` (the same amount as an exact decimal string), `scale` and `records`. |
 | `unknown_cost_records` | integer | Records with no amount |
 | `modality_tokens` | object of integer | Omitted when empty. Sums of the per-modality token splits over records that reported them. |
 | `units` | object of integer | Omitted when empty. Sums of the unit fields. |
@@ -439,7 +439,7 @@ curl -sS -X DELETE "$AIPLEX_URL/api/v1/usage/prices/price-example" \
   - `settled`: the amount a quota settlement charged for the record's `quota_attempt_id`. It is exact.
   - `estimated`: computed from the single matching model price. The sum of all meters is rounded up once.
   - `unknown`: neither a settlement nor a matching price exists, or a priced meter's quantity is unknown. Such a cost has no `currency`, `amount` or `scale`.
-- **Amounts are fixed-point.** `cost.amount` is a decimal integer string of minor units, with `cost.scale` decimal places of the currency. An amount of `"1500"` at scale `6` is 0.001500 of the currency unit. The amount is always a string so that JSON readers do not lose precision. The `cost` array in a summary uses the same convention and rescales amounts of different scales to the largest scale without loss.
+- **Amounts are fixed-point.** `cost.amount` is a decimal integer string of minor units, with `cost.scale` decimal places of the currency. An amount of `"1500"` at scale `6` is 0.001500 of the currency unit. The amount is always a string so that JSON readers do not lose precision. A priced record also carries `cost.amount_decimal`, the same value written as an exact decimal string (`"0.001500"` in the example above). Read `amount_decimal` when a decimal is needed and `amount` and `scale` when exact integer arithmetic is needed. The `cost` array in a summary uses the same convention and rescales amounts of different scales to the largest scale without loss.
 - **No built-in prices.** Without a matching price resource, estimated cost is unknown. The API never invents a price.
 - **Price matching.** When several prices match a record, the one with the most selectors wins (`provider`, `batch`, `image_size`, `image_quality`). A tie yields no match, and the cost is unknown.
 - **Usage bounds.** `usage_bound` is omitted when the counters are final.

@@ -54,7 +54,7 @@ Error: context "nope" does not exist
 | Format | Shows |
 | --- | --- |
 | `table` (default) | A compact table. Long values are shortened. |
-| `wide` | Every column, untruncated. Usage records add the record ID, plane, agent, client, session, batch, cache, modality, units and latency columns. |
+| `wide` | Every column, untruncated. Usage records add the record ID, plane, agent, principal ID, client, session, batch, cache, modality, units and latency columns. |
 | `json` | The API's response as JSON. Use it in scripts. |
 | `yaml` | The same data as YAML. |
 
@@ -149,19 +149,26 @@ Error: access point "locl" not found
 
 ## Confirmation prompts and `--yes`
 
-Commands that delete or tear down something ask first, but only when standard input and standard output are
-both a terminal. The question ends `[y/N]`, and anything but `y` or `yes` cancels with nothing deleted.
+Destructive commands ask first when standard input and standard error are both a terminal. The question ends
+`[y/N]`, and anything but `y` or `yes` cancels with nothing deleted.
 
-Pass `--yes` (or `-y`) to skip the question. The commands that take it include:
+When there is no terminal, as in a script, a pipe or CI, the command **refuses** (exit 2) and deletes nothing,
+unless `--yes` (or `-y`) is given. The refusal says to add `--yes`. The check is in `confirm` in
+`cmd/aiplex-cli/cmd_mcp.go`. For example, `aiplex access-points delete local < /dev/null` exits 2 and leaves the
+access point in place.
 
-- `aiplex access-points delete`, `aiplex llm surfaces delete`, `aiplex mcp connections delete` and `aiplex usage prices delete`
+The commands that take `--yes` include:
+
+- Subcommands named `delete`: `aiplex access-points delete`, `aiplex llm surfaces delete`, `aiplex mcp connections delete`,
+  `aiplex usage prices delete`, `aiplex agents delete`, `aiplex clients delete` and `aiplex resources delete`. `remove` and
+  `rm` are aliases of `delete` for access points, model surfaces and tool connections.
 - `aiplex undeploy`
+- `aiplex config delete-context`
 - `aiplex platform apply` (approves the Terraform changes) and `aiplex platform destroy`
 
-When the input or output is not a terminal, as in a script, a pipe or CI, **no question is asked and the
-command runs**. The check is in `confirm` in `cmd/aiplex-cli/cmd_mcp.go`. For example,
-`aiplex mcp connections delete <id> < /dev/null | cat` deletes the connection at once. Scripts that delete things
-should pass `--yes` explicitly, so that the intent is visible in the script.
+`aiplex platform destroy` does not use the terminal check. Without `--yes` it reads a line from standard input
+and proceeds only if that line is `destroy`. There is no top-level `aiplex delete`, `aiplex remove` or
+`aiplex delete-context` command.
 
 ## Shell completion
 

@@ -456,12 +456,21 @@ Returns one summary of the platform, derived from a single read of the instance 
 | `a2aplex_instances` | integer | A2APlex instances |
 | `llmplex_instances` | integer | LLMPlex instances |
 | `skillsplex_instances` | integer | SkillsPlex instances |
-| `daily_cost_usd` | number | Reported cost over the last day |
-| `daily_tokens` | integer | Reported tokens over the last day |
-| `daily_requests` | integer | Reported requests over the last day |
-| `tool_calls_24h` | integer | Field reserved for tool calls. This handler does not populate it, so it is `0`. |
+| `daily_cost_usd` | number or null | USD cost of the last 24 hours, from the usage ledger. `null` when no record in the window carried a USD cost. Unknown is never reported as `0`. |
+| `daily_tokens` | integer or null | Input and output tokens of the last 24 hours. `null` when no record reported tokens. |
+| `daily_requests` | integer | Requests recorded in the last 24 hours. |
+| `daily_unknown_cost_records` | integer | Records in the window that had no cost, so are not in `daily_cost_usd`. |
+| `daily_unknown_usage_records` | integer | Records in the window that had no token usage, so are not in `daily_tokens`. |
+| `usage_source` | string | `ledger` when the usage ledger is configured. `legacy-store` when it is not: the totals then come from the registry's usage records, and the `daily_unknown_*` counts are `0`. |
+| `tool_calls_24h` | integer | Ledger records in the last 24 hours that name a tool (`tool_name` set). `tools/list` exchanges are not counted. |
 | `a2a_delegations_24h` | integer | Recorded delegations |
 | `policy_denials_24h` | integer | Recorded policy denials |
+
+The usage fields are computed from the usage ledger for the caller's tenant, over the last 24 hours. Cost and
+tokens are summed only from records that report them, so a total that includes unknown records is not complete:
+read `daily_unknown_cost_records` and `daily_unknown_usage_records` next to it. `daily_requests` and
+`tool_calls_24h` are always numbers, `0` when there are no matching records. In this handler `usage_source` is
+only `ledger` or `legacy-store`.
 
 | Status | Code | When |
 |---|---|---|

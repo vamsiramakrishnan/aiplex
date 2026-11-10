@@ -13,7 +13,7 @@ The overview API is the read-only single-pane view behind the console's overview
 | GET | `/api/v1/overview/subjects/{kind}` | Detail of one subject with the id in `?id=`. Use for ids that contain `/`, such as SPIFFE ids. | `admin` or `deployer` |
 | GET | `/api/v1/overview/access-points` | Paginated list of access points with counts and quota coverage | `admin` or `deployer` |
 | GET | `/api/v1/overview/access-points/{id}` | Detail of one access point: resources, callers, quota and usage | `admin` or `deployer` |
-| GET | `/api/v1/overview/access-points/{id}/connect` | Connection instructions for one access point, for a chosen client | `admin` or `deployer` |
+| GET | `/api/v1/overview/access-points/{id}/connect` | Connection instructions for one access point, for a chosen client | Verified identity. Operators get the full response; other callers that the access point admits get a reduced one. Callers it does not admit get `404`. |
 
 Outside development mode, a caller without the role receives `401 UNAUTHENTICATED` when no identity is verified, or `403 FORBIDDEN` when the identity lacks both roles.
 
@@ -348,6 +348,8 @@ curl -sS "$AIPLEX_URL/api/v1/overview/access-points/ap-example?since=7d" \
 ## GET `/api/v1/overview/access-points/{id}/connect`
 
 Returns connection instructions for one access point, built for the chosen client. Every URL is built from the configured public URL, never from the request `Host` header. The output never contains a token or a secret. Snippets read the token from the environment variable named in `auth.token_env`, which is `AIPLEX_TOKEN`.
+
+Access rule: admins, deployers and development mode get the full response. Any other verified caller gets it only for an access point that admits it, with the operator-only detail removed: `auth.caller_kinds` is reduced to the caller's own kind, `auth.steps` keeps only the step for that kind, and `notes` omit model surface references and the list of registered client IDs. An access point the caller is not admitted by answers `404`, the same as a missing one. `client=claude-desktop` (and any profile that speaks only the Claude apps gateway protocol) answers `422 CLIENT_NOT_APPLICABLE`, because that client signs in through a gateway server, not an access point.
 
 ### Query parameters
 

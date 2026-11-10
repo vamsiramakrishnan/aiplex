@@ -15,7 +15,7 @@ The implementation is in `cmd/aiplex-cli/cmd_dev.go` and `internal/devstack/`.
 | --- | --- | --- |
 | `aiplex-api` in development mode | `127.0.0.1`, port from `--port` (default `8080`) | In-memory stores. Started with the environment described in [the dev API environment](#the-dev-api-environment). |
 | Local token issuer | `127.0.0.1`, a free port | Serves `/.well-known/jwks.json` and `/.well-known/openid-configuration`. Issues the developer token. |
-| Mock model provider | `127.0.0.1`, a free port | Speaks the OpenAI Chat Completions, Anthropic Messages and Gemini wires. Replies are deterministic. |
+| Mock model provider | `127.0.0.1`, a free port | Speaks the OpenAI Chat Completions, OpenAI Responses, Anthropic Messages and Gemini generateContent wires, one model on each. Replies are deterministic. |
 | Mock MCP server | `127.0.0.1`, a free port | Three tools: `echo`, `add` and `reset_counter`. |
 | Console | `127.0.0.1`, `--console-port` (default `9090`) | Served only when this binary carries a built Console. Otherwise the summary says how to build it. |
 
@@ -28,10 +28,13 @@ the mock MCP server and the issuer run inside the `aiplex dev` process. The API 
 
 | Resource | Kind | Contents |
 | --- | --- | --- |
-| `local-models` | Model surface | One model, on the protocol of the chosen provider. |
-| The model name, for example `mock-gpt` | Price | Only for the mock provider. Placeholder rates, so estimated cost shows in usage. The rates are illustrative, not a provider's prices. |
+| `local-models` | Model surface | With the mock provider: the OpenAI Chat Completions wire, model `mock-gpt`. With a real provider: the one surface for that provider, with its model. |
+| `local-responses` | Model surface | Mock provider only. OpenAI Responses wire, model `mock-responses`. |
+| `local-messages` | Model surface | Mock provider only. Anthropic Messages wire, model `mock-claude`. |
+| `local-gemini` | Model surface | Mock provider only. Gemini generateContent wire, model `mock-gemini`. |
+| `mock-gpt`, `mock-responses`, `mock-claude`, `mock-gemini` | Prices | Mock provider only, one per model. Placeholder rates, so estimated cost shows in usage. The rates are illustrative, not a provider's prices. A real provider gets no price; set one with `aiplex usage prices set`. |
 | `local-tools` | MCP tool connection | The built-in MCP server, with its three tools. Not created with `--no-tools`. |
-| `local` | Access point | Admits callers of kinds `user`, `agent` and `client`, with no subject filter. Exposes the model and, unless `--no-tools`, the tool connection. |
+| `local` | Access point | Admits callers of kinds `user`, `agent` and `client`, with no subject filter. Exposes the models of the surfaces above and, unless `--no-tools`, the tool connection. |
 
 The access point is at `$AIPLEX_URL/ap/local`. See [access points](access-points.md).
 
@@ -54,13 +57,14 @@ From the cobra definitions in `cmd/aiplex-cli/cmd_dev.go`:
 | `-d`, `--detach` | off | Run in the background. Output goes to `~/.aiplex/dev.log`. Stop it with `aiplex dev stop`. |
 | `--allow-origin` | none | Extra upstream origin the local API may call, for example `https://mcp.example.com`. Repeatable. The loopback mock upstreams and the public OpenAI, Anthropic and Gemini APIs are always allowed. |
 
-`aiplex dev` has three subcommands. They take no flags beyond the global ones:
+`aiplex dev` has four subcommands. `env`, `status` and `stop` take no flags beyond the global ones:
 
 | Command | What it does |
 | --- | --- |
 | `aiplex dev env` | Prints shell exports for the running local API, for `eval "$(aiplex dev env)"`. |
-| `aiplex dev status` | Shows whether `aiplex dev` is running, its pid, the API URL, the access point, the model, the Console and the API log. Exits 1 when none is running. |
+| `aiplex dev status` | Shows whether `aiplex dev` is running, its pid, the API URL, the access point, the models, the Console and the API log. Exits 1 when none is running. |
 | `aiplex dev stop` | Stops the running `aiplex dev` and its local API. Exits 1 when none is running. |
+| `aiplex dev token --user NAME [--role none\|deployer\|admin] [--groups a,b]` | Prints a token for another local caller, `NAME@localhost`, on stdout only, so it can be captured. It is valid for one hour and works only with the local API that issued it. `--user` is required. See [other local callers](#other-local-callers). |
 
 Only one `aiplex dev` runs at a time. A second start is refused, and it exits with code 5 (conflict):
 
@@ -137,6 +141,43 @@ The token is stored encrypted in `~/.aiplex/credentials.json`, under the context
 The command makes that context current. When the command stops, it removes the token and restores the
 previously current context, if there was one. The token is accepted only by the local API that issued it.
 
+## Other local callers
+
+`aiplex dev token` mints a token for a second caller from the same local issuer. The token is for
+`NAME@localhost`, with subject `NAME`, and lasts one hour. Only your own developer token can ask for one,
+and only from this machine. Use it as `AIPLEX_TOKEN`:
+
+```sh
+AIPLEX_TOKEN=$(aiplex dev token --user bob) aiplex whoami
+AIPLEX_TOKEN=$(aiplex dev token --user dana --role deployer) aiplex access-points list
+```
+
+| `--role` | What the caller gets |
+| --- | --- |
+| `none` (default) | No role. It sees only the access points that admit it. Model calls were refused with `403 permission_denied` in a test run. The CLI help says it needs model and tool grants, set with `aiplex agents user-scopes set <principal-id>`; that grant was tried in the same test run and the call was still refused, so the grant path is not confirmed here. |
+| `deployer` | Configuration screens and commands, without admin-only actions. |
+| `admin` | The same role as the developer. |
+
+`--groups a,b` adds identity-provider groups to the token, for access points that admit a group. The caller's
+principal ID is printed by `aiplex whoami` when run with that token.
+
+`aiplex connect <access-point>` works for any caller the access point admits. A caller without an operator role
+gets a reduced response: only its own caller kind in `auth.caller_kinds` and the auth step for that kind, and no
+notes that name internal resource IDs or other subjects. An access point that does not admit the caller answers
+as if it did not exist. See [access points](access-points.md#routes).
+
+## Credentials in development mode
+
+Development mode treats a request with no credential as the local developer (admin). A request to `/api/…`
+that carries a credential which does not verify (a mistyped, expired or foreign token) is refused with
+`401 INVALID_CREDENTIAL`, and is not served as the developer:
+
+```text
+{"code":"INVALID_CREDENTIAL","message":"the credential you sent was not accepted (...). Send a valid token, or send none to use the anonymous local developer. With aiplex dev, run: eval \"$(aiplex dev env)\"", ...}
+```
+
+This rule covers `/api/…` and `/events/stream`. A request with no credential is still served as the developer.
+
 ## The dev API environment
 
 The command starts the API with these variables. They are set by `internal/devstack/stack.go`:
@@ -174,13 +215,14 @@ export OPENAI_BASE_URL='http://127.0.0.1:8080/ap/local/v1'
 export OPENAI_API_KEY="$AIPLEX_TOKEN"
 ```
 
-The provider-specific variables depend on the seeded wire:
+The provider-specific variables depend on the provider:
 
-| Seeded wire | Variables printed |
+| Provider | Variables printed |
 | --- | --- |
-| OpenAI Chat Completions (`openai-chat`, the default) | `OPENAI_BASE_URL` (the access point's `/v1`), `OPENAI_API_KEY` |
-| Anthropic Messages (`anthropic-messages`) | `ANTHROPIC_BASE_URL` (the access point), `ANTHROPIC_API_KEY` |
-| Gemini GenAI (`google-genai`) | `GOOGLE_GEMINI_BASE_URL` (the access point), `GEMINI_API_KEY` |
+| `mock` (the default) | All of them: `OPENAI_BASE_URL` (the access point's `/v1`) and `OPENAI_API_KEY`; `ANTHROPIC_BASE_URL` (the access point) and `ANTHROPIC_API_KEY`; `GOOGLE_GEMINI_BASE_URL` (the access point) and `GEMINI_API_KEY`. Every key is set to `$AIPLEX_TOKEN`. |
+| `openai` | `OPENAI_BASE_URL` and `OPENAI_API_KEY` |
+| `anthropic` | `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY` |
+| `gemini` | `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY` |
 
 Use it as `eval "$(aiplex dev env)"` in another terminal. It fails with a message when no local AIPlex is
 running, when the API does not answer, or when no token is stored for the context.
@@ -193,22 +235,24 @@ After the stack is ready, `aiplex dev` prints a summary. Its lines are:
 | --- | --- |
 | `API` | The URL, with `development mode, in memory, loopback only`. |
 | `You` | The developer email, as admin, with the token lifetime. |
-| `Model` | The seeded model and where it runs. For a real provider, the environment variable the key came from. |
+| `Models` | The models on the access point and the wire each one speaks. With the mock provider, the four mock models. For a real provider, its one model, and the environment variable the key came from. |
 | `Tools` | The tool connection and its tools. Absent with `--no-tools`. |
 | `Access point` | The access point name and its URL. |
-| `Price` | The placeholder price for the mock model. For a real provider, the line says none is seeded. |
+| `Price` | The placeholder prices for the mock models. For a real provider, the line says none is seeded. |
 | `Quota` | `off`. QuotaPlex needs an operator quota file, which the local API does not get. |
 | `CLI context` | The context that is current, and the one that is restored on stop. |
 | `Console` | The Console URL, or why it is not served. |
 | `API log` | The log file path. |
 | `WARNING` | Development mode serves unauthenticated requests as admin. Do not expose, tunnel or proxy the API. |
 
-After the summary, `Ready in 0.1s. Try next` lists three numbered steps, each with real commands:
+After the summary, `Ready in 0.1s. Try next` lists numbered steps, each with real commands:
 
 1. Send a chat request through the access point, after `eval "$(aiplex dev env)"`. The request is the
-   seeded wire's example (OpenAI Chat Completions).
+   OpenAI Chat Completions example for `mock-gpt`.
 2. `aiplex usage records`, to see what it cost and who made it.
 3. `aiplex connect local` for client configuration, and `aiplex dev status` to see the Console address.
+4. With the mock provider, a second caller: `aiplex access-points create team --model mock-gpt=local-models --allow-users bob@localhost`,
+   then `AIPLEX_TOKEN=$(aiplex dev token --user bob 2>/dev/null) aiplex connect team`.
 
 A background run (`--detach`) prints the same summary, then `Running in the background`, the pid and the log file.
 The summary states the Console line in one of two ways. When the binary carries a built Console, it gives the
@@ -267,7 +311,7 @@ The summary and the environment filter define these limits:
 | Modules | The API uses its default module list. The `AIPLEX_MODULES` variable is removed from the inherited environment. |
 | Kubernetes, mesh, gateway | None. There is no Kubernetes deployment and no Envoy gateway. |
 | Models | The mock replies are deterministic and are not model output. Real output needs a real provider and key. |
-| Prices | Placeholder rates for the mock model only. |
+| Prices | Placeholder rates for the four mock models only. |
 | Console | Only if the binary was built with a Console. Otherwise build it with `make console && make build` (Node 22). |
 
 ## Loopback only
