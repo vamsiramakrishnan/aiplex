@@ -29,6 +29,16 @@ type MockMCP struct {
 	calls atomic.Int64
 	mu    sync.Mutex
 	seen  []string // methods, in order
+	// traces holds the traceparent header of each request, in order.
+	traces []string
+}
+
+// Traceparents returns the W3C traceparent header of each request received,
+// in order ("" when a request carried none).
+func (m *MockMCP) Traceparents() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.traces...)
 }
 
 // SupportedProtocolVersions are the MCP revisions this mock speaks.
@@ -70,6 +80,9 @@ func (m *MockMCP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 401, rpcError(nil, -32001, "missing or invalid API key"))
 		return
 	}
+	m.mu.Lock()
+	m.traces = append(m.traces, r.Header.Get("Traceparent"))
+	m.mu.Unlock()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
 	if err != nil {
 		http.Error(w, "read error", 400)

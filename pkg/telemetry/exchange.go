@@ -101,7 +101,7 @@ func (e Exchange) Attributes() []attribute.KeyValue {
 	str(AttrStatus, e.Status)
 	str(AttrErrorType, e.ErrorType)
 	if e.HTTPStatus != 0 {
-		out = append(out, attribute.Int(AttrHTTPResponseStatusCode, e.HTTPStatus))
+		out = append(out, attribute.Int(AttrResponseStatus, e.HTTPStatus))
 	}
 	if e.Plane == usageledger.PlaneLLM {
 		out = append(out, attribute.Bool(AttrGenAIRequestStream, e.Streaming))
