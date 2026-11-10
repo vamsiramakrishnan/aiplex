@@ -73,3 +73,20 @@ func TestUsageWideSeparatesUserAndPrincipalID(t *testing.T) {
 		t.Fatalf("USER should hold the readable name and PRINCIPAL ID the canonical id:\n%s", b.String())
 	}
 }
+
+// Help text never points at commands or flags that do not exist.
+func TestHelpMentionsNoRetiredCommands(t *testing.T) {
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		text := c.Short + "\n" + c.Long + "\n" + c.Example
+		for _, retired := range []string{"aiplex dev up", "--with-tape"} {
+			if strings.Contains(text, retired) {
+				t.Errorf("%s help mentions %q", c.CommandPath(), retired)
+			}
+		}
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+	}
+	walk(newRootCmd())
+}
