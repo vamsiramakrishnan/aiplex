@@ -1,0 +1,11 @@
+{
+  "name": "aiplex",
+  "displayName": "AIPlex",
+  "version": "0.1.0",
+  "description": "Onboard Claude Code to an AIPlex access point, answer usage and denial questions from your own ledger, and walk through the Google Cloud setup. Read-only MCP tools.",
+  "author": { "name": "AIPlex contributors" },
+  "homepage": "https://github.com/vamsiramakrishnan/aiplex",
+  "repository": "https://github.com/vamsiramakrishnan/aiplex",
+  "license": "Apache-2.0",
+  "keywords": ["aiplex", "gateway", "usage", "onboarding"]
+}

@@ -117,6 +117,8 @@ Stop `aiplex dev` with Ctrl+C. State is in memory and is discarded.
 - The call was recorded in a **usage ledger**: who called, which model, tokens in and out, and cost. The cost says `(estimated)` because the price is a placeholder; a token count or price that is not known is shown as unknown, never as zero.
 - The same access point serves MCP tools at `http://127.0.0.1:8080/ap/local/mcp`. `aiplex connect local` prints ready-to-paste configuration for curl, MCP clients and several developer clients.
 
+To configure Claude Code, Codex or Gemini CLI for it, `aiplex connect local --client claude-code --write` shows a diff, keeps a backup and can be undone ([harness onboarding](docs/harness-onboarding.md)).
+
 More to try with `aiplex dev` running: `aiplex usage records`, `aiplex usage summary --by model`, `aiplex connect local`, and the [examples](examples/README.md). `make demo` scripts the whole run, including a streaming request and an MCP tool call, and exits non-zero on the first failure.
 
 ### Next: an access point and a price
@@ -172,7 +174,7 @@ AIPlex separates **who is calling** from **what they are calling**, and puts one
 | --- | --- |
 | **Agents** | Registered workloads. They authenticate with a token from their own platform, bound to a registered agent ([agent identity federation](docs/agent-identity-federation.md)). A delegated call keeps both the user and the agent identity. |
 | **Users** | People who sign in through a corporate identity provider such as Google Workspace, Microsoft Entra ID or Okta, or any OIDC issuer ([user identity federation](docs/user-identity-federation.md)). Groups come from verified claims or a signed directory authority. |
-| **Clients** | Registered developer clients such as Claude, Codex and Antigravity ([ClientPlex](docs/clientplex.md)). AIPlex produces reviewed configuration for them; it does not install them. |
+| **Clients** | Registered developer clients such as Claude, Codex and Antigravity ([ClientPlex](docs/clientplex.md)). AIPlex produces reviewed configuration for them and, when you ask (`aiplex connect --write`), merges it into the client's own config file with a diff, a backup and an undo ([harness onboarding](docs/harness-onboarding.md)). It does not install the client binaries. |
 
 | Resources | What AIPlex does |
 | --- | --- |
@@ -226,7 +228,7 @@ Effective access for a delegated call is the intersection of three limits: what 
 | **MCPlex** | Connect tools, register OAuth clients, authorize users and invoke configured tools | Tool connections, delegated OAuth, eight upstream auth types, allow/deny and read-only tool policy, and stateless JSON/finite-SSE execution. Registration alone does not execute or meter a tool. |
 | **A2APlex** | Invoke native cloud agents and inspect delegation history | Google, AWS, Foundry and Copilot connections, actor-separated sessions and reported delegation chains. Opaque agent-internal model/tool calls need their own instrumentation. |
 | **LLMPlex** | Configure model routes/surfaces and forward native model operations | HTTP/SSE/Live protocols, client wire facades, OpenAI/Anthropic/Azure/Bedrock/OpenAI-compatible/Gemini Developer provider surfaces, media and [batch](docs/model-batches.md) operations, and stateful resource ownership. Available protocols and models are explicit operator configuration. |
-| **ClientPlex** | Connect Antigravity, Codex and Claude clients to supported model endpoints | Client profiles, saved registrations, protocol checks and reviewed configuration fragments. It does not install clients, issue credentials or grant model access. A rendered plan stays `configured-unverified` until the installed client, provider access and deployment are qualified. |
+| **ClientPlex** | Connect Antigravity, Codex and Claude clients to supported model endpoints | Client profiles, saved registrations, protocol checks and reviewed configuration fragments. ClientPlex itself writes no workstation files, installs no clients, issues no credentials and grants no model access; the CLI's opt-in `aiplex connect --write` edits the client's config file ([harness onboarding](docs/harness-onboarding.md)). A rendered plan stays `configured-unverified` until the installed client, provider access and deployment are qualified. |
 | **SkillsPlex** | Discover deployed skills and inspect invocation history | Skill manifests, capabilities and attributed audit records. |
 | **QuotaPlex** | Share budgets and admission controls across supported execution paths | Allocations, prices, funding, budget holds, admitted rates, permits, scheduling and settlement. Opt-in; only explicitly covered paths are protected. |
 | **Networking** | Prepare private connectivity, identity and egress configuration | Native network artifacts and optional reviewed Anvil execution. Saved intent, successful apply and observed readiness are separate states. |

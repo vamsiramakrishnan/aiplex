@@ -25,6 +25,7 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex dev`](./dev.md) | Run AIPlex on this machine with a mock model, mock tools and the Console |
 | [`aiplex login`](./login.md) | Sign in to an AIPlex API and store the token for the current context |
 | [`aiplex logout`](./logout.md) | Forget the stored token for the current context |
+| [`aiplex auth`](./auth.md) | Credential helpers for tools that fetch a token by running a command |
 | [`aiplex whoami`](./whoami.md) | Show which API and identity the CLI is using, and your roles |
 | [`aiplex config`](./config.md) | Manage named contexts (API URL and credentials per environment) |
 | [`aiplex ctx`](./ctx.md) | Switch to another context, or show the current one |
@@ -84,6 +85,7 @@ Get started:
   dev           Run AIPlex on this machine with a mock model, mock tools and the Console
   login         Sign in to an AIPlex API and store the token for the current context
   logout        Forget the stored token for the current context
+  auth          Credential helpers for tools that fetch a token by running a command
   whoami        Show which API and identity the CLI is using, and your roles
   config        Manage named contexts (API URL and credentials per environment)
   ctx           Switch to another context, or show the current one

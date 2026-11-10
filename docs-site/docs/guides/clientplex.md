@@ -23,7 +23,7 @@ Choose a client profile: Antigravity / Codex / Claude
        Developer merges configuration into native client
 ```
 
-A destination can be a managed LLMPlex facade or an explicitly configured external gateway; direct mode uses the client's native provider authentication. ClientPlex does not install clients, issue credentials or grant model access. Credentials remain opaque references and plans leave existing workstation files intact. A rendered plan stays `configured-unverified` until the installed client, provider access and deployment have been qualified.
+A destination can be a managed LLMPlex facade or an explicitly configured external gateway; direct mode uses the client's native provider authentication. ClientPlex does not install clients, issue credentials or grant model access. (The CLI's separate, opt-in `aiplex connect --write` merges a client configuration into the client's own config file with a backup; see [Harness onboarding](../library/harness-onboarding.md).) Credentials remain opaque references and plans leave existing workstation files intact. A rendered plan stays `configured-unverified` until the installed client, provider access and deployment have been qualified.
 
 ```bash
 aiplex clients profiles

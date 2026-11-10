@@ -21,6 +21,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.21.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/muesli/termenv v0.16.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/rs/zerolog v1.33.0
 	github.com/sethvargo/go-envconfig v1.1.0
 	github.com/spf13/cobra v1.10.2
