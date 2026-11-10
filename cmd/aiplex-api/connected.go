@@ -140,6 +140,7 @@ func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHa
 			r.Get("/{id}/capacity", h.SurfaceCapacity)
 		})
 		r.Get("/llm/operations", h.ModelOperations)
+		r.Get("/llm/batches", h.ListModelBatches)
 		r.Handle("/llm/native/{id}/*", http.HandlerFunc(h.NativeModel))
 		r.Handle("/llm/gateway/{id}/*", http.HandlerFunc(h.ClientGateway))
 	}
