@@ -224,6 +224,11 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 		// name its secret reference resolves from. Never written to disk.
 		env = append(env, s.providerE+"="+os.Getenv(opts.APIKeyEnv))
 	}
+	if opts.Provider == "mock" {
+		// The extra mock surfaces need a credential reference; the mock accepts
+		// any value, so this is a placeholder and not a secret.
+		env = append(env, "AIPLEX_TOOL_SECRET_"+strings.ToUpper(strings.ReplaceAll(MockSecretRef, "-", "_"))+"=mock-credential-not-a-secret")
+	}
 	if len(opts.ConsoleOrigins) > 0 {
 		env = append(env, "CONSOLE_ORIGINS="+strings.Join(opts.ConsoleOrigins, ","))
 	}

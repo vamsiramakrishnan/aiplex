@@ -177,7 +177,11 @@ func devStatusCmd() *cobra.Command {
 			}
 			fmt.Fprintf(out, "  API            %s  %s\n", st.URL, health)
 			fmt.Fprintf(out, "  Access point   %s  ->  %s/ap/%s\n", st.AccessPoint, st.URL, st.AccessPoint)
-			fmt.Fprintf(out, "  Model          %s\n", st.Model)
+			if len(st.Models) > 1 {
+				fmt.Fprintf(out, "  Models         %s\n", strings.Join(st.Models, ", "))
+			} else {
+				fmt.Fprintf(out, "  Model          %s\n", st.Model)
+			}
 			fmt.Fprintf(out, "  CLI context    %s\n", st.Context)
 			switch {
 			case st.Console != "":

@@ -83,6 +83,19 @@ func overviewWireFamily(wire string) string {
 	return ""
 }
 
+// overviewProfileUsesAccessPoint reports whether a client profile can speak to
+// an access point: it has at least one model wire protocol (not only the
+// Claude apps gateway protocol, which needs its own gateway server).
+func overviewProfileUsesAccessPoint(p clientplex.Profile) bool {
+	for _, protocol := range p.Protocols {
+		switch protocol {
+		case clientplex.OpenAIChat, clientplex.Responses, clientplex.Messages, clientplex.GenAI:
+			return true
+		}
+	}
+	return false
+}
+
 // Connect handles GET /overview/access-points/{id}/connect?client=…
 //
 // Every URL is built from the configured public URL, never from the request
@@ -106,12 +119,18 @@ func (h *OverviewHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			ids := []string{"generic"}
 			for _, known := range clientplex.Profiles() {
-				ids = append(ids, known.ID)
+				if overviewProfileUsesAccessPoint(known) {
+					ids = append(ids, known.ID)
+				}
 			}
 			Error(w, r, http.StatusNotFound, "UNKNOWN_CLIENT", "client must be one of: "+strings.Join(ids, ", "))
 			return
 		}
 		profile = p
+		if !overviewProfileUsesAccessPoint(p) {
+			Error(w, r, http.StatusUnprocessableEntity, "CLIENT_NOT_APPLICABLE", fmt.Sprintf("client %s speaks %s, which signs in through a Claude apps gateway server rather than an access point; use claude-code (Anthropic Messages) for an access point", p.ID, strings.Join(p.Protocols, ", ")))
+			return
+		}
 	}
 	base := h.Connected.publicBase()
 	if base == "" {

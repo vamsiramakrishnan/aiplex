@@ -19,7 +19,36 @@ const (
 	SeedSurface     = "local-models"
 	SeedConnection  = "local-tools"
 	MockModel       = "mock-gpt"
+	// MockSecretRef is the secret reference the extra mock surfaces use. Their
+	// providers require a credential scheme, so the stack gives the API process
+	// a throwaway value under this reference (the mock ignores it).
+	MockSecretRef = "dev-mock-key"
 )
+
+// MockSurface is one built-in mock model surface: a wire the local demo
+// serves besides OpenAI Chat Completions.
+type MockSurface struct {
+	Surface  string // surface id
+	Model    string // mock model name (also the native model)
+	Provider string // modelapi provider whose catalog the surface uses
+	Wire     string // protocol name, e.g. anthropic-messages
+}
+
+// MockSurfaces are seeded next to the chat surface when the provider is
+// "mock". Each goes through the normal surface, access-point and gateway path.
+var MockSurfaces = []MockSurface{
+	{"local-messages", "mock-claude", "anthropic", "anthropic-messages"},
+	{"local-responses", "mock-responses", "openai", "openai-responses"},
+	{"local-gemini", "mock-gemini", "gemini", "google-genai"},
+}
+
+// SeededModel is one model exposed through the access point.
+type SeededModel struct {
+	Name     string
+	Surface  string
+	Protocol string
+	Price    string
+}
 
 // Seeded describes what Seed created.
 type Seeded struct {
@@ -29,8 +58,10 @@ type Seeded struct {
 	Model       string
 	Protocol    string // wire the model is served on: openai-chat, anthropic-messages or google-genai
 	Price       string // empty when no price was seeded
-	Connection  string // empty when no tool connection was seeded
-	Tools       []string
+	// Models lists every model on the access point, the primary one first.
+	Models     []SeededModel
+	Connection string // empty when no tool connection was seeded
+	Tools      []string
 }
 
 // DefaultModel is the model wired for each provider unless overridden.
@@ -49,6 +80,18 @@ func DefaultModel(provider string) string {
 // SurfaceSpec builds the model-surface spec for a provider. origin is the
 // upstream (the mock URL for "mock").
 func SurfaceSpec(id, provider, origin, model string) (map[string]any, string, error) {
+	return surfaceSpec(id, provider, origin, model, false)
+}
+
+// MockSurfaceSpec builds the surface of a MockSurfaces entry: the named
+// provider's native operations against the local mock origin, authenticated
+// with the throwaway mock credential.
+func MockSurfaceSpec(m MockSurface, origin string) (map[string]any, error) {
+	spec, _, err := surfaceSpec(m.Surface, m.Provider, origin, m.Model, true)
+	return spec, err
+}
+
+func surfaceSpec(id, provider, origin, model string, mock bool) (map[string]any, string, error) {
 	var (
 		providerBlock map[string]any
 		protocol      string
@@ -64,6 +107,10 @@ func SurfaceSpec(id, provider, origin, model string) (map[string]any, string, er
 	case "openai":
 		providerID, protocol, opIDs = modelapi.ProviderOpenAI, modelapi.ProtocolOpenAIChat, []string{"openai.v1.chat-completions"}
 		providerBlock = map[string]any{"id": providerID, "stream_usage": "inject"}
+		if mock {
+			protocol, opIDs = modelapi.ProtocolOpenAIResponses, []string{"openai.v1.responses"}
+			providerBlock = map[string]any{"id": providerID}
+		}
 		auth = map[string]any{"type": "bearer", "secret_ref": ProviderSecretRef}
 	case "anthropic":
 		providerID, protocol, opIDs = modelapi.ProviderAnthropic, modelapi.ProtocolAnthropicMessages, []string{"anthropic.messages", "anthropic.messages-count-tokens"}
@@ -79,6 +126,9 @@ func SurfaceSpec(id, provider, origin, model string) (map[string]any, string, er
 	ops, err := modelapi.SelectProviderOperations(providerID, opIDs...)
 	if err != nil {
 		return nil, "", err
+	}
+	if mock {
+		auth["secret_ref"] = MockSecretRef
 	}
 	return map[string]any{
 		"surface": map[string]any{"id": id, "protocol": protocol, "origin": origin, "models": []string{model}, "operations": ops, "provider": providerBlock},
@@ -211,16 +261,33 @@ func (s *Stack) Seed(ctx context.Context, o SeedOptions) (*Seeded, error) {
 	if err = api.Create(ctx, "/api/v1/llm/surfaces/"+SeedSurface, surface); err != nil {
 		return nil, fmt.Errorf("create model surface: %w", err)
 	}
+	apModels := []map[string]any{{"name": o.Model, "surface_ref": SeedSurface, "native_model": o.Model}}
+	out.Models = []SeededModel{{Name: o.Model, Surface: SeedSurface, Protocol: protocol}}
 	if o.Provider == "mock" {
 		if err = api.Create(ctx, "/api/v1/usage/prices/"+o.Model, MockPrice(o.Model)); err != nil {
 			return nil, fmt.Errorf("create model price: %w", err)
 		}
 		out.Price = o.Model
+		out.Models[0].Price = o.Model
+		for _, m := range MockSurfaces {
+			spec, e := MockSurfaceSpec(m, origin)
+			if e != nil {
+				return nil, e
+			}
+			if err = api.Create(ctx, "/api/v1/llm/surfaces/"+m.Surface, spec); err != nil {
+				return nil, fmt.Errorf("create model surface %s: %w", m.Surface, err)
+			}
+			if err = api.Create(ctx, "/api/v1/usage/prices/"+m.Model, MockPrice(m.Model)); err != nil {
+				return nil, fmt.Errorf("create model price %s: %w", m.Model, err)
+			}
+			apModels = append(apModels, map[string]any{"name": m.Model, "surface_ref": m.Surface, "native_model": m.Model})
+			out.Models = append(out.Models, SeededModel{Name: m.Model, Surface: m.Surface, Protocol: m.Wire, Price: m.Model})
+		}
 	}
 	ap := map[string]any{
 		"id": SeedAccessPoint, "display_name": "Local development", "caller_kinds": []string{"user", "agent", "client"},
 		"subjects": map[string]any{},
-		"models":   []map[string]any{{"name": o.Model, "surface_ref": SeedSurface, "native_model": o.Model}},
+		"models":   apModels,
 	}
 	if !o.NoTools {
 		if err = api.Create(ctx, "/api/v1/mcp/connections/"+SeedConnection, ToolConnectionSpec(SeedConnection, s.MCPURL, MockTools, nil, nil)); err != nil {

@@ -27,16 +27,18 @@ import (
 // devState is what `aiplex dev` records for `aiplex dev env` while it runs.
 // It holds no secrets; the token is in the encrypted credentials file.
 type devState struct {
-	URL         string `json:"url"`
-	Context     string `json:"context"`
-	AccessPoint string `json:"access_point"`
-	Model       string `json:"model"`
-	Protocol    string `json:"protocol"`
-	PID         int    `json:"pid"`
-	Console     string `json:"console,omitempty"`
-	ConsoleNote string `json:"console_note,omitempty"`
-	StartedAt   string `json:"started_at,omitempty"`
-	APILog      string `json:"api_log,omitempty"`
+	URL         string   `json:"url"`
+	Context     string   `json:"context"`
+	AccessPoint string   `json:"access_point"`
+	Model       string   `json:"model"`
+	Protocol    string   `json:"protocol"`
+	Provider    string   `json:"provider,omitempty"`
+	Models      []string `json:"models,omitempty"`
+	PID         int      `json:"pid"`
+	Console     string   `json:"console,omitempty"`
+	ConsoleNote string   `json:"console_note,omitempty"`
+	StartedAt   string   `json:"started_at,omitempty"`
+	APILog      string   `json:"api_log,omitempty"`
 }
 
 func devStatePath() (string, error) {
@@ -65,14 +67,19 @@ func devCmd() *cobra.Command {
 What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
   - aiplex-api in development mode (in-memory stores, loopback only)
   - a local token issuer: you are "developer@localhost" with the admin role
-  - a built-in mock model provider speaking the OpenAI Chat Completions wire
-    (or a real provider with --provider and --api-key-env)
+  - a built-in mock model provider with four deterministic models, one per
+    wire: mock-gpt (OpenAI Chat Completions), mock-responses (OpenAI
+    Responses), mock-claude (Anthropic Messages) and mock-gemini (Gemini
+    generateContent), so Claude Code, Codex and the OpenAI, Anthropic and
+    Google SDKs all work with no key (or a real provider with --provider and
+    --api-key-env, which exposes one model)
   - a built-in MCP server with three tools (echo, add, reset_counter)
   - the Console, when this binary carries a built Console
 
 What is created through the normal APIs:
-  - model surface "local-models", access point "local", tool connection
-    "local-tools" and, for the mock model, a placeholder price
+  - model surfaces "local-models", "local-responses", "local-messages" and
+    "local-gemini", access point "local", tool connection "local-tools" and,
+    for the mock models, placeholder prices
 
 The CLI context "local" is created and made current while this runs. The
 previous context is restored when you stop it.
@@ -188,7 +195,7 @@ func runDev(parent context.Context, o devOptions) error {
 		consoleURL, consoleNote = startDevConsole(ctx, stack.APIURL, stack.Token, o.consolePort)
 	}
 	statePath, _ := devStatePath()
-	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath}
+	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339), APILog: logPath}
 	if raw, e := json.MarshalIndent(state, "", "  "); e == nil && statePath != "" {
 		_ = os.WriteFile(statePath, raw, 0o600)
 		defer os.Remove(statePath)
@@ -402,7 +409,13 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	row("You", devstack.DevEmail+"  (admin; token from a local issuer, valid 12h)")
 	switch seeded.Provider {
 	case "mock":
-		row("Model", seeded.Model+"  via the built-in mock provider (OpenAI Chat Completions wire, no API key)")
+		names, wires := make([]string, 0, len(seeded.Models)), make([]string, 0, len(seeded.Models))
+		for _, m := range seeded.Models {
+			names = append(names, m.Name)
+			wires = append(wires, devWireLabel(m.Protocol))
+		}
+		row("Models", strings.Join(names, ", ")+"  (built-in mock provider, no API key)")
+		row("", "wires: "+strings.Join(wires, ", "))
 	default:
 		row("Model", seeded.Model+"  via "+seeded.Provider+" (key from $"+o.keyEnv+")")
 	}
@@ -411,7 +424,7 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	}
 	row("Access point", seeded.AccessPoint+"  ->  "+s.APIURL+"/ap/"+seeded.AccessPoint)
 	if seeded.Price != "" {
-		row("Price", seeded.Price+"  (placeholder rates, so estimated cost shows in usage)")
+		row("Price", "placeholder rates for each mock model, so estimated cost shows in usage")
 	} else {
 		row("Price", "none (prices are your contracted rates: aiplex usage prices set -f price.json)")
 	}
@@ -453,6 +466,21 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	} else {
 		fmt.Println("  Press Ctrl+C to stop. State is in memory and is discarded on stop.")
 	}
+}
+
+// devWireLabel is the short name of a model wire protocol for the summary.
+func devWireLabel(protocol string) string {
+	switch protocol {
+	case "openai-chat":
+		return "OpenAI Chat"
+	case "openai-responses":
+		return "OpenAI Responses"
+	case "anthropic-messages":
+		return "Anthropic Messages"
+	case "google-genai":
+		return "Gemini generateContent"
+	}
+	return protocol
 }
 
 // openCommand is the shell command that opens a URL on this OS.
@@ -532,11 +560,19 @@ the local API that issued it and expires when that API stops.`,
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "export AIPLEX_URL=%s\n", shellQuote(st.URL))
 			fmt.Fprintf(w, "export AIPLEX_TOKEN=%s\n", shellQuote(entry.AccessToken))
-			switch st.Protocol {
-			case "anthropic-messages":
+			switch {
+			case st.Provider == "mock":
+				// The mock serves every wire: export each SDK family.
+				fmt.Fprintf(w, "export OPENAI_BASE_URL=%s\n", shellQuote(ap+"/v1"))
+				fmt.Fprintln(w, `export OPENAI_API_KEY="$AIPLEX_TOKEN"`)
 				fmt.Fprintf(w, "export ANTHROPIC_BASE_URL=%s\n", shellQuote(ap))
 				fmt.Fprintln(w, `export ANTHROPIC_API_KEY="$AIPLEX_TOKEN"`)
-			case "google-genai":
+				fmt.Fprintf(w, "export GOOGLE_GEMINI_BASE_URL=%s\n", shellQuote(ap))
+				fmt.Fprintln(w, `export GEMINI_API_KEY="$AIPLEX_TOKEN"`)
+			case st.Protocol == "anthropic-messages":
+				fmt.Fprintf(w, "export ANTHROPIC_BASE_URL=%s\n", shellQuote(ap))
+				fmt.Fprintln(w, `export ANTHROPIC_API_KEY="$AIPLEX_TOKEN"`)
+			case st.Protocol == "google-genai":
 				fmt.Fprintf(w, "export GOOGLE_GEMINI_BASE_URL=%s\n", shellQuote(ap))
 				fmt.Fprintln(w, `export GEMINI_API_KEY="$AIPLEX_TOKEN"`)
 			default:
@@ -560,3 +596,11 @@ func devReachable(url string) bool {
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+func seededModelNames(seeded *devstack.Seeded) []string {
+	names := make([]string, 0, len(seeded.Models))
+	for _, m := range seeded.Models {
+		names = append(names, m.Name)
+	}
+	return names
+}
