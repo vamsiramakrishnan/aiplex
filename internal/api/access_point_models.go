@@ -442,12 +442,14 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			fail(w, r, http.StatusBadRequest, "INVALID_PATH", "invalid request path")
 			return
 		}
+		local, deployment, azure := accessPointAzureLocal(local)
 		data, err := io.ReadAll(io.LimitReader(r.Body, (8<<20)+1))
 		if err != nil || len(data) > 8<<20 {
 			fail(w, r, http.StatusRequestEntityTooLarge, "REQUEST_TOO_LARGE", "request body exceeds 8 MiB")
 			return
 		}
 		var name, method string
+		var bodyHasModel bool
 		switch {
 		case protocol == WireGenAI:
 			match := genaiClientPath.FindStringSubmatch(local)
@@ -484,6 +486,10 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			if name, form, err = multipartModel(data, r.Header.Get("Content-Type")); !form {
 				name, err = bodyModel(data)
 			}
+		case deployment != "":
+			// Azure deployment routes name the model in the path.
+			name = deployment
+			bodyHasModel, err = deploymentBodyModel(data, deployment)
 		default:
 			name, err = bodyModel(data)
 		}
@@ -527,6 +533,19 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 		}
 		path, body := local, data
 		rawQuery := r.URL.RawQuery
+		if azure {
+			// api-version is accepted and ignored: the surface pins its own.
+			rawQuery = dropAPIVersion(rawQuery)
+		}
+		if deployment != "" && !bodyHasModel {
+			// A deployment-route body without a model gets the native one, so
+			// every surface sees the model where its own wire expects it.
+			if body, err = insertBodyModel(data, entry.NativeModel); err != nil {
+				fail(w, r, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+				return
+			}
+			data = body
+		}
 		if accessPointWebSocket(protocol) {
 			body = nil
 			rawQuery = url.Values{"model": {entry.NativeModel}}.Encode()

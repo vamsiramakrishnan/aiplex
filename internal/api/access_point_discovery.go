@@ -25,6 +25,7 @@ func (h *ConnectedHandler) MountAccessPointEndpoints(r chi.Router) {
 		r.Get("/v1/models", h.AccessPointListModels)
 		r.Get("/v1beta/models", h.AccessPointListGenAIModels)
 		h.mountAccessPointUtility(r)
+		h.mountAccessPointAzure(r)
 		r.HandleFunc("/mcp", h.AccessPointMCP)
 		r.HandleFunc("/mcp/{connection}", h.AccessPointMCP)
 		r.Get("/v0.1/servers", h.AccessPointServers)
