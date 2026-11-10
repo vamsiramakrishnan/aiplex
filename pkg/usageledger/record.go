@@ -127,6 +127,15 @@ type Cost struct {
 	Currency string `json:"currency,omitempty"`
 	Amount   string `json:"amount,omitempty"`
 	Scale    uint8  `json:"scale"`
+	// Exact is the unrounded amount in minor units as a fraction ("37/4" for
+	// 9.25), set only when Amount was rounded up from it. Summaries add Exact
+	// values before rounding once, so rounding does not accumulate.
+	Exact string `json:"exact,omitempty"`
+	// PriceID names the model-price an estimate used.
+	PriceID string `json:"price_id,omitempty"`
+	// BackfilledAt is set when the cost was computed after the record was
+	// written, for a record whose cost was unknown at write time.
+	BackfilledAt *time.Time `json:"backfilled_at,omitempty"`
 }
 
 // MarshalJSON omits the scale of an unknown cost so it cannot be read as zero.
@@ -264,7 +273,14 @@ type Record struct {
 	// reported for generated images (for example "1024x1024", "high").
 	ImageSize    string `json:"image_size,omitempty"`
 	ImageQuality string `json:"image_quality,omitempty"`
-	Cost         Cost   `json:"cost"`
+	// ServiceTier is the processing tier the provider reported for the
+	// exchange (OpenAI service_tier, for example "default", "flex",
+	// "priority"); "mixed" when parts of one exchange disagreed.
+	ServiceTier string `json:"service_tier,omitempty"`
+	// ServerTools counts provider-side tool requests the provider reported
+	// (kind to count, for example web_search). See server_tools.go.
+	ServerTools map[string]int64 `json:"server_tools,omitempty"`
+	Cost        Cost             `json:"cost"`
 	// ProviderLimits is the provider rate-limit metadata observed on the
 	// managed exchange's native response, when any was reported.
 	ProviderLimits *providerlimits.Limits `json:"provider_limits,omitempty"`
@@ -321,7 +337,7 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "span_id": r.SpanID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "span_id": r.SpanID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality, "service_tier": r.ServiceTier} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}
@@ -370,6 +386,9 @@ func (r Record) Validate() error {
 	if err := r.Hooks.validate(); err != nil {
 		return err
 	}
+	if err := validateServerTools(r.ServerTools); err != nil {
+		return err
+	}
 	return r.Cost.Validate()
 }
 
@@ -377,7 +396,7 @@ func (r Record) Validate() error {
 func (c Cost) Validate() error {
 	switch c.Basis {
 	case BasisUnknown:
-		if c.Currency != "" || c.Amount != "" || c.Scale != 0 {
+		if c.Currency != "" || c.Amount != "" || c.Scale != 0 || c.Exact != "" || c.PriceID != "" || c.BackfilledAt != nil {
 			return invalid("unknown cost cannot carry an amount")
 		}
 		return nil
@@ -387,6 +406,16 @@ func (c Cost) Validate() error {
 		}
 		if _, ok := c.AmountInt(); !ok || len(c.Amount) > 64 {
 			return invalid("cost amount must be a nonnegative decimal integer")
+		}
+		if !validText(c.PriceID, false) {
+			return invalid("cost price_id is not bounded printable text")
+		}
+		if c.Exact != "" {
+			exact, ok := new(big.Rat).SetString(c.Exact)
+			amount, _ := c.AmountInt()
+			if !ok || len(c.Exact) > 128 || exact.IsInt() || exact.Sign() < 0 || new(big.Rat).SetInt(amount).Cmp(exact) < 0 || new(big.Rat).SetInt(new(big.Int).Sub(amount, big.NewInt(1))).Cmp(exact) >= 0 {
+				return invalid("cost exact must be a fraction rounded up to amount")
+			}
 		}
 		return nil
 	}
@@ -414,6 +443,17 @@ func (r Record) Clone() Record {
 		r.Usage = &u
 	}
 	r.Hooks = cloneHooks(r.Hooks)
+	if r.ServerTools != nil {
+		tools := make(map[string]int64, len(r.ServerTools))
+		for k, v := range r.ServerTools {
+			tools[k] = v
+		}
+		r.ServerTools = tools
+	}
+	if r.Cost.BackfilledAt != nil {
+		at := *r.Cost.BackfilledAt
+		r.Cost.BackfilledAt = &at
+	}
 	return r
 }
 
