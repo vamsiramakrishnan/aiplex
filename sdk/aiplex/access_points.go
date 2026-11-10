@@ -30,6 +30,8 @@ type AccessPoint struct {
 	Tools       []AccessPointTool   `json:"tools,omitempty"`
 	Skills      []AccessPointSkill  `json:"skills,omitempty"`
 	QoS         *AccessPointQoS     `json:"qos,omitempty"`
+	// Project is a label an administrator sets; tenant budgets may select it.
+	Project string `json:"project,omitempty"`
 }
 
 // AccessPointSubjects narrows who may call. An empty block admits every

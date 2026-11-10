@@ -25,7 +25,7 @@ const usageUnknown = "unknown"
 
 type usageFilterFlags struct {
 	plane, provider, model, tool, agent, user, client, status, source string
-	accessPoint, callerKind                                           string
+	accessPoint, callerKind, budget                                   string
 	since, until                                                      string
 	errorClass, bound, batch                                          string
 	hookDecision                                                      string
@@ -42,6 +42,7 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.client, "client", "", "Client ID (client_id)")
 	fl.StringVar(&f.accessPoint, "access-point", "", "Access point ID (access_point_id)")
 	fl.StringVar(&f.callerKind, "caller-kind", "", "Caller kind: agent, user or client (caller_kind)")
+	fl.StringVar(&f.budget, "budget", "", "Tenant budget ID: exchanges that drew from that budget")
 	fl.StringVar(&f.status, "status", "", "Status: ok, error, denied or unknown")
 	fl.StringVar(&f.source, "source", "", "Source: managed or reported")
 	fl.StringVar(&f.errorClass, "error-class", "", "Error class (error_class)")
@@ -54,7 +55,7 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 }
 
 func (f *usageFilterFlags) filter(now time.Time) (aiplex.UsageFilter, error) {
-	out := aiplex.UsageFilter{Plane: f.plane, Provider: f.provider, ModelID: f.model, ToolName: f.tool, ActorID: f.agent, PrincipalID: f.user, ClientID: f.client, AccessPointID: f.accessPoint, CallerKind: f.callerKind, Status: f.status, Source: f.source}
+	out := aiplex.UsageFilter{Plane: f.plane, Provider: f.provider, ModelID: f.model, ToolName: f.tool, ActorID: f.agent, PrincipalID: f.user, ClientID: f.client, AccessPointID: f.accessPoint, CallerKind: f.callerKind, BudgetID: f.budget, Status: f.status, Source: f.source}
 	out.ErrorClass, out.UsageBound, out.HookDecision = f.errorClass, f.bound, f.hookDecision
 	if f.hookDecision != "" && !usageledger.ValidHookDecision(f.hookDecision) {
 		return out, fmt.Errorf("--hook-decision must be allow, deny, transform, error, skipped or none")
@@ -249,7 +250,7 @@ func usageSummaryCmd() *cobra.Command {
 		Use:   "summary",
 		Short: "Totals of requests, tokens and cost, optionally grouped",
 		Long: `Aggregate usage. --by takes plane, provider, model, tool, agent, user, client,
-access-point, caller-kind, status, source, error-class, bound (usage_bound)
+access-point, caller-kind, budget, status, source, error-class, bound (usage_bound)
 or batch (aliases: model=model_id, agent=actor_id,
 user=principal_id, client=client_id, tool=tool_name, access-point=access_point_id,
 caller-kind=caller_kind). Records whose usage is bounded (lower_bound, ambiguous
@@ -300,7 +301,7 @@ records and the command says so.`,
 		},
 	}
 	flags.bind(cmd)
-	cmd.Flags().StringSliceVar(&by, "by", nil, "Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,status,source,error-class,bound,batch")
+	cmd.Flags().StringSliceVar(&by, "by", nil, "Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,budget,status,source,error-class,bound,batch")
 	cmd.Flags().StringVar(&bucket, "bucket", "", "Time bucket: hour or day")
 	return cmd
 }
