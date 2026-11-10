@@ -23,6 +23,17 @@ There has been no tagged release yet. This section summarises what exists in the
 - `aiplex mcp serve`: a stdio MCP server with read-only tools (`whoami`, `list_access_points`, `get_connect_config`, `list_models`, `usage_summary`, `usage_records`) using your own token.
 - `aiplex auth print-token` for client credential helpers.
 - `integrations/claude-code` (plugin with three skills), `integrations/gemini-cli` (extension) and a root `AGENTS.md`; a test checks that every `aiplex` command in them exists.
+- Gemini CLI's base URL and Antigravity's configuration are printed as remaining steps, not written: Gemini CLI has no settings key for the base URL, and Antigravity's config location is not documented.
+
+### Observability
+
+- OpenTelemetry in `aiplex-api`: a SERVER span per HTTP request and a CLIENT span per managed model, tool and agent exchange, named and attributed per the GenAI and MCP semantic conventions. Those conventions are in Development status; the revision AIPlex follows and every name are in `pkg/telemetry/semconv.go`. See `docs/observability.md`.
+- OTLP export is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` (or a per-signal endpoint) is set. `aiplex dev --otel <url>` sets it for a local run. `GET /metrics` is served either way.
+- W3C trace context is continued from a valid inbound `traceparent` and sent upstream to model, tool and agent endpoints by default (`AIPLEX_TRACE_PROPAGATE_UPSTREAM=false` strips it). Every usage record carries `trace_id` and `span_id`, so a record can be found in a trace.
+- Metrics cover request and exchange duration, token counters for the model plane (known and final values only), known cost, unknown cost and usage, quota denials and upstream errors. No principal, request, record or trace ID is a metric attribute.
+- Prompts, completions, tool arguments and results, and credentials are not recorded. Tests plant secrets in the prompt, the caller token, the query string and a provider key header and fail if one reaches a span.
+- `GET /metrics` needs `AIPLEX_METRICS_TOKEN` (see the behaviour changes below).
+- The Helm chart's `otel.enabled` wires the endpoint, and its collector (pinned image) runs under its own identity and exports to Cloud Trace and Cloud Monitoring. The export path has been tested only against an in-process OTLP/HTTP receiver, not a real collector.
 
 ### Access points and usage
 
@@ -68,6 +79,21 @@ There has been no tagged release yet. This section summarises what exists in the
 
 - Deploy engine and catalog federation, declarative `aiplex apply`, Helm chart, Terraform modules, Kubernetes manifests and Ory configuration under `deploy/`. A Firestore emulator lane in CI covers registry and quota storage.
 - Networking plans with optional reviewed Anvil execution.
+- Least-privilege Google Cloud setup. `aiplex platform preflight` tests, with `testIamPermissions`, the permissions the Terraform needs for the features `terraform.tfvars` enables, checks the APIs and billing, and names the narrowest predefined role for each gap. `aiplex platform apply` runs it first and refuses on failure. `aiplex init` no longer asks for Owner or Editor. An optional custom deployer role is in `deploy/iam/aiplex-deployer-role.yaml`. See `docs/gcp-permissions.md`. Not run against a live project.
+- Runtime grants narrowed: the API reads only secrets named with the `aiplex-` prefix (IAM condition) and has a custom role for writing them; Firestore access is limited to the default database where IAM allows; the API has namespaced Kubernetes RBAC with no ClusterRole; the AlloyDB proxy, the OpenTelemetry collector and the Firestore exporter have their own service accounts; the external agent service account no longer holds token creator on itself. A test fails the build if `deploy/` grants `roles/owner`, `roles/editor` or a project-level admin role outside an allowlist.
+- Deployment fixes from a first-deploy review: runtime grants, namespaces (Terraform creates `aiplex-system` with Helm adoption metadata), DNS and certificate authorization, the Terraform state bucket (a `PROJECT_ID-aiplex-tfstate` bucket with versioning), and a per-client-IP Cloud Armor throttle.
+
+### Behaviour changes
+
+- A provider's `secret_ref` must start with `aiplex-` when Secret Manager is configured. A reference without the prefix is refused when the provider is saved, with a message that names the rule. Name those secrets `aiplex-...`.
+- `GET /metrics` needs `AIPLEX_METRICS_TOKEN` as a bearer token. Without the variable it answers 503, except in development mode on loopback. The public gateway does not route `/metrics`; scrape the `aiplex-api` service inside the cluster.
+- `aiplex platform apply` refuses to run when the preflight fails. `--skip-preflight` overrides the check with a warning.
+- The console image is unprivileged nginx (`nginxinc/nginx-unprivileged`) that listens on 8080 as uid 101. Rebuild it from `console/Dockerfile` before upgrading the chart; the old `nginx:alpine` image will not start with the new security settings.
+- `OTEL_ENDPOINT` is deprecated in favour of `OTEL_EXPORTER_OTLP_ENDPOINT`. It is used only when the standard variable is unset, and a warning is logged.
+
+### Upgrading an existing deployment
+
+An existing deployment needs steps before the Helm upgrade: the secret, Firestore, backup, DNS, namespace and collector identity changes, among others. Read `docs/gcp-permissions.md`, [Upgrading an existing deployment](docs/gcp-permissions.md#upgrading-an-existing-deployment), and run `terraform plan` (or `aiplex platform apply` without `--yes`) before approving. None of these steps has been run against a live project.
 
 ### Console and SDK
 
@@ -76,7 +102,7 @@ There has been no tagged release yet. This section summarises what exists in the
 
 ### Documentation, brand and project files
 
-- Code-verified guides under `docs/`, a Docusaurus site that renders them with broken links as errors, a generated CLI reference, API reference pages, the brand system (logo, tokens, icons, launch graphics, architecture diagram), and `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` and issue and pull request templates.
+- Code-verified guides under `docs/` (including the observability, harness onboarding and Google Cloud permissions guides, and the plan in `docs/design/2026-11-10-onboarding-telemetry-least-privilege.md`), a Docusaurus site that renders them with broken links as errors, a generated CLI reference, API reference pages, the brand system (logo, tokens, icons, launch graphics, architecture diagram), and `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md` and issue and pull request templates.
 - Examples under `examples/`, run by `make examples-test` against `aiplex dev`.
 - Release mechanics: GoReleaser builds `aiplex` and `aiplex-api` archives with checksums and a changelog; `install.sh` installs both.
 

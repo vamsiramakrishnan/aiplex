@@ -56,6 +56,7 @@ From the cobra definitions in `cmd/aiplex-cli/cmd_dev.go`:
 | `--no-tools` | off | Do not create the tool connection. |
 | `-d`, `--detach` | off | Run in the background. Output goes to `~/.aiplex/dev.log`. Stop it with `aiplex dev stop`. |
 | `--allow-origin` | none | Extra upstream origin the local API may call, for example `https://mcp.example.com`. Repeatable. The loopback mock upstreams and the public OpenAI, Anthropic and Gemini APIs are always allowed. |
+| `--otel` | off | OTLP/HTTP endpoint of a collector you run, for example `http://127.0.0.1:4318`. Sets `OTEL_EXPORTER_OTLP_ENDPOINT` for the local API. Without it nothing is exported. See [observability](observability.md). |
 
 `aiplex dev` has four subcommands. `env`, `status` and `stop` take no flags beyond the global ones:
 
@@ -120,7 +121,11 @@ Auth wiring per provider, as the seeded surface sets it:
 
 With a real provider, no price is seeded. The summary says so. Set contracted rates with
 `aiplex usage prices set <model> --input-per-mtok <price> --output-per-mtok <price>`, or with a full
-specification from a file, `aiplex usage prices set -f <price.json>`.
+specification from a file, `aiplex usage prices set -f <price.json>`. To start from public list prices instead,
+`aiplex usage prices catalog search <text>` lists entries from the bundled third-party catalogue, and
+`aiplex usage prices catalog import <provider>/<model> --dry-run` shows what an import would write. Nothing is
+imported until you run it without `--dry-run`, and imported cost stays `estimated`
+([price catalogue](usage-ledger.md#price-catalogue)).
 
 ## The developer identity
 
@@ -255,6 +260,7 @@ After the stack is ready, `aiplex dev` prints a summary. Its lines are:
 | `Access point` | The access point name and its URL. |
 | `Price` | The placeholder prices for the mock models. For a real provider, the line says none is seeded. |
 | `Quota` | `off`. QuotaPlex needs an operator quota file, which the local API does not get. |
+| `Telemetry` | Present only with `--otel`: the collector URL the local API exports traces and metrics to. Without it, nothing is exported. |
 | `CLI context` | The context that is current, and the one that is restored on stop. |
 | `Console` | The Console URL, or why it is not served. |
 | `API log` | The log file path. |
@@ -265,7 +271,7 @@ After the summary, `Ready in 0.1s. Try next` lists numbered steps, each with rea
 1. Send a chat request through the access point, after `eval "$(aiplex dev env)"`. The request is the
    OpenAI Chat Completions example for `mock-gpt`.
 2. `aiplex usage records`, to see what it cost and who made it.
-3. `aiplex connect local` for client configuration, and `aiplex dev status` to see the Console address.
+3. `aiplex connect local` for client configuration, and `aiplex dev status` to see the Console address. To write Claude Code's configuration into your home directory after a diff, `aiplex connect local --client claude-code --write` (keeps a backup; `aiplex connect --undo --client claude-code` restores it). See [harness onboarding](harness-onboarding.md). The written settings point at the local access point, which exists only while `aiplex dev` runs and is gone after a restart, so undo the write when you stop.
 4. With the mock provider, a second caller with no role: create `team`, which admits `bob@localhost`, mint bob's token
    with `aiplex dev token --user bob`, grant bob the model and its surface with `aiplex agents user-scopes set`, then call
    the model with bob's token. Admission alone is not enough for a model call; see

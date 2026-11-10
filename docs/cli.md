@@ -166,6 +166,14 @@ The commands that take `--yes` include:
 - `aiplex config delete-context`
 - `aiplex platform apply` (approves the Terraform changes) and `aiplex platform destroy`
 
+The commands that write outside the API ask the same way, and refuse without a terminal unless `--yes` is given:
+
+- `aiplex connect <access-point> --client <client> --write` (a diff of each client config file) and `aiplex connect --undo`
+  ([harness onboarding](harness-onboarding.md))
+- `aiplex usage prices catalog import` (creates price resources; `--dry-run` writes nothing)
+
+`aiplex platform preflight` only reads, and it changes nothing in Google Cloud.
+
 `aiplex platform destroy` does not use the terminal check. Without `--yes` it reads a line from standard input
 and proceeds only if that line is `destroy`. There is no top-level `aiplex delete`, `aiplex remove` or
 `aiplex delete-context` command.
@@ -199,3 +207,7 @@ and a zsh form that writes to `fpath`. Run `aiplex completion --help` for them.
 - [Tool connection auth](tool-connection-auth.md): `aiplex mcp connections`.
 - [Model providers](model-providers.md): `aiplex llm surfaces create`.
 - [Usage ledger](usage-ledger.md#cli): `aiplex usage` and its columns.
+- [Usage ledger, price catalogue](usage-ledger.md#price-catalogue): `aiplex usage prices catalog search|show|import`.
+- [Harness onboarding](harness-onboarding.md): `aiplex connect --write` and `--undo`, `aiplex auth print-token` and `aiplex mcp serve`.
+- [Observability](observability.md): `aiplex dev --otel`, and the telemetry variables the API reads.
+- [Google Cloud permissions](gcp-permissions.md): `aiplex platform preflight`, and the upgrade steps.

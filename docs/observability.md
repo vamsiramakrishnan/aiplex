@@ -21,7 +21,7 @@ may need updating when that happens.
 | SERVER span | One per HTTP request. |
 | CLIENT span | One per managed model, tool or agent exchange (the same exchanges the [usage ledger](usage-ledger.md) records). It is a child of the request's SERVER span. |
 | Trace context | `traceparent` and `tracestate` on upstream model, tool and agent requests, taken from the CLIENT span. |
-| Ledger correlation | Every usage record carries `trace_id` and `span_id`. For a managed record, `span_id` is the CLIENT span. |
+| Ledger correlation | Every [usage record](usage-ledger.md) carries `trace_id` and `span_id`. For a managed record, `span_id` is the CLIENT span. |
 | Log correlation | Every `request started` log line carries `trace_id`. API error bodies carry `trace_id`. |
 | Metrics | Request and exchange durations, token counters, cost, unknown cost and usage, quota denials and errors. See [metrics](#metrics). |
 
@@ -205,11 +205,12 @@ OTLP exporters read most of them directly.
 The startup log says what is in effect: `telemetry configured
 traces_exported=... metrics_exported=... upstream_trace_propagation=...`.
 
-Export never fails or slows a request. Spans go through a bounded batch queue
+Export is designed not to fail or block a request. Spans go through a bounded batch queue
 (2048 by default; spans are dropped when it is full) and are exported on a
 background goroutine. Metrics are exported periodically on another. The first
 export error is logged once, with any configured header values redacted, and
-later errors are not logged.
+later errors are not logged. Whether that holds under a slow or failing collector
+has not been measured (see the limits below).
 
 ## Turn it on locally
 
@@ -228,6 +229,12 @@ trace UI.
 
 Without a collector, `curl -s http://127.0.0.1:8080/metrics` shows the metrics.
 Development mode needs no token.
+
+A coding harness can send its own telemetry to the same collector:
+`aiplex connect <access-point> --client <client> --write --with-telemetry <endpoint>`
+sets the client's OpenTelemetry export (Claude Code, Codex, Gemini CLI). That is the
+client's telemetry, not AIPlex's: AIPlex does not read it into the usage ledger. See
+[harness onboarding](harness-onboarding.md).
 
 ## Turn it on in GKE (Helm)
 

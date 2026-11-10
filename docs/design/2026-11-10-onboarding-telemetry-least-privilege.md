@@ -1,6 +1,6 @@
 # Harness onboarding, telemetry, price catalogue and least-privilege setup
 
-Status: plan, in execution. Date: 2026-11-10.
+Status: implemented. Date: 2026-11-10. The guides are [observability](../observability.md), [harness onboarding](../harness-onboarding.md), [Google Cloud permissions](../gcp-permissions.md) and the [usage ledger](../usage-ledger.md#price-catalogue). Nothing here has been run against a live Google Cloud project, a real OpenTelemetry collector or an installed coding harness.
 
 ## What a survey of the repository found
 
@@ -61,6 +61,15 @@ Nothing under an enterprise or commercial licence is copied.
 ### E. Docs (Haiku)
 
 Guides for A–D, the CLI reference, README capability table.
+
+## What landed
+
+Verified by reading the guides and the code they describe.
+
+- **A. Telemetry.** As planned: OTLP traces and metrics configured by the standard `OTEL_*` variables and off unless an endpoint is set, `aiplex dev --otel`, SERVER and CLIENT spans, `trace_id` and `span_id` on every ledger record, `GET /metrics` with a route policy entry, and the Helm endpoint wiring. Deviations: upstream trace propagation is on by default (`AIPLEX_TRACE_PROPAGATE_UPSTREAM=false` turns it off); `params._meta.traceparent` is not added to MCP messages; no child span per upstream attempt; `OTEL_ENDPOINT` is kept as a deprecated alias; `/metrics` needs `AIPLEX_METRICS_TOKEN` (503 when unset outside development mode) and is not routed by the public gateway, since a role rule would need an expiring identity token. Agent token usage is on spans and in the ledger, not in the token counters.
+- **B. Harness self-configuration.** `aiplex connect --write` for `claude-code`, `codex` and `gemini-cli`, with `--dry-run`, `--undo`, `--with-telemetry` and `--token-helper`; `aiplex mcp serve` with six read-only tools; the Claude Code plugin, the Gemini CLI extension and `AGENTS.md`. Added beyond the plan: `aiplex auth print-token`, which the token helper calls. Deviations: the Gemini CLI base URL is printed as a remaining step, not written, because Gemini CLI has no settings key for it; Antigravity is print-only, since its config location is not documented; the Claude Code credential is an environment variable or `apiKeyHelper`, never a value; Codex edits are confined to delimited blocks; `--with-telemetry` is refused with `--scope project` for Claude Code, which ignores those variables in project settings.
+- **C. Least-privilege GCP setup.** `aiplex platform preflight` (`testIamPermissions`, enabled APIs, billing); `platform apply` runs it and refuses on failure; the deployer role table in `internal/gcpsetup/requirements.go` is checked against the Terraform; an optional custom deployer role file; `aiplex init` no longer asks for Owner or Editor; runtime grants narrowed. Deviations: no deny-all egress rule (the API must reach operator-chosen providers on the internet); a custom role for secret writes (`aiplexApiSecrets`) and one for Firestore exports (`aiplexFirestoreExporter`), where predefined roles were broader than needed; Firestore is narrowed to the default database rather than to collections; the Gateway and its Cloud Armor attachment stay manual; the in-cluster deploy engine still shells out to `kubectl`, which the distroless image lacks.
+- **D. Price catalogue.** A pinned, trimmed LiteLLM snapshot (MIT, commit `52cd9ef`, retrieved 2026-11-10, 780 models) under `pkg/pricecatalog/`, with its notices, and `aiplex usage prices catalog search|show|import`. Deviations: only token-priced entries are in the snapshot, so per-image, per-second, per-character, per-page and per-query entries are excluded; import refuses pricing it cannot express unless `--accept-partial` is given; models.dev is not used (listed as later).
 
 ## Next, not in this increment
 

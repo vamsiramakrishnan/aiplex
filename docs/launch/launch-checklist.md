@@ -51,6 +51,7 @@ Do this on a machine that has never built the project, with no `bin/` directory 
 
 - [ ] If the CLI's output changed since the README was written (the CLI is being reworked), re-run the quickstart and update the quoted output in `README.md`, `docs-site/docs/getting-started/local-development.md` and the `examples/*/README.md` files.
 - [ ] Search the repository for claims you cannot back: performance numbers, customer names, "production-ready", "enterprise". There should be none.
+- [ ] If the post mentions OpenTelemetry, `aiplex connect --write`, `aiplex platform preflight` or the price catalogue, check that line against the "Limits" or "not validated" section of its guide ([observability](../observability.md), [harness onboarding](../harness-onboarding.md), [Google Cloud permissions](../gcp-permissions.md), [usage ledger](../usage-ledger.md#price-catalogue)) on the day you post.
 - [ ] Have someone who has not seen the project try the quickstart while you watch, saying nothing.
 
 ## What to watch after posting

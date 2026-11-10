@@ -117,9 +117,9 @@ Stop `aiplex dev` with Ctrl+C. State is in memory and is discarded.
 - The call was recorded in a **usage ledger**: who called, which model, tokens in and out, and cost. The cost says `(estimated)` because the price is a placeholder; a token count or price that is not known is shown as unknown, never as zero.
 - The same access point serves MCP tools at `http://127.0.0.1:8080/ap/local/mcp`. `aiplex connect local` prints ready-to-paste configuration for curl, MCP clients and several developer clients.
 
-To configure Claude Code, Codex or Gemini CLI for it, `aiplex connect local --client claude-code --write` shows a diff, keeps a backup and can be undone ([harness onboarding](docs/harness-onboarding.md)).
+To configure Claude Code, Codex or Gemini CLI for it, `aiplex connect local --client claude-code --write` shows a diff, keeps a backup and can be undone. `aiplex mcp serve` gives a coding agent read-only tools to inspect AIPlex ([harness onboarding](docs/harness-onboarding.md)).
 
-More to try with `aiplex dev` running: `aiplex usage records`, `aiplex usage summary --by model`, `aiplex connect local`, and the [examples](examples/README.md). `make demo` scripts the whole run, including a streaming request and an MCP tool call, and exits non-zero on the first failure.
+More to try with `aiplex dev` running: `aiplex usage records`, `aiplex usage summary --by model`, `aiplex connect local`, and the [examples](examples/README.md). `make demo` scripts the whole run, including a streaming request and an MCP tool call, and exits non-zero on the first failure. `aiplex dev --otel http://127.0.0.1:4318` exports traces and metrics to an OTLP collector you run ([observability](docs/observability.md)); without it nothing is exported.
 
 ### Next: an access point and a price
 
@@ -196,6 +196,9 @@ Around those:
 
 - **Access points** give a group of callers one URL in front of models, tools and skills ([specification](docs/access-points.md)).
 - **The usage ledger** records every managed exchange ([specification](docs/usage-ledger.md)). Cost is unknown until you set a price or import one from the bundled third-party list-price catalogue ([prices](docs/usage-ledger.md#price-catalogue)).
+- **Observability**: OpenTelemetry traces and metrics for each request and managed exchange, exported over OTLP when you set an endpoint, and a Prometheus `/metrics` route. Prompts and credentials are never recorded ([guide](docs/observability.md)).
+- **Harness onboarding**: `aiplex connect --write` configures Claude Code, Codex and Gemini CLI, and `aiplex mcp serve` gives a coding agent read-only tools over AIPlex ([guide](docs/harness-onboarding.md)).
+- **Least-privilege deployment**: `aiplex platform preflight` checks the Google Cloud permissions, APIs and billing that the deployment needs before anything is created, and the platform's own identities hold narrower grants ([guide](docs/gcp-permissions.md)).
 - **QuotaPlex** (opt-in) shares budgets and admission controls on covered execution paths ([guide](docs/quotaplex-core.md)).
 - **A2APlex** invokes native cloud agents (Google, AWS, Foundry, Copilot) and records delegation history ([guide](docs/connected-plexes.md)).
 - **Networking** prepares private-connectivity and egress plans ([guide](docs/anvil-deployment-provider.md)).
@@ -278,7 +281,7 @@ Use `--provider anthropic` or `--provider gemini` with the matching variable, an
 
 ## Deploy
 
-Deploying to a cluster is a multi-step operation, not a single command: Terraform for the infrastructure, Helm for the application, identity configuration for your own identity providers, and operator-supplied provider credentials. Start from [Install the platform][docs-install] and the [Helm identity configuration](docs/helm-identity-config.md), and read the [production qualification](docs/production-qualification.md) notes before enabling hard limits.
+Deploying to a cluster is a multi-step operation, not a single command: Terraform for the infrastructure, Helm for the application, identity configuration for your own identity providers, and operator-supplied provider credentials. Start from [Install the platform][docs-install] and the [Helm identity configuration](docs/helm-identity-config.md). Run `aiplex platform preflight` to see which Google Cloud permissions the deployer lacks; `aiplex platform apply` refuses to start while they are missing. Upgrading an existing deployment has its own steps ([Google Cloud permissions](docs/gcp-permissions.md)). Read the [production qualification](docs/production-qualification.md) notes before enabling hard limits.
 
 ## Project status
 
@@ -290,12 +293,16 @@ What has been validated, from the repository's own tests and CI:
 - Provider usage formats replayed from fixtures built from provider documentation.
 - Firestore transactions and recovery against the official Firestore emulator.
 - Console tests and build, Helm lint, Rust tests, and JSON schema checks.
+- Config merge, diff, backup and undo for the three client files, the stdio MCP server, OpenTelemetry export to an in-process OTLP receiver, the Google Cloud preflight against a fake Google API, and the price catalogue import. Each uses isolated homes, fixtures or fakes.
 
 What has not been validated, and is not recorded anywhere in this repository:
 
 - Any run against live OpenAI, Anthropic, Google, Azure or AWS model endpoints.
 - Any comparison of AIPlex's usage or cost figures against a provider invoice.
-- A deployment to a live cloud project, and load, availability or backup-restore behaviour.
+- A deployment to a live cloud project, and load, availability or backup-restore behaviour. The Google Cloud permissions table, the preflight, the custom deployer role and the narrowed runtime grants have not been run against a live project.
+- Client configuration written by `aiplex connect --write` has not been loaded by an installed Claude Code, Codex or Gemini CLI, and the Claude Code plugin and Gemini CLI extension have not been loaded by their harnesses.
+- OpenTelemetry export has not been run against a real collector, Jaeger, Cloud Trace or Cloud Monitoring, and the telemetry overhead has not been measured.
+- The price catalogue is a third-party snapshot (LiteLLM, retrieved 2026-11-10). Its prices have not been checked against provider price pages, and discounts and commitments are not reflected.
 - Cost shown by `aiplex dev` is from placeholder prices. The local development server is unauthenticated and must stay on loopback.
 
 See [SECURITY.md](SECURITY.md) for the security model's current limits.

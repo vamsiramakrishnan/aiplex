@@ -146,6 +146,8 @@ aiplex usage prices set gpt-4o-mini --input-per-mtok 0.15 --output-per-mtok 0.60
 Created price gpt-4o-mini (revision 1): input USD 0.15/Mtok, output USD 0.60/Mtok
 ```
 
+To start from public list prices instead, `aiplex usage prices catalog search gpt-4o` lists entries from a pinned third-party catalogue. Nothing is priced from it until you import an entry, and imported cost stays estimated ([price catalogue](../library/usage-ledger.md#price-catalogue)).
+
 ## 5. Use the same access point for tools and clients
 
 The access point `local` also serves the built-in MCP server at `http://127.0.0.1:8080/ap/local/mcp`. `aiplex connect local` prints ready-to-paste configuration: environment variables, a curl command and an MCP client configuration. See [Connect a client](./connect-client.md) and the repository's `examples/` directory, which has a script for each of these steps (OpenAI SDK, MCP tools, usage report) that `make examples-test` runs.
@@ -161,7 +163,7 @@ aiplex dev --provider openai --api-key-env OPENAI_API_KEY
 
 ## Other flags
 
-`--port` and `--console-port` change the ports, `--no-console` skips the Console, `--no-tools` skips the built-in MCP server's connection, `--detach` runs in the background, `--allow-origin` lets the local API call another upstream origin, `--context` names the CLI context it creates, and `--api-bin` points at an `aiplex-api` binary. Run `aiplex dev --help` for the current list.
+`--port` and `--console-port` change the ports, `--no-console` skips the Console, `--no-tools` skips the built-in MCP server's connection, `--detach` runs in the background, `--allow-origin` lets the local API call another upstream origin, `--otel` exports traces and metrics to a collector you run ([Observability](../library/observability.md)), `--context` names the CLI context it creates, and `--api-bin` points at an `aiplex-api` binary. Run `aiplex dev --help` for the current list.
 
 If a port is taken, `aiplex dev` says so and suggests another with `--port` or `--console-port`. The CLI's options, output formats and exit codes are in [the CLI reference](../library/cli.md).
 

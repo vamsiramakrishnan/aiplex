@@ -108,7 +108,7 @@ A record gets `unknown` cost when:
 - no single price is the best match. Two or more matching prices tie on the number of
   selectors (see [prices](#prices)).
 
-Prices are never invented. The bundled stores contain no built-in price list.
+Prices are never invented. The binary carries a third-party list-price catalogue, but nothing is priced from it automatically: an operator imports the entries they choose ([price catalogue](#price-catalogue)).
 
 ## Bounded usage
 
