@@ -12,7 +12,7 @@ There has been no tagged release yet. This section summarises what exists in the
 
 ### Packaging and install
 
-- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew formula to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`. The images are distroless, run as a non-root user and carry OCI labels.
+- The release workflow (on a `v*` tag) publishes release archives with `checksums.txt`, a Homebrew cask for macOS to `vamsiramakrishnan/homebrew-tap` (skipped when the `HOMEBREW_TAP_TOKEN` secret is not set), and multi-arch (linux/amd64, linux/arm64) container images `ghcr.io/vamsiramakrishnan/aiplex-api` and `ghcr.io/vamsiramakrishnan/aiplex`, built with GoReleaser `dockers_v2`. GoReleaser is pinned to v2.20.0. The images are distroless, run as a non-root user and carry OCI labels.
 - The release also produces an SBOM and signs `checksums.txt` and the images keyless with the workflow's GitHub identity. The signing and the SBOM have not been run against a real release.
 - `install.sh` refuses an archive when `checksums.txt` cannot be downloaded or does not list it, rejects a malformed `--version`, and names the missing platform asset when a release has no build for it.
 - None of this has been published yet: no release is tagged, and the tap, the images and the signatures have not been produced.
