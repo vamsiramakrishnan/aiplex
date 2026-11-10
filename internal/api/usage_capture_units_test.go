@@ -29,7 +29,7 @@ func TestLedgerHeldUnitsAreNotPartial(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			h := &ConnectedHandler{}
 			records := attachLedger(t, h)
-			_, capture := h.beginUsage(httptest.NewRecorder(), httptest.NewRequest("POST", "/x", nil), "tenant", usageledger.PlaneLLM, "surface")
+			_, _, capture := h.beginUsage(httptest.NewRecorder(), httptest.NewRequest("POST", "/x", nil), "tenant", usageledger.PlaneLLM, "surface")
 			capture.observe(test.counters, true, "", true, "", test.dims)
 			capture.finish()
 			r := onlyRecord(t, records())

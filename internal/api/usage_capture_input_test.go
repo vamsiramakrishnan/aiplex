@@ -34,7 +34,7 @@ func TestLedgerSessionUsageBoundLabels(t *testing.T) {
 			h := &ConnectedHandler{}
 			records := attachLedger(t, h)
 			w := &hijackableRecorder{ResponseRecorder: httptest.NewRecorder()}
-			_, capture := h.beginUsage(w, httptest.NewRequest("GET", "/ws", nil), "tenant", usageledger.PlaneLLM, "surface")
+			_, _, capture := h.beginUsage(w, httptest.NewRequest("GET", "/ws", nil), "tenant", usageledger.PlaneLLM, "surface")
 			capture.writer.hijacked = true
 			capture.observe(test.counters, true, "", test.terminal, test.bound)
 			capture.finish()
@@ -82,7 +82,7 @@ func TestLedgerSessionFlagFollowsTransport(t *testing.T) {
 	} {
 		h := &ConnectedHandler{}
 		records := attachLedger(t, h)
-		_, capture := h.beginUsage(httptest.NewRecorder(), httptest.NewRequest("GET", "/x", nil), "tenant", usageledger.PlaneLLM, "surface")
+		_, _, capture := h.beginUsage(httptest.NewRecorder(), httptest.NewRequest("GET", "/x", nil), "tenant", usageledger.PlaneLLM, "surface")
 		opts := &modelapi.Options{Authorize: func(context.Context, contracts.RequestContext, modelapi.Surface, modelapi.Operation, modelapi.Metadata) error { return nil }}
 		capture.instrumentModel(opts, ModelConnection{})
 		if err := opts.Authorize(context.Background(), contracts.RequestContext{}, modelapi.Surface{}, test.op, modelapi.Metadata{}); err != nil {

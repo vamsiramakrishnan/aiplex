@@ -31,6 +31,9 @@ type serverOptions struct {
 	identity *auth.WIFValidator
 	// officialRegistryURL replaces the public MCP registry origin.
 	officialRegistryURL string
+	// metrics serves GET /metrics (main passes the telemetry exporter's
+	// handler; nil serves an empty exposition).
+	metrics http.Handler
 }
 
 // server is the fully wired HTTP API. close releases resources acquired while
@@ -266,6 +269,7 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	r := chi.NewRouter()
 	r.Use(api.Recover)
 	r.Use(api.RequestID)
+	r.Use(api.Tracing) // SERVER span; continues a valid inbound traceparent
 	r.Use(api.Logger)
 	corsOrigins := cfg.AllowedOrigins
 	switch {
@@ -319,6 +323,15 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		}
 		healthH.Readiness(w, r.WithContext(probe))
 	})
+	// Prometheus text exposition for an in-cluster scraper: a shared-secret
+	// internal route (route_policy.go) that the gateway does not publish.
+	metrics := opts.metrics
+	if metrics == nil {
+		metrics = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		})
+	}
+	r.With(api.MetricsAuth(cfg.DevelopmentMode)).Get("/metrics", metrics.ServeHTTP)
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {

@@ -15,7 +15,12 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/config"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 )
+
+// version is set at build time (-ldflags "-X main.version=..."); it is the
+// telemetry service.version.
+var version = "dev"
 
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -33,7 +38,20 @@ func main() {
 	zerolog.SetGlobalLevel(level)
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
 
-	app, err := newServer(ctx, cfg, serverOptions{})
+	// Telemetry: OTLP export only when OTEL_EXPORTER_OTLP_ENDPOINT (or a
+	// per-signal endpoint) is set; trace identifiers and /metrics always.
+	tel, err := telemetry.Setup(ctx, telemetry.Options{ServiceVersion: version})
+	if err != nil {
+		log.Fatal().Err(err).Msg("telemetry configuration failed")
+	}
+	defer func() {
+		flush, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tel.Shutdown(flush)
+	}()
+	log.Info().Bool("traces_exported", tel.TracesExported).Bool("metrics_exported", tel.MetricsExported).Bool("upstream_trace_propagation", tel.PropagateUpstream).Msg("telemetry configured")
+
+	app, err := newServer(ctx, cfg, serverOptions{metrics: tel.MetricsHandler()})
 	if err != nil {
 		log.Fatal().Err(err).Msg("server configuration failed")
 	}

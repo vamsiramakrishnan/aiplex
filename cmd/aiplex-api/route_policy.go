@@ -44,6 +44,10 @@ var routeRules = func() []api.RouteRule {
 		// Shared-secret callbacks; each route group carries its own BearerToken guard.
 		tenantRule(post, "/auth/token-hook", api.RouteInternal),
 		tenantPrefix(post, "/internal/", api.RouteInternal),
+		// Prometheus scrape: the AIPLEX_METRICS_TOKEN bearer secret (503 when
+		// unset), so an in-cluster scraper needs no AIPlex identity. Metrics
+		// carry no principal, request or trace identifiers.
+		tenantRule(get, "/metrics", api.RouteInternal),
 
 		// Access points: the handler admits by caller kind and subjects.
 		tenantPrefix(nil, "/ap/{apid}/", api.RouteAuthenticated),

@@ -14,6 +14,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolexec"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
@@ -99,7 +100,7 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := idParam(r)
-	w, usage := h.beginUsage(w, r, tenant, usageledger.PlaneMCP, id)
+	w, r, usage := h.beginUsage(w, r, tenant, usageledger.PlaneMCP, id)
 	defer usage.finish()
 	record, err := h.Store.Get(r.Context(), tenant, "tool-connection", id)
 	if err != nil {
@@ -121,6 +122,10 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 	if client == nil {
 		client = h.Runtime.HTTP
 	}
+	// Upstream tool requests carry the exchange's trace context (HTTP
+	// headers only; the JSON-RPC body is relayed unchanged, so no
+	// params._meta trace context is added).
+	client = telemetry.Client(client)
 	requestedTool := ""
 	opts := toolexec.Options{HTTPClient: client, TokenSource: toolexec.TokenSourceFunc(func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, config.IdentityRef) }), Context: func(req *http.Request) (contracts.RequestContext, error) { return h.trusted(req, id) }, Authorize: func(ctx context.Context, _ contracts.RequestContext, _ toolexec.Connection, request toolexec.Request) error {
 		requestedTool = request.Name
