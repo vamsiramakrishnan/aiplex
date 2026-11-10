@@ -614,7 +614,7 @@ def f_try(d, t):
     #   --fill "#E8EBF2" --id launch-command "<command>"
     if P.contrast(COMMAND["fill"], N["950"]) < 4.5:
         FAILURES.append("launch-command contrast")
-    path, _ = single_path("aiplex init", COMMAND["font"], COMMAND["size"], COMMAND["x"], COMMAND["y"],
+    path, _ = single_path("aiplex dev", COMMAND["font"], COMMAND["size"], COMMAND["x"], COMMAND["y"],
                           COMMAND["fill"], rid=COMMAND["rid"])
     d.add(path)
     d.text(80, 730, "Apache 2.0. Source and documentation on GitHub.", 34, N["300"], t["bg"], 400)
