@@ -53,6 +53,8 @@ export interface UsageRecord {
   trace_id?: string
   quota_attempt_id?: string
   streaming: boolean
+  /** True for a WebSocket session record (one record per session; usage is advisory). Absent on older servers and on non-session records. */
+  session?: boolean
   status: Status
   http_status?: number
   error_class?: string
@@ -101,6 +103,11 @@ export interface SummaryGroup {
   tokens: Partial<Record<TokenCounter, Count>>
   tokens_unknown: Partial<Record<TokenCounter, Count>>
   unknown_usage_records: Count
+  /** Records whose usage_bound is set. Their counters are included in `tokens` but are not final. Absent when zero. */
+  bounded_usage_records?: Count
+  lower_bound_records?: Count
+  ambiguous_usage_records?: Count
+  partial_usage_records?: Count
   cost: CostTotal[]
   unknown_cost_records: Count
 }
@@ -203,6 +210,12 @@ export const USAGE_BOUND_TEXT: Record<UsageBound, string> = {
 /** Operations that are WebSocket sessions: metered as one request, with advisory usage. */
 export const SESSION_OPERATIONS: readonly string[] = ['live.connect', 'openai.v1.realtime', 'openai.v1.responses-websocket']
 export const isSessionOperation = (operation: string | undefined) => !!operation && SESSION_OPERATIONS.includes(operation)
+/**
+ * Whether a record is a WebSocket session. The server's `session` flag wins;
+ * the operation ids are only a fallback for records that do not carry it
+ * (the flag is omitted when false, and by servers that predate it).
+ */
+export const isSessionRecord = (record: Pick<UsageRecord, 'session' | 'operation'>) => record.session === true || (record.session === undefined && isSessionOperation(record.operation))
 
 /**
  * Renders minor units at `scale` decimal places using string arithmetic only:

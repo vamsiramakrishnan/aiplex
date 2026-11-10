@@ -72,7 +72,16 @@ function tokenCell(g: api.SummaryGroup, name: api.TokenCounter): string {
   const sum = g.tokens[name]
   if (sum === undefined) return api.UNKNOWN
   const missing = g.tokens_unknown[name]
-  return missing !== undefined && api.toBig(missing) > 0n ? `${api.formatCount(sum)} (+${api.formatCount(missing)} unknown)` : api.formatCount(sum)
+  const text = missing !== undefined && api.toBig(missing) > 0n ? `${api.formatCount(sum)} (+${api.formatCount(missing)} unknown)` : api.formatCount(sum)
+  // The sum includes counters that are not final; never show it bare.
+  return boundedOf(g) > 0n ? `${text} (incl. ${api.formatCount(boundedOf(g).toString())} bounded)` : text
+}
+
+const boundedOf = (g: api.SummaryGroup): bigint => api.toBig(g.bounded_usage_records ?? 0)
+/** "2 lower bound, 1 partial" for the non-zero bound kinds of a group. */
+function boundedBreakdown(groups: readonly api.SummaryGroup[]): string {
+  const kinds: [string, (g: api.SummaryGroup) => api.Count | undefined][] = [['lower bound', (g) => g.lower_bound_records], ['ambiguous', (g) => g.ambiguous_usage_records], ['partial', (g) => g.partial_usage_records]]
+  return kinds.map(([label, read]) => [label, api.sumCounts(groups.map(read))] as const).filter(([, n]) => n > 0n).map(([label, n]) => `${api.formatCount(n.toString())} ${label}`).join(', ')
 }
 
 /** Comparable value of a group for one sort key; null means unknown and always sorts last. */
@@ -100,10 +109,11 @@ function Headline({ summary }: { summary: api.UsageSummary }) {
   const denied = api.sumCounts(summary.groups.map((g) => g.denied))
   const unknownCost = api.sumCounts(summary.groups.map((g) => g.unknown_cost_records))
   const unknownUsage = api.sumCounts(summary.groups.map((g) => g.unknown_usage_records))
+  const bounded = api.sumCounts(summary.groups.map((g) => g.bounded_usage_records))
   const tokenLine = (label: string, t: api.TokenHeadline) => <p>{label} <strong>{t.reported ? api.formatCount(t.total.toString()) : api.UNKNOWN}</strong>{t.reported && t.unknownRecords > 0n && <span className={muted}> (+{api.formatCount(t.unknownRecords.toString())} records unreported)</span>}</p>
   return <section aria-label="Usage totals" className="grid gap-4 md:grid-cols-3">
     <div className={card} role="group" aria-label="Requests"><p className={muted}>Requests</p><p className="mt-1 text-2xl font-semibold">{api.formatCount(requests.toString())}</p><p className={`${muted} mt-1`}>{api.formatCount(errors.toString())} errors · {api.formatCount(denied.toString())} denied · {api.formatCount(summary.records_scanned)} records scanned</p></div>
-    <div className={card} role="group" aria-label="Tokens"><p className={muted}>Tokens</p><div className="mt-1 text-lg">{tokenLine('Input', input)}{tokenLine('Output', output)}</div>{unknownUsage > 0n && <p className={`${muted} mt-1`}>{api.formatCount(unknownUsage.toString())} records reported no usage at all</p>}</div>
+    <div className={card} role="group" aria-label="Tokens"><p className={muted}>Tokens</p><div className="mt-1 text-lg">{tokenLine('Input', input)}{tokenLine('Output', output)}</div>{unknownUsage > 0n && <p className={`${muted} mt-1`}>{api.formatCount(unknownUsage.toString())} records reported no usage at all</p>}{bounded > 0n && <p role="note" className="mt-1 text-xs text-amber-800 dark:text-amber-300">Not final: includes {api.formatCount(bounded.toString())} bounded {bounded === 1n ? 'record' : 'records'} ({boundedBreakdown(summary.groups)}). Their counters are summed as reported.</p>}</div>
     <div className={card} role="group" aria-label="Cost"><p className={muted}>Cost (per currency and basis)</p>
       {costs.length === 0 ? <p className="mt-1 text-lg">unknown</p> : <ul className="mt-1 space-y-1">{costs.map((c) => <li key={`${c.currency}-${c.basis}`} className="text-lg"><strong>{api.formatTotal(c)}</strong> <span className={`rounded px-1.5 py-0.5 text-xs ${c.basis === 'settled' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'}`}>{c.basis}</span> <span className={muted}>{api.formatCount(c.records)} records</span></li>)}</ul>}
       {unknownCost > 0n && <p className={`${muted} mt-1`}>{api.formatCount(unknownCost.toString())} records have unknown cost (no price configured and not settled by quota); they are not counted above.</p>}
@@ -148,7 +158,7 @@ function Breakdown({ summary }: { summary: api.UsageSummary }) {
           <td className="pr-4">{tokenCell(g, 'output_tokens')}</td>
           <td className="pr-4">{g.cost.length === 0 ? api.UNKNOWN : g.cost.map((c) => <div key={`${c.currency}-${c.basis}`}>{api.formatTotal(c)} <span className={muted}>{c.basis}</span></div>)}</td>
           <td className="pr-4">{api.formatCount(g.errors)} / {api.formatCount(g.denied)}</td>
-          <td>{api.toBig(g.unknown_usage_records) === 0n && api.toBig(g.unknown_cost_records) === 0n ? '—' : <span>usage: {api.formatCount(g.unknown_usage_records)}<br />cost: {api.formatCount(g.unknown_cost_records)}</span>}</td>
+          <td>{api.toBig(g.unknown_usage_records) === 0n && api.toBig(g.unknown_cost_records) === 0n && boundedOf(g) === 0n ? '—' : <span>{(api.toBig(g.unknown_usage_records) > 0n || api.toBig(g.unknown_cost_records) > 0n) && <>usage: {api.formatCount(g.unknown_usage_records)}<br />cost: {api.formatCount(g.unknown_cost_records)}</>}{boundedOf(g) > 0n && <><br />bounded: {api.formatCount(boundedOf(g).toString())} ({boundedBreakdown([g])})</>}</span>}</td>
         </tr>
       })}</tbody>
     </table></div>
@@ -163,7 +173,6 @@ function SummarySection({ filter }: { filter: api.UsageFilter }) {
   const toggle = (f: api.GroupField) => setGroupBy((cur) => cur.includes(f) ? cur.filter((x) => x !== f) : api.GROUP_FIELDS.filter((x) => x === f || cur.includes(x)))
   return <section className="space-y-4" aria-label="Usage summary">
     <h2 className="text-lg font-medium">Summary</h2>
-    <p className="text-xs text-gray-500">Totals add up each record&apos;s reported counters. Records marked lower bound, ambiguous or partial in the list below are included as reported; the summary does not flag them.</p>
     <div className="flex flex-wrap items-end gap-6">
       <fieldset><legend className="mb-1 text-xs text-gray-500">Group by</legend><div className="flex flex-wrap gap-x-4 gap-y-1">{api.GROUP_FIELDS.map((f) => <label key={f} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={groupBy.includes(f)} onChange={() => toggle(f)} />{GROUP_LABELS[f]}</label>)}</div></fieldset>
       <Field label="Time bucket"><select className={field} value={bucket} onChange={(e) => setBucket(e.target.value as api.Bucket)}><option value="">No buckets</option><option value="hour">Hourly</option><option value="day">Daily</option></select></Field>
@@ -214,7 +223,7 @@ export function RecordDrawer({ record, onClose }: { record: api.UsageRecord; onC
   return <aside role="dialog" aria-label="Usage record detail" className="fixed inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-gray-200 bg-white p-6 shadow-xl dark:border-gray-800 dark:bg-gray-950">
     <div className="mb-4 flex items-start justify-between gap-3"><h3 className="text-lg font-medium">Usage record</h3><button ref={closeRef} type="button" className="underline" onClick={onClose}>Close</button></div>
     {record.usage_bound && <p role="note" className="mb-3 rounded border border-amber-400 p-2 text-sm text-amber-900 dark:text-amber-200"><strong>Not a final count.</strong> {api.USAGE_BOUND_TEXT[record.usage_bound]} Any cost computed from these counters is not final either.</p>}
-    {api.isSessionOperation(record.operation) && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>WebSocket session.</strong> One request was admitted and settled for the whole session; token usage reported during the session is advisory.</p>}
+    {api.isSessionRecord(record) && <p role="note" className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700"><strong>WebSocket session.</strong> One request was admitted and settled for the whole session; token usage reported during the session is advisory.</p>}
     {record.usage === null && <p className="mb-3 rounded border border-gray-300 p-2 text-sm dark:border-gray-700">No usage was reported for this request. Token counts are unknown, not zero.</p>}
     <dl className="grid grid-cols-[10rem_1fr] gap-x-3 gap-y-1 text-sm">{DETAIL_FIELDS.map(([label, read]) => <div key={label} className="contents"><dt className="text-gray-500">{label}</dt><dd className="break-all font-mono text-xs leading-5">{read(record)}</dd></div>)}</dl>
     {record.provider_limits && <section aria-label="Provider limits" className="mt-4"><h4 className="text-sm font-medium">Provider limits</h4><p className="text-xs text-gray-500">Rate-limit signals the upstream provider returned for this request, as received.</p><pre className="mt-1 max-h-48 overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(record.provider_limits, null, 2)}</pre></section>}
@@ -240,7 +249,7 @@ function RecordsSection({ filter }: { filter: api.UsageFilter }) {
         <thead><tr className="border-b border-gray-200 dark:border-gray-800">{['Time', 'Plane', 'Model / tool', 'Agent', 'Principal', 'Client', 'Status', 'Tokens in', 'Tokens out', 'Cost', 'Latency'].map((h) => <th key={h} scope="col" className="py-2 pr-4">{h}</th>)}</tr></thead>
         <tbody>{page?.records.map((r) => <tr key={r.id} className="border-t border-gray-200 dark:border-gray-800">
           <td className="py-2 pr-4 whitespace-nowrap"><button type="button" className="underline" aria-label={`Open details for record ${r.id}`} onClick={() => setSelected(r)}>{when(r.started_at)}</button></td>
-          <td className="pr-4">{r.plane}</td><td className="pr-4">{target(r)}{api.isSessionOperation(r.operation) && <span className={`${muted} ml-1 rounded border px-1`} title="WebSocket session: metered as one request; usage is advisory">session</span>}</td><td className="pr-4">{r.actor_id || none}</td><td className="pr-4">{r.principal_id || none}</td><td className="pr-4">{r.client_id || none}</td>
+          <td className="pr-4">{r.plane}</td><td className="pr-4">{target(r)}{api.isSessionRecord(r) && <span className={`${muted} ml-1 rounded border px-1`} title="WebSocket session: metered as one request; usage is advisory">session</span>}</td><td className="pr-4">{r.actor_id || none}</td><td className="pr-4">{r.principal_id || none}</td><td className="pr-4">{r.client_id || none}</td>
           <td className={`pr-4 ${statusClass[r.status] ?? ''}`}>{r.status}</td>
           <td className="pr-4">{counter(r, 'input_tokens')}</td><td className="pr-4">{counter(r, 'output_tokens')}</td>
           <td className="pr-4 whitespace-nowrap">{api.formatCost(r.cost)}{r.usage_bound && <span className={`${muted} ml-1`}>(from bounded usage)</span>}{(r.cost.basis === 'settled' || r.cost.basis === 'estimated') && <span className={`${muted} ml-1`}>{r.cost.basis}</span>}</td>

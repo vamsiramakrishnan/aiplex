@@ -1,26 +1,25 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { listAccessPoints } from '../api/accessPoints'
-import { getAccessPointOverview } from '../api/overview'
+import { listAllOverviewAccessPoints } from '../api/overview'
 import AccessPointSummaryCard from './AccessPointSummaryCard'
 import ConnectWizard from './ConnectWizard'
 import { CoverageBadge } from './SubjectDetailPanel'
 
 /** Access points with their quota coverage. Uncovered ones reject requests and are flagged first. */
-export default function AccessPointStrip({ since }: { since: string }) {
+export default function AccessPointStrip() {
   const list = useQuery({ queryKey: ['access-points'], queryFn: listAccessPoints })
   const aps = list.data ?? []
-  const overviews = useQueries({
-    queries: aps.map(r => ({ queryKey: ['overview-access-point', r.id, since], queryFn: () => getAccessPointOverview(r.id, since) })),
-  })
+  // One list call carries every access point's coverage; no per-access-point detail calls.
+  const coverageList = useQuery({ queryKey: ['overview-access-point-list'], queryFn: listAllOverviewAccessPoints })
+  const coverageById = new Map((coverageList.data ?? []).map(row => [row.id, row.quota_coverage]))
   const [connecting, setConnecting] = useState<string | null>(null)
 
   if (list.isLoading) return <p role="status">Loading access points…</p>
   if (list.isError) return <p role="alert" className="text-sm text-red-600">Could not load access points: {(list.error as Error).message}</p>
 
-  const covState = (i: number) => overviews[i]?.data?.quota.coverage
-  const uncovered = aps.filter((_, i) => covState(i)?.state === 'uncovered')
+  const uncovered = aps.filter(r => coverageById.get(r.id)?.state === 'uncovered')
   return (
     <section aria-label="Access points" className="space-y-3">
       <div className="flex items-center justify-between">
@@ -34,15 +33,15 @@ export default function AccessPointStrip({ since }: { since: string }) {
       )}
       {aps.length === 0 && <p className="text-sm text-gray-500">No access points yet.</p>}
       <ul className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {aps.map((r, i) => {
-          const o = overviews[i]
-          const cov = o?.data?.quota.coverage
+        {aps.map(r => {
+          const cov = coverageById.get(r.id)
           return (
             <li key={r.id}>
               <AccessPointSummaryCard spec={r.spec} revision={r.revision} footer={
                 <div className="space-y-2">
-                  {o?.isLoading && <p role="status" className="text-xs text-gray-500">Checking quota coverage…</p>}
-                  {o?.isError && <p className="text-xs text-amber-700">Quota coverage unknown: {(o.error as Error).message}</p>}
+                  {coverageList.isLoading && <p role="status" className="text-xs text-gray-500">Checking quota coverage…</p>}
+                  {coverageList.isError && <p className="text-xs text-amber-700">Quota coverage unknown: {(coverageList.error as Error).message}</p>}
+                  {coverageList.isSuccess && !cov && <p className="text-xs text-amber-700">Quota coverage unknown: access point is not in the overview list.</p>}
                   {cov && <div aria-label={`Quota coverage for ${r.id}`}><CoverageBadge coverage={cov} /><p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{cov.detail}</p></div>}
                   <div className="flex gap-3 text-sm">
                     <Link to={`/access-points/${encodeURIComponent(r.id)}`} className="text-brand-600 hover:underline" aria-label={`Open ${r.spec.display_name || r.id}`}>Open</Link>

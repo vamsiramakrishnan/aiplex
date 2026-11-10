@@ -11,7 +11,7 @@ import { connectErrorMessage } from '../api/overview'
 
 vi.mock('../api/overview', async (original) => ({
   ...(await original<typeof import('../api/overview')>()),
-  listSubjects: vi.fn(), getSubject: vi.fn(), getAccessPointOverview: vi.fn(), getConnect: vi.fn(), listClientProfiles: vi.fn(),
+  listSubjects: vi.fn(), getSubject: vi.fn(), getAccessPointOverview: vi.fn(), listAllOverviewAccessPoints: vi.fn(), getConnect: vi.fn(), listClientProfiles: vi.fn(),
 }))
 vi.mock('../api/accessPoints', async (original) => ({ ...(await original<typeof import('../api/accessPoints')>()), listAccessPoints: vi.fn() }))
 
@@ -27,6 +27,7 @@ const page = (over: Partial<api.SubjectPage> = {}): api.SubjectPage => ({
 })
 const coverage = (state: api.QuotaCoverage['state'], detail = 'detail text'): api.AccessPointOverview['quota'] => ({ access_point_id: 'x', coverage: { state, detail }, allocations: null })
 const apOverview = (id: string, state: api.QuotaCoverage['state'], detail?: string) => ({ quota: { ...coverage(state, detail), access_point_id: id } }) as unknown as api.AccessPointOverview
+const listRow = (id: string, state: api.QuotaCoverage['state'], detail: string): api.AccessPointListRow => ({ id, caller_kinds: ['user'], counts: { models: 1, tools: 0, skills: 0 }, quota_coverage: { state, detail } })
 const detail = (over: Partial<api.SubjectDetail> = {}): api.SubjectDetail => ({
   kind: 'agent', id: 'tutor-agent', display_name: 'Tutor', identity: { source: 'workload identity', detail: 'binding gh' },
   access_points: [{ id: 'ide-team', admits: 'unknown', reason: 'admitted if a member of a listed group' }],
@@ -56,7 +57,7 @@ beforeEach(() => {
   vi.mocked(api.listSubjects).mockResolvedValue(page())
   vi.mocked(api.getSubject).mockResolvedValue(detail())
   vi.mocked(aps.listAccessPoints).mockResolvedValue([ap('ide-team'), ap('batch')])
-  vi.mocked(api.getAccessPointOverview).mockImplementation(async (id) => apOverview(id, id === 'ide-team' ? 'uncovered' : 'covered', id === 'ide-team' ? 'no active quota binding matches' : 'bound'))
+  vi.mocked(api.listAllOverviewAccessPoints).mockResolvedValue([listRow('ide-team', 'uncovered', 'no active quota binding matches'), listRow('batch', 'covered', 'bound')])
   vi.mocked(api.listClientProfiles).mockResolvedValue([{ id: 'codex', name: 'Codex', surface: 'cli', modes: ['gateway'], protocols: ['openai-responses'] }])
   Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true })
 })
@@ -214,10 +215,13 @@ describe('access point strip', () => {
     expect(ideCoverage).toHaveTextContent('Quota UNCOVERED: requests are rejected')
     expect(ideCoverage).toHaveTextContent('no active quota binding matches')
     expect(await screen.findByLabelText('Quota coverage for batch')).toHaveTextContent('Quota covered')
+    // One list call for the whole strip, never one detail call per access point.
+    expect(api.listAllOverviewAccessPoints).toHaveBeenCalledTimes(1)
+    expect(api.getAccessPointOverview).not.toHaveBeenCalled()
   })
 
-  it('does not call an access point covered when the overview call fails', async () => {
-    vi.mocked(api.getAccessPointOverview).mockRejectedValue(apiError('nope', 500))
+  it('does not call an access point covered when the overview list call fails', async () => {
+    vi.mocked(api.listAllOverviewAccessPoints).mockRejectedValue(apiError('nope', 500))
     show()
     expect(await screen.findAllByText(/Quota coverage unknown/)).toHaveLength(2)
     expect(screen.queryByText('Quota covered')).toBeNull()
@@ -276,6 +280,22 @@ describe('connect wizard', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Show connection details' }))
     expect(await screen.findByRole('alert')).toHaveTextContent(expected)
     expect(connectErrorMessage(apiError(message, status, code))).toMatch(expected)
+  })
+
+  it('lists the Bedrock and WebSocket endpoints the connect response provides', async () => {
+    vi.mocked(api.getConnect).mockResolvedValue({
+      ...connect,
+      endpoints: [
+        { protocol: 'bedrock-converse', transport: 'http', url: 'https://aiplex.example.com/ap/ide-team/model/{model}/converse', label: 'Converse', models: ['claude'] },
+        { protocol: 'openai-realtime', transport: 'websocket', url: 'wss://aiplex.example.com/ap/ide-team/v1/realtime', label: 'OpenAI Realtime', query: ['model'], models: ['voice'] },
+      ],
+    })
+    wizard()
+    fireEvent.click(await screen.findByRole('button', { name: 'Show connection details' }))
+    const details = await screen.findByLabelText('Connection details')
+    expect(within(details).getByText('https://aiplex.example.com/ap/ide-team/model/{model}/converse')).toBeInTheDocument()
+    expect(within(details).getByText('wss://aiplex.example.com/ap/ide-team/v1/realtime')).toBeInTheDocument()
+    expect(details).toHaveTextContent('requires ?model=')
   })
 
   it('still offers generic when profiles cannot be loaded', async () => {

@@ -18,6 +18,11 @@ export interface OverviewUsage {
   tokens_unknown: Record<string, Count> | null
   cost: OverviewCost[] | null
   unknown_cost_records: Count
+  /** Records whose usage_bound is set; counted in `tokens` but not final. Absent when zero. */
+  bounded_usage_records?: Count
+  lower_bound_records?: Count
+  ambiguous_usage_records?: Count
+  partial_usage_records?: Count
 }
 export interface OverviewUsageGroup { key: Record<string, string>; last_seen?: string | null; usage: OverviewUsage | null }
 
@@ -98,11 +103,15 @@ export interface AccessPointOverview {
 }
 export interface OverviewCaller { id: string; display_name?: string; declared: boolean; observed: boolean; last_seen: string | null; usage: OverviewUsage | null }
 
+/** A Bedrock or WebSocket endpoint; "{model}" in `url` is a model name. WebSocket urls use ws/wss and need the `query` parameters. */
+export interface ConnectEndpoint { protocol: string; transport: 'http' | 'http-stream' | 'websocket' | string; url: string; label?: string; query?: string[]; models: string[] | null }
 export interface ConnectSnippet { title: string; language: string; content: string }
 export interface ConnectInfo {
   access_point_id: string
   client: string
   base_urls: Record<string, string> | null
+  /** Absent on servers that predate it. */
+  endpoints?: ConnectEndpoint[] | null
   models: { name: string; protocols: string[] | null }[] | null
   mcp_url?: string
   mcp_catalog_url?: string
@@ -131,6 +140,33 @@ export function listSubjects(kind: SubjectKind, since: string, cursor = '', limi
 /** Always uses ?id= so ids containing "/" work. */
 export const getSubject = (kind: SubjectKind, id: string, since: string) =>
   get<SubjectDetail>(`/subjects/${kind}?${new URLSearchParams({ id, since })}`)
+export interface AccessPointListRow {
+  id: string
+  display_name?: string
+  caller_kinds: string[] | null
+  qos_class?: string
+  counts: { models: number; tools: number; skills: number }
+  quota_coverage: QuotaCoverage
+}
+export interface AccessPointListPage { access_points: AccessPointListRow[] | null; next_cursor?: string; skipped_invalid?: number }
+/** One page of the cheap access point list (no ledger scan). */
+export function listOverviewAccessPoints(cursor = '', limit = 200) {
+  const q = new URLSearchParams({ limit: String(limit) })
+  if (cursor) q.set('cursor', cursor)
+  return get<AccessPointListPage>(`/access-points?${q}`)
+}
+/** Every row of the list, following next_cursor (bounded to 10 pages). */
+export async function listAllOverviewAccessPoints(): Promise<AccessPointListRow[]> {
+  const rows: AccessPointListRow[] = []
+  let cursor = ''
+  for (let page = 0; page < 10; page++) {
+    const p = await listOverviewAccessPoints(cursor)
+    rows.push(...(p.access_points ?? []))
+    if (!p.next_cursor) break
+    cursor = p.next_cursor
+  }
+  return rows
+}
 export const getAccessPointOverview = (id: string, since: string) =>
   get<AccessPointOverview>(`/access-points/${encodeURIComponent(id)}?${new URLSearchParams({ since })}`)
 export const getConnect = (id: string, client: string) =>

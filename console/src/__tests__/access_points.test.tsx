@@ -473,6 +473,23 @@ describe('detail endpoint URLs from the server', () => {
     expect(within(endpoints).queryByRole('group', { name: 'Amazon Bedrock InvokeModel' })).toBeNull()
   })
 
+  it('uses the connect response endpoints for Bedrock and WebSocket when present, without the client-built note', async () => {
+    vi.mocked(overview.getConnect).mockResolvedValue({
+      ...connectInfo, base_urls: { genai: 'https://public.example.com/ap/ide-team' },
+      models: [{ name: 'gemini-pro', protocols: ['google-genai', 'bedrock-converse', 'openai-realtime'] }],
+      endpoints: [
+        { protocol: 'bedrock-converse', transport: 'http', url: 'https://srv.example.com/ap/ide-team/model/{model}/converse', label: 'Converse', models: ['gemini-pro'] },
+        { protocol: 'openai-realtime', transport: 'websocket', url: 'wss://srv.example.com/ap/ide-team/v1/realtime', label: 'OpenAI Realtime', query: ['model'], models: ['gemini-pro'] },
+      ],
+    })
+    show('/access-points/ide-team')
+    const endpoints = await screen.findByRole('region', { name: 'Endpoints' })
+    await waitFor(() => expect(within(endpoints).getByText('https://srv.example.com/ap/ide-team/model/{model}/converse')).toBeInTheDocument())
+    expect(within(endpoints).getByText('wss://srv.example.com/ap/ide-team/v1/realtime?model={model}')).toBeInTheDocument()
+    expect(within(endpoints).getByRole('group', { name: 'Amazon Bedrock Converse' })).not.toHaveTextContent(/connect response does not list/)
+    expect(within(endpoints).queryByText(/public\.example\.com\/ap\/ide-team\/model/)).toBeNull()
+  })
+
   it('falls back to client-built Bedrock and WebSocket URLs for a Bedrock surface', async () => {
     vi.mocked(api.listModelSurfaces).mockResolvedValue([{ id: 'bedrock-us', revision: 1, spec: { surface: { id: 'bedrock-us', protocol: 'bedrock-invoke', provider: { id: 'bedrock' } } } }])
     vi.mocked(api.getAccessPoint).mockResolvedValue({ ...record, spec: { ...spec, models: [{ name: 'anthropic.claude:0', surface_ref: 'bedrock-us', native_model: 'anthropic.claude:0' }] } })
