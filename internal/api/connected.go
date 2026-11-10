@@ -512,6 +512,11 @@ func (h *ConnectedHandler) authorize(r *http.Request, required string) error {
 	return nil
 }
 
+// AuthorizeCurrent re-resolves the caller's grants and requires scope.
+func (h *ConnectedHandler) AuthorizeCurrent(r *http.Request, scope string) error {
+	return h.authorizeCurrent(r.Context(), r, scope)
+}
+
 // authorizeCurrent re-resolves grants at the dispatch boundary. Quota-protected
 // hosts must supply their authoritative resolver rather than reuse ingress grants.
 func (h *ConnectedHandler) authorizeCurrent(ctx context.Context, r *http.Request, required string) error {
