@@ -151,7 +151,9 @@ func normalizeControlledFinal(op Operation, value *UsageObservation) error {
 		return normalizeGeminiFinal(value)
 	case op.ID == "openai.chat-completions":
 		return normalizeVertexOpenAIChat(value)
-	case op.ID == "response.create" || providerOpenAITokenOperation(op):
+	case op.ID == "response.create" || providerOpenAITokenOperation(op) || op.ID == "compat.chat-completions":
+		// compat: the quota host admits a token profile only when the
+		// surface declares OpenAI usage semantics (usage_semantics).
 		return normalizeOutputInclusive(value, false)
 	case anthropicOperation(op) || bedrockOperation(op):
 		// Bedrock Converse inputTokens is "only the non-cached input tokens"

@@ -191,7 +191,11 @@ func compileOperation(s Surface, o Operation) (compiledOperation, error) {
 }
 func (g *Gateway) Surface() Surface { return cloneSurface(g.surface) }
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	bounded, cancel := context.WithTimeout(r.Context(), g.options.MaxStreamDuration)
+	limit := g.options.MaxStreamDuration
+	if websocketUpgrade(r) {
+		limit = g.surface.WebSocket.maxSession(limit)
+	}
+	bounded, cancel := context.WithTimeout(r.Context(), limit)
 	defer cancel()
 	r = r.WithContext(bounded)
 	if g.surface.Provider != nil {

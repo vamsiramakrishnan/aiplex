@@ -157,6 +157,18 @@ func quotaProviderTextOutput(binding QuotaBinding, body []byte) (int64, error) {
 	}
 	writes, _ := quotaBindingCacheWrites(binding)
 	cache := len(writes) > 0
+	if binding.OperationID == "openai.v1.responses-websocket" || binding.OperationID == "openai.v1.realtime" {
+		// A WebSocket exchange is one client response.create event.
+		var kind string
+		if json.Unmarshal(object["type"], &kind) != nil || kind != "response.create" {
+			return 0, fmt.Errorf("one response.create event required")
+		}
+		delete(object, "type")
+		delete(object, "event_id")
+		if binding.Profile == quotaProfileRealtime {
+			return quotaRealtimeResponseOutput(object)
+		}
+	}
 	switch binding.Profile {
 	case quotaProfileBedrockConverse:
 		return quotaConverseTextOutput(body, cache)
@@ -182,7 +194,7 @@ func quotaProviderTextOutput(binding QuotaBinding, body []byte) (int64, error) {
 		}
 		delete(object, "prompt_cache_key")
 		delete(object, "prompt_cache_options")
-		if modelapi.ResponsesOperation(binding.OperationID) {
+		if modelapi.ResponsesOperation(binding.OperationID) || binding.OperationID == "openai.v1.responses-websocket" {
 			if !quotaOnlyFields(object, "model", "input", "instructions", "max_output_tokens", "stream", "store", "background", "temperature", "top_p", "reasoning", "text") || !quotaFalse(object, "store", true) {
 				return 0, fmt.Errorf("stateless text responses required")
 			}
@@ -290,4 +302,36 @@ func quotaProviderTextOutput(binding QuotaBinding, body []byte) (int64, error) {
 		return quotaPositiveInteger(output)
 	}
 	return 0, fmt.Errorf("unsupported text profile")
+}
+
+// quotaRealtimeResponseOutput bounds one Realtime response.create: an
+// explicit integer response.max_output_tokens ("inf" is unbounded), output
+// modalities limited to text and audio, inline instructions, and no
+// out-of-band input, tools or conversation selection. Input is the
+// server-side conversation, bounded by the attested model input ceiling.
+func quotaRealtimeResponseOutput(object map[string]json.RawMessage) (int64, error) {
+	if !quotaOnlyFields(object, "response") {
+		return 0, fmt.Errorf("unsupported response.create field")
+	}
+	var response map[string]json.RawMessage
+	if json.Unmarshal(object["response"], &response) != nil || response == nil || !quotaOnlyFields(response, "max_output_tokens", "instructions", "output_modalities", "modalities", "voice", "audio", "temperature", "metadata") {
+		return 0, fmt.Errorf("bounded text/audio response required")
+	}
+	if raw := response["instructions"]; raw != nil && !quotaTextValue(raw) {
+		return 0, fmt.Errorf("inline instructions required")
+	}
+	for _, key := range []string{"output_modalities", "modalities"} {
+		if raw := response[key]; raw != nil {
+			var values []string
+			if json.Unmarshal(raw, &values) != nil || len(values) == 0 || len(values) > 2 {
+				return 0, fmt.Errorf("invalid output modalities")
+			}
+			for _, value := range values {
+				if value != "text" && value != "audio" {
+					return 0, fmt.Errorf("unsupported output modality")
+				}
+			}
+		}
+	}
+	return quotaPositiveInteger(response["max_output_tokens"])
 }

@@ -147,7 +147,7 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 		if binding.Profile != quotaProfileRequests && !quotaStrictProfile(binding.Profile) {
 			return nil, fmt.Errorf("quota binding profile is unsupported")
 		}
-		if quotaStrictProfile(binding.Profile) && (!quotaInterfacePresent(bounds) || binding.Plane != "llmplex" || binding.Model == "" || binding.ModelVersion == "") {
+		if quotaStrictProfile(binding.Profile) && ((!quotaInterfacePresent(bounds) && binding.Profile != quotaProfileLiveAllowance) || binding.Plane != "llmplex" || binding.Model == "" || binding.ModelVersion == "") {
 			return nil, fmt.Errorf("Gemini quota profile needs a trusted bounds authority and exact model version")
 		}
 		if quotaStrictProfile(binding.Profile) && !quotaProfileOperation(binding) {
@@ -186,6 +186,9 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 				if binding.Meters[native] == "" {
 					return nil, fmt.Errorf("Gemini profile requires complete disjoint token mappings")
 				}
+			}
+			if binding.Profile == quotaProfileLiveAllowance && len(binding.Meters) < 2 {
+				return nil, fmt.Errorf("Live allowance profile requires at least one token meter")
 			}
 			if _, ok := quotaBindingCacheWrites(binding); !ok {
 				return nil, fmt.Errorf("cache-write meters must map either the total or the complete per-TTL breakdown")

@@ -12,11 +12,24 @@ const (
 	// billed output (reasoning folded in only when the native total proves
 	// the composition).
 	quotaProfileVertexOpenAI = "vertex-openai-text"
+	// quotaProfileRealtime meters one admitted OpenAI Realtime response on
+	// disjoint modality meters (Realtime prices text, audio and image input
+	// and text and audio output separately).
+	quotaProfileRealtime = "openai-realtime"
+	// quotaProfileLiveAllowance meters a Gemini Live session in renewable
+	// allowance windows held from the saved surface configuration.
+	quotaProfileLiveAllowance = "gemini-live-allowance"
+)
+
+var (
+	quotaRealtimeInputCounters  = []string{"uncached_text_input_tokens", "uncached_audio_input_tokens", "uncached_image_input_tokens", "cached_text_input_tokens", "cached_audio_input_tokens", "cached_image_input_tokens"}
+	quotaRealtimeOutputCounters = []string{"text_output_tokens", "audio_output_tokens"}
+	quotaLiveCounters           = []string{"input_tokens", "cached_tokens", "output_tokens", "thought_tokens", "tool_use_tokens", "total_tokens"}
 )
 
 func quotaStrictProfile(profile string) bool {
 	switch profile {
-	case quotaProfileGemini, quotaProfileOpenAI, quotaProfileAnthropic, quotaProfileInteraction, quotaProfileBedrockConverse, quotaProfileVertexOpenAI:
+	case quotaProfileGemini, quotaProfileOpenAI, quotaProfileAnthropic, quotaProfileInteraction, quotaProfileBedrockConverse, quotaProfileVertexOpenAI, quotaProfileRealtime, quotaProfileLiveAllowance:
 		return true
 	}
 	return false
@@ -31,8 +44,21 @@ func quotaProfileCounters(profile string) []string {
 		return []string{"uncached_input_tokens", "cached_tokens", "output_tokens"}
 	case quotaProfileVertexOpenAI:
 		return []string{"input_tokens", "output_tokens"}
+	case quotaProfileRealtime:
+		return append(append([]string(nil), quotaRealtimeInputCounters...), quotaRealtimeOutputCounters...)
 	}
 	return nil
+}
+
+// quotaProfileOutputCounters are the subsets of one output cap.
+func quotaProfileOutputCounters(profile string) []string {
+	switch profile {
+	case quotaProfileGemini, quotaProfileInteraction:
+		return []string{"output_tokens", "thought_tokens"}
+	case quotaProfileRealtime:
+		return quotaRealtimeOutputCounters
+	}
+	return []string{"output_tokens"}
 }
 
 // quotaProfileCacheWriteOptions lists the alternative cache-write meter sets a
@@ -53,6 +79,14 @@ func quotaProfileCacheWriteOptions(profile string) [][]string {
 // quotaProfileTokenCounter reports whether a native counter may be mapped by
 // a binding of the profile.
 func quotaProfileTokenCounter(profile, native string) bool {
+	if profile == quotaProfileLiveAllowance {
+		for _, counter := range quotaLiveCounters {
+			if native == counter {
+				return true
+			}
+		}
+		return false
+	}
 	for _, required := range quotaProfileCounters(profile) {
 		if native == required {
 			return true
@@ -95,6 +129,9 @@ func quotaProfileInputCounters(binding QuotaBinding) []string {
 	if binding.Profile == quotaProfileVertexOpenAI {
 		return []string{"input_tokens"}
 	}
+	if binding.Profile == quotaProfileRealtime {
+		return quotaRealtimeInputCounters
+	}
 	counters := []string{"uncached_input_tokens", "cached_tokens"}
 	writes, _ := quotaBindingCacheWrites(binding)
 	return append(counters, writes...)
@@ -108,6 +145,10 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 		// Provider operations share the OpenAI wire format and usage composition.
 		switch binding.OperationID {
 		case "openai.chat-completions", "response.create", "openai.v1.chat-completions", "openai.v1.responses", "azure.v1.chat-completions", "azure.v1.responses", "azure.deployments.chat-completions":
+			return true
+		case "openai.v1.responses-websocket":
+			// One admitted response.create per exchange (token-metered
+			// WebSocket session).
 			return true
 		case "compat.chat-completions":
 			// Generic compatible servers carry no provider usage contract;
@@ -133,6 +174,10 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 		return binding.Provider == "google" && binding.OperationID == "openai.chat-completions"
 	case quotaProfileInteraction:
 		return binding.Provider == "google" && binding.OperationID == "interaction.create"
+	case quotaProfileRealtime:
+		return binding.OperationID == "openai.v1.realtime"
+	case quotaProfileLiveAllowance:
+		return binding.Provider == "google" && binding.OperationID == "live.connect"
 	}
 	return binding.Profile == quotaProfileRequests
 }

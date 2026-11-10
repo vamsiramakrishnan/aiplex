@@ -176,6 +176,11 @@ func (l *quotaHostLease) Observe(ctx context.Context, observation execution.Obse
 // or known disjoint subsets whose sum exceeds a shared ceiling is already
 // sufficient evidence.
 func (l *quotaHostLease) exceedsExposure(native map[string]int64) bool {
+	if l.binding.Profile == quotaProfileLiveAllowance {
+		// A window beyond its allowance is a recorded overrun (debt that
+		// blocks further admissions), not a disproven provider bound.
+		return false
+	}
 	for counter, meter := range l.binding.Meters {
 		if value, known := native[counter]; known && value > l.demand.Bounds[meter] {
 			return true
@@ -214,10 +219,10 @@ func (l *quotaHostLease) exceedsExposure(native map[string]int64) bool {
 	if exceeds(inputs, inputLimit) {
 		return true
 	}
-	if l.binding.Profile == quotaProfileGemini || l.binding.Profile == quotaProfileInteraction {
-		return exceeds([]string{"output_tokens", "thought_tokens"}, l.proof.NativeBounds["output_tokens"])
+	if l.binding.Profile == quotaProfileRealtime && exceeds(quotaRealtimeInputCounters, inputLimit) {
+		return true
 	}
-	return false
+	return exceeds(quotaProfileOutputCounters(l.binding.Profile), l.proof.NativeBounds["output_tokens"])
 }
 
 func quotaExclusiveInputProfile(profile string) bool {

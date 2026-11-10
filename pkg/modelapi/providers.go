@@ -81,7 +81,18 @@ type Provider struct {
 	// LimitHeaderPassthrough forwards the provider's rate-limit headers to the
 	// caller. Off by default: they describe the shared upstream credential.
 	LimitHeaderPassthrough bool `json:"limit_header_passthrough,omitempty"`
+	// UsageSemantics is the operator's declaration of the usage contract of
+	// a generic OpenAI-compatible server (openai-compatible provider only).
+	// "openai" asserts OpenAI Chat Completions semantics: prompt_tokens
+	// includes cached_tokens (prompt_tokens_details) and cache writes,
+	// completion_tokens includes reasoning, total = prompt + completion. Only
+	// then may a token profile settle compat.chat-completions; without it the
+	// operation is request-count.
+	UsageSemantics string `json:"usage_semantics,omitempty"`
 }
+
+// UsageSemanticsOpenAI declares OpenAI usage semantics on a compatible server.
+const UsageSemanticsOpenAI = "openai"
 
 // ProviderDescriptor is the extension point for one provider: protocols,
 // operation catalog, credential schemes and native usage format per operation.
@@ -282,6 +293,9 @@ func (s Surface) validateProvider() error {
 	}
 	if !validSegment(s.ID) {
 		return fmt.Errorf("surface requires a valid id")
+	}
+	if p.UsageSemantics != "" && (p.ID != ProviderOpenAICompatible || p.UsageSemantics != UsageSemanticsOpenAI) {
+		return fmt.Errorf("usage_semantics applies only to the openai-compatible provider and must be %q", UsageSemanticsOpenAI)
 	}
 	protocolOK := false
 	for _, protocol := range d.Protocols {

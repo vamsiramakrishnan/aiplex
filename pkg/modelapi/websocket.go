@@ -118,8 +118,13 @@ type wsEnd struct {
 
 // pumpWebSocket relays both directions, feeds the adapter, and settles the
 // session exactly once after both directions have stopped.
-func (g *Gateway) pumpWebSocket(ctx context.Context, client, upstream *websocket.Conn, owner Owner, op Operation, adapter wsAdapter, run *executionRun) {
-	var mu sync.Mutex
+func (g *Gateway) pumpWebSocket(ctx context.Context, client, upstream *websocket.Conn, owner Owner, op Operation, adapter wsAdapter, run *executionRun, gate wsGate) {
+	var mu, writeMu sync.Mutex
+	writeClient := func(kind int, payload []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return client.WriteMessage(kind, payload)
+	}
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -159,11 +164,25 @@ func (g *Gateway) pumpWebSocket(ctx context.Context, client, upstream *websocket
 			}
 			mu.Lock()
 			err = adapter.clientMessage(ctx, payload, kind)
+			var reply []byte
+			forward := true
+			if err == nil && gate != nil {
+				reply, forward, err = gate.client(ctx, payload, kind)
+			}
 			mu.Unlock()
 			if err != nil {
 				closeWebSocket(client, websocket.ClosePolicyViolation, "message denied")
 				ends <- wsEnd{err: err, code: websocket.ClosePolicyViolation, reason: "message denied"}
 				return
+			}
+			if reply != nil {
+				if err = writeClient(websocket.TextMessage, reply); err != nil {
+					ends <- wsEnd{err: err, code: websocket.CloseAbnormalClosure}
+					return
+				}
+			}
+			if !forward {
+				continue
 			}
 			if err = upstream.WriteMessage(kind, payload); err != nil {
 				ends <- wsEnd{err: err, code: websocket.CloseAbnormalClosure}
@@ -188,16 +207,27 @@ func (g *Gateway) pumpWebSocket(ctx context.Context, client, upstream *websocket
 						}
 					}
 				}
+				var reply []byte
+				if err == nil && gate != nil {
+					reply, err = gate.server(ctx, payload)
+				}
 				mu.Unlock()
 				if err != nil {
-					ends <- wsEnd{err: err, upstream: true, code: websocket.CloseInternalServerErr, reason: "session observation failed"}
+					code, reason := websocket.CloseInternalServerErr, "session observation failed"
+					if errors.Is(err, errSessionPolicy) {
+						code, reason = websocket.ClosePolicyViolation, "session token allowance or admission denied"
+					}
+					if reply != nil {
+						_ = writeClient(websocket.TextMessage, reply)
+					}
+					ends <- wsEnd{err: err, upstream: true, code: code, reason: reason}
 					return
 				}
 				if effects.limits != nil && g.options.ObserveLimits != nil {
 					g.options.ObserveLimits(ctx, owner, *effects.limits)
 				}
 			}
-			if err = client.WriteMessage(kind, payload); err != nil {
+			if err = writeClient(kind, payload); err != nil {
 				ends <- wsEnd{err: err, upstream: true, code: websocket.CloseAbnormalClosure}
 				return
 			}
@@ -221,6 +251,9 @@ func (g *Gateway) pumpWebSocket(ctx context.Context, client, upstream *websocket
 	clean := first.clean && ctx.Err() == nil
 	mu.Lock()
 	final, bound := adapter.end(clean)
+	if gate != nil {
+		gate.end(clean)
+	}
 	mu.Unlock()
 	if final != nil {
 		final.Terminal = true
@@ -289,8 +322,13 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 		http.Error(w, "operation denied", http.StatusForbidden)
 		return
 	}
-	run, e := g.prepareSession(r, trusted, op, metadata, nil)
-	if e != nil {
+	var gate *responseGate
+	var run *executionRun
+	if g.surface.WebSocket.tokenMetering() && g.options.Execution != nil {
+		// Per-response admission: no session lease; each response.create is
+		// admitted (see session_metering.go).
+		gate = &responseGate{gateway: g, request: r, trusted: trusted, owner: owner, op: op, realtime: op.ID == "openai.v1.realtime", model: metadata.Model}
+	} else if run, e = g.prepareSession(r, trusted, op, metadata, nil); e != nil {
 		writeExecutionError(w, e)
 		return
 	}
@@ -347,13 +385,17 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 	defer upstream.Close()
 	upstream.SetReadLimit(g.options.MaxBodyBytes)
 	var adapter wsAdapter
+	var sessionGate wsGate
+	if gate != nil {
+		sessionGate = gate
+	}
 	switch op.ID {
 	case "openai.v1.realtime":
 		adapter = &realtimeAdapter{gateway: g, model: metadata.Model, pending: map[string]bool{}, done: map[string]bool{}, now: time.Now}
 	default:
 		adapter = &responsesSocketAdapter{gateway: g, owner: owner, trusted: trusted, op: op, pending: map[string]bool{}, done: map[string]bool{}}
 	}
-	g.pumpWebSocket(r.Context(), connection, upstream, owner, op, adapter, run)
+	g.pumpWebSocket(r.Context(), connection, upstream, owner, op, adapter, run, sessionGate)
 }
 
 // ---- OpenAI Realtime ----

@@ -49,8 +49,8 @@ cannot hold).
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
 | anthropic | 8 | 0 | 5 |
-| google | 9 | 3 | 12 |
-| openai | 4 | 2 | 11 |
+| google | 10 | 2 | 12 |
+| openai | 6 | 0 | 11 |
 
 ## Matrix
 
@@ -85,7 +85,7 @@ cannot hold).
 | google | vertex-generateContent | json | exact | `vertex-generate-error-429.json`<br>`vertex-generate-flex.json`<br>`vertex-generate-image.json`<br>`vertex-generate.json` |  |
 | google | vertex-interactions | json | exact | `vertex-interactions.json` |  |
 | google | vertex-interactions | sse | exact | `vertex-interactions-interrupted.sse`<br>`vertex-interactions.sse` |  |
-| google | vertex-live | websocket | advisory | `vertex-live-interrupted.ws.jsonl`<br>`vertex-live.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous; snapshot semantics (cumulative) and Vertex field names are UNCONFIRMED; resumed sessions are labelled ambiguous<br>WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
+| google | vertex-live | websocket | exact | `vertex-live-interrupted.ws.jsonl`<br>`vertex-live.ws.jsonl` |  |
 | google | vertex-openai-chat | json | exact | `vertex-maas-chat.json`<br>`vertex-openai-chat.json` |  |
 | google | vertex-openai-chat | sse | exact | `vertex-maas-chat.sse`<br>`vertex-openai-chat-interrupted.sse`<br>`vertex-openai-chat.sse` |  |
 | google | vertex-predict | json | advisory | `vertex-embed-predict.json` | operation coverage is request-count; token usage is recorded as advisory ledger telemetry |
@@ -104,9 +104,9 @@ cannot hold).
 | openai | images | sse | unsupported | `images.interrupted.sse`<br>`images.sse` | no /v1/images operation |
 | openai | live-voice-sessions | websocket | unsupported | `live.interrupted.ws.jsonl`<br>`live.ws.jsonl` | OpenAI Live voice sessions (/v1/live/sessions) have no relay; the primary meter is seconds, not tokens |
 | openai | moderations | json | unsupported | `moderation.json` | no /v1/moderations operation (no usage documented) |
-| openai | realtime | websocket | advisory | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous; input-transcription usage is a separate transcription_* meter (ASR model) not merged into the session tokens; duration-billed transcription seconds are not captured by the token ledger (session labelled partial)<br>WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
+| openai | realtime | websocket | exact | `realtime.cancelled.ws.jsonl`<br>`realtime.interrupted.ws.jsonl`<br>`realtime.ws.jsonl` |  |
 | openai | responses | json | exact | `responses.json` |  |
 | openai | responses | sse | exact | `responses.error.sse`<br>`responses.failed.sse`<br>`responses.incomplete.sse`<br>`responses.sse` |  |
-| openai | responses | websocket | advisory | `responses.interrupted.ws.jsonl`<br>`responses.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous |
+| openai | responses | websocket | exact | `responses.interrupted.ws.jsonl`<br>`responses.ws.jsonl` |  |
 | openai | responses-cancel | json | unsupported | `responses.background.cancelled.json (format-checked)` | POST /v1/responses/{id}/cancel is not an OpenAI provider operation; response body checked through the Responses observer |
 | openai | responses-retrieve | json | unsupported | `responses.background.queued.json (format-checked)` | GET /v1/responses/{id} (background poll) is not an OpenAI provider operation; response body checked through the Responses observer |

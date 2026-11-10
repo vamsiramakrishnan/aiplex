@@ -424,13 +424,13 @@ func usageRoutes() []fixtureRoute {
 		exact("google", "vertex-interactions.json", "vertex-interactions", "json", callInteraction, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-interactions.sse", "vertex-interactions", "sse", callInteraction, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-interactions-interrupted.sse", "vertex-interactions", "sse", callInteraction, convGemini, natGemini, false, strictUnknown, ""),
-		advisory("google", "vertex-live.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, true, sessionReason+"; snapshot semantics (cumulative) and Vertex field names are UNCONFIRMED; resumed sessions are labelled ambiguous"),
-		advisory("google", "vertex-live-interrupted.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, false, sessionReason),
-		advisory("openai", "realtime.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, true, sessionReason+"; input-transcription usage is a separate transcription_* meter (ASR model) not merged into the session tokens; duration-billed transcription seconds are not captured by the token ledger (session labelled partial)"),
-		advisory("openai", "realtime.cancelled.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, sessionReason),
-		advisory("openai", "realtime.interrupted.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, sessionReason),
-		advisory("openai", "responses.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, true, sessionReason),
-		advisory("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, false, sessionReason),
+		exact("google", "vertex-live.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, true, strictSettles, ""),
+		exact("google", "vertex-live-interrupted.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, false, strictUnknown, ""),
+		exact("openai", "realtime.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai", "realtime.cancelled.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("openai", "realtime.interrupted.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("openai", "responses.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 	}
 	return routes
 }
@@ -887,10 +887,16 @@ func checkWebSocketFixture(t *testing.T, route fixtureRoute, data []byte, want c
 			}
 		}
 	}
-	// A token-metered lease is refused before credentials or the dial.
+	// On a session-metered surface a token-metered lease is refused before
+	// credentials or the dial.
 	run, dials := runFixtureWebSocket(t, route, data, modeStrict)
 	if dials != 0 || run.aborts != 1 || len(run.results) != 0 {
 		t.Errorf("token-metered session admitted: dials=%d aborts=%d results=%+v", dials, run.aborts, run.results)
+	}
+	// On a token-metered surface every response / allowance window is
+	// admitted, settled exactly or retained (session_metering_test.go).
+	if route.strict != strictNotApplicable {
+		checkTokenSessionFixture(t, route, data, want)
 	}
 }
 

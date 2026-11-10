@@ -35,11 +35,16 @@ func Coverage(op Operation) ExecutionCoverage {
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}
 	case "interaction.create":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "gemini-interaction-text"}
-	// WebSocket sessions: one admitted request per session, settled once at
-	// session end; observed usage is advisory (no exact final usage report is
-	// established for these protocols). See websocket.go.
-	case "live.connect", "openai.v1.realtime", "openai.v1.responses-websocket":
-		return ExecutionCoverage{RequestCount: true}
+	// WebSocket sessions: by default one admitted request per session with
+	// advisory usage (websocket.go); a surface with websocket.metering
+	// "token" admits each response (Realtime, Responses) or allowance window
+	// (Live) under these profiles instead (session_metering.go).
+	case "live.connect":
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "gemini-live-allowance"}
+	case "openai.v1.realtime":
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "openai-realtime"}
+	case "openai.v1.responses-websocket":
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "openai-text"}
 	case "models.embedContent", "models.countTokens", "models.computeTokens", "models.predict", "endpoints.countTokens", "endpoints.computeTokens", "endpoints.predict", "endpoints.rawPredict", "endpoints.streamRawPredict":
 		return ExecutionCoverage{RequestCount: true}
 	case "models.predictLongRunning", "batch.create", "cache.create", "tuning.create", "operation.get", "models.fetchPredictOperation", "response.get", "response.delete", "interaction.get", "interaction.cancel", "interaction.delete", "cache.get", "cache.list", "cache.update", "cache.delete", "batch.get", "batch.list", "batch.cancel", "batch.delete", "tuning.get", "tuning.list", "tuning.cancel", "operation.cancel", "operation.delete":
