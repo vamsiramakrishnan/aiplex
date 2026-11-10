@@ -275,11 +275,14 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 			api.MaxBody(limit)(next).ServeHTTP(w, r)
 		})
 	}) // 1MB max request body
-	r.Use(api.NativeKeyHeaders) // provider-native key headers -> bearer, model routes only
+	r.Use(api.NativeKeyHeaders)                               // provider-native key headers -> bearer, model routes only
 	r.Use(api.WIFAuthMode(wifValidator, cfg.DevelopmentMode)) // Extract WIF identity + sync Dimension B
 	r.Use(api.AuditLog)                                       // Log all mutations
 	r.Use(api.RateLimit(200))                                 // 200 req/min per user (in-process)
 	r.Use(api.Compress)                                       // Response compression hints
+	// Route authorization by mounted pattern (route_policy.go). It needs the
+	// verified identity, so it runs after WIFAuthMode.
+	r.Use(api.RoutePolicy(r, routePolicy(cfg)))
 
 	// Health (readyz checks store connectivity)
 	healthH := api.NewHealthHandler(store)
@@ -296,16 +299,8 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
+		// Role and tenant-scope checks for every route are in RoutePolicy.
 		r.Use(api.RequireIdentity(cfg.DevelopmentMode))
-		r.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if nativeInvocation(r) {
-					next.ServeHTTP(w, r)
-					return
-				}
-				api.ControlPlaneAccess(cfg.DevelopmentMode)(next).ServeHTTP(w, r)
-			})
-		})
 		// Catalog
 		r.Get("/catalog", catalogH.List)
 		r.Get("/catalog/{id}", catalogH.Get)
