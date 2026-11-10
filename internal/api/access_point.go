@@ -187,7 +187,7 @@ func decodeAccessPoint(id string, raw []byte) (AccessPoint, error) {
 		return ap, err
 	}
 	if ap.ID != id || !accessPointIDPattern.MatchString(id) {
-		return ap, fmt.Errorf("access point id must match the resource id and [A-Za-z0-9._-]{1,128}")
+		return ap, withField("id", fmt.Errorf("access point id must match the resource id and [A-Za-z0-9._-]{1,128}"))
 	}
 	return ap, nil
 }
@@ -200,15 +200,15 @@ func (h *ConnectedHandler) validateAccessPoint(ctx context.Context, tenant, id s
 		return ap, err
 	}
 	if ap.DisplayName != "" && !accessPointText(ap.DisplayName, 256) {
-		return ap, fmt.Errorf("display_name must be bounded printable text")
+		return ap, withField("display_name", fmt.Errorf("display_name must be bounded printable text"))
 	}
 	if len(ap.CallerKinds) == 0 || len(ap.CallerKinds) > 3 {
-		return ap, fmt.Errorf("caller_kinds requires one or more of agent, user, client")
+		return ap, withField("caller_kinds", fmt.Errorf("caller_kinds requires one or more of agent, user, client"))
 	}
 	kinds := map[string]bool{}
-	for _, kind := range ap.CallerKinds {
+	for i, kind := range ap.CallerKinds {
 		if (kind != CallerAgent && kind != CallerUser && kind != CallerClient) || kinds[kind] {
-			return ap, fmt.Errorf("caller_kinds entries must be unique values of agent, user, client")
+			return ap, withField(fmt.Sprintf("caller_kinds/%d", i), fmt.Errorf("caller_kinds entries must be unique values of agent, user, client"))
 		}
 		kinds[kind] = true
 	}
@@ -235,32 +235,32 @@ func (h *ConnectedHandler) validateAccessPoint(ctx context.Context, tenant, id s
 
 func (h *ConnectedHandler) validateAccessPointSubjects(ctx context.Context, tenant string, s AccessPointSubjects) error {
 	if len(s.Groups) > 256 {
-		return fmt.Errorf("subjects.groups is bounded to 256 entries")
+		return withField("subjects/groups", fmt.Errorf("subjects.groups is bounded to 256 entries"))
 	}
 	seen := map[quotaplex.GroupRef]bool{}
-	for _, g := range s.Groups {
+	for i, g := range s.Groups {
 		if !accessPointText(g.Source, 1024) || !accessPointText(g.ID, 1024) || seen[g] {
-			return fmt.Errorf("subjects.groups entries must be unique source-qualified groups")
+			return withField(fmt.Sprintf("subjects/groups/%d", i), fmt.Errorf("subjects.groups entries must be unique source-qualified groups"))
 		}
 		seen[g] = true
 	}
 	if err := uniqueTexts("subjects.principals", s.Principals, 1024); err != nil {
-		return err
+		return withField("subjects/principals", err)
 	}
 	if err := uniqueTexts("subjects.agents", s.Agents, 1024); err != nil {
-		return err
+		return withField("subjects/agents", err)
 	}
 	if err := uniqueTexts("subjects.client_registrations", s.ClientRegistrations, 256); err != nil {
-		return err
+		return withField("subjects/client_registrations", err)
 	}
-	for _, ref := range s.ClientRegistrations {
+	for i, ref := range s.ClientRegistrations {
 		record, err := h.Store.Get(ctx, tenant, clientplex.Kind, ref)
 		if err != nil {
-			return fmt.Errorf("client registration %q does not resolve in this tenant", ref)
+			return withField(fmt.Sprintf("subjects/client_registrations/%d", i), fmt.Errorf("client registration %q does not resolve in this tenant", ref))
 		}
 		var registration clientplex.Registration
 		if json.Unmarshal(record.Spec, &registration) != nil || registration.ID != ref {
-			return fmt.Errorf("client registration %q is invalid", ref)
+			return withField(fmt.Sprintf("subjects/client_registrations/%d", i), fmt.Errorf("client registration %q is invalid", ref))
 		}
 	}
 	return nil
@@ -281,32 +281,40 @@ func (h *ConnectedHandler) accessPointSurface(ctx context.Context, tenant, ref s
 
 func (h *ConnectedHandler) validateAccessPointModels(ctx context.Context, tenant string, entries []AccessPointModel) error {
 	if len(entries) > 256 {
-		return fmt.Errorf("models is bounded to 256 entries")
+		return withField("models", fmt.Errorf("models is bounded to 256 entries"))
 	}
 	names := map[string]bool{}
-	for _, m := range entries {
+	for i, m := range entries {
+		at := func(field string) string { return fmt.Sprintf("models/%d/%s", i, field) }
 		if !accessPointModelPattern.MatchString(m.Name) || !accessPointModelPattern.MatchString(m.NativeModel) || strings.Contains(m.Name+m.NativeModel, "..") || m.SurfaceRef == "" {
-			return fmt.Errorf("models entries need name, surface_ref and native_model ([A-Za-z0-9._@/:-], no '..')")
+			field := "surface_ref"
+			switch {
+			case !accessPointModelPattern.MatchString(m.Name) || strings.Contains(m.Name, ".."):
+				field = "name"
+			case !accessPointModelPattern.MatchString(m.NativeModel) || strings.Contains(m.NativeModel, ".."):
+				field = "native_model"
+			}
+			return withField(at(field), fmt.Errorf("models entries need name, surface_ref and native_model ([A-Za-z0-9._@/:-], no '..')"))
 		}
 		if names[m.Name] {
-			return fmt.Errorf("model name %q is not unique", m.Name)
+			return withField(at("name"), fmt.Errorf("model name %q is not unique", m.Name))
 		}
 		names[m.Name] = true
 		connection, err := h.accessPointSurface(ctx, tenant, m.SurfaceRef)
 		if err != nil {
-			return err
+			return withField(at("surface_ref"), err)
 		}
 		if len(accessPointWireProtocols(connection.Surface.Protocol)) == 0 {
-			return fmt.Errorf("model surface %q protocol %q is not served by any access-point wire protocol", m.SurfaceRef, connection.Surface.Protocol)
+			return withField(at("surface_ref"), fmt.Errorf("model surface %q protocol %q is not served by any access-point wire protocol", m.SurfaceRef, connection.Surface.Protocol))
 		}
 		if err = accessPointSurfaceServes(connection.Surface, m.NativeModel); err != nil {
-			return fmt.Errorf("model surface %q cannot serve native model %q: %w", m.SurfaceRef, m.NativeModel, err)
+			return withField(at("native_model"), fmt.Errorf("model surface %q cannot serve native model %q: %w", m.SurfaceRef, m.NativeModel, err))
 		}
 		if _, err = connection.Surface.ModelID(m.NativeModel); err != nil {
-			return fmt.Errorf("model surface %q does not list native model %q", m.SurfaceRef, m.NativeModel)
+			return withField(at("native_model"), fmt.Errorf("model surface %q does not list native model %q", m.SurfaceRef, m.NativeModel))
 		}
 		if m.Name != m.NativeModel && !accessPointAliasRewritable(connection.Surface) {
-			return fmt.Errorf("model %q: surface %q relays the request body verbatim, so name must equal native_model", m.Name, m.SurfaceRef)
+			return withField(at("name"), fmt.Errorf("model %q: surface %q relays the request body verbatim, so name must equal native_model", m.Name, m.SurfaceRef))
 		}
 	}
 	return nil
@@ -327,24 +335,25 @@ func (h *ConnectedHandler) accessPointToolConnection(ctx context.Context, tenant
 
 func (h *ConnectedHandler) validateAccessPointTools(ctx context.Context, tenant string, entries []AccessPointTool) error {
 	if len(entries) > 64 {
-		return fmt.Errorf("tools is bounded to 64 connections")
+		return withField("tools", fmt.Errorf("tools is bounded to 64 connections"))
 	}
 	seen := map[string]bool{}
-	for _, t := range entries {
+	for i, t := range entries {
+		at := func(field string) string { return fmt.Sprintf("tools/%d/%s", i, field) }
 		if err := accessPointConnectionNamespaced(t.ConnectionRef); err != nil {
-			return err
+			return withField(at("connection_ref"), err)
 		}
 		if seen[t.ConnectionRef] {
-			return fmt.Errorf("tool connection %q is listed twice", t.ConnectionRef)
+			return withField(at("connection_ref"), fmt.Errorf("tool connection %q is listed twice", t.ConnectionRef))
 		}
 		seen[t.ConnectionRef] = true
 		if t.Expose != nil {
 			if err := (toolexec.ToolPolicy{Allow: t.Expose}).Validate(); err != nil {
-				return fmt.Errorf("tools[%s].expose: %v", t.ConnectionRef, strings.TrimPrefix(err.Error(), "tools.allow "))
+				return withField(at("expose"), fmt.Errorf("tools[%s].expose: %v", t.ConnectionRef, strings.TrimPrefix(err.Error(), "tools.allow ")))
 			}
 		}
 		if _, err := h.accessPointToolConnection(ctx, tenant, t.ConnectionRef); err != nil {
-			return err
+			return withField(at("connection_ref"), err)
 		}
 	}
 	return nil
@@ -366,16 +375,17 @@ func (h *ConnectedHandler) accessPointSkillInstance(ctx context.Context, tenant,
 
 func (h *ConnectedHandler) validateAccessPointSkills(ctx context.Context, tenant string, entries []AccessPointSkill) error {
 	if len(entries) > 64 {
-		return fmt.Errorf("skills is bounded to 64 instances")
+		return withField("skills", fmt.Errorf("skills is bounded to 64 instances"))
 	}
 	seen := map[string]bool{}
-	for _, s := range entries {
+	for i, s := range entries {
+		field := fmt.Sprintf("skills/%d/instance_ref", i)
 		if !accessPointText(s.InstanceRef, 256) || seen[s.InstanceRef] {
-			return fmt.Errorf("skills entries need unique instance_ref values")
+			return withField(field, fmt.Errorf("skills entries need unique instance_ref values"))
 		}
 		seen[s.InstanceRef] = true
 		if _, err := h.accessPointSkillInstance(ctx, tenant, s.InstanceRef); err != nil {
-			return err
+			return withField(field, err)
 		}
 	}
 	return nil
@@ -386,32 +396,32 @@ func (h *ConnectedHandler) validateAccessPointQoS(tenant string, q *AccessPointQ
 		return nil
 	}
 	if !accessPointClassPattern.MatchString(q.Class) {
-		return fmt.Errorf("qos.class must match [a-z][a-z0-9-]{0,62}")
+		return withField("qos/class", fmt.Errorf("qos.class must match [a-z][a-z0-9-]{0,62}"))
 	}
 	if q.Weight > 1000 {
-		return fmt.Errorf("qos.weight is bounded to 1..1000")
+		return withField("qos/weight", fmt.Errorf("qos.weight is bounded to 1..1000"))
 	}
 	if q.Scope != "" && q.Scope != QoSScopePrincipal && q.Scope != QoSScopeAccessPoint {
-		return fmt.Errorf("qos.scope must be principal or access_point")
+		return withField("qos/scope", fmt.Errorf("qos.scope must be principal or access_point"))
 	}
 	if q.Limits != nil {
 		l := q.Limits
 		if l.RequestsPerMinute < 0 || l.TokensPerMinute < 0 || l.Concurrency < 0 || l.RequestsPerMinute > 1<<40 || l.TokensPerMinute > 1<<50 || l.Concurrency > 1<<20 {
-			return fmt.Errorf("qos.limits must be positive bounded values")
+			return withField("qos/limits", fmt.Errorf("qos.limits must be positive bounded values"))
 		}
 		if l.RequestsPerMinute == 0 && l.TokensPerMinute == 0 && l.Concurrency == 0 {
-			return fmt.Errorf("qos.limits must set at least one limit or be omitted")
+			return withField("qos/limits", fmt.Errorf("qos.limits must set at least one limit or be omitted"))
 		}
 	}
 	if err := uniqueTexts("qos.budget_refs", q.BudgetRefs, 1024); err != nil {
-		return err
+		return withField("qos/budget_refs", err)
 	}
 	if len(q.BudgetRefs) > 0 {
 		policy, ok := h.Quota.tenantPolicy(tenant)
 		if !ok {
-			return fmt.Errorf("qos.budget_refs require a configured quota policy for this tenant")
+			return withField("qos/budget_refs", fmt.Errorf("qos.budget_refs require a configured quota policy for this tenant"))
 		}
-		for _, ref := range q.BudgetRefs {
+		for i, ref := range q.BudgetRefs {
 			found := false
 			for _, rule := range policy.Budgets {
 				if rule.ID == ref {
@@ -419,7 +429,7 @@ func (h *ConnectedHandler) validateAccessPointQoS(tenant string, q *AccessPointQ
 				}
 			}
 			if !found {
-				return fmt.Errorf("qos.budget_refs %q is not a budget in this tenant's quota policy", ref)
+				return withField(fmt.Sprintf("qos/budget_refs/%d", i), fmt.Errorf("qos.budget_refs %q is not a budget in this tenant's quota policy", ref))
 			}
 		}
 	}
