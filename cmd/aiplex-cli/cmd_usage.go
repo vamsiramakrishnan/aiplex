@@ -28,6 +28,7 @@ type usageFilterFlags struct {
 	accessPoint, callerKind                                           string
 	since, until                                                      string
 	errorClass, bound, batch                                          string
+	hookDecision                                                      string
 }
 
 func (f *usageFilterFlags) bind(cmd *cobra.Command) {
@@ -45,6 +46,7 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.source, "source", "", "Source: managed or reported")
 	fl.StringVar(&f.errorClass, "error-class", "", "Error class (error_class)")
 	fl.StringVar(&f.bound, "bound", "", "Usage bound: lower_bound, ambiguous, partial or none (usage_bound)")
+	fl.StringVar(&f.hookDecision, "hook-decision", "", "Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)")
 	fl.StringVar(&f.batch, "batch", "", "Provider batch records only (true) or excluding them (false)")
 	fl.Lookup("batch").NoOptDefVal = "true"
 	fl.StringVar(&f.since, "since", "", "Start of window: duration like 24h, 7d, or an RFC3339 time")
@@ -53,7 +55,10 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 
 func (f *usageFilterFlags) filter(now time.Time) (aiplex.UsageFilter, error) {
 	out := aiplex.UsageFilter{Plane: f.plane, Provider: f.provider, ModelID: f.model, ToolName: f.tool, ActorID: f.agent, PrincipalID: f.user, ClientID: f.client, AccessPointID: f.accessPoint, CallerKind: f.callerKind, Status: f.status, Source: f.source}
-	out.ErrorClass, out.UsageBound = f.errorClass, f.bound
+	out.ErrorClass, out.UsageBound, out.HookDecision = f.errorClass, f.bound, f.hookDecision
+	if f.hookDecision != "" && !usageledger.ValidHookDecision(f.hookDecision) {
+		return out, fmt.Errorf("--hook-decision must be allow, deny, transform, error, skipped or none")
+	}
 	switch f.bound {
 	case "", usageledger.UsageLowerBound, usageledger.UsageAmbiguous, usageledger.UsagePartial, usageledger.UsageBoundNone:
 	default:
@@ -377,7 +382,7 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 	t := newTable(
 		wideCol("ID").trunc(truncNever), col("TIME"), wideCol("PLANE"), col("MODEL/TOOL"), col("CALLER").trunc(truncMiddle),
 		wideCol("AGENT"), wideCol("USER").trunc(truncNever), wideCol("PRINCIPAL ID").trunc(truncNever), wideCol("CLIENT"), col("ACCESS POINT"), wideCol("SESSION"), wideCol("BATCH"),
-		col("STATUS"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST").trunc(truncNever), wideCol("LATENCY"),
+		col("STATUS"), wideCol("HOOKS"), col("IN"), col("OUT"), wideCol("CACHE-W"), wideCol("MODALITY"), wideCol("UNITS"), col("COST").trunc(truncNever), wideCol("LATENCY"),
 	)
 	for _, r := range records {
 		cost := usageCost(r.Cost)
@@ -388,11 +393,34 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 			cost = shortMoney(r.Cost.Currency, r.Cost.Amount, r.Cost.Scale, r.Cost.Basis)
 		}
 		t.add(r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalDisplay), usageDash(r.PrincipalID), usageDash(r.ClientID),
-			usageDash(r.AccessPointID), usageSessionCell(r), usageBatchCell(r), usageStatusCell(r),
+			usageDash(r.AccessPointID), usageSessionCell(r), usageBatchCell(r), usageStatusCell(r), usageHooksCell(r),
 			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageRecordCounter(r, usageledger.CounterCacheWrite),
 			usageModalityCell(r), usageUnitsCell(r), cost, latency)
 	}
 	return t
+}
+
+// usageHooksCell summarizes request-hook decisions: the overall decision,
+// the denying or matching rule identifiers with counts, and fail-open use.
+// Records never hold matched text.
+func usageHooksCell(r usageledger.Record) string {
+	if r.Hooks == nil || r.Hooks.Decision == "" {
+		return "—"
+	}
+	cell := r.Hooks.Decision
+	var rules []string
+	for _, result := range r.Hooks.Results {
+		for _, rule := range result.Rules {
+			rules = append(rules, fmt.Sprintf("%s×%d", rule.ID, rule.Count))
+		}
+	}
+	if len(rules) > 0 {
+		cell += " (" + strings.Join(rules, ",") + ")"
+	}
+	if r.Hooks.FailOpenUsed {
+		cell += " fail-open"
+	}
+	return cell
 }
 
 // usageCaller is the human label of who made the request: the user's
@@ -560,7 +588,33 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		rows = append(rows, [2]string{name + " (unit)", usageUnitCounter(r, name)})
 	}
 	rows = append(rows, [2]string{"cost", usageCost(r.Cost)})
+	rows = append(rows, usageHookRows(r.Hooks)...)
 	return append(rows, usageLimitRows(r.ProviderLimits)...)
+}
+
+func usageHookRows(s *usageledger.HookSummary) [][2]string {
+	if s == nil {
+		return [][2]string{{"hooks", "—"}}
+	}
+	rows := [][2]string{{"hooks", s.Decision}, {"  uninspected_parts", strconv.Itoa(s.UninspectedParts)}}
+	if s.FailOpenUsed {
+		rows = append(rows, [2]string{"  fail_open_used", "true"})
+	}
+	for _, result := range s.Results {
+		var rules []string
+		for _, rule := range result.Rules {
+			rules = append(rules, fmt.Sprintf("%s×%d", rule.ID, rule.Count))
+		}
+		cell := fmt.Sprintf("%s %s %dms", result.Phase, result.Decision, result.DurationMS)
+		if len(rules) > 0 {
+			cell += " rules " + strings.Join(rules, ",")
+		}
+		if result.FailOpenUsed {
+			cell += " fail-open"
+		}
+		rows = append(rows, [2]string{"  " + result.ID + " (" + result.Type + ")", cell})
+	}
+	return rows
 }
 
 // usageUnitCounter renders a modality split or unit; unreported is "unknown".
@@ -626,7 +680,7 @@ func usageLimitRows(l *providerlimits.Limits) [][2]string {
 var usageGroupHeader = map[string]string{
 	"plane": "PLANE", "provider": "PROVIDER", "model_id": "MODEL", "tool_name": "TOOL", "actor_id": "AGENT",
 	"principal_id": "USER", "client_id": "CLIENT", "access_point_id": "ACCESS POINT", "caller_kind": "CALLER KIND", "status": "STATUS",
-	"source": "SOURCE", "error_class": "ERROR CLASS", "usage_bound": "BOUND", "batch": "BATCH",
+	"source": "SOURCE", "error_class": "ERROR CLASS", "usage_bound": "BOUND", "batch": "BATCH", "hook_decision": "HOOKS",
 }
 
 // usageTokens renders one summed token counter. A counter no record reported

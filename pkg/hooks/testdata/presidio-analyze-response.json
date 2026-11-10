@@ -1,0 +1,18 @@
+[
+  {
+    "entity_type": "PERSON",
+    "start": 9,
+    "end": 19,
+    "score": 0.85,
+    "analysis_explanation": null,
+    "recognition_metadata": {"recognizer_name": "SpacyRecognizer", "recognizer_identifier": "SpacyRecognizer_1"}
+  },
+  {
+    "entity_type": "EMAIL_ADDRESS",
+    "start": 26,
+    "end": 42,
+    "score": 1.0,
+    "analysis_explanation": null,
+    "recognition_metadata": {"recognizer_name": "EmailRecognizer", "recognizer_identifier": "EmailRecognizer_1"}
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "text": "Hi, I am <PERSON>, mail <EMAIL_ADDRESS> today",
+  "items": [
+    {"start": 24, "end": 39, "entity_type": "EMAIL_ADDRESS", "text": "<EMAIL_ADDRESS>", "operator": "replace"},
+    {"start": 9, "end": 17, "entity_type": "PERSON", "text": "<PERSON>", "operator": "replace"}
+  ]
+}
