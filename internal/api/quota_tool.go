@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/connections"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
@@ -164,6 +165,13 @@ func (h *ConnectedHandler) NativeTool(w http.ResponseWriter, r *http.Request) {
 	if h.Quota != nil {
 		opts.Prepare = h.ToolExecutionPreparer(r, record, connection)
 	}
+	// One retry after a transport failure for tools/list and for calls of
+	// tools annotated readOnlyHint=true (observed through this gateway);
+	// never for other calls, an HTTP status or a JSON-RPC error.
+	opts.Retry = &toolexec.TransportRetry{Attempts: 2, Backoff: 100 * time.Millisecond, Call: func(ctx context.Context, request toolexec.Request) bool {
+		readOnly, known := h.readOnlyHint(ctx, tenant, record, request.Name)
+		return known && readOnly
+	}}
 	usage.instrumentTool(&opts)
 	h.installToolHooks(r, tenant, id, &opts, usage)
 	gateway, err := toolexec.NewGateway(config, opts)

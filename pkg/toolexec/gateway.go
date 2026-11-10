@@ -73,6 +73,9 @@ type Options struct {
 	// InspectResponse runs once on a complete, valid successful response
 	// before it is written. A *Denial refuses the call.
 	InspectResponse   func(ctx context.Context, request Request, mediaType string, body []byte) ([]byte, error)
+	// Retry retries transport failures of tools/list and of tools/call on
+	// tools the host marks repeatable (retry.go). Nil never retries.
+	Retry             *TransportRetry
 	AllowHTTPForTests bool
 	MaxBodyBytes      int64
 	MaxResponseBytes  int64
@@ -234,8 +237,9 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_ = lease.Finish(cleanup, execution.Result{StatusCode: uncertainStatus, Err: errors.New("tool execution did not establish terminal usage")})
 		}
 	}()
-	credential, upstream, err := g.upstreamRequest(r.Context(), request.Body)
-	if err != nil {
+	// The credential is checked before the dispatch claim; send acquires it
+	// again for each try.
+	if _, _, err = g.upstreamRequest(r.Context(), request.Body); err != nil {
 		http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -252,8 +256,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	claimed = true
-	response, err := g.client.Do(upstream)
+	repeatable := g.options.Retry != nil && g.options.Retry.Call != nil && g.options.Retry.Call(r.Context(), copyRequest(request))
+	credential, response, err := g.send(r.Context(), request.Body, repeatable)
 	if err != nil {
+		if _, ok := err.(errCredential); ok {
+			http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		http.Error(w, "tool upstream unavailable", http.StatusBadGateway)
 		return
 	}
