@@ -234,7 +234,8 @@ Server-tool quantities always fail closed, per counter: Anthropic
 `code_execution_requests` (per-request billing; code execution also bills
 container time that no usage object reports), any unknown `server_tool_use`
 key, and Gemini `toolUsePromptTokenCount` / `total_tool_use_tokens`. The
-documented counters are kept as `server_tool_*` ledger telemetry. The strict
+documented counters are carried as `server_tool_*` counters on the usage
+observation; the usage ledger record has no field for them. The strict
 profiles also refuse tool requests, so no exposure bound exists for them.
 
 Bedrock Converse responses carry no model identifier. Under a strict profile
@@ -265,7 +266,7 @@ exposure retained as unknown.
 | OpenAI, Azure OpenAI, OpenAI-compatible | 400, 401, 403, 404, 413, 422, 429 | 5xx incl. 503, cut connections, errors after a 2xx |
 | Anthropic | 400, 401, 402, 403, 404, 413, 429, 529 `overloaded_error` | 500 `api_error`, 504 `timeout_error`, mid-stream `error` events |
 | Google (Vertex incl. partner rawPredict, Gemini) | 400, 401, 403, 404, 429 `RESOURCE_EXHAUSTED` | 500, 503, 504 |
-| Bedrock | 400 `ValidationException`/`ServiceQuotaExceededException`, 403, 404, 429 `ThrottlingException`/`ModelNotReadyException` | 408 `ModelTimeoutException`, 424 `ModelErrorException`, 500, 503 |
+| Bedrock | 400 `ValidationException`/`ServiceQuotaExceededException`, 401, 403, 404, 429 `ThrottlingException`/`ModelNotReadyException` | 408 `ModelTimeoutException`, 424 `ModelErrorException`, 500, 503 |
 
 The provider's actual native model identifier is recorded separately from the
 configured target. Missing or different required proof retains exposure and
@@ -374,9 +375,10 @@ pinned on the attempt and written to a durable batch record (tenant resource kin
 `model-batch`) before the id is released. The attempt then stays open: state
 `unknown`, reason `batch_results_pending`, holding its exposure and its
 concurrency permit (size concurrency rules that cover batch bindings
-accordingly). A provider rejection of the create (4xx other than 408/429) is
-provider evidence that no job exists and settles one request with zero for every
-other meter.
+accordingly). A provider rejection of the create that the provider documents as not
+processed (the per-provider rule under "Provider rejections") is evidence that
+no job exists and settles one request with zero for every other meter; any other
+failure keeps the hold.
 
 **Settlement, exactly once.** Usage is taken only from results fetched through
 the gateway: the Anthropic results stream, the OpenAI output and error files, or
