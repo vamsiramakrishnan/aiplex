@@ -2,6 +2,8 @@
 bin/
 /aiplex-api
 /aiplex-cli
+/cmd/aiplex-api/aiplex-api
+/cmd/aiplex-cli/aiplex-cli
 *.exe
 *.dll
 *.so
