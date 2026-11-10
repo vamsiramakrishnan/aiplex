@@ -956,7 +956,7 @@ func (h *OverviewHandler) Subject(w http.ResponseWriter, r *http.Request) {
 	detail.Access = h.accessFor(r.Context(), tenant, dir.aps, kind, aliases, scopes)
 	detail.Quota = h.subjectQuota(tenant, dir.aps, detail.AccessPoints)
 	if h.Ledger == nil {
-		detail.Notes = append(detail.Notes, "The usage ledger is not configured; usage is unavailable.")
+		detail.Notes = append(detail.Notes, h.ledgerUnavailableNote())
 	} else {
 		filter, keep := dir.subjectMatcher(kind, id)
 		filter.Since = since
