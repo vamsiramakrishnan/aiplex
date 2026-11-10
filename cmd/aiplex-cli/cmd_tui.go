@@ -401,10 +401,10 @@ func (m tuiModel) renderDashboard() string {
 	// 24h metrics
 	b.WriteString(lipgloss.NewStyle().Bold(true).Render("  Last 24h"))
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  LLM Cost:        $%.2f\n", s.DailyCostUSD))
-	b.WriteString(fmt.Sprintf("  LLM Tokens:      %d\n", s.DailyTokens))
-	b.WriteString(fmt.Sprintf("  LLM Requests:    %d\n", s.DailyRequests))
-	b.WriteString(fmt.Sprintf("  Tool Calls:      %d\n", s.ToolCalls))
+	b.WriteString(fmt.Sprintf("  LLM Cost:        %s\n", dashCost(s.DailyCostUSD, s.DailyUnknownCostRecords)))
+	b.WriteString(fmt.Sprintf("  LLM Tokens:      %s\n", dashCount(s.DailyTokens)))
+	b.WriteString(fmt.Sprintf("  LLM Requests:    %s\n", dashCount(s.DailyRequests)))
+	b.WriteString(fmt.Sprintf("  Tool Calls:      %s\n", dashCount(s.ToolCalls)))
 	b.WriteString(fmt.Sprintf("  A2A Delegations: %d\n", s.A2ADelegations))
 	if s.PolicyDenials > 0 {
 		b.WriteString(fmt.Sprintf("  Policy Denials:  %s\n", failStyle.Render(fmt.Sprintf("%d", s.PolicyDenials))))

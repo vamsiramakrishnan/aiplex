@@ -70,6 +70,15 @@ func TestNoRoleCallerSeesOnlyWhatAdmitsIt(t *testing.T) {
 		}
 	})
 
+	t.Run("whoami lists are arrays, not null", func(t *testing.T) {
+		r := as("GET", "/api/v1/iam/whoami", "")
+		if r.Status != 200 {
+			t.Fatalf("whoami: %d %s", r.Status, r.Body)
+		}
+		contains(t, r.Body, `"roles":[]`, "no-role whoami")
+		notContains(t, r.Body, "null", "no-role whoami has null fields")
+	})
+
 	t.Run("connect for the admitted caller", func(t *testing.T) {
 		r := as("GET", "/api/v1/overview/access-points/local/connect", "")
 		if r.Status != 200 {

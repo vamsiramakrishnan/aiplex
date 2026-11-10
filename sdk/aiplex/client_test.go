@@ -130,11 +130,12 @@ func TestClient_ErrorHandling(t *testing.T) {
 }
 
 func TestClient_GetDashboardStats(t *testing.T) {
+	cost := 1.25
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(aiplex.DashboardStats{
 			TotalInstances:   5,
 			RunningInstances: 3,
-			DailyCostUSD:     1.25,
+			DailyCostUSD:     &cost,
 		})
 	}))
 	defer srv.Close()
@@ -147,8 +148,11 @@ func TestClient_GetDashboardStats(t *testing.T) {
 	if stats.TotalInstances != 5 {
 		t.Errorf("expected 5, got %d", stats.TotalInstances)
 	}
-	if stats.DailyCostUSD != 1.25 {
-		t.Errorf("expected 1.25, got %f", stats.DailyCostUSD)
+	if stats.DailyCostUSD == nil || *stats.DailyCostUSD != 1.25 {
+		t.Errorf("expected 1.25, got %v", stats.DailyCostUSD)
+	}
+	if stats.DailyTokens != nil || stats.ToolCalls != nil {
+		t.Errorf("unreported counters must stay null, got %v %v", stats.DailyTokens, stats.ToolCalls)
 	}
 }
 

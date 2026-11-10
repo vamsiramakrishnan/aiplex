@@ -113,7 +113,10 @@ func (h *ConnectedHandler) validateProviderConnection(ctx context.Context, tenan
 		return e
 	}
 	if e = p.ValidateURL(c.Surface.Origin); e != nil {
-		return e
+		if e.Error() == "origin not approved" {
+			return withField("surface/origin", fmt.Errorf("origin not approved: %s is not in the approved outbound origins. Add it to network.allowed_origins in the connections file (AIPLEX_CONNECTIONS_FILE); with aiplex dev, restart it with --allow-origin %s", c.Surface.Origin, c.Surface.Origin))
+		}
+		return withField("surface/origin", e)
 	}
 	return validateNetworkRef(c.NetworkProfileRef)
 }

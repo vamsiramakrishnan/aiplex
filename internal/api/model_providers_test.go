@@ -458,6 +458,13 @@ func TestProviderModelSurfaceValidation(t *testing.T) {
 		if (err == nil) != test.valid {
 			t.Fatalf("%s: valid=%t err=%v", test.name, test.valid, err)
 		}
+		if test.name == "origin outside policy" {
+			// The error names the field and the setting that approves origins.
+			field, ok := specErrorField(err)
+			if !ok || field != "surface/origin" || !strings.Contains(err.Error(), "origin not approved") || !strings.Contains(err.Error(), "network.allowed_origins") || !strings.Contains(err.Error(), "--allow-origin https://api.mistral.ai") {
+				t.Fatalf("unapproved origin error = %q (field %q %t)", err, field, ok)
+			}
+		}
 	}
 	billing := base("https://api.openai.com", openai, "openai-chat", bearerRef, "", "openai.v1.chat-completions")
 	billing.BillingProject = "p"

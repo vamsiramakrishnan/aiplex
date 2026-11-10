@@ -37,13 +37,32 @@ func statusCmd() *cobra.Command {
 			fmt.Printf("  LLMPlex:   %d instances\n", stats.LLMPlexInstances)
 			fmt.Println()
 			fmt.Println("Last 24h:")
-			fmt.Printf("  LLM Cost:       $%.2f\n", stats.DailyCostUSD)
-			fmt.Printf("  LLM Tokens:     %d\n", stats.DailyTokens)
-			fmt.Printf("  LLM Requests:   %d\n", stats.DailyRequests)
+			fmt.Printf("  LLM Cost:       %s\n", dashCost(stats.DailyCostUSD, stats.DailyUnknownCostRecords))
+			fmt.Printf("  LLM Tokens:     %s\n", dashCount(stats.DailyTokens))
+			fmt.Printf("  LLM Requests:   %s\n", dashCount(stats.DailyRequests))
 			fmt.Printf("  A2A Delegations: %d\n", stats.A2ADelegations)
 			fmt.Printf("  Policy Denials:  %d\n", stats.PolicyDenials)
 
 			return nil
 		},
 	}
+}
+
+// dashCost renders a nullable USD amount: "unknown" is not "$0.00".
+func dashCost(v *float64, unknownRecords int64) string {
+	if v == nil {
+		return "unknown"
+	}
+	if unknownRecords > 0 {
+		return fmt.Sprintf("$%.2f (+%d without a price)", *v, unknownRecords)
+	}
+	return fmt.Sprintf("$%.2f", *v)
+}
+
+// dashCount renders a nullable count.
+func dashCount(v *int64) string {
+	if v == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%d", *v)
 }

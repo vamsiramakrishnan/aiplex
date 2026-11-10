@@ -2,15 +2,25 @@ package api
 
 import (
 	"encoding/json"
+	"math/big"
 	"net/http"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 // DashboardHandler serves unified observability endpoints.
 type DashboardHandler struct {
 	store registry.Store
+	// Ledger and Tenant, when set, make the 24-hour usage figures come from the
+	// usage ledger (the source of the usage API); otherwise only the legacy
+	// registry usage records are available.
+	Ledger usageledger.Store
+	Tenant func(*http.Request) (string, error)
+	// Now is the clock; nil uses time.Now.
+	Now func() time.Time
 }
 
 // NewDashboardHandler creates a dashboard API handler.
@@ -47,11 +57,29 @@ func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		counts[inst.Plane]++
 	}
 
-	// LLM usage (last 24h)
-	usage, err := h.store.GetUsageSummary(ctx, "", "", "day")
-	if err != nil || usage == nil {
-		Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "usage reporting unavailable")
-		return
+	var usage models.DashboardStats
+	if h.Ledger != nil && h.Tenant != nil {
+		tenant, terr := h.Tenant(r)
+		if terr != nil || tenant == "" {
+			Error(w, r, http.StatusForbidden, "TENANT_REQUIRED", "verified tenant binding required")
+			return
+		}
+		u, lerr := h.ledgerUsage(r, tenant)
+		if lerr != nil {
+			Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "usage reporting unavailable")
+			return
+		}
+		usage = u
+	} else {
+		// No ledger: the legacy registry usage records (empty unless something
+		// writes them). Their totals are reported as such.
+		legacy, uerr := h.store.GetUsageSummary(ctx, "", "", "day")
+		if uerr != nil || legacy == nil {
+			Error(w, r, http.StatusServiceUnavailable, "STATS_UNAVAILABLE", "usage reporting unavailable")
+			return
+		}
+		cost, tokens, requests := legacy.TotalCostUSD, legacy.TotalTokens, legacy.RequestCount
+		usage = models.DashboardStats{DailyCostUSD: &cost, DailyTokens: &tokens, DailyRequests: &requests, UsageSource: "legacy-store"}
 	}
 
 	// Delegations count (efficient — no full fetch)
@@ -77,14 +105,75 @@ func (h *DashboardHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		A2APlexInstances:    counts[models.PlaneA2APlex],
 		LLMPlexInstances:    counts[models.PlaneLLMPlex],
 		SkillsPlexInstances: counts[models.PlaneSkillsPlex],
-		DailyCostUSD:        usage.TotalCostUSD,
-		DailyTokens:         usage.TotalTokens,
-		DailyRequests:       usage.RequestCount,
-		A2ADelegations:      delegationCount,
-		PolicyDenials:       denialCount,
+		DailyCostUSD:        usage.DailyCostUSD,
+		DailyTokens:         usage.DailyTokens,
+		DailyRequests:       usage.DailyRequests,
+		ToolCalls:           usage.ToolCalls,
+
+		DailyUnknownCostRecords:  usage.DailyUnknownCostRecords,
+		DailyUnknownUsageRecords: usage.DailyUnknownUsageRecords,
+		UsageSource:              usage.UsageSource,
+		A2ADelegations:           delegationCount,
+		PolicyDenials:            denialCount,
 	}
 
 	JSON(w, http.StatusOK, stats)
+}
+
+// ledgerUsage totals the last 24 hours of the tenant's ledger. Unknown stays
+// unknown: tokens and cost are null when no record carried them, and the
+// records that lacked them are counted separately.
+func (h *DashboardHandler) ledgerUsage(r *http.Request, tenant string) (models.DashboardStats, error) {
+	now := time.Now()
+	if h.Now != nil {
+		now = h.Now()
+	}
+	summary, err := usageledger.Summarize(r.Context(), h.Ledger, tenant, usageledger.SummaryQuery{
+		Filter:  usageledger.Filter{Since: now.Add(-24 * time.Hour)},
+		GroupBy: []string{"plane", "tool_name"},
+	})
+	if err != nil {
+		return models.DashboardStats{}, err
+	}
+	var requests, toolCalls, tokens, unknownUsage, unknownCost int64
+	tokensReported := false
+	usd := new(big.Rat)
+	usdReported := false
+	for _, g := range summary.Groups {
+		requests += g.Requests
+		if g.Key["plane"] == usageledger.PlaneMCP && g.Key["tool_name"] != "" {
+			toolCalls += g.Requests
+		}
+		unknownUsage += g.UnknownUsageRecords
+		unknownCost += g.UnknownCostRecords
+		for _, name := range []string{"input_tokens", "output_tokens"} {
+			if v, ok := g.Tokens[name]; ok {
+				tokens += v
+				tokensReported = true
+			}
+		}
+		for _, c := range g.Cost {
+			if c.Currency != "USD" {
+				continue
+			}
+			amount, ok := new(big.Int).SetString(c.Amount, 10)
+			if !ok {
+				continue
+			}
+			scale := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(c.Scale)), nil)
+			usd.Add(usd, new(big.Rat).SetFrac(amount, scale))
+			usdReported = true
+		}
+	}
+	out := models.DashboardStats{DailyRequests: &requests, ToolCalls: &toolCalls, DailyUnknownCostRecords: unknownCost, DailyUnknownUsageRecords: unknownUsage, UsageSource: "ledger"}
+	if tokensReported {
+		out.DailyTokens = &tokens
+	}
+	if usdReported {
+		f, _ := usd.Float64()
+		out.DailyCostUSD = &f
+	}
+	return out, nil
 }
 
 // ListPolicyDenials returns recent authorization denials.
