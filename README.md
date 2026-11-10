@@ -231,6 +231,7 @@ Effective access for a delegated call is the intersection of three limits: what 
 | Console (`console/`) | React and TypeScript | Embedded in the CLI binary when built first (`make console`). |
 | `aiplex-authz` (`authz/`) | Rust | Scope authorization for the gateway `ext_authz` hook; has its own tests in CI. |
 | Go SDK (`sdk/`) | Go | Client for the API. |
+| Python and TypeScript SDKs (`sdk/python/`, `sdk/typescript/`) | Python, TypeScript | Unpublished clients for the API, run against the local development stack only (`make sdk-test`). |
 | Deployment (`deploy/`) | Terraform, Helm, Kubernetes, Ory config | Helm charts are linted in CI. No deployment to a live cloud project is recorded in this repository. |
 | Docs site (`docs-site/`) | Docusaurus | Builds with broken links as errors. |
 

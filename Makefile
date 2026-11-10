@@ -62,6 +62,12 @@ test-coverage: ## Run tests with coverage report
 	$(GO) tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+sdk-test: ## Run the Python (sdk/python, in .venv) and TypeScript (sdk/typescript) SDK suites; installs their dependencies
+	python3 -m venv sdk/python/.venv
+	sdk/python/.venv/bin/pip install -q -e 'sdk/python[test]'
+	sdk/python/.venv/bin/python -m pytest sdk/python -q
+	cd sdk/typescript && npm ci --no-audit --no-fund && npm test
+
 demo: ## Scripted first run of `aiplex dev`: chat, stream, MCP tool call, usage, connect (exits non-zero on failure)
 	@bash tools/demo.sh
 

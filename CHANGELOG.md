@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 There has been no tagged release yet. This section summarises what exists in the repository, grouped by area. Nothing here has been validated against live model providers, provider invoices or a live cloud project; see the README's project status.
 
+### SDKs
+
+- Unpublished Python (`sdk/python`, package `aiplex`) and TypeScript (`sdk/typescript`, `@aiplex/sdk`) clients for the HTTP API, mirroring the Go SDK's covered routes; tested with `make sdk-test`.
+
 ### Local development
 
 - `aiplex dev` starts the API in memory on loopback with a built-in mock provider and MCP server, seeds an access point `local`, signs you in as a local admin, and prints next steps. The mock provider has four models, one per wire: `mock-gpt` (OpenAI Chat Completions), `mock-responses` (OpenAI Responses), `mock-claude` (Anthropic Messages) and `mock-gemini` (Gemini generateContent). `aiplex dev env` exports `AIPLEX_URL`, `AIPLEX_TOKEN` and, with the mock provider, the base-URL and key variables read by the OpenAI, Anthropic and Gemini SDKs. `--provider openai|anthropic|gemini --api-key-env NAME` forwards to a real provider.
