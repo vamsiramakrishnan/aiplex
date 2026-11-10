@@ -1,9 +1,12 @@
 {{- /*
 Namespaced RBAC for the API's deploy engine. The kinds are exactly those
-internal/deploy renders (manifests.go, routes.go, tape.go); the verbs are what
-`kubectl apply --server-side` (get, create, patch) and
-`kubectl delete --ignore-not-found` (delete, plus get/list/watch while it
-waits) need. No ClusterRole: every object is namespaced.
+internal/deploy renders (manifests.go, routes.go, tape.go); the verbs are what the API's
+built-in Kubernetes client sends (k8s_live.go): server-side apply is a PATCH
+(plus create when the object does not exist yet), and cleanup is a DELETE.
+Nothing reads, lists or watches, so those verbs are not granted. Mapping a Kind
+to its resource uses API discovery, which every authenticated subject can read
+through the built-in system:discovery role. No ClusterRole: every object is
+namespaced.
 TestHelmAPIRoleMatchesDeployEngine keeps this list and the code in step.
 */ -}}
 {{- if .Values.api.rbac.create }}
@@ -19,19 +22,19 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["serviceaccounts", "services"]
-  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  verbs: ["create", "patch", "delete"]
 - apiGroups: ["apps"]
   resources: ["deployments"]
-  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  verbs: ["create", "patch", "delete"]
 - apiGroups: ["networking.k8s.io"]
   resources: ["networkpolicies"]
-  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  verbs: ["create", "patch", "delete"]
 - apiGroups: ["gateway.networking.k8s.io"]
   resources: ["httproutes"]
-  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  verbs: ["create", "patch", "delete"]
 - apiGroups: ["aigateway.envoyproxy.io"]
   resources: ["aiservicebackends", "llmroutes", "mcproutes"]
-  verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  verbs: ["create", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
