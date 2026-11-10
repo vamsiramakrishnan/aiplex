@@ -91,7 +91,17 @@ func TestNoRoleCallerSeesOnlyWhatAdmitsIt(t *testing.T) {
 		// one that does not exist, answer identically.
 		hidden := as("GET", "/api/v1/overview/access-points/private/connect", "")
 		missing := as("GET", "/api/v1/overview/access-points/nonexistent/connect", "")
-		if hidden.Status != 404 || hidden.Status != missing.Status || hidden.Body != missing.Body {
+		sameBody := func(a, b string) bool {
+			strip := func(s string) string {
+				var m map[string]any
+				_ = json.Unmarshal([]byte(s), &m)
+				delete(m, "request_id")
+				out, _ := json.Marshal(m)
+				return string(out)
+			}
+			return strip(a) == strip(b)
+		}
+		if hidden.Status != 404 || hidden.Status != missing.Status || !sameBody(hidden.Body, missing.Body) {
 			t.Fatalf("hidden %d %q vs missing %d %q", hidden.Status, hidden.Body, missing.Status, missing.Body)
 		}
 		// The rest of the overview stays operator-only.
