@@ -22,6 +22,59 @@ section 3. The delegated OAuth flow that `oauth_user` uses is described in
 The `auth` and `tools` blocks are optional fields on the connection. A connection with
 no `auth` block behaves as before, using its execution credential mode.
 
+## Connect a tool server with the CLI
+
+`aiplex mcp connections` adds, lists, inspects, tests and deletes tool connections without writing a
+JSON body. `create` (alias `add`) takes the server URL and the auth type, and sends a `tools/list`
+through the gateway to check the connection works (skip with `--no-test`). Credentials are references:
+`--secret-ref` names a secret in the tenant namespace, never a value.
+
+```sh
+aiplex mcp connections create search --url https://mcp.example.com/mcp --auth bearer --secret-ref search-token --tools search,fetch
+aiplex mcp connections create files --url https://files.example.com/mcp --auth oauth-client-credentials \
+  --token-endpoint https://idp.example.com/oauth2/token --client-id svc-files --client-secret-ref files-secret \
+  --scope files.read --tools list_files
+aiplex mcp connections test search
+aiplex access-points create team --tool search --allow-groups eng
+```
+
+`--tools` lists the tools callers may use. Without it, `create` discovers them by calling `tools/list` on the
+server from this machine, which works only with `--auth none`. `--allow` and `--deny` set the tools policy,
+and `--update` replaces an existing connection. Delete with `aiplex mcp connections delete <id>`, which asks
+first on a terminal (see [the CLI page](cli.md#confirmation-prompts-and---yes)).
+
+On `aiplex dev`, the built-in MCP server is the `local-tools` connection. Its details and a real test:
+
+```text
+$ aiplex mcp connections list
+ID           URL                     AUTH  TOOLS
+local-tools  http://127.0.0.1:44691  none  3
+
+$ aiplex mcp connections test local-tools
+tools/list through the gateway: 3 tools in 3ms
+TOOL           DESCRIPTION
+add            Add two numbers.
+echo           Echo the given text back.
+reset_counter  Reset the server's call counter.
+```
+
+A create that adds a connection prints its revision and the same test:
+
+```text
+Added tool connection docs (revision 1).
+
+tools/list through the gateway: 2 tools in 1ms
+TOOL  DESCRIPTION
+add   Add two numbers.
+echo  Echo the given text back.
+
+Next: expose it to callers on an access point:
+  aiplex access-points create <id> --tool docs --allow-users <email>
+```
+
+The URL in the first output is the built-in server's address on the machine, and it changes each time `aiplex dev`
+starts. The auth types, their fields and the tools policy are described in the sections below.
+
 ## Auth types
 
 Secret fields take a reference name in the tenant's secret namespace, never a secret
@@ -133,7 +186,8 @@ aiplex tools set-auth search --clear-auth
 it read, so a concurrent edit is rejected rather than overwritten. The `--secret-ref`,
 `--client-secret-ref` and `--identity-ref` flags take names, not values. A non-OAuth
 type needs the connection to already have an `execution` block. Create or update the
-connection itself with `PUT /api/v1/mcp/connections/{id}`.
+connection itself with `aiplex mcp connections create` (`--update` to replace one), or with
+`PUT /api/v1/mcp/connections/{id}`.
 
 The `--allow` and `--deny` flags replace their lists. Pass `''` to empty one.
 
