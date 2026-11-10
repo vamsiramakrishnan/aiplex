@@ -8,6 +8,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 	"io"
 	"os"
+	"strings"
 )
 
 func clientsCmd() *cobra.Command {
@@ -15,16 +16,42 @@ func clientsCmd() *cobra.Command {
 	command.AddCommand(&cobra.Command{Use: "profiles", Short: "List supported client profiles", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		result, e := newClient().ListClientProfiles(cmd.Context())
 		if e != nil {
-			return e
+			return fmt.Errorf("list client profiles: %w", e)
 		}
-		printJSON(result)
+		if machineOutput() {
+			spStructured(cmd, result)
+			return nil
+		}
+		t := newTable(keyCol("PROFILE"), col("NAME"), col("MODES"), col("PROTOCOLS"), wideCol("SURFACE"), wideCol("SOURCES"))
+		for _, p := range result {
+			t.add(p.ID, p.Name, strings.Join(p.Modes, ","), strings.Join(p.Protocols, ","), p.Surface, strings.Join(p.Sources, " "))
+		}
+		t.render(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), "\nConfiguration for one of them: aiplex connect <access-point> --client <profile>")
 		return nil
 	}}, &cobra.Command{Use: "list", Short: "List registered clients", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		result, e := newClient().ListClientRegistrations(cmd.Context())
 		if e != nil {
-			return e
+			return fmt.Errorf("list client registrations: %w", e)
 		}
-		printJSON(result)
+		if machineOutput() {
+			if result == nil {
+				result = []aiplex.ClientRegistrationRecord{}
+			}
+			spStructured(cmd, result)
+			return nil
+		}
+		if len(result) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "No client registrations. Register one with: aiplex clients register --file <registration.json>")
+			return nil
+		}
+		t := newTable(keyCol("ID"), col("PROFILE"), col("MODE"), col("PROTOCOL"), wideCol("REVISION"))
+		for _, r := range result {
+			var reg aiplex.ClientRegistration
+			_ = json.Unmarshal(r.Spec, &reg)
+			t.add(r.ID, reg.ProfileID, reg.Mode, reg.Protocol, fmt.Sprint(r.Revision))
+		}
+		t.render(cmd.OutOrStdout())
 		return nil
 	}}, &cobra.Command{Use: "get <id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		result, e := newClient().GetClientRegistration(cmd.Context(), args[0])
