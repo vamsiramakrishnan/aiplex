@@ -63,8 +63,8 @@ const (
 func accessPointMediaWires() []accessPointWire {
 	surfaces := []string{modelapi.ProtocolOpenAIChat, modelapi.ProtocolOpenAIResponses, modelapi.ProtocolOpenAIImages, modelapi.ProtocolOpenAIAudio}
 	return []accessPointWire{
-		{WireOpenAIImages, "/v1/images/{generations,edits}", surfaces},
-		{WireOpenAIAudio, "/v1/audio/{transcriptions,translations,speech}", surfaces},
+		{WireOpenAIImages, "/v1/images/generations", surfaces},
+		{WireOpenAIAudio, "/v1/audio/transcriptions", surfaces},
 	}
 }
 
