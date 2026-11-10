@@ -49,11 +49,11 @@ corresponding aiplex:runs:{action} scope.`,
 
 func runsListCmd() *cobra.Command {
 	var (
-		tenant       string
-		agent        string
-		hasUnknown   bool
-		hasOblig     bool
-		limit        int
+		tenant     string
+		agent      string
+		hasUnknown bool
+		hasOblig   bool
+		limit      int
 	)
 	cmd := &cobra.Command{
 		Use:   "list",

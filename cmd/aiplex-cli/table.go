@@ -55,11 +55,11 @@ type column struct {
 	Trunc  truncMode
 }
 
-func col(header string) column          { return column{Header: header} }
-func keyCol(header string) column       { return column{Header: header, Trunc: truncNever} }
-func idCol(header string) column        { return column{Header: header, Trunc: truncMiddle} }
-func wideCol(header string) column      { return column{Header: header, Wide: true} }
-func (c column) wide() column           { c.Wide = true; return c }
+func col(header string) column            { return column{Header: header} }
+func keyCol(header string) column         { return column{Header: header, Trunc: truncNever} }
+func idCol(header string) column          { return column{Header: header, Trunc: truncMiddle} }
+func wideCol(header string) column        { return column{Header: header, Wide: true} }
+func (c column) wide() column             { c.Wide = true; return c }
 func (c column) trunc(m truncMode) column { c.Trunc = m; return c }
 
 // table collects rows and renders them under the CLI's table policy.

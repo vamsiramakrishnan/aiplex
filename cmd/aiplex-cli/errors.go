@@ -183,6 +183,17 @@ func explain(cmd *cobra.Command, args []string, err error) *cliError {
 		hints := []string{}
 		if f := apiErr.Field(); f != "" {
 			hints = append(hints, "Field: "+f)
+			if choices := fieldChoices(f); choices != "" {
+				hints = append(hints, choices)
+			}
+		}
+		if strings.Contains(apiErr.Message, "origin not approved") {
+			hints = append(hints, "The API only calls upstream origins its network policy approves.")
+			if local {
+				hints = append(hints, "With aiplex dev, restart it with: aiplex dev --allow-origin <scheme://host[:port]>")
+			} else {
+				hints = append(hints, "Ask the operator to add the origin to the API's network policy (network.allowed_origins).")
+			}
 		}
 		if strings.Contains(path, " apply") || strings.Contains(path, " put") || strings.Contains(path, " set") {
 			hints = append(hints, "Nothing was changed. Fix the specification and run the command again.")
@@ -406,7 +417,9 @@ func nearest(want string, ids []string) []string {
 			cands = append(cands, cand{id, d})
 		}
 	}
-	sort.Slice(cands, func(i, j int) bool { return cands[i].d < cands[j].d || (cands[i].d == cands[j].d && cands[i].id < cands[j].id) })
+	sort.Slice(cands, func(i, j int) bool {
+		return cands[i].d < cands[j].d || (cands[i].d == cands[j].d && cands[i].id < cands[j].id)
+	})
 	out := []string{}
 	for i := 0; i < len(cands) && i < 3; i++ {
 		out = append(out, cands[i].id)
@@ -494,4 +507,33 @@ func rejectUnknownSubcommands(c *cobra.Command) {
 		hints = append(hints, "See the commands with: "+cmd.CommandPath()+" --help")
 		return &cliError{msg: fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath()), hints: hints, code: exitUsage}
 	}
+}
+
+// fieldChoices lists the valid values for a reference field the server
+// rejected, when the CLI can list them.
+func fieldChoices(field string) string {
+	var parent, label string
+	switch {
+	case strings.HasSuffix(field, "surface_ref"):
+		parent, label = "llm surfaces", "Model surfaces"
+	case strings.HasSuffix(field, "connection_ref"):
+		parent, label = "mcp connections", "Tool connections"
+	default:
+		return ""
+	}
+	l, ok := listers[parent]
+	if !ok {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ids, err := l(ctx, newClient())
+	if err != nil {
+		return ""
+	}
+	if len(ids) == 0 {
+		return label + ": none yet (create one with: aiplex " + parent + " add)"
+	}
+	sort.Strings(ids)
+	return label + ": " + strings.Join(ids, ", ")
 }

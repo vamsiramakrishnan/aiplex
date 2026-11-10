@@ -714,6 +714,10 @@ func (h *OverviewHandler) subjectRow(ctx context.Context, tenant, kind string, c
 		return row
 	}
 	if g, ok := usage[c.ID]; ok {
+		if kind == CallerUser && row.DisplayName == "" {
+			// The verified email or name recorded with the user's requests.
+			row.DisplayName = g.Labels["principal_id"]
+		}
 		row.Usage = overviewUsageOf(g)
 		if t, ok := scan.Last[c.ID]; ok {
 			tt := t

@@ -46,7 +46,7 @@ func TestUsageRecordsFilterByAccessPointAndShowBoundAndSession(t *testing.T) {
 
 func TestUsageGetShowsSessionAndBound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(strings.TrimSuffix(strings.TrimPrefix(strings.Split(cliBoundedRecords, "\n {\"id\":\"ul_f\"")[0], `{"records":[` + "\n"), ",")))
+		w.Write([]byte(strings.TrimSuffix(strings.TrimPrefix(strings.Split(cliBoundedRecords, "\n {\"id\":\"ul_f\"")[0], `{"records":[`+"\n"), ",")))
 	}))
 	defer server.Close()
 	out, err := runUsage(t, server, "table", "get", "ul_s")
