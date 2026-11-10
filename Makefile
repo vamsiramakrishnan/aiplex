@@ -83,9 +83,10 @@ e2e-race: ## End-to-end tests with aiplex-api built with the race detector
 examples-test: ## Run the examples in examples/ against `aiplex dev` (EXAMPLES_INSTALL_SDKS=1 installs the OpenAI SDKs temporarily)
 	@bash examples/test.sh
 
-update-price-catalog: ## Refresh the price catalogue snapshot to a pinned upstream commit: make update-price-catalog [COMMIT=<40-hex sha>] (default: current upstream main)
+update-price-catalog: ## Refresh both price catalogue snapshots to pinned upstream commits: make update-price-catalog [COMMIT=<litellm sha>] [MODELSDEV_COMMIT=<models.dev sha>] (default: current upstream heads)
 	@commit="$(COMMIT)"; if [ -z "$$commit" ]; then commit=$$(git ls-remote https://github.com/BerriAI/litellm.git refs/heads/main | cut -f1); fi; \
-	echo "pinning $$commit"; cd pkg/pricecatalog && $(GO) run ./gen -commit $$commit && $(GO) test . ./gen -count=1
+	mdcommit="$(MODELSDEV_COMMIT)"; if [ -z "$$mdcommit" ]; then mdcommit=$$(git ls-remote https://github.com/sst/models.dev.git HEAD | cut -f1); fi; \
+	echo "pinning litellm $$commit and models.dev $$mdcommit"; cd pkg/pricecatalog && $(GO) run ./gen -commit $$commit && $(GO) run ./genmodelsdev -commit $$mdcommit && $(GO) test . ./gen ./genmodelsdev -count=1
 
 e2e-aiplex-tape: ## Run the AIPlex+Tape end-to-end demo as an in-process smoke test
 	$(GO) test ./tests/... -run "AIPlexTape" -v -count=1

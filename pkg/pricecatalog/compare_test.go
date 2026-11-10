@@ -1,9 +1,24 @@
 package pricecatalog
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestModelsDevNoticeReproducesTheLicence(t *testing.T) {
+	licence, err := os.ReadFile("LICENSE.modelsdev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notice, err := os.ReadFile("NOTICE.modelsdev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(licence), "MIT License") || !strings.Contains(string(notice), strings.TrimSpace(string(licence))) {
+		t.Fatal("NOTICE.modelsdev must reproduce the MIT licence text exactly as published")
+	}
+}
 
 func TestDisagreementsCompareStatedValuesNumerically(t *testing.T) {
 	a := Entry{Provider: "openai", Model: "m", Rates: Rates{Input: "2.50", Output: "10", CacheRead: "1.25", Tiers: []Tier{{Above: 272_000, Rates: Rates{Input: "5", Output: "15"}}}}}
