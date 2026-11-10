@@ -12,6 +12,7 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
 	"github.com/vamsiramakrishnan/aiplex/internal/harness"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 // connectWriteFlags are the flags of `aiplex connect` that write or undo
@@ -30,7 +31,7 @@ func (f *connectWriteFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.scope, "scope", "user", "With --write: user (home directory files) or project (this directory's files; claude-code and gemini-cli)")
 	fl.StringVar(&f.model, "model", "", "With --write: model to select, instead of the first one the access point offers on the client's API")
 	fl.BoolVar(&f.tokenHelper, "token-helper", false, "With --write: let the client fetch its token from \"aiplex --context NAME auth print-token\" for the context in effect (needs a stored token; claude-code, codex)")
-	fl.StringVar(&f.telemetry, "with-telemetry", "", "With --write: also point the client's own OpenTelemetry export at this OTLP endpoint (prompts stay redacted)")
+	fl.StringVar(&f.telemetry, "with-telemetry", "", "With --write: also point the client's own OpenTelemetry export at this OTLP endpoint, or 'aiplex' for this deployment's own receiver, which records the client's usage events as reported records (prompts stay redacted; the token is never written)")
 }
 
 // rejectWriteOnly refuses write-only flags used without --write.
@@ -106,6 +107,9 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 		return fmt.Errorf("connect: %w", err)
 	}
 	opts := harness.Options{Home: home, Cwd: cwd, Scope: f.scope, Model: f.model, TokenHelper: f.tokenHelper, Telemetry: f.telemetry}
+	if strings.EqualFold(strings.TrimSpace(f.telemetry), "aiplex") {
+		opts.Telemetry, opts.TelemetryAIPlex = aiplexOTLPURL(c), true
+	}
 	if f.tokenHelper {
 		name, err := tokenHelperContext()
 		if err != nil {
@@ -213,4 +217,20 @@ func runConnectUndo(cmd *cobra.Command, client string, f *connectWriteFlags) err
 	}
 	fmt.Fprintf(out, "Restored %d file(s).\n", changed)
 	return nil
+}
+
+// aiplexOTLPURL is this deployment's OTLP receiver. The base URL comes from
+// the URLs the server advertises for the access point (its public URL), and
+// falls back to the URL this command is talking to.
+func aiplexOTLPURL(c *aiplex.AccessPointConnect) string {
+	candidates := []string{c.MCPURL}
+	for _, u := range c.BaseURLs {
+		candidates = append(candidates, u)
+	}
+	for _, u := range candidates {
+		if i := strings.Index(u, "/ap/"+c.AccessPointID); i > 0 {
+			return u[:i] + "/otlp"
+		}
+	}
+	return strings.TrimRight(resolveTarget().URL, "/") + "/otlp"
 }
