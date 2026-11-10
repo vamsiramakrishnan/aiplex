@@ -319,6 +319,7 @@ The spec is decoded strictly: unknown fields are rejected.
 | `batch` | boolean | No | `true` matches only batch exchanges, `false` only non-batch exchanges |
 | `image_size` | string | No | Matches the record's `image_size` |
 | `image_quality` | string | No | Matches the record's `image_quality` |
+| `source` | object | No | Provenance of a price imported from the bundled catalogue: `catalog` (required), `commit`, `retrieved_at`, `source_url`. It is a label only; it never changes matching or cost. |
 
 Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `requests`, the modality splits `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens`, `output_text_tokens`, `output_audio_tokens`, `output_image_tokens`, and the unit meters `audio_input_milliseconds`, `voice_session_milliseconds`, `video_output_milliseconds`, `generated_images`. Any other name is rejected.
 

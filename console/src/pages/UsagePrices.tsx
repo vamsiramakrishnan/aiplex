@@ -21,6 +21,8 @@ export interface PriceDraft {
   batch: '' | 'true' | 'false'
   image_size: string
   image_quality: string
+  /** Catalogue provenance of an imported price; carried through edits so saving does not drop it. */
+  source?: api.PriceSource
 }
 
 const blankMeters = () => Object.fromEntries(api.ALL_PRICE_METERS.map((m) => [m, { numerator: '', denominator: '' }])) as PriceDraft['meters']
@@ -32,7 +34,7 @@ export function draftFromPrice(price: api.ModelPrice): PriceDraft {
     const rate = price.meters[name]
     if (rate) meters[name] = { numerator: String(rate.numerator), denominator: String(rate.denominator) }
   }
-  return { id: price.id, model_id: price.model_id, provider: price.provider ?? '', currency: price.currency, scale: String(price.scale), meters, effective_from: price.effective_from ?? '', effective_until: price.effective_until ?? '', batch: price.batch === undefined ? '' : price.batch ? 'true' : 'false', image_size: price.image_size ?? '', image_quality: price.image_quality ?? '' }
+  return { id: price.id, model_id: price.model_id, provider: price.provider ?? '', currency: price.currency, scale: String(price.scale), meters, effective_from: price.effective_from ?? '', effective_until: price.effective_until ?? '', batch: price.batch === undefined ? '' : price.batch ? 'true' : 'false', image_size: price.image_size ?? '', image_quality: price.image_quality ?? '', ...(price.source ? { source: price.source } : {}) }
 }
 
 const safeInt = (text: string, min: number) => /^\d+$/.test(text) && Number.isSafeInteger(Number(text)) && Number(text) >= min
@@ -57,7 +59,7 @@ export function priceFromDraft(draft: PriceDraft): { price?: api.ModelPrice; err
   for (const [label, value] of [['Effective from', from], ['Effective until', until]] as const) if (value && Number.isNaN(Date.parse(value))) errors.push(`${label} must be an RFC 3339 timestamp, e.g. 2026-11-01T00:00:00Z.`)
   if (from && until && Date.parse(until) <= Date.parse(from)) errors.push('Effective until must be after effective from.')
   if (errors.length) return { errors }
-  return { errors, price: { id, model_id: draft.model_id.trim(), ...(draft.provider.trim() ? { provider: draft.provider.trim() } : {}), currency: draft.currency, scale: Number(draft.scale), meters, ...(from ? { effective_from: from } : {}), ...(until ? { effective_until: until } : {}), ...(draft.batch ? { batch: draft.batch === 'true' } : {}), ...(draft.image_size.trim() ? { image_size: draft.image_size.trim() } : {}), ...(draft.image_quality.trim() ? { image_quality: draft.image_quality.trim() } : {}) } }
+  return { errors, price: { id, model_id: draft.model_id.trim(), ...(draft.provider.trim() ? { provider: draft.provider.trim() } : {}), currency: draft.currency, scale: Number(draft.scale), meters, ...(from ? { effective_from: from } : {}), ...(until ? { effective_until: until } : {}), ...(draft.batch ? { batch: draft.batch === 'true' } : {}), ...(draft.image_size.trim() ? { image_size: draft.image_size.trim() } : {}), ...(draft.image_quality.trim() ? { image_quality: draft.image_quality.trim() } : {}), ...(draft.source ? { source: draft.source } : {}) } }
 }
 
 const describeMeters = (p: api.ModelPrice) => api.ALL_PRICE_METERS.filter((m) => p.meters[m]).map((m) => `${m} ${p.meters[m]!.numerator}/${p.meters[m]!.denominator}`).join(', ')
@@ -156,7 +158,7 @@ export default function UsagePrices() {
         <caption className="sr-only">Configured model prices</caption>
         <thead><tr className="border-b border-gray-200 dark:border-gray-800">{['ID', 'Model', 'Provider', 'Currency / scale', 'Meters (minor units per quantity)', 'Selectors', 'Effective', 'Revision', 'Actions'].map((h) => <th key={h} scope="col" className="py-2 pr-4">{h}</th>)}</tr></thead>
         <tbody>{query.data.map((p) => <tr key={p.id} className="border-t border-gray-200 align-top dark:border-gray-800">
-          <th scope="row" className="py-2 pr-4 font-normal">{p.id}</th><td className="pr-4">{p.spec.model_id}</td><td className="pr-4">{p.spec.provider || '—'}</td>
+          <th scope="row" className="py-2 pr-4 font-normal">{p.id}</th><td className="pr-4">{p.spec.model_id}{p.spec.source && <div className={muted}>imported from {p.spec.source.catalog}{p.spec.source.retrieved_at ? `, snapshot ${p.spec.source.retrieved_at}` : ''}: list price, can be stale</div>}</td><td className="pr-4">{p.spec.provider || '—'}</td>
           <td className="pr-4">{p.spec.currency} / {p.spec.scale}</td><td className="pr-4 font-mono text-xs">{describeMeters(p.spec)}</td>
           <td className="pr-4 text-xs">{describeSelectors(p.spec)}</td>
           <td className="pr-4 text-xs">{p.spec.effective_from || p.spec.effective_until ? `${p.spec.effective_from ?? '…'} → ${p.spec.effective_until ?? '…'}` : 'always'}</td>

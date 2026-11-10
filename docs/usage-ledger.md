@@ -205,6 +205,85 @@ in addition to `output_tokens`, so price it only for providers that report
 reasoning separately. Optional `provider` narrows a price to one provider. A
 price without `provider` matches any provider for that model.
 
+A price may carry an optional `source` object (`catalog`, `commit`, `retrieved_at`,
+`source_url`). It records where an imported price came from and has no effect on matching
+or cost.
+
+If a priced meter's quantity is not reported for a record (for example `cache_read_tokens`
+on a provider that omits cached tokens), that record's cost stays `unknown`; the ledger does
+not treat the missing count as zero.
+
+### Price catalogue
+
+Without a price, cost is `unknown`. To start from public list prices, the `aiplex` binary
+carries a pinned, trimmed snapshot of a third-party price list: LiteLLM's
+`model_prices_and_context_window.json` (MIT licence; the notice is in
+`THIRD_PARTY_NOTICES.md` at the repository root),
+taken at one recorded commit on a recorded date. The snapshot is data in
+`pkg/pricecatalog/snapshot.json`; `aiplex usage prices catalog` reads it and creates ordinary
+`model-price` resources from the entries you choose.
+
+```bash
+aiplex usage prices catalog search "claude haiku"            # substring match on <provider>/<model>
+aiplex usage prices catalog show anthropic/claude-haiku-4-5  # rates, source, what is not imported
+aiplex usage prices catalog import anthropic/claude-haiku-4-5 --dry-run
+aiplex usage prices catalog import anthropic/claude-haiku-4-5 --yes
+aiplex usage prices catalog import --all-for-access-point team --yes
+```
+
+What to know before relying on it:
+
+- **A snapshot, not a feed.** The prices are what a third party published at the snapshot date
+  shown by every catalogue command. They can be stale or wrong. They are public list prices:
+  discounts, commitments, negotiated rates and regional uplifts are not reflected. Cost computed
+  from an imported price keeps the basis `estimated`; it is not an invoice. Compare it with your
+  bill before using it for chargeback.
+- **Nothing is priced automatically.** There is no fallback to the catalogue when cost is
+  computed. A model you did not import stays `unknown`. On a terminal, `usage records` and
+  `usage summary` print one line on stderr naming a catalogue model whose cost is unknown and the
+  import command; `-o json` and pipes get nothing. Under `aiplex dev --provider ...` the summary
+  names the catalogue entry for the wired model; it imports nothing.
+- **Import shows exactly what it writes**: each meter as an exact decimal per million tokens and
+  as the stored rational, the source URL and the snapshot date. It never overwrites an existing
+  price unless `--replace` is given, and it will not add a price beside another one that already
+  covers the same provider, model and batch selector (a tie matches nothing). Writing needs
+  `--yes` when there is no terminal; `--dry-run` writes nothing.
+- **Conversion is exact.** The source stores floats per token (for example `1.5e-07`). The
+  generator reads the number's text, converts it with exact decimal arithmetic to a price per
+  million tokens (`0.15`), and the import stores it at scale 6 as a rational (`3/20`). A meter
+  the source does not state stays unset (unknown); a rate the source states as `0` is kept as a
+  declared free meter.
+- **Meters imported**: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`,
+  and, when the catalogue states batch rates, a second price with `batch: true` (id ending
+  `-batch`). Reasoning tokens are never priced from the catalogue. Output tokens already include
+  reasoning for OpenAI and Anthropic, but the ledger holds a record that reports reasoning tokens
+  as unknown cost unless the price declares the meter; `--reasoning-included` declares it as a free
+  meter on your say-so. Do not use it for providers that report reasoning separately from output.
+- **What is not imported** is listed on `show` and `import`: per-image, per-second,
+  per-character, per-page and per-query rates, tool and search surcharges, long cache lifetimes
+  (for example one-hour Anthropic cache writes, which would be priced at the five-minute rate),
+  and other service tiers (priority, flex), whose usage is priced at the standard rate.
+  Pricing the price cannot express and that changes what a request costs (context-length tiers
+  such as "above 200k tokens", and audio, image or video token rates) makes the import refuse
+  unless you pass `--accept-partial`; the output then names the fields left out. Entries with only
+  per-unit pricing (image, audio, video, rerank, OCR) are not in the snapshot.
+- **Provider and model ids match what the ledger records.** Catalogue providers are `openai`,
+  `anthropic`, `azure-openai`, `bedrock`, `gemini-developer`, `google` (Gemini on Vertex AI, whose
+  records carry the Google publisher), `vertex-anthropic` (Claude on Vertex, recorded as
+  `anthropic`) and the OpenAI-compatible vendors `deepseek`, `groq`, `mistral` and `xai` (recorded
+  as `openai-compatible`). Model ids are the provider's own: routing prefixes such as `azure/`,
+  `gemini/`, `vertex_ai/` and `bedrock/` are removed. Bedrock ids (including geography
+  inference-profile ids such as `us.anthropic.claude-...`) are kept as written; region-specific,
+  commitment and image-size entries are not in the snapshot. Vertex Claude entries are imported only
+  in Vertex's versioned form (`claude-...@20251001`), because an unversioned id would collide with
+  the first-party Anthropic id. Matching is exact: there is no fuzzy matching. Azure entries use the
+  model name; if your deployment has another name, set that price yourself. A surface of an
+  OpenAI-compatible endpoint is not matched to a vendor automatically; import it by name.
+- **Rebuilding the snapshot.** `make update-price-catalog [COMMIT=<sha>]` pins a new upstream
+  commit, checks that the licence text is unchanged, and rewrites the snapshot and its recorded
+  checksum; a test fails if the embedded file does not match the checksum. The snapshot is about
+  360 KB and lists 780 models; upstream rows that state two different prices for one id are left out.
+
 ## Error classes
 
 `error_class` is set when `status` is not `ok`. Provider and gateway failures use the

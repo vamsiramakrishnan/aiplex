@@ -145,7 +145,17 @@ aiplex usage prices set gpt-4o-mini --input-per-mtok 0.15 --output-per-mtok 0.60
 Created price gpt-4o-mini (revision 1): input USD 0.15/Mtok, output USD 0.60/Mtok
 ```
 
-Prices are only used to estimate cost; `aiplex usage prices list` shows them. A price file (`aiplex usage prices set -f price.json`) takes the full specification. See [the usage ledger](docs/usage-ledger.md#prices) and [access points](docs/access-points.md).
+Prices are only used to estimate cost; `aiplex usage prices list` shows them. A price file (`aiplex usage prices set -f price.json`) takes the full specification.
+
+To start from public list prices instead, the binary carries a pinned snapshot of a third-party price list. Nothing is priced from it automatically; you choose what to import:
+
+```bash
+aiplex usage prices catalog search gpt-4o
+aiplex usage prices catalog import openai/gpt-4o-mini --dry-run   # exact rates, source and snapshot date, nothing written
+aiplex usage prices catalog import openai/gpt-4o-mini --yes
+```
+
+Catalogue prices can be stale or wrong, and discounts or commitments are not reflected; cost from them stays `estimated`. See [the usage ledger](docs/usage-ledger.md#prices) and [access points](docs/access-points.md).
 
 ### When a command fails
 
@@ -183,7 +193,7 @@ AIPlex separates **who is calling** from **what they are calling**, and puts one
 Around those:
 
 - **Access points** give a group of callers one URL in front of models, tools and skills ([specification](docs/access-points.md)).
-- **The usage ledger** records every managed exchange ([specification](docs/usage-ledger.md)).
+- **The usage ledger** records every managed exchange ([specification](docs/usage-ledger.md)). Cost is unknown until you set a price or import one from the bundled third-party list-price catalogue ([prices](docs/usage-ledger.md#price-catalogue)).
 - **QuotaPlex** (opt-in) shares budgets and admission controls on covered execution paths ([guide](docs/quotaplex-core.md)).
 - **A2APlex** invokes native cloud agents (Google, AWS, Foundry, Copilot) and records delegation history ([guide](docs/connected-plexes.md)).
 - **Networking** prepares private-connectivity and egress plans ([guide](docs/anvil-deployment-provider.md)).
