@@ -7,6 +7,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -89,16 +90,8 @@ func consoleHandler(apiURL, resolvedToken string) (http.Handler, error) {
 // consoleBuilt reports whether the embedded Console is a real build rather
 // than the placeholder page committed to the repository.
 func consoleBuilt() bool {
-	entries, err := fs.ReadDir(console.Dist, "dist")
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.IsDir() && e.Name() == "assets" {
-			return true
-		}
-	}
-	return false
+	index, err := fs.ReadFile(console.Dist, "dist/index.html")
+	return err == nil && strings.Contains(string(index), "<script")
 }
 
 // spaFileServer serves static files, falling back to index.html for client-side routing.
