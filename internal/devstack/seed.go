@@ -72,7 +72,7 @@ func DefaultModel(provider string) string {
 	case "anthropic":
 		return "claude-haiku-4-5"
 	case "gemini":
-		return "gemini-2.5-flash"
+		return "gemini-3.1-flash-lite"
 	}
 	return MockModel
 }

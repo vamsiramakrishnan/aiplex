@@ -124,6 +124,19 @@ func (c *Catalog) Convert(e Entry, opts Options) (Plan, error) {
 			m[usageledger.MeterReasoning] = usageledger.Rational{Numerator: 0, Denominator: 1}
 			shown = append(shown, Meter{Name: usageledger.MeterReasoning, Mtok: "0 (included in output_tokens, declared by the operator)"})
 		}
+		if out, ok := m[usageledger.MeterOutput]; ok && !opts.ReasoningIncluded && ledger == "gemini-developer" {
+			// The Gemini Developer API reports thoughtsTokenCount apart from
+			// candidatesTokenCount and bills thinking tokens at the output
+			// rate (pricing page: "Output price (including thinking
+			// tokens)"). Without this meter a thinking response stays unknown.
+			m[usageledger.MeterReasoning] = out
+			for _, sm := range shown {
+				if sm.Name == usageledger.MeterOutput {
+					shown = append(shown, Meter{Name: usageledger.MeterReasoning, Mtok: sm.Mtok})
+					break
+				}
+			}
+		}
 		p := usageledger.Price{ID: id, ModelID: e.Model, Provider: ledger, Currency: Currency, Scale: Scale, Meters: m, Source: source}
 		if batch {
 			t := true

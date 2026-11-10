@@ -130,6 +130,35 @@ func TestGeminiDeveloperCountTokensAndEmbedUsage(t *testing.T) {
 	}
 }
 
+// Live Gemini Developer API, 2026-11-10: gemini-embedding-001 reports usage
+// only as a top-level tokenCount (an int64 string); gemini-embedding-2 also
+// carries usageMetadata.
+func TestGeminiDeveloperEmbedTopLevelTokenCount(t *testing.T) {
+	up := newProviderUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, ":embedContent") {
+			fmt.Fprint(w, `{"embedding":{"values":[-0.015,0.0096]},"tokenCount":"2"}`)
+			return
+		}
+		fmt.Fprint(w, `{"embeddings":[{"values":[-0.015]},{"values":[-0.010]}],"tokenCount":"4"}`)
+	})
+	s := daSurface(t, up.URL, "gemini.models.embedContent", "gemini.models.batchEmbedContents")
+	for path, want := range map[string]int64{"embedContent": 2, "batchEmbedContents": 4} {
+		lease := &modelLease{}
+		g := providerGateway(t, s, geminiKey(), lease, nil)
+		body := `{"model":"models/gemini-x","content":{"parts":[{"text":"x"}]}}`
+		if path == "batchEmbedContents" {
+			body = `{"requests":[{"model":"models/gemini-x","content":{"parts":[{"text":"x"}]}}]}`
+		}
+		if w := providerServe(g, "POST", "/v1beta/models/gemini-x:"+path, body, nil); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		if value := singleTerminal(t, lease); len(value.Counters) != 1 || value.Counters["input_tokens"] != want {
+			t.Fatalf("%s: %+v", path, value.Counters)
+		}
+	}
+}
+
 func TestGeminiDeveloperCachedContentOwnership(t *testing.T) {
 	up := newProviderUpstream(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -48,7 +48,7 @@ From the cobra definitions in `cmd/aiplex-cli/cmd_dev.go`:
 | `--console-port` | `9090` | Console port on `127.0.0.1`. |
 | `--provider` | `mock` | Model provider: `mock`, `openai`, `anthropic` or `gemini`. |
 | `--api-key-env` | empty | Name of the environment variable that holds the provider key. Not the key itself. Required with a real provider. |
-| `--model` | per provider | Model to expose. Defaults: `mock-gpt` (mock), `gpt-4o-mini` (openai), `claude-haiku-4-5` (anthropic), `gemini-2.5-flash` (gemini). |
+| `--model` | per provider | Model to expose. Defaults: `mock-gpt` (mock), `gpt-4o-mini` (openai), `claude-haiku-4-5` (anthropic), `gemini-3.1-flash-lite` (gemini; `gemini-2.5-flash` was answered 404 by the live API on 2026-11-10). |
 | `--api-bin` | empty | Path to the `aiplex-api` binary. |
 | `--context` | `local` | CLI context to create for the local API. |
 | `--no-console` | off | Do not serve the Console. |
