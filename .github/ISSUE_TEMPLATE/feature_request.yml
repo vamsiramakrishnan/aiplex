@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a change or an addition
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem or workflow, before any solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like AIPlex to do?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried or considered instead?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Access points
+        - Usage ledger
+        - Models (LLMPlex)
+        - Tools (MCPlex)
+        - Agents (A2APlex)
+        - Skills (SkillsPlex)
+        - Quota (QuotaPlex)
+        - Clients (ClientPlex)
+        - Identity
+        - CLI or aiplex dev
+        - Console
+        - Docs
+        - Other

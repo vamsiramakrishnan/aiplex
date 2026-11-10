@@ -1,0 +1,54 @@
+name: Bug report
+description: Something does not work as the docs or README say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do not include secrets or tokens. For security problems, use the private route in SECURITY.md instead of an issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands you ran, starting from a clean checkout or install.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: Error text or relevant log lines (for `aiplex dev`, the API log is under `~/.aiplex/dev-api.log`). Remove tokens and keys.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `aiplex version`, or the commit you built.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      placeholder: macOS 15 arm64, Ubuntu 24.04 amd64
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How were you running AIPlex?
+      options:
+        - aiplex dev (mock model)
+        - aiplex dev with a real provider
+        - Built from source and run directly
+        - Deployed to a cluster
+        - Other
+    validations:
+      required: true
