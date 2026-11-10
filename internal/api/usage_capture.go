@@ -49,6 +49,7 @@ type usageCapture struct {
 	anthropicRaw bool
 	attemptID    string
 	errorCode    string
+	noCost       bool
 	incomplete   bool
 	streaming    bool
 	finished     bool
@@ -144,6 +145,30 @@ func (c *usageCapture) noteError(err error) {
 	}
 }
 
+// uncosted marks an exchange that must never be priced: no provider was
+// called, so no settlement or per-request price may apply.
+func (c *usageCapture) uncosted() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.noCost = true
+	c.mu.Unlock()
+}
+
+// noteClass keeps the error class of a failure the gateway attributes itself
+// (upstream_auth, upstream_quota_exhausted). The first one wins.
+func (c *usageCapture) noteClass(class string) {
+	if c == nil || class == "" || len(class) > 64 {
+		return
+	}
+	c.mu.Lock()
+	if c.errorCode == "" {
+		c.errorCode = class
+	}
+	c.mu.Unlock()
+}
+
 func (c *usageCapture) observe(counters map[string]int64, cumulative bool, modelVersion string, terminal bool, bound string, dimensions ...map[string]string) {
 	if c == nil {
 		return
@@ -185,6 +210,14 @@ func (c *usageCapture) instrumentModel(opts *modelapi.Options, connection ModelC
 		c.genAIProvider = telemetry.ModelProviderName(connection.Surface.Provider.ID, false)
 	}
 	c.mu.Unlock()
+	opts.NoteError = func(_ context.Context, class string) { c.noteClass(class) }
+	if opts.OperatorDetail == nil {
+		// Operators (admin or deployer) see the surface id in gateway-made
+		// upstream errors; every other caller sees none.
+		opts.OperatorDetail = func(ctx context.Context) bool {
+			return HasRole(GetWIFAccess(ctx), models.RoleAdmin, models.RoleDeployer)
+		}
+	}
 	authorize := opts.Authorize
 	opts.Authorize = func(ctx context.Context, request contracts.RequestContext, s modelapi.Surface, op modelapi.Operation, m modelapi.Metadata) error {
 		c.set(func(r *usageledger.Record) {
@@ -423,6 +456,7 @@ func (c *usageCapture) finish() {
 	record := c.record.Clone()
 	counters := c.usage.Snapshot()
 	anthropicRaw, attemptID, code, incomplete := c.anthropicRaw, c.attemptID, c.errorCode, c.incomplete
+	noCost := c.noCost
 	streaming := c.streaming || hijacked
 	bound, terminalSeen := c.bound, c.terminalSeen
 	if c.hooks != nil {
@@ -485,6 +519,7 @@ func (c *usageCapture) finish() {
 		normalizeExclusiveInput(counters)
 	}
 	record.Usage = usageledger.FromCounters(counters)
+	record.ServerTools = usageledger.ServerToolsFromCounters(counters)
 	if bound != "" {
 		record.UsageBound = bound
 	} else if nonTokenUsage(counters) {
@@ -517,7 +552,7 @@ func (c *usageCapture) finish() {
 	span, genAIProvider := c.span, c.genAIProvider
 	firstWrite := c.writer.firstWriteAt()
 	submit := func(record usageledger.Record) {
-		h.submitExchange(c.r.Context(), span, record, genAIProvider, firstWrite, attemptID)
+		h.submitExchange(c.r.Context(), span, record, genAIProvider, firstWrite, attemptID, noCost)
 	}
 	if c.route != nil {
 		if span != nil {
@@ -532,12 +567,15 @@ func (c *usageCapture) finish() {
 // submitExchange resolves the record's cost (quota settlement, else an
 // operator price) and submits it; the span ends once the cost is resolved,
 // at the exchange's own finish time.
-func (h *ConnectedHandler) submitExchange(parent context.Context, span trace.Span, record usageledger.Record, genAIProvider string, firstWrite time.Time, attemptID string) {
+func (h *ConnectedHandler) submitExchange(parent context.Context, span trace.Span, record usageledger.Record, genAIProvider string, firstWrite time.Time, attemptID string, noCost bool) {
 	// Handler fields are read here, on the request's goroutine, not in the
 	// background write.
 	quota := h.Quota
 	h.Ledger.Submit(parent, func(ctx context.Context) (out usageledger.Record, err error) {
 		defer func() { endExchangeSpan(ctx, span, record, genAIProvider, firstWrite) }()
+		if noCost {
+			return record, nil
+		}
 		if record.Cost.Basis == usageledger.BasisCached {
 			// A cache hit drew request-count budgets only; record them.
 			if attemptID != "" && quota != nil {

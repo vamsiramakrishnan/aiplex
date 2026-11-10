@@ -62,7 +62,10 @@ const (
 // Every field is pinned by the operator; no caller value overrides it.
 type Provider struct {
 	ID string `json:"id"`
-	// BasePath prefixes openai-compatible operation paths (default "/v1").
+	// BasePath prefixes openai-compatible operation paths (default "/v1"). For
+	// anthropic it is a path prefix that precedes every upstream path
+	// (/v1/messages becomes <base_path>/v1/messages), for an Anthropic
+	// compatible endpoint served under a prefix; clients still call /v1/messages.
 	BasePath string `json:"base_path,omitempty"`
 	// APIVersion is the pinned Azure api-version query value for
 	// deployment-scoped operations.
@@ -343,8 +346,8 @@ func (s Surface) validateProvider() error {
 	if p.Region != "" && p.ID != ProviderBedrock {
 		return fmt.Errorf("provider.region applies only to bedrock")
 	}
-	if p.BasePath != "" && (p.ID != ProviderOpenAICompatible || !basePathPattern.MatchString(p.BasePath)) {
-		return fmt.Errorf("provider.base_path applies only to openai-compatible and must be a plain path such as /v1")
+	if p.BasePath != "" && ((p.ID != ProviderOpenAICompatible && p.ID != ProviderAnthropic) || !basePathPattern.MatchString(p.BasePath)) {
+		return fmt.Errorf("provider.base_path applies only to openai-compatible and anthropic and must be an absolute path of plain segments such as /v1 (no query, fragment, dot segments or trailing slash)")
 	}
 	if (p.Organization != "" || p.Project != "") && p.ID != ProviderOpenAI {
 		return fmt.Errorf("provider.organization/project apply only to openai")
@@ -453,4 +456,14 @@ func NoCredential() Credential {
 
 func azureDeploymentOperation(id string) bool {
 	return id == "azure.deployments.chat-completions" || id == "azure.deployments.embeddings"
+}
+
+// upstreamOrigin is the surface origin plus the provider's path prefix: the
+// anthropic provider's base_path precedes every upstream path.
+func (g *Gateway) upstreamOrigin() string {
+	origin := strings.TrimSuffix(g.surface.Origin, "/")
+	if g.surface.Provider != nil && g.surface.Provider.ID == ProviderAnthropic {
+		origin += g.surface.Provider.BasePath
+	}
+	return origin
 }

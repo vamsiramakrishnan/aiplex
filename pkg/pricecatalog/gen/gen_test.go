@@ -75,11 +75,14 @@ func TestBuildEntryClassifiesWhatIsLeftOut(t *testing.T) {
 	if len(x.Blocking) != 0 || strings.Join(x.LeftOut, ",") != "input_cost_per_token_priority,output_cost_per_reasoning_token,search_context_cost_per_query" || x.ContextWindow != 128000 || x.Source != "https://example.test/pricing" {
 		t.Fatalf("gpt-x notes: blocking %v left out %v", x.Blocking, x.LeftOut)
 	}
-	if got := strings.Join(by["openai/gpt-tier"].Blocking, ","); got != "input_cost_per_audio_token,input_cost_per_token_above_200k_tokens" {
-		t.Fatalf("gpt-tier blocking: %s", got)
+	// 200k is not a confirmed OpenAI threshold: the tier field stays blocking.
+	// The audio rate is a modality rate OpenAI reports and is imported.
+	tier := by["openai/gpt-tier"]
+	if got := strings.Join(tier.Blocking, ","); got != "input_cost_per_token_above_200k_tokens" || tier.Rates.InputAudio != "10" || len(tier.Rates.Tiers) != 0 {
+		t.Fatalf("gpt-tier: blocking %s rates %+v", got, tier.Rates)
 	}
 	ttl := by["anthropic/claude-ttl"]
-	if len(ttl.Blocking) != 0 || strings.Join(ttl.LeftOut, ",") != "cache_creation_input_token_cost_above_1hr" || ttl.Rates.CacheWrite != "3.75" {
+	if len(ttl.Blocking) != 0 || len(ttl.LeftOut) != 0 || ttl.Rates.CacheWrite != "3.75" || ttl.Rates.CacheWrite1h != "6" {
 		t.Fatalf("claude-ttl: %+v", ttl)
 	}
 	if _, ok := by["openai/bad"]; ok {
@@ -115,5 +118,97 @@ func TestConflictingDuplicatesAreLeftOutAndOutputIsDeterministic(t *testing.T) {
 	b, _ := second.Marshal()
 	if !bytes.Equal(a, b) {
 		t.Fatal("output is not deterministic")
+	}
+}
+
+func entryFor(t *testing.T, doc, id string) pricecatalog.Entry {
+	t.Helper()
+	snap, err := build([]byte(doc), pricecatalog.Meta{Catalog: "litellm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range snap.Entries {
+		if e.ID() == id {
+			return e
+		}
+	}
+	t.Fatalf("%s not in %v", id, snap.Entries)
+	return pricecatalog.Entry{}
+}
+
+func TestConfirmedTiersAreCarriedAndOthersStayBlocking(t *testing.T) {
+	// Anthropic 100k and OpenAI 272k are confirmed; the same fields at an
+	// unconfirmed threshold, or on an unconfirmed provider, stay blocking.
+	doc := `{
+ "claude-haiku": {"litellm_provider":"anthropic","mode":"chat",
+   "input_cost_per_token":1e-07,"output_cost_per_token":5e-07,"cache_read_input_token_cost":1e-08,"cache_creation_input_token_cost":1.25e-07,"cache_creation_input_token_cost_above_1hr":2e-07,
+   "input_cost_per_token_above_100k_tokens":5e-07,"output_cost_per_token_above_100k_tokens":2.5e-06,"cache_read_input_token_cost_above_100k_tokens":5e-08,"cache_creation_input_token_cost_above_100k_tokens":6.25e-07,"cache_creation_input_token_cost_above_1hr_above_100k_tokens":1e-06,
+   "input_cost_per_token_batches":5e-08,"output_cost_per_token_batches":2.5e-07,"input_cost_per_token_above_100k_tokens_batches":2.5e-07,"output_cost_per_token_above_100k_tokens_batches":1.25e-06,
+   "search_context_cost_per_query":{"search_context_size_low":0.01,"search_context_size_medium":0.01,"search_context_size_high":0.01}},
+ "gpt-long": {"litellm_provider":"openai","mode":"chat","input_cost_per_token":5e-06,"output_cost_per_token":3e-05,
+   "input_cost_per_token_above_272k_tokens":1e-05,"output_cost_per_token_above_272k_tokens":4.5e-05,
+   "input_cost_per_token_priority":1.25e-05,"output_cost_per_token_priority":7.5e-05,"input_cost_per_token_above_272k_tokens_priority":2.5e-05,"output_cost_per_token_above_272k_tokens_priority":1.1e-04,
+   "input_cost_per_token_flex":2.5e-06,"output_cost_per_token_flex":1.5e-05,
+   "search_context_cost_per_query":{"search_context_size_low":0.01,"search_context_size_medium":0.01,"search_context_size_high":0.01}},
+ "gpt-odd": {"litellm_provider":"openai","mode":"chat","input_cost_per_token":5e-06,"output_cost_per_token":3e-05,
+   "input_cost_per_token_above_272k_tokens":1e-05,
+   "input_cost_per_token_priority":1.25e-05,"output_cost_per_token_priority":7.5e-05},
+ "gemini/g-long": {"litellm_provider":"gemini","mode":"chat","input_cost_per_token":2e-06,"output_cost_per_token":1.2e-05,
+   "input_cost_per_token_above_200k_tokens":4e-06,"output_cost_per_token_above_200k_tokens":1.8e-05,
+   "input_cost_per_token_priority":3.6e-06,"output_cost_per_token_priority":2.16e-05,"input_cost_per_token_above_200k_tokens_priority":7.2e-06,"output_cost_per_token_above_200k_tokens_priority":3.24e-05,
+   "input_cost_per_audio_token":3e-06}
+}`
+	haiku := entryFor(t, doc, "anthropic/claude-haiku")
+	if len(haiku.Blocking) != 0 || len(haiku.Rates.Tiers) != 1 || haiku.Rates.Tiers[0].Above != 100_000 || haiku.Rates.Tiers[0].Rates.Input != "0.5" || haiku.Rates.Tiers[0].Rates.CacheWrite1h != "1" {
+		t.Fatalf("haiku: %+v blocking %v", haiku.Rates, haiku.Blocking)
+	}
+	if haiku.Batch == nil || len(haiku.Batch.Tiers) != 1 || haiku.Batch.Tiers[0].Rates.Output != "1.25" {
+		t.Fatalf("haiku batch: %+v", haiku.Batch)
+	}
+	if haiku.ServerTools["web_search"] != "0.01" || len(haiku.LeftOut) != 0 {
+		t.Fatalf("haiku web search: %v left out %v", haiku.ServerTools, haiku.LeftOut)
+	}
+	long := entryFor(t, doc, "openai/gpt-long")
+	if len(long.Blocking) != 0 || len(long.Rates.Tiers) != 1 || long.Rates.Tiers[0].Above != 272_000 || long.Rates.Tiers[0].Rates.Output != "45" {
+		t.Fatalf("gpt-long: %+v blocking %v", long.Rates, long.Blocking)
+	}
+	if long.Priority == nil || len(long.Priority.Tiers) != 1 || long.Priority.Output != "75" || long.Flex != nil {
+		t.Fatalf("service tiers: %+v %+v", long.Priority, long.Flex)
+	}
+	// Flex states no tier rates while the standard rates have a 272k tier, so
+	// it is dropped whole (a flex request above 272k would misprice). OpenAI
+	// search is not imported as a per-call price (the search models report no
+	// call count): it stays a left-out field.
+	if long.ServerTools != nil || !strings.Contains(strings.Join(long.LeftOut, ","), "search_context_cost_per_query") || !strings.Contains(strings.Join(long.LeftOut, ","), "input_cost_per_token_flex") {
+		t.Fatalf("gpt-long search: %v %v", long.ServerTools, long.LeftOut)
+	}
+	// A priority rate set that prices different meters than the standard one
+	// cannot be imported exactly: it is dropped whole and left out.
+	odd := entryFor(t, doc, "openai/gpt-odd")
+	if odd.Priority != nil || strings.Join(odd.Blocking, ",") != "input_cost_per_token_above_272k_tokens" {
+		t.Fatalf("gpt-odd: priority %+v blocking %v", odd.Priority, odd.Blocking)
+	}
+	if !strings.Contains(strings.Join(odd.LeftOut, ","), "input_cost_per_token_priority") {
+		t.Fatalf("gpt-odd left out: %v", odd.LeftOut)
+	}
+	// Gemini's whole-prompt rule is not confirmed: tiers stay blocking, and the
+	// priority rates, which would be wrong above 200k, are not imported either.
+	g := entryFor(t, doc, "gemini-developer/g-long")
+	if len(g.Rates.Tiers) != 0 || g.Priority != nil || g.Rates.InputAudio != "3" {
+		t.Fatalf("gemini: %+v priority %+v", g.Rates, g.Priority)
+	}
+	if got := strings.Join(g.Blocking, ","); got != "input_cost_per_token_above_200k_tokens,output_cost_per_token_above_200k_tokens" {
+		t.Fatalf("gemini blocking: %s", got)
+	}
+}
+
+func TestRegenerationIsDeterministic(t *testing.T) {
+	doc := `{"a":{"litellm_provider":"anthropic","mode":"chat","input_cost_per_token":1e-06,"output_cost_per_token":2e-06,"input_cost_per_token_above_100k_tokens":2e-06,"output_cost_per_token_above_100k_tokens":4e-06}}`
+	first, _ := build([]byte(doc), pricecatalog.Meta{})
+	again, _ := build([]byte(doc), pricecatalog.Meta{})
+	a, _ := first.Marshal()
+	b, _ := again.Marshal()
+	if !bytes.Equal(a, b) {
+		t.Fatal("not deterministic")
 	}
 }

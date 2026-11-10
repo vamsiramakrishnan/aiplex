@@ -261,7 +261,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 			}
 		}
 	}
-	upstream, err := url.Parse(strings.TrimSuffix(g.surface.Origin, "/") + r.URL.EscapedPath())
+	upstream, err := url.Parse(g.upstreamOrigin() + r.URL.EscapedPath())
 	if err != nil {
 		http.Error(w, "invalid upstream request", http.StatusBadRequest)
 		return true
@@ -319,6 +319,10 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 	if g.options.ObserveLimits != nil {
 		g.options.ObserveLimits(r.Context(), owner, providerlimits.Parse(g.surface.Provider.ID, response.StatusCode, response.Header, time.Now()))
 	}
+	if g.handleUpstreamAuth(w, r, run, response) {
+		return true
+	}
+	g.noteRejectionClass(r, response)
 	x := extendedExchange{g: g, w: w, r: r, owner: owner, op: op, spec: spec, run: run, response: response, metadata: metadata, images: images, body: body}
 	x.serve()
 	return true

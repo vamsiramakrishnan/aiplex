@@ -108,6 +108,10 @@ type CostTotal struct {
 	Amount   string `json:"amount"`
 	Scale    uint8  `json:"scale"`
 	Records  int64  `json:"records"`
+	// Exact is the unrounded total in minor units as a fraction, set by
+	// back-estimation results when Amount was rounded up, so totals of several
+	// pages can be added before rounding (see SumCostTotals).
+	Exact string `json:"exact,omitempty"`
 }
 
 // MarshalJSON adds amount_decimal, the exact decimal form of amount at scale
@@ -204,7 +208,9 @@ func groupValue(r Record, field string) string {
 }
 
 type costAccumulator struct {
-	amount  *big.Int
+	// sum is exact, in minor units at scale: records that carry an Exact
+	// fraction add it, so rounding happens once, on the total.
+	sum     *big.Rat
 	scale   uint8
 	records int64
 }
@@ -276,17 +282,23 @@ func (g *groupAccumulator) add(r Record) error {
 	key := [2]string{r.Cost.Currency, r.Cost.Basis}
 	c := g.costs[key]
 	if c == nil {
-		c = &costAccumulator{amount: new(big.Int), scale: r.Cost.Scale}
+		c = &costAccumulator{sum: new(big.Rat), scale: r.Cost.Scale}
 		g.costs[key] = c
+	}
+	value := new(big.Rat).SetInt(amount)
+	if r.Cost.Exact != "" {
+		if exact, ok := new(big.Rat).SetString(r.Cost.Exact); ok {
+			value = exact
+		}
 	}
 	switch {
 	case r.Cost.Scale > c.scale:
-		c.amount.Mul(c.amount, pow10(r.Cost.Scale-c.scale))
+		c.sum.Mul(c.sum, new(big.Rat).SetInt(pow10(r.Cost.Scale-c.scale)))
 		c.scale = r.Cost.Scale
 	case r.Cost.Scale < c.scale:
-		amount = new(big.Int).Mul(amount, pow10(c.scale-r.Cost.Scale))
+		value = new(big.Rat).Mul(value, new(big.Rat).SetInt(pow10(c.scale-r.Cost.Scale)))
 	}
-	c.amount.Add(c.amount, amount)
+	c.sum.Add(c.sum, value)
 	c.records++
 	return nil
 }
@@ -389,7 +401,7 @@ func (a *Aggregator) Result() Summary {
 			group.Feedback = g.feedback.result()
 		}
 		for key, c := range g.costs {
-			group.Cost = append(group.Cost, CostTotal{Currency: key[0], Basis: key[1], Amount: c.amount.String(), Scale: c.scale, Records: c.records})
+			group.Cost = append(group.Cost, CostTotal{Currency: key[0], Basis: key[1], Amount: ceilRat(c.sum).String(), Scale: c.scale, Records: c.records})
 		}
 		sort.Slice(group.Cost, func(i, j int) bool {
 			if group.Cost[i].Currency == group.Cost[j].Currency {
@@ -528,6 +540,15 @@ func Summarize(ctx context.Context, store Store, tenant string, q SummaryQuery) 
 		}
 		cursor = page.NextCursor
 	}
+}
+
+// ceilRat rounds a nonnegative rational up to an integer.
+func ceilRat(r *big.Rat) *big.Int {
+	whole, rem := new(big.Int).QuoRem(r.Num(), r.Denom(), new(big.Int))
+	if rem.Sign() > 0 {
+		whole.Add(whole, big.NewInt(1))
+	}
+	return whole
 }
 
 // correlationWindow widens the managed-key scan beyond the summary window so

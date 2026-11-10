@@ -119,7 +119,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		g.serveCached(w, r, op, metadata, run, inspect, hit)
 		return
 	}
-	upstream, e := url.Parse(strings.TrimSuffix(g.surface.Origin, "/") + r.URL.EscapedPath())
+	upstream, e := url.Parse(g.upstreamOrigin() + r.URL.EscapedPath())
 	if e != nil {
 		http.Error(w, "invalid upstream request", http.StatusBadRequest)
 		return
@@ -157,6 +157,10 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	if g.options.ObserveLimits != nil {
 		g.options.ObserveLimits(r.Context(), owner, providerlimits.Parse(g.surface.Provider.ID, response.StatusCode, response.Header, time.Now()))
 	}
+	if g.handleUpstreamAuth(w, r, run, response) {
+		return
+	}
+	g.noteRejectionClass(r, response)
 	if response.StatusCode >= 300 && response.StatusCode < 400 {
 		if err := run.finish(execution.Result{StatusCode: response.StatusCode, Err: errors.New("upstream redirect refused")}); err != nil {
 			writeExecutionError(w, err)

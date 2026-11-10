@@ -216,6 +216,8 @@ class UsageFilter:
     harness: str | None = None
     #: allow, deny, transform, error, skipped, or none.
     hook_decision: str | None = None
+    #: settled, estimated, reported, cached or unknown.
+    cost_basis: str | None = None
     #: Records carrying every tag pair, sent as tag.<key>=<value>.
     tags: dict[str, str] | None = None
     since: str | None = None
@@ -241,6 +243,7 @@ class UsageFilter:
             ("usage_bound", self.usage_bound),
             ("harness", self.harness),
             ("hook_decision", self.hook_decision),
+            ("cost_basis", self.cost_basis),
             ("since", self.since),
             ("until", self.until),
         )
@@ -622,6 +625,10 @@ class UsageCounters:
     cache_write_tokens: int | None = None
     reasoning_tokens: int | None = None
     total_tokens: int | None = None
+    #: Part of cache_write_tokens written with the one-hour TTL (a subset).
+    cache_write_1h_tokens: int | None = None
+    #: Gemini tool-use prompt tokens; not part of input_tokens.
+    tool_use_prompt_tokens: int | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -634,6 +641,8 @@ class UsageCounters:
             cache_write_tokens=_opt_int(d, "cache_write_tokens"),
             reasoning_tokens=_opt_int(d, "reasoning_tokens"),
             total_tokens=_opt_int(d, "total_tokens"),
+            cache_write_1h_tokens=_opt_int(d, "cache_write_1h_tokens"),
+            tool_use_prompt_tokens=_opt_int(d, "tool_use_prompt_tokens"),
             raw=dict(d),
         )
 
@@ -647,6 +656,12 @@ class Cost:
     amount_minor: int | None = None
     scale: int | None = None
     amount: Decimal | None = None
+    #: Unrounded amount in minor units as a fraction ("37/4"); only when amount was rounded up.
+    exact: str | None = None
+    #: The price an estimate used.
+    price_id: str | None = None
+    #: Set when the cost was unknown at write time and priced afterwards.
+    backfilled_at: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -659,6 +674,9 @@ class Cost:
             amount_minor=amount_minor,
             scale=scale,
             amount=amount,
+            exact=_opt_str(d, "exact") if basis != "unknown" else None,
+            price_id=_opt_str(d, "price_id") if basis != "unknown" else None,
+            backfilled_at=_opt_str(d, "backfilled_at") if basis != "unknown" else None,
             raw=dict(d),
         )
 
@@ -781,6 +799,10 @@ class UsageRecord:
     span_id: str | None = None
     status: str | None = None
     source: str | None = None
+    #: Processing tier the provider reported (default, standard, flex, priority, mixed).
+    service_tier: str | None = None
+    #: Provider-side tool requests by kind; empty when none were reported.
+    server_tools: dict[str, int] = field(default_factory=dict)
     streaming: bool | None = None
     http_status: int | None = None
     requests: int | None = None
@@ -842,6 +864,8 @@ class UsageRecord:
             span_id=_opt_str(d, "span_id"),
             status=_opt_str(d, "status"),
             source=_opt_str(d, "source"),
+            service_tier=_opt_str(d, "service_tier"),
+            server_tools=_int_map(d, "server_tools"),
             streaming=_opt_bool(d, "streaming"),
             http_status=_opt_int(d, "http_status"),
             requests=_opt_int(d, "requests"),
@@ -1086,6 +1110,30 @@ class ModelPriceRate:
 
 
 @dataclass(frozen=True)
+class ModelPriceTier:
+    """Long-context override: above this total input the whole request uses these meters."""
+
+    above_input_tokens: int | None = None
+    meters: dict[str, ModelPriceRate] = field(default_factory=dict)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> ModelPriceTier:
+        d = _expect_dict(data, "model_price_tier")
+        meters: dict[str, ModelPriceRate] = {}
+        for k, v in (_opt_dict(d, "meters") or {}).items():
+            if v is not None:
+                meters[k] = ModelPriceRate.from_wire(v)
+        return cls(above_input_tokens=_opt_int(d, "above_input_tokens"), meters=meters)
+
+    def to_wire(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.above_input_tokens is not None:
+            out["above_input_tokens"] = self.above_input_tokens
+        out["meters"] = {k: r.to_wire() for k, r in self.meters.items()}
+        return out
+
+
+@dataclass(frozen=True)
 class ModelPrice:
     """Specification of a model price table entry."""
 
@@ -1094,6 +1142,10 @@ class ModelPrice:
     currency: str | None = None
     scale: int | None = None
     meters: dict[str, ModelPriceRate] = field(default_factory=dict)
+    #: Matches records served on this tier; without it a price covers standard-tier exchanges.
+    service_tier: str | None = None
+    #: Long-context overrides, ascending by threshold.
+    tiers: list[ModelPriceTier] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -1117,6 +1169,8 @@ class ModelPrice:
             currency=_opt_str(d, "currency"),
             scale=_opt_int(d, "scale"),
             meters=meters,
+            service_tier=_opt_str(d, "service_tier"),
+            tiers=[ModelPriceTier.from_wire(t) for t in _dict_list(d, "tiers")],
             raw=dict(d),
         )
 
@@ -1134,6 +1188,10 @@ class ModelPrice:
             if rate is not None:
                 meters_out[k] = rate.to_wire()
         out["meters"] = meters_out
+        if self.service_tier is not None:
+            out["service_tier"] = self.service_tier
+        if self.tiers:
+            out["tiers"] = [t.to_wire() for t in self.tiers]
         return out
 
 

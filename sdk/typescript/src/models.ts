@@ -695,6 +695,10 @@ export interface UsageCounters {
   cacheWriteTokens: number | null;
   reasoningTokens: number | null;
   totalTokens: number | null;
+  /** Part of cacheWriteTokens written with the one-hour TTL (a subset). */
+  cacheWrite1hTokens: number | null;
+  /** Gemini tool-use prompt tokens; not part of inputTokens. */
+  toolUsePromptTokens: number | null;
   raw: Record<string, unknown>;
 }
 
@@ -710,6 +714,8 @@ export function parseUsageCounters(value: unknown): UsageCounters {
     cacheWriteTokens: optInt(obj, "cache_write_tokens", "UsageCounters"),
     reasoningTokens: optInt(obj, "reasoning_tokens", "UsageCounters"),
     totalTokens: optInt(obj, "total_tokens", "UsageCounters"),
+    cacheWrite1hTokens: optInt(obj, "cache_write_1h_tokens", "UsageCounters"),
+    toolUsePromptTokens: optInt(obj, "tool_use_prompt_tokens", "UsageCounters"),
     raw: obj,
   };
 }
@@ -723,6 +729,12 @@ export interface Cost {
   amountMinor: string | null;
   scale: number | null;
   amountDecimal: string | null;
+  /** Unrounded amount in minor units as a fraction ("37/4"); only when amount was rounded up. */
+  exact: string | null;
+  /** The price an estimate used. */
+  priceId: string | null;
+  /** Set when the cost was unknown at write time and priced afterwards. */
+  backfilledAt: string | null;
   raw: Record<string, unknown>;
 }
 
@@ -750,6 +762,9 @@ export function parseCost(value: unknown): Cost {
     amountMinor,
     scale,
     amountDecimal,
+    exact: basis === "unknown" ? null : optString(obj, "exact", "Cost"),
+    priceId: basis === "unknown" ? null : optString(obj, "price_id", "Cost"),
+    backfilledAt: basis === "unknown" ? null : optString(obj, "backfilled_at", "Cost"),
     raw: obj,
   };
 }
@@ -900,6 +915,10 @@ export interface UsageRecord {
   spanId: string | null;
   status: string | null;
   source: string | null;
+  /** Processing tier the provider reported (default, standard, flex, priority, mixed). */
+  serviceTier: string | null;
+  /** Provider-side tool requests by kind; empty when none were reported. */
+  serverTools: Record<string, number>;
   streaming: boolean | null;
   httpStatus: number | null;
   requests: number | null;
@@ -997,6 +1016,8 @@ export function parseUsageRecord(value: unknown): UsageRecord {
     spanId: optString(obj, "span_id", "UsageRecord"),
     status: optString(obj, "status", "UsageRecord"),
     source: optString(obj, "source", "UsageRecord"),
+    serviceTier: optString(obj, "service_tier", "UsageRecord"),
+    serverTools: intMap(obj, "server_tools", "UsageRecord"),
     streaming: optBoolean(obj, "streaming", "UsageRecord"),
     httpStatus: optInt(obj, "http_status", "UsageRecord"),
     requests: optInt(obj, "requests", "UsageRecord"),
@@ -1220,6 +1241,26 @@ export function parseModelPriceRate(value: unknown): ModelPriceRate {
 }
 
 /**
+ * Long-context override: above this total input the whole request uses these meters.
+ */
+export interface ModelPriceTier {
+  aboveInputTokens: number | null;
+  meters: Record<string, ModelPriceRate>;
+}
+
+function parseMeters(value: unknown, context: string): Record<string, ModelPriceRate> {
+  const meters: Record<string, ModelPriceRate> = {};
+  if (value !== undefined && value !== null) {
+    for (const [k, v] of Object.entries(asObject(value, context))) {
+      if (v !== null && v !== undefined) {
+        meters[k] = parseModelPriceRate(v);
+      }
+    }
+  }
+  return meters;
+}
+
+/**
  * Model price specification.
  */
 export interface ModelPrice {
@@ -1228,6 +1269,10 @@ export interface ModelPrice {
   currency: string | null;
   scale: number | null;
   meters: Record<string, ModelPriceRate>;
+  /** Matches records served on this tier; without it a price covers standard-tier exchanges. */
+  serviceTier?: string | null;
+  /** Long-context overrides, ascending by threshold. */
+  tiers?: ModelPriceTier[];
   raw?: Record<string, unknown>;
 }
 
@@ -1253,6 +1298,16 @@ export function parseModelPrice(value: unknown): ModelPrice {
     currency: optString(obj, "currency", "ModelPrice"),
     scale: optInt(obj, "scale", "ModelPrice"),
     meters,
+    serviceTier: optString(obj, "service_tier", "ModelPrice"),
+    tiers: Array.isArray(obj["tiers"])
+      ? (obj["tiers"] as unknown[]).map((t) => {
+          const tier = asObject(t, "ModelPrice.tiers");
+          return {
+            aboveInputTokens: optInt(tier, "above_input_tokens", "ModelPrice.tiers"),
+            meters: parseMeters(tier["meters"], "ModelPrice.tiers.meters"),
+          };
+        })
+      : [],
     raw: obj,
   };
 }
@@ -1284,6 +1339,23 @@ export function toWireModelPrice(price: ModelPrice): Record<string, unknown> {
   }
   if (price.scale !== null && price.scale !== undefined) {
     out["scale"] = price.scale;
+  }
+  if (price.serviceTier !== null && price.serviceTier !== undefined) {
+    out["service_tier"] = price.serviceTier;
+  }
+  if (price.tiers !== undefined && price.tiers.length > 0) {
+    out["tiers"] = price.tiers.map((t) => {
+      const tm: Record<string, unknown> = {};
+      for (const [k, rate] of Object.entries(t.meters)) {
+        const r: Record<string, unknown> = {};
+        if (rate.numerator !== null && rate.numerator !== undefined) r["numerator"] = rate.numerator;
+        if (rate.denominator !== null && rate.denominator !== undefined) r["denominator"] = rate.denominator;
+        tm[k] = r;
+      }
+      const tier: Record<string, unknown> = { meters: tm };
+      if (t.aboveInputTokens !== null) tier["above_input_tokens"] = t.aboveInputTokens;
+      return tier;
+    });
   }
   return out;
 }

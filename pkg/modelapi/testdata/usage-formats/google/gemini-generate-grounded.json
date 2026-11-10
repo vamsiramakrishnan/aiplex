@@ -1,0 +1,32 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "Synthetic grounded answer."
+          }
+        ]
+      },
+      "index": 0,
+      "finishReason": "STOP",
+      "groundingMetadata": {
+        "webSearchQueries": ["synthetic query one", "synthetic query two", "synthetic query three"],
+        "groundingChunks": [{"web": {"uri": "https://example.invalid/a", "title": "A"}}]
+      }
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 500,
+    "cachedContentTokenCount": 0,
+    "candidatesTokenCount": 60,
+    "toolUsePromptTokenCount": 300,
+    "thoughtsTokenCount": 40,
+    "billedToolCalls": [{"tool": "GOOGLE_SEARCH_RETRIEVAL", "successfulToolCallCount": 2, "searchQueryCount": 3}],
+    "totalTokenCount": 900,
+    "serviceTier": "priority"
+  },
+  "modelVersion": "synthetic-model-001",
+  "responseId": "resp-synth-0002"
+}

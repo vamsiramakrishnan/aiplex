@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -32,6 +33,16 @@ type ledgerWireServer struct {
 	mu        sync.Mutex
 	documents map[string]*pb.Document
 	queries   int
+	// transactionWrites counts documents overwritten by a transaction.
+	transactionWrites int
+}
+
+func (s *ledgerWireServer) BeginTransaction(context.Context, *pb.BeginTransactionRequest) (*pb.BeginTransactionResponse, error) {
+	return &pb.BeginTransactionResponse{Transaction: []byte("tx")}, nil
+}
+
+func (s *ledgerWireServer) Rollback(context.Context, *pb.RollbackRequest) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
 }
 
 func (s *ledgerWireServer) Commit(_ context.Context, r *pb.CommitRequest) (*pb.CommitResponse, error) {
@@ -43,6 +54,18 @@ func (s *ledgerWireServer) Commit(_ context.Context, r *pb.CommitRequest) (*pb.C
 		doc := write.GetUpdate()
 		if doc == nil {
 			return nil, status.Error(codes.InvalidArgument, "ledger writes are creates only")
+		}
+		if len(r.Transaction) > 0 {
+			// A transactional overwrite (cost backfill): the document must exist.
+			if s.documents[doc.Name] == nil {
+				return nil, status.Error(codes.NotFound, "document missing")
+			}
+			stored := proto.Clone(doc).(*pb.Document)
+			stored.CreateTime, stored.UpdateTime = s.documents[doc.Name].CreateTime, now
+			s.documents[doc.Name] = stored
+			s.transactionWrites++
+			out.WriteResults = append(out.WriteResults, &pb.WriteResult{UpdateTime: now})
+			continue
 		}
 		if exists, ok := write.GetCurrentDocument().GetConditionType().(*pb.Precondition_Exists); !ok || exists.Exists {
 			return nil, status.Error(codes.InvalidArgument, "ledger appends must be create-only")
@@ -336,6 +359,134 @@ func TestUsageLedgerFirestoreEmulator(t *testing.T) {
 	}
 	defer store.Close()
 	exerciseUsageLedgerStore(t, store.UsageLedger(time.Hour), time.Now().UTC().Truncate(time.Millisecond))
+}
+
+// exerciseBackfill checks back-estimation against a store: only unknown costs
+// are filled, a price outside its window never applies, the original record
+// facts stay, and a second run changes nothing.
+func exerciseBackfill(t *testing.T, store usageledger.Store, now time.Time) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	unknown := func(id string, at time.Time, mutate func(*usageledger.Record)) {
+		r := ledgerRecord("tenant-bf", id, at)
+		r.Cost = usageledger.UnknownCost()
+		r.Usage = &usageledger.Usage{InputTokens: usageledger.Int64(1000), OutputTokens: usageledger.Int64(100)}
+		if mutate != nil {
+			mutate(&r)
+		}
+		if err := store.Append(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unknown("old", now.Add(-48*time.Hour), nil)                                                                           // before the price window
+	unknown("in-window-a", now.Add(-10*time.Hour), nil)                                                                   // priced
+	unknown("in-window-b", now.Add(-9*time.Hour), nil)                                                                    // priced
+	unknown("no-usage", now.Add(-8*time.Hour), func(r *usageledger.Record) { r.Usage = nil })                             // nothing to price
+	unknown("bounded", now.Add(-7*time.Hour), func(r *usageledger.Record) { r.UsageBound = usageledger.UsageLowerBound }) // counters not final
+	unknown("other-model", now.Add(-6*time.Hour), func(r *usageledger.Record) { r.ModelID = "unpriced" })                 // no price for it
+	unknown("missing-output", now.Add(-5*time.Hour), func(r *usageledger.Record) { r.Usage.OutputTokens = nil })          // priced meter unknown
+	settled := ledgerRecord("tenant-bf", "settled", now.Add(-4*time.Hour))                                                // never overwritten
+	if err := store.Append(ctx, settled); err != nil {
+		t.Fatal(err)
+	}
+	from := now.Add(-24 * time.Hour)
+	price := usageledger.Price{ID: "p", ModelID: "m", Currency: "USD", Scale: 6, EffectiveFrom: &from, Meters: map[string]usageledger.Rational{
+		usageledger.MeterInput: {Numerator: 1, Denominator: 4}, usageledger.MeterOutput: {Numerator: 1, Denominator: 1}}}
+	prices := []usageledger.Price{price}
+	// Dry run: counts and totals, no writes.
+	dry, err := usageledger.Backfill(ctx, store, "tenant-bf", prices, usageledger.BackfillQuery{DryRun: true}, now)
+	if err != nil || !dry.DryRun || dry.Scanned != 7 || dry.Eligible != 2 || dry.Updated != 0 || dry.Skipped.UsageNotFinal != 2 || dry.Skipped.NoPrice != 3 {
+		t.Fatalf("dry run: %+v %v", dry, err)
+	}
+	// 1000*0.25 + 100*1 = 350 micro-USD each, two records: 700.
+	if len(dry.Totals) != 1 || dry.Totals[0].Currency != "USD" || dry.Totals[0].Amount != "700" || dry.Totals[0].Records != 2 {
+		t.Fatalf("dry totals: %+v", dry.Totals)
+	}
+	got, _ := store.Get(ctx, "tenant-bf", "in-window-a")
+	if got.Cost.Basis != usageledger.BasisUnknown {
+		t.Fatalf("dry run wrote: %+v", got.Cost)
+	}
+	// Bounded batches with a cursor.
+	var updated int64
+	cursor := ""
+	for pages := 0; pages < 10; pages++ {
+		res, err := usageledger.Backfill(ctx, store, "tenant-bf", prices, usageledger.BackfillQuery{Limit: 2, Cursor: cursor}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		updated += res.Updated
+		if res.NextCursor == "" {
+			break
+		}
+		cursor = res.NextCursor
+	}
+	if updated != 2 {
+		t.Fatalf("updated %d", updated)
+	}
+	a, _ := store.Get(ctx, "tenant-bf", "in-window-a")
+	if a.Cost.Basis != usageledger.BasisEstimated || a.Cost.Amount != "350" || a.Cost.PriceID != "p" || a.Cost.BackfilledAt == nil || a.Cost.Currency != "USD" || a.Usage == nil || *a.Usage.InputTokens != 1000 {
+		t.Fatalf("backfilled record: %+v", a)
+	}
+	for _, id := range []string{"old", "no-usage", "bounded", "other-model", "missing-output"} {
+		r, _ := store.Get(ctx, "tenant-bf", id)
+		if r.Cost.Basis != usageledger.BasisUnknown || r.Cost.BackfilledAt != nil {
+			t.Errorf("%s must stay unknown: %+v", id, r.Cost)
+		}
+	}
+	s2, _ := store.Get(ctx, "tenant-bf", "settled")
+	if s2.Cost.Basis != usageledger.BasisSettled || s2.Cost.Amount != settled.Cost.Amount {
+		t.Fatalf("settled cost changed: %+v", s2.Cost)
+	}
+	// Idempotent: nothing left to do, and no writes.
+	again, err := usageledger.Backfill(ctx, store, "tenant-bf", prices, usageledger.BackfillQuery{}, now.Add(time.Hour))
+	if err != nil || again.Updated != 0 || again.Eligible != 0 {
+		t.Fatalf("second run: %+v %v", again, err)
+	}
+	if a2, _ := store.Get(ctx, "tenant-bf", "in-window-a"); !a2.Cost.BackfilledAt.Equal(*a.Cost.BackfilledAt) {
+		t.Fatal("a second run changed backfilled_at")
+	}
+	// Another tenant's records are never touched.
+	if err := store.Append(ctx, func() usageledger.Record {
+		r := ledgerRecord("tenant-other", "x", now.Add(-time.Hour))
+		r.Cost = usageledger.UnknownCost()
+		return r
+	}()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := usageledger.Backfill(ctx, store, "tenant-bf", prices, usageledger.BackfillQuery{}, now); err != nil {
+		t.Fatal(err)
+	}
+	if x, _ := store.Get(ctx, "tenant-other", "x"); x.Cost.Basis != usageledger.BasisUnknown {
+		t.Fatal("another tenant's record was backfilled")
+	}
+	if _, err := usageledger.Backfill(ctx, store, "tenant-bf", prices, usageledger.BackfillQuery{Limit: usageledger.MaxBackfillBatch + 1}, now); err == nil {
+		t.Fatal("an unbounded batch must be refused")
+	}
+}
+
+func TestUsageLedgerBackfillMemory(t *testing.T) {
+	exerciseBackfill(t, usageledger.NewMemoryStore(), time.Now().UTC().Truncate(time.Millisecond))
+}
+
+func TestUsageLedgerBackfillFirestoreWire(t *testing.T) {
+	store, backend := ledgerWireFixture(t)
+	exerciseBackfill(t, store.UsageLedger(7*24*time.Hour), time.Now().UTC().Truncate(time.Millisecond))
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	if backend.transactionWrites != 2 {
+		t.Fatalf("expected exactly two transactional overwrites, got %d", backend.transactionWrites)
+	}
+}
+
+func TestUsageLedgerBackfillFirestoreEmulator(t *testing.T) {
+	skipWithoutEmulator(t)
+	store, err := NewFirestoreStore(fmt.Sprintf("ledger-bf-%d", time.Now().UnixNano()), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	exerciseBackfill(t, store.UsageLedger(7*24*time.Hour), time.Now().UTC().Truncate(time.Millisecond))
 }
 
 func TestUsageLedgerMemoryStoreMatchesContract(t *testing.T) {

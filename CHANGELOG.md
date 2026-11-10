@@ -89,6 +89,14 @@ There has been no tagged release yet. This section summarises what exists in the
 - Destructive commands (`delete`, `undeploy`, `delete-context`) refuse to run without a terminal unless `--yes` is given.
 - CLI errors name the cause and give hints, such as `Did you mean` for a mistyped ID. Every command uses fixed exit codes (0 to 6, listed in `aiplex --help`), `--debug` shows the raw API error, and destructive commands ask on a terminal unless `--yes` is given.
 
+### Metering
+
+- Prices can carry context-length `tiers` (the whole request is priced at the tier once the total input, cache included, exceeds a threshold), a `service_tier` selector, per-modality token rates (`input_audio_tokens` and the other splits), a one-hour cache-write rate (`cache_write_1h_tokens`) and per-call `server_tool.<kind>` meters. A price that rates one non-text modality of a direction must rate the others the record reports; positive one-hour writes, server-tool counts and Gemini tool-use prompt tokens without a rate leave the cost unknown. Tier rules are imported only where the provider's rule was confirmed (Anthropic over 100K input tokens, OpenAI over 272K); Gemini, xAI, Azure OpenAI, Bedrock and Vertex Claude tiers still need `--accept-partial`. 148 of 780 catalogue entries need it now, down from 212.
+- Records carry `service_tier` (OpenAI `service_tier`, Anthropic `usage.service_tier`, Gemini `usageMetadata.serviceTier`) and `server_tools` (Anthropic `server_tool_use`, OpenAI built-in tool call items in Responses output, Gemini `billedToolCalls`), and usage carries `cache_write_1h_tokens` and `tool_use_prompt_tokens`. A Gemini modality list that adds up to the prompt count makes the unlisted modalities reported zeros.
+- Estimated costs keep their unrounded amount in `cost.exact` and name the price in `cost.price_id`; summaries add exact values and round up once instead of adding rounded amounts. The rounding rule (up, at the price's scale) is documented.
+- models.dev is a second pinned catalogue snapshot (MIT, `THIRD_PARTY_NOTICES.md`). `catalog search` and `show` display both sources and flag meters they disagree on; `catalog import --source litellm|models.dev` chooses, and an import of a model the sources disagree on is refused until `--source` is given. `make update-price-catalog` refreshes both. The import dry run no longer says "needs --accept-partial" when the flag was given.
+- `aiplex usage prices backfill` and `POST /api/v1/usage/backfill` (admin) price records written before a price existed, using the price effective at each record's time. The cost becomes `estimated` with `backfilled_at` and `price_id`; settled and estimated costs are never changed, runs are idempotent and bounded (cursor), and Firestore updates only while the cost is still unknown. Records and summaries filter on `cost_basis`.
+
 ### Models (LLMPlex)
 
 - Native provider surfaces for OpenAI, Anthropic, Azure OpenAI, Bedrock, Gemini Developer, Google Cloud and OpenAI-compatible endpoints, over HTTP, SSE and WebSocket, with credentials as references.
@@ -123,6 +131,11 @@ There has been no tagged release yet. This section summarises what exists in the
 
 ### Behaviour changes
 
+- A provider's `401` or `403` (and the Gemini Developer API's `400 API_KEY_INVALID`) is the gateway's own credential being refused. It is now a `502` in the provider's error shape with the code `upstream_credential_rejected` and ledger `error_class` `upstream_auth`, not a relayed `401`. Operators see the surface id in the error details. An OpenAI-family `429 insufficient_quota` and a Bedrock `ServiceQuotaExceededException` are classed `upstream_quota_exhausted`; their responses are unchanged.
+- A caller the access point admitted that names an unknown model gets a ledger record (`error_class` `model_not_found`, bounded `model_id`) as well as the 404. A price without a `service_tier` selector no longer matches a record served on `flex` or `priority`, and a positive one-hour cache write needs a one-hour rate: both are `unknown` cost instead of the standard or five-minute rate.
+- The `anthropic` provider takes an optional `base_path` for an Anthropic-compatible endpoint served under a path prefix.
+- A request carrying the AIPlex token in `Authorization` and a different provider key in `x-api-key` (Claude Code with `ANTHROPIC_API_KEY` set) is still refused, with a message that names the header to remove and says the key reached the gateway in transit; the key value is not logged, stored or put in spans.
+- The Go SDK's `Error` carries `TraceID`, and the CLI prints it beside the request ID.
 - A provider's `secret_ref` must start with `aiplex-` when Secret Manager is configured. A reference without the prefix is refused when the provider is saved, with a message that names the rule. Name those secrets `aiplex-...`.
 - `GET /metrics` needs `AIPLEX_METRICS_TOKEN` as a bearer token. Without the variable it answers 503, except in development mode on loopback. The public gateway does not route `/metrics`; scrape the `aiplex-api` service inside the cluster.
 - `aiplex platform apply` refuses to run when the preflight fails. `--skip-preflight` overrides the check with a warning.

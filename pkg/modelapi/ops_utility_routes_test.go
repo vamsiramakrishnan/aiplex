@@ -73,6 +73,7 @@ func utilityRoutes() []fixtureRoute {
 		// ---------------- Gemini Developer API ----------------
 		tokenRoute("google", "gemini-generate.json", "gemini-generateContent", "json", daGenerate, true, strictSettles),
 		tokenRoute("google", "gemini-generate-tooluse.json", "gemini-generateContent", "json", daGenerate, true, strictRefuses),
+		tokenRoute("google", "gemini-generate-grounded.json", "gemini-generateContent", "json", daGenerate, true, strictRefuses),
 		tokenRoute("google", "gemini-generate-error-429.json", "gemini-generateContent", "json", with(daGenerate, func(c *fixtureCall) { c.upstream = 429 }), false, strictUnknown),
 		tokenRoute("google", "gemini-generate.sse", "gemini-streamGenerateContent", "sse", daStream, true, strictSettles),
 		tokenRoute("google", "gemini-generate-interrupted.sse", "gemini-streamGenerateContent", "sse", daStream, false, strictUnknown),

@@ -35,6 +35,8 @@ type Filter struct {
 	Source   string
 	// ErrorClass selects records with exactly that error_class.
 	ErrorClass string
+	// CostBasis selects records by cost.basis: settled, estimated or unknown.
+	CostBasis string
 	// UsageBound selects records by usage_bound: lower_bound, ambiguous or
 	// partial, or UsageBoundNone for records whose counters are final (or
 	// unknown). Empty matches everything.
@@ -57,7 +59,7 @@ type Filter struct {
 
 // Matches applies every filter field, including visibility and the window.
 func (f Filter) Matches(r Record) bool {
-	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}, {f.ErrorClass, r.ErrorClass}, {f.Harness, r.Harness}} {
+	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}, {f.ErrorClass, r.ErrorClass}, {f.Harness, r.Harness}, {f.CostBasis, r.Cost.Basis}} {
 		if c[0] != "" && c[0] != c[1] {
 			return false
 		}

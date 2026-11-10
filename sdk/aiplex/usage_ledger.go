@@ -55,6 +55,8 @@ type UsageFilter struct {
 	// HookDecision selects records by their request-hook decision (allow,
 	// deny, transform, error, skipped) or "none" (no hook ran).
 	HookDecision string
+	// CostBasis selects settled, estimated, reported, cached or unknown costs.
+	CostBasis string
 	// Batch, when non-nil, selects batch (true) or non-batch (false) records.
 	Batch *bool
 	// Harness selects reported records from one harness (claude-code, codex,
@@ -66,7 +68,7 @@ type UsageFilter struct {
 
 func (f UsageFilter) values() url.Values {
 	q := url.Values{}
-	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "budget_id": f.BudgetID, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "harness": f.Harness, "hook_decision": f.HookDecision} {
+	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "budget_id": f.BudgetID, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "harness": f.Harness, "hook_decision": f.HookDecision, "cost_basis": f.CostBasis} {
 		if value != "" {
 			q.Set(name, value)
 		}
@@ -512,7 +514,13 @@ func FormatCost(c usageledger.Cost) string {
 	if c.Basis != usageledger.BasisSettled && c.Basis != usageledger.BasisEstimated && c.Basis != usageledger.BasisReported {
 		return "unknown"
 	}
-	return formatCostParts(c.Currency, c.Amount, c.Scale, c.Basis)
+	text := formatCostParts(c.Currency, c.Amount, c.Scale, c.Basis)
+	if c.BackfilledAt != nil {
+		// The cost was unknown when the record was written and was computed
+		// afterwards from a price.
+		text = strings.TrimSuffix(text, ")") + ", backfilled)"
+	}
+	return text
 }
 
 // FormatCostTotal renders a summary cost total with currency and basis.

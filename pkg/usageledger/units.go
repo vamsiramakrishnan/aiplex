@@ -31,6 +31,15 @@ const (
 	CounterVoiceSessionMilliseconds = "voice_session_milliseconds"
 	CounterVideoOutputMilliseconds  = "video_output_milliseconds"
 	CounterGeneratedImages          = "generated_images"
+
+	// CounterCacheWrite1h is the part of cache_write_tokens written with the
+	// one-hour TTL (Anthropic usage.cache_creation.ephemeral_1h_input_tokens,
+	// Bedrock cacheDetails ttl 1h). It is a SUBSET of cache_write_tokens.
+	CounterCacheWrite1h = "cache_write_1h_tokens"
+	// CounterToolUsePrompt is the Gemini toolUsePromptTokenCount: tokens
+	// retrieved by built-in tools, reported apart from promptTokenCount. It is
+	// NOT part of input_tokens.
+	CounterToolUsePrompt = "tool_use_prompt_tokens"
 )
 
 // InputModalityCounters and OutputModalityCounters are the token subsets of
@@ -41,8 +50,21 @@ var (
 	// ModalityCounters lists every modality split in wire order.
 	ModalityCounters = append(append([]string{}, InputModalityCounters...), OutputModalityCounters...)
 	// UnitCounters lists the non-token units in wire order.
-	UnitCounters = []string{CounterAudioInputMilliseconds, CounterVoiceSessionMilliseconds, CounterVideoOutputMilliseconds, CounterGeneratedImages}
+	UnitCounters = []string{CounterAudioInputMilliseconds, CounterVoiceSessionMilliseconds, CounterVideoOutputMilliseconds, CounterGeneratedImages, CounterToolUsePrompt}
+	// CacheSubsetCounters are token subsets of cache_write_tokens.
+	CacheSubsetCounters = []string{CounterCacheWrite1h}
 )
+
+// heldCounters lists every modality, cache-subset and unit field in wire order.
+func heldCounters() []string {
+	out := append([]string{}, ModalityCounters...)
+	out = append(out, CacheSubsetCounters...)
+	return append(out, UnitCounters...)
+}
+
+// counterAliases maps normalized execution counter names to ledger names where
+// they differ.
+var counterAliases = map[string]string{"tool_use_tokens": CounterToolUsePrompt}
 
 // UnitUsage is embedded in Usage. Every field is omitted when unknown, so
 // records without these units keep their previous JSON shape.
@@ -59,6 +81,10 @@ type UnitUsage struct {
 	VoiceSessionMilliseconds *int64 `json:"voice_session_milliseconds,omitempty"`
 	VideoOutputMilliseconds  *int64 `json:"video_output_milliseconds,omitempty"`
 	GeneratedImages          *int64 `json:"generated_images,omitempty"`
+	// CacheWrite1hTokens is a subset of cache_write_tokens; ToolUsePromptTokens
+	// is a separate quantity (see the counter constants).
+	CacheWrite1hTokens  *int64 `json:"cache_write_1h_tokens,omitempty"`
+	ToolUsePromptTokens *int64 `json:"tool_use_prompt_tokens,omitempty"`
 }
 
 func (u *UnitUsage) field(name string) **int64 {
@@ -85,6 +111,10 @@ func (u *UnitUsage) field(name string) **int64 {
 		return &u.VideoOutputMilliseconds
 	case CounterGeneratedImages:
 		return &u.GeneratedImages
+	case CounterCacheWrite1h:
+		return &u.CacheWrite1hTokens
+	case CounterToolUsePrompt:
+		return &u.ToolUsePromptTokens
 	}
 	return nil
 }
@@ -108,7 +138,7 @@ func HeldUnit(name string) bool {
 }
 
 func (u *UnitUsage) known() bool {
-	for _, name := range append(append([]string{}, ModalityCounters...), UnitCounters...) {
+	for _, name := range heldCounters() {
 		if *u.field(name) != nil {
 			return true
 		}
@@ -118,7 +148,7 @@ func (u *UnitUsage) known() bool {
 
 func (u *UnitUsage) clone() UnitUsage {
 	out := UnitUsage{}
-	for _, name := range append(append([]string{}, ModalityCounters...), UnitCounters...) {
+	for _, name := range heldCounters() {
 		if v := *u.field(name); v != nil {
 			n := *v
 			*out.field(name) = &n
@@ -128,15 +158,20 @@ func (u *UnitUsage) clone() UnitUsage {
 }
 
 func (u *UnitUsage) fromCounters(counters map[string]int64) {
-	for _, name := range append(append([]string{}, ModalityCounters...), UnitCounters...) {
+	for _, name := range heldCounters() {
 		if v, ok := counters[name]; ok && v >= 0 {
+			*u.field(name) = Int64(v)
+		}
+	}
+	for native, name := range counterAliases {
+		if v, ok := counters[native]; ok && v >= 0 {
 			*u.field(name) = Int64(v)
 		}
 	}
 }
 
 func (u *UnitUsage) validate() error {
-	for _, name := range append(append([]string{}, ModalityCounters...), UnitCounters...) {
+	for _, name := range heldCounters() {
 		if v := *u.field(name); v != nil && *v < 0 {
 			return invalid("usage counter %s is negative", name)
 		}
@@ -148,7 +183,7 @@ func (u *UnitUsage) validate() error {
 // group. Units never enter the token totals.
 func (g *groupAccumulator) addUnits(r Record) error {
 	s := &g.group
-	for _, name := range ModalityCounters {
+	for _, name := range append(append([]string{}, ModalityCounters...), CacheSubsetCounters...) {
 		v := r.Usage.UnitCounter(name)
 		if v == nil {
 			continue

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
@@ -240,7 +241,7 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 			if json.Unmarshal(quantity, &n) != nil || n < 0 {
 				return result, fmt.Errorf("invalid native server-tool quantity")
 			}
-			if meter, known := serverToolCounters[key]; known {
+			if meter, valid := serverToolCounter(strings.TrimSuffix(key, "_requests")); valid {
 				counters[meter] = n
 			}
 			if n > 0 {
@@ -292,6 +293,15 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 			counters[key] = n
 		}
 	}
+	// Provider-side tool requests the response reports (OpenAI built-in tool
+	// output items, Gemini grounding queries): per-call quantities, never
+	// tokens. Anthropic's server_tool_use is read above.
+	if ResponsesOperation(op.ID) {
+		countResponsesServerTools(object["output"], counters)
+	}
+	if result.gemini {
+		countGeminiServerTools(usage, root["candidates"], counters)
+	}
 	if op.ID == "openai.chat-completions" && g.surface.Provider == nil {
 		vertexCompletionComposition(counters)
 	}
@@ -305,6 +315,9 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		terminal = result.nativeTerminal
 	}
 	result.usage = &UsageObservation{Source: "upstream", SurfaceID: g.surface.ID, OperationID: op.ID, ResourceID: id, Terminal: terminal, Counters: counters, Cumulative: cumulativeUsage(op) || g.anthropicWire(op), ModelVersion: result.modelVersion}
+	if tier := serviceTier(object, usage); tier != "" {
+		result.usage.Dimensions = map[string]string{DimensionServiceTier: tier}
+	}
 	return result, nil
 }
 

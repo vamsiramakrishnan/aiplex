@@ -358,5 +358,14 @@
     "reasoning_tokens": null,
     "total_tokens": null,
     "notes": "HTTP 429. Documented messages: pay-as-you-go 'Resource exhausted, please try again later.'; Provisioned Throughput 'Too many requests. Exceeded the Provisioned Throughput.'. Body details[] (QuotaFailure/RetryInfo), Retry-After and rate-limit headers are NOT documented (UNCONFIRMED); the code/status/message envelope is the standard Google error envelope (UNCONFIRMED for Vertex pages). Error entries carry no trafficType/usageMetadata. Under Standard PayGo a 429 means shared-pool contention, not a fixed-quota breach."
+  },
+  "gemini-generate-grounded.json": {
+    "input_tokens": 500,
+    "output_tokens": 60,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 40,
+    "total_tokens": 900,
+    "notes": "Grounded generation: usageMetadata.billedToolCalls (shape observed live on the Gemini Developer API, 2026-11-10; searchQueryCount 3, successfulToolCallCount 2) is the per-query server-tool count, with groundingMetadata.webSearchQueries as a fallback, toolUsePromptTokenCount (300) is NOT inside promptTokenCount but is inside totalTokenCount, and usageMetadata.serviceTier names the tier. Fixture is synthetic, shaped after the GenerateContentResponse."
   }
 }

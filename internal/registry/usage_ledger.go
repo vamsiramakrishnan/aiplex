@@ -208,4 +208,64 @@ func (s *firestoreUsageLedger) List(ctx context.Context, tenant string, q usagel
 	}
 }
 
-var _ usageledger.Store = (*firestoreUsageLedger)(nil)
+// BackfillCost sets the cost of a record whose cost is still unknown, in one
+// transaction so a concurrent writer's cost is never overwritten (see
+// usageledger.CostBackfiller).
+func (s *firestoreUsageLedger) BackfillCost(ctx context.Context, tenant, id string, cost usageledger.Cost) (bool, error) {
+	if s == nil || s.client == nil {
+		return false, fmt.Errorf("usage ledger needs a configured Firestore client")
+	}
+	if tenant == "" || id == "" || len(id) > usageledger.MaxTextLength {
+		return false, usageledger.ErrNotFound
+	}
+	if err := cost.Validate(); err != nil || cost.Basis == usageledger.BasisUnknown {
+		return false, fmt.Errorf("backfilled cost must be a valid known cost")
+	}
+	ref := s.collection(tenant).Doc(id)
+	updated := false
+	err := s.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		updated = false
+		snapshot, err := tx.Get(ref)
+		if status.Code(err) == codes.NotFound {
+			return usageledger.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		var d usageLedgerDoc
+		if err := snapshot.DataTo(&d); err != nil {
+			return err
+		}
+		r, err := usageLedgerFromDoc(d, tenant)
+		if err != nil {
+			return err
+		}
+		if r.StartedAt.Before(s.cutoff()) {
+			return usageledger.ErrNotFound
+		}
+		if r.Cost.Basis != usageledger.BasisUnknown {
+			return nil
+		}
+		r.Cost = cost
+		doc, err := usageLedgerDocument(r, s.retention)
+		if err != nil {
+			return err
+		}
+		// Keep the original expiry: the record's age did not change.
+		doc.ExpiresAt = d.ExpiresAt
+		if err := tx.Set(ref, doc); err != nil {
+			return err
+		}
+		updated = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return updated, nil
+}
+
+var (
+	_ usageledger.Store          = (*firestoreUsageLedger)(nil)
+	_ usageledger.CostBackfiller = (*firestoreUsageLedger)(nil)
+)

@@ -12,6 +12,23 @@ import (
 )
 
 //go:generate go run ./gen -same
+//go:generate go run ./genmodelsdev -same
+
+// Catalogue sources. LiteLLM is the default; models.dev is a second source with
+// its own pinned snapshot, used to cross-check prices.
+const (
+	SourceLiteLLM   = "litellm"
+	SourceModelsDev = "models.dev"
+)
+
+// SourceNames lists the catalogue sources in display order.
+var SourceNames = []string{SourceLiteLLM, SourceModelsDev}
+
+//go:embed snapshot_modelsdev.json
+var modelsDevJSON []byte
+
+//go:embed snapshot_modelsdev.sha256
+var modelsDevSum string
 
 //go:embed snapshot.json
 var snapshotJSON []byte
@@ -163,4 +180,30 @@ func SplitID(id string) (provider, model string, err error) {
 		return "", "", fmt.Errorf("unknown catalogue provider %q (known: %s)", provider, strings.Join(ProviderNames(), ", "))
 	}
 	return provider, model, nil
+}
+
+var (
+	modelsDevOnce sync.Once
+	modelsDev     *Catalog
+	modelsDevErr  error
+)
+
+// EmbeddedSource returns the embedded snapshot of a named source (SourceLiteLLM
+// or SourceModelsDev), after checking it against its recorded checksum.
+func EmbeddedSource(name string) (*Catalog, error) {
+	switch name {
+	case SourceLiteLLM:
+		return Embedded()
+	case SourceModelsDev:
+		modelsDevOnce.Do(func() {
+			sum := sha256.Sum256(modelsDevJSON)
+			if got, want := hex.EncodeToString(sum[:]), strings.TrimSpace(modelsDevSum); got != want {
+				modelsDevErr = fmt.Errorf("models.dev snapshot does not match its recorded checksum (have %s, recorded %s); regenerate it with make update-price-catalog", got, want)
+				return
+			}
+			modelsDev, modelsDevErr = Parse(modelsDevJSON)
+		})
+		return modelsDev, modelsDevErr
+	}
+	return nil, fmt.Errorf("unknown catalogue source %q (known: %s)", name, strings.Join(SourceNames, ", "))
 }

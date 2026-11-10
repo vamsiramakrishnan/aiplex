@@ -90,6 +90,8 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(get, "/api/v1/usage/records", api.RouteAuthenticated),
 		tenantRule(get, "/api/v1/usage/records/{id}", api.RouteAuthenticated),
 		tenantRule(get, "/api/v1/usage/summary", api.RouteAuthenticated),
+		// Back-estimation rewrites unknown costs in the ledger: admins only.
+		tenantRule(post, "/api/v1/usage/backfill", api.RouteAdmin),
 		tenantRule(get, "/api/v1/usage/config", api.RouteAuthenticated),
 		// Feedback: the record's own principal or actor, or an operator (the
 		// handler checks which; an invisible record answers as missing).

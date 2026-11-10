@@ -97,6 +97,8 @@ export interface UsageFilter {
   harness?: string;
   /** allow, deny, transform, error, skipped, or none. */
   hookDecision?: string;
+  /** settled, estimated, reported, cached or unknown. */
+  costBasis?: string;
   /** Records carrying every tag pair, sent as tag.<key>=<value>. */
   tags?: Record<string, string>;
   since?: string;
@@ -183,6 +185,7 @@ function applyUsageFilter(
     ["usage_bound", filter.usageBound],
     ["harness", filter.harness],
     ["hook_decision", filter.hookDecision],
+    ["cost_basis", filter.costBasis],
     ["since", filter.since],
     ["until", filter.until],
   ];

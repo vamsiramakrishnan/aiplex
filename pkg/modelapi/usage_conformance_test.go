@@ -352,6 +352,7 @@ func usageRoutes() []fixtureRoute {
 		exact("openai", "chat.interrupted.sse", "chat-completions", "sse", callOpenAIChatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai", "chat.nousage.sse", "chat-completions", "sse", callOpenAIChatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai", "responses.json", "responses", "json", callResponses, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai", "responses-web-search.json", "responses", "json", callResponses, convOpenAI, natOpenAI, true, strictRefuses, toolRefuse),
 		exact("openai", "responses.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "responses.failed.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai", "responses.incomplete.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""),

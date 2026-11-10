@@ -390,7 +390,7 @@ function RecordsSection({ filter }: { filter: api.UsageFilter }) {
           <td className={`pr-4 ${statusClass[r.status] ?? ''}`}><StatusCell r={r} /></td>
           <td className="pr-4">{counter(r, 'input_tokens')}</td><td className="pr-4">{counter(r, 'output_tokens')}</td><td className="pr-4">{counter(r, 'cache_write_tokens')}</td>
           <td className="pr-4 text-xs">{modalityText(r)}</td><td className="pr-4 text-xs">{unitsText(r)}</td>
-          <td className="pr-4 whitespace-nowrap">{api.formatCost(r.cost)}{r.usage_bound && <span className={`${muted} ml-1`}>(from bounded usage)</span>}{(r.cost.basis === 'settled' || r.cost.basis === 'estimated' || r.cost.basis === 'reported') && <span className={`${muted} ml-1`}>{r.cost.basis}</span>}</td>
+          <td className="pr-4 whitespace-nowrap">{api.formatCost(r.cost)}{r.usage_bound && <span className={`${muted} ml-1`}>(from bounded usage)</span>}{(r.cost.basis === 'settled' || r.cost.basis === 'estimated' || r.cost.basis === 'reported') && <span className={`${muted} ml-1`}>{r.cost.basis}{r.cost.backfilled_at ? ', backfilled' : ''}</span>}</td>
           <td className="pr-4 whitespace-nowrap">{r.latency_ms} ms</td><td><SourceBadge r={r} /></td>
         </tr>)}</tbody>
       </table></div>}

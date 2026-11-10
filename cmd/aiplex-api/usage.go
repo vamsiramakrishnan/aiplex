@@ -25,7 +25,9 @@ func configureUsageLedger(store registry.Store, cfg *config.Config, connected *a
 	}))
 	connected.Ledger = recorder
 	llm.WithUsageLedger(recorder, connected.Tenant, connected.ModelPrices)
-	return api.NewUsageHandler(ledger, connected.Tenant, cfg.DevelopmentMode)
+	handler := api.NewUsageHandler(ledger, connected.Tenant, cfg.DevelopmentMode)
+	handler.Prices = connected.ModelPrices
+	return handler
 }
 
 // mountHookPolicies serves /api/v1/hooks/policies: hook-policy tenant
@@ -46,6 +48,7 @@ func mountUsageLedger(r chi.Router, usage *api.UsageHandler, connected *api.Conn
 		r.Get("/records/{id}/feedback", usage.ListFeedback)
 		r.Post("/records/{id}/feedback", usage.PostFeedback)
 		r.Get("/summary", usage.Summary)
+		r.Post("/backfill", usage.Backfill)
 		r.Get("/config", usage.Config)
 		r.Route("/prices", func(r chi.Router) { resourceRoutes(r, connected, usageledger.PriceKind) })
 	})

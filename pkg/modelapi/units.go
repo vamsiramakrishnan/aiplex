@@ -30,6 +30,9 @@ const (
 	DimensionBatch        = "batch"
 	DimensionImageSize    = "image_size"
 	DimensionImageQuality = "image_quality"
+	// DimensionServiceTier is the processing tier the provider reported
+	// (OpenAI service_tier, Anthropic usage.service_tier).
+	DimensionServiceTier = "service_tier"
 )
 
 func cloneDimensions(in map[string]string) map[string]string {
@@ -128,6 +131,7 @@ func modalityCounters(usage map[string]json.RawMessage, counters map[string]int6
 			return fmt.Errorf("invalid modality token details")
 		}
 		sums := map[string]int64{}
+		var listed int64
 		for _, entry := range entries {
 			n, known, err := nonNegativeCounter(entry.TokenCount)
 			if err != nil {
@@ -137,12 +141,41 @@ func modalityCounters(usage map[string]json.RawMessage, counters map[string]int6
 				// proto3 omits a zero tokenCount; the entry still names the modality.
 				n = 0
 			}
+			listed += n
 			modality := strings.ToLower(entry.Modality)
 			name := prefix + "_" + modality + "_tokens"
 			switch name {
 			case CounterInputTextTokens, CounterInputAudioTokens, CounterInputImageTokens, CounterInputVideoTokens, CounterOutputTextTokens, CounterOutputAudioTokens, CounterOutputImageTokens:
 				sums[name] += n
 			}
+		}
+		// The details list names only the modalities that carried tokens (a
+		// zero tokenCount is omitted; live Gemini Developer API, 2026-11-10: a
+		// text-only prompt lists TEXT alone). When the listed counts add up to
+		// the whole prompt or candidate count, every standard modality not
+		// listed carried none, so it is a reported zero rather than unknown;
+		// without that, a price that separates audio could never cost a
+		// text-only request. A list that does not add up leaves the rest
+		// unknown.
+		parentCounters := []string{"promptTokenCount"}
+		if prefix == "output" {
+			parentCounters = []string{"candidatesTokenCount", "responseTokenCount"}
+		}
+		for _, counter := range parentCounters {
+			whole, known, err := nonNegativeCounter(usage[counter])
+			if err != nil || !known || whole != listed {
+				continue
+			}
+			for _, modality := range []string{"text", "audio", "image", "video"} {
+				name := prefix + "_" + modality + "_tokens"
+				switch name {
+				case CounterInputTextTokens, CounterInputAudioTokens, CounterInputImageTokens, CounterInputVideoTokens, CounterOutputTextTokens, CounterOutputAudioTokens, CounterOutputImageTokens:
+					if _, present := sums[name]; !present {
+						sums[name] = 0
+					}
+				}
+			}
+			break
 		}
 		for name, n := range sums {
 			if err := set(name, n); err != nil {

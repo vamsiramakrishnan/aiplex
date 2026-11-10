@@ -171,6 +171,7 @@ The commands that write outside the API ask the same way, and refuse without a t
 - `aiplex connect <access-point> --client <client> --write` (a diff of each client config file) and `aiplex connect --undo`
   ([harness onboarding](harness-onboarding.md))
 - `aiplex usage prices catalog import` (creates price resources; `--dry-run` writes nothing)
+- `aiplex usage prices backfill` (prices records whose cost was unknown; shows the dry-run result first, `--dry-run` writes nothing)
 
 `aiplex platform preflight` only reads, and it changes nothing in Google Cloud.
 

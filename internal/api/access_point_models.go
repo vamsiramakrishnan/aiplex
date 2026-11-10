@@ -16,6 +16,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/clientplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 // Client wire protocols served under /ap/{id}. Each lists the model-surface
@@ -529,7 +530,12 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			}
 		}
 		if entry == nil {
-			fail(w, r, http.StatusNotFound, "MODEL_NOT_FOUND", fmt.Sprintf("model %q is not available through this access point", name))
+			// The caller passed the access point's gate, so the refusal is
+			// recorded: who asked for what, with the requested name bounded
+			// and sanitized because it is caller-controlled text. Requests
+			// that fail the gate (unauthenticated, not admitted) write
+			// nothing, so they cannot fill the ledger.
+			unknownModel(h, w, r, tenant, call, name, fail)
 			return
 		}
 		if ap.QoS != nil && h.Quota == nil {
@@ -759,4 +765,45 @@ func missingGrantMessage(principal string, missing []string) string {
 		}
 	}
 	return fmt.Sprintf("this access point admits you, but your account is missing the grant(s): %s. An operator can add them with: aiplex agents user-scopes set %s --scopes %s (set replaces the list: include the scopes shown by `aiplex agents user-scopes get %s`)", strings.Join(missing, ", "), principal, strings.Join(suggest, ","), principal)
+}
+
+// maxRecordedModelName bounds the requested model name stored on a record.
+const maxRecordedModelName = 128
+
+// unknownModel answers 404 MODEL_NOT_FOUND and writes a ledger record for the
+// admitted caller: status error, error_class model_not_found, no usage, no
+// cost, and the requested name (sanitized, at most 128 characters) as
+// model_id.
+func unknownModel(h *ConnectedHandler, w http.ResponseWriter, r *http.Request, tenant string, call *accessPointCall, name string, fail accessPointErrorWriter) {
+	w, r, capture := h.beginUsage(w, r, tenant, usageledger.PlaneLLM, "")
+	defer capture.finish()
+	capture.set(func(rec *usageledger.Record) {
+		rec.Operation = "unknown-model"
+		rec.ModelID = boundedModelName(name)
+		if call != nil {
+			rec.AccessPointID, rec.CallerKind = call.ID, call.CallerKind
+		}
+	})
+	capture.uncosted()
+	capture.noteClass("model_not_found")
+	fail(w, r, http.StatusNotFound, "MODEL_NOT_FOUND", fmt.Sprintf("model %q is not available through this access point", name))
+}
+
+// boundedModelName makes a caller-supplied model name safe to store: control
+// characters and invalid UTF-8 are dropped and the result is cut to
+// maxRecordedModelName characters.
+func boundedModelName(name string) string {
+	var b strings.Builder
+	count := 0
+	for _, c := range strings.ToValidUTF8(name, "") {
+		if c < 0x20 || c == 0x7f || c == 0xfffd {
+			continue
+		}
+		if count == maxRecordedModelName {
+			break
+		}
+		b.WriteRune(c)
+		count++
+	}
+	return strings.TrimSpace(b.String())
 }

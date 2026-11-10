@@ -149,7 +149,7 @@ func TestCatalogImportNeverOverwritesWithoutReplace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(api.puts) != 0 || !strings.Contains(out, "skipped: exists, use --replace") || !strings.Contains(out, `price "mine" already covers openai/gpt-4o-mini`) {
+	if _, wrote := api.puts["openai-gpt-4o-mini"]; wrote || len(api.puts) > 1 || !strings.Contains(out, "skipped: exists, use --replace") || !strings.Contains(out, `price "mine" already covers openai/gpt-4o-mini`) {
 		t.Fatalf("puts=%v\n%s", api.puts, out)
 	}
 	if _, err := runUsage(t, server, "table", "prices", "catalog", "import", "openai/gpt-4o-mini", "--yes", "--replace"); err != nil {
@@ -166,18 +166,18 @@ func TestCatalogImportNeverOverwritesWithoutReplace(t *testing.T) {
 func TestCatalogImportRefusesPartialPricingWithoutAcceptance(t *testing.T) {
 	api, server := newCatalogAPI("[]")
 	defer server.Close()
-	_, err := runUsage(t, server, "table", "prices", "catalog", "import", "gemini-developer/gemini-2.5-flash", "--yes")
+	_, err := runUsage(t, server, "table", "prices", "catalog", "import", "gemini-developer/gemini-3.1-pro-preview", "--yes")
 	if err == nil || !strings.Contains(err.Error(), "cannot express") {
 		t.Fatalf("err = %v", err)
 	}
 	if len(api.puts) != 0 {
 		t.Fatal("a refused import must write nothing")
 	}
-	out, err := runUsage(t, server, "table", "prices", "catalog", "import", "gemini-developer/gemini-2.5-flash", "--yes", "--accept-partial")
+	out, err := runUsage(t, server, "table", "prices", "catalog", "import", "gemini-developer/gemini-3.1-pro-preview", "--yes", "--accept-partial")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(api.puts) == 0 || !strings.Contains(out, "NOT EXPRESSIBLE") || !strings.Contains(out, "input_cost_per_audio_token") {
+	if len(api.puts) == 0 || !strings.Contains(out, "NOT EXPRESSIBLE") || !strings.Contains(out, "imported anyway: --accept-partial was given") || strings.Contains(out, "importing needs --accept-partial") || !strings.Contains(out, "input_cost_per_token_above_200k_tokens") {
 		t.Fatalf("puts=%v\n%s", api.puts, out)
 	}
 }
@@ -308,5 +308,104 @@ func TestDevPriceHint(t *testing.T) {
 	}
 	if devPriceHint("openai", "mock-gpt") != "" || devPriceHint("mock", "gpt-4o-mini") != "" {
 		t.Fatal("unlisted models and the mock provider get no hint")
+	}
+}
+
+// Importing needs a source choice when the two catalogues state different
+// values for the same meter; both values are printed and nothing is written.
+func TestCatalogImportDisagreementNeedsExplicitSource(t *testing.T) {
+	api, server := newCatalogAPI("[]")
+	defer server.Close()
+	_, err := runUsage(t, server, "table", "prices", "catalog", "import", "mistral/open-mistral-nemo", "--yes")
+	if err == nil {
+		t.Fatal("a disagreement must stop an import without --source")
+	}
+	for _, want := range []string{"disagree", "input: litellm says 0.3, models.dev says 0.15", "--source"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error lacks %q: %v", want, err)
+		}
+	}
+	if len(api.puts) != 0 {
+		t.Fatal("nothing may be written")
+	}
+	if _, err := runUsage(t, server, "table", "prices", "catalog", "import", "mistral/open-mistral-nemo", "--yes", "--source", "models.dev"); err != nil {
+		t.Fatal(err)
+	}
+	var p usageledger.Price
+	if err := json.Unmarshal(api.puts["mistral-open-mistral-nemo"], &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Source == nil || p.Source.Catalog != "models.dev" || len(p.Source.Commit) != 40 || p.Provider != "openai-compatible" {
+		t.Fatalf("provenance = %+v", p)
+	}
+	if p.Meters[usageledger.MeterInput] != (usageledger.Rational{Numerator: 3, Denominator: 20}) {
+		t.Fatalf("models.dev input must be 0.15 per Mtok (3/20): %+v", p.Meters)
+	}
+	api2, server2 := newCatalogAPI("[]")
+	defer server2.Close()
+	if _, err := runUsage(t, server2, "table", "prices", "catalog", "import", "mistral/open-mistral-nemo", "--yes", "--source", "litellm"); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(api2.puts["mistral-open-mistral-nemo"], &p); err != nil || p.Source.Catalog != "litellm" || p.Meters[usageledger.MeterInput] != (usageledger.Rational{Numerator: 3, Denominator: 10}) {
+		t.Fatalf("litellm import: %+v %v", p, err)
+	}
+	// A model both sources agree on imports from the default source.
+	api3, server3 := newCatalogAPI("[]")
+	defer server3.Close()
+	if _, err := runUsage(t, server3, "table", "prices", "catalog", "import", "openai/gpt-4o-mini", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if len(api3.puts) == 0 {
+		t.Fatal("agreeing sources must import from the default source")
+	}
+	if _, err := runUsage(t, server3, "table", "prices", "catalog", "import", "openai/gpt-4o-mini", "--source", "nope", "--dry-run"); err == nil {
+		t.Fatal("an unknown source must be refused")
+	}
+}
+
+func TestCatalogSearchAndShowFlagDisagreements(t *testing.T) {
+	_, server := newCatalogAPI("[]")
+	defer server.Close()
+	out, err := runUsage(t, server, "table", "prices", "catalog", "search", "open-mistral-nemo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"mistral/open-mistral-nemo", "sources disagree: input,output", "litellm, models.dev", "models.dev snapshot"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("search lacks %q:\n%s", want, out)
+		}
+	}
+	out, err = runUsage(t, server, "table", "prices", "catalog", "show", "mistral/open-mistral-nemo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"== litellm ==", "== models.dev ==", "SOURCES DISAGREE", "input: litellm says 0.3, models.dev says 0.15", "--source"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("show lacks %q:\n%s", want, out)
+		}
+	}
+	// A model only one source lists is shown from that source.
+	out, err = runUsage(t, server, "json", "prices", "catalog", "show", "mistral/open-mistral-nemo")
+	if err != nil || !strings.Contains(out, `"disagreements"`) || !strings.Contains(out, `"models.dev"`) {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+}
+
+// A tier that bills the whole request above a threshold is shown and stored.
+func TestCatalogImportShowsAndStoresContextTiers(t *testing.T) {
+	api, server := newCatalogAPI("[]")
+	defer server.Close()
+	out, err := runUsage(t, server, "table", "prices", "catalog", "import", "anthropic/claude-haiku-5-5", "--yes")
+	if err != nil {
+		t.Fatalf("a confirmed tier must not need --accept-partial: %v", err)
+	}
+	for _, want := range []string{"over 100000 tokens, the whole request is priced at", "cache_write_1h_tokens", "server_tool.web_search", "per call"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	var p usageledger.Price
+	if err := json.Unmarshal(api.puts["anthropic-claude-haiku-5-5"], &p); err != nil || len(p.Tiers) != 1 || p.Tiers[0].AboveInputTokens != 100_000 {
+		t.Fatalf("price %+v %v", p, err)
 	}
 }

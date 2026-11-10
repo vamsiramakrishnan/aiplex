@@ -20,6 +20,7 @@ export {
   type Identity,
   type ModelPrice,
   type ModelPriceRate,
+  type ModelPriceTier,
   type ModelPriceRecord,
   type ModelSurface,
   type OverviewAccessPointDetail,

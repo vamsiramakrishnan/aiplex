@@ -340,7 +340,7 @@ func TestOTLPPricesEventsThatReportedNoCostAndKeepsReportedCost(t *testing.T) {
 		switch r.Harness {
 		case "codex":
 			// (1200-1000)*2 + 1000*1 + 400*8 = 4600 micro-USD, on an AIPlex price: estimated.
-			if r.Cost != (usageledger.Cost{Basis: usageledger.BasisEstimated, Currency: "USD", Amount: "4600", Scale: 6}) {
+			if r.Cost != (usageledger.Cost{Basis: usageledger.BasisEstimated, Currency: "USD", Amount: "4600", Scale: 6, PriceID: "codex"}) {
 				t.Fatalf("codex cost: %+v", r.Cost)
 			}
 		case "claude-code":

@@ -54,6 +54,9 @@ type Error struct {
 	// for a specification the server rejected.
 	Details   map[string]any `json:"details,omitempty"`
 	RequestID string         `json:"request_id,omitempty"`
+	// TraceID is the W3C trace id of the failed request, when the server
+	// reported one. Quote it with RequestID when asking an operator to look.
+	TraceID string `json:"trace_id,omitempty"`
 }
 
 // Field returns the specification field the server named in a validation
@@ -712,14 +715,14 @@ func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName st
 // --- Dashboard ---
 
 type DashboardStats struct {
-	TotalInstances      int     `json:"total_instances"`
-	RunningInstances    int     `json:"running_instances"`
-	RegisteredAgents    int     `json:"registered_agents"`
-	ActivePlanes        int     `json:"active_planes"`
-	MCPlexInstances     int     `json:"mcplex_instances"`
-	A2APlexInstances    int     `json:"a2aplex_instances"`
-	SkillsPlexInstances int     `json:"skillsplex_instances"`
-	LLMPlexInstances    int     `json:"llmplex_instances"`
+	TotalInstances      int `json:"total_instances"`
+	RunningInstances    int `json:"running_instances"`
+	RegisteredAgents    int `json:"registered_agents"`
+	ActivePlanes        int `json:"active_planes"`
+	MCPlexInstances     int `json:"mcplex_instances"`
+	A2APlexInstances    int `json:"a2aplex_instances"`
+	SkillsPlexInstances int `json:"skillsplex_instances"`
+	LLMPlexInstances    int `json:"llmplex_instances"`
 	// DailyCostUSD, DailyTokens, DailyRequests and ToolCalls are null when
 	// unknown or unavailable (see UsageSource), never zero.
 	DailyCostUSD             *float64 `json:"daily_cost_usd"`
@@ -729,8 +732,8 @@ type DashboardStats struct {
 	DailyUnknownUsageRecords int64    `json:"daily_unknown_usage_records"`
 	UsageSource              string   `json:"usage_source"`
 	ToolCalls                *int64   `json:"tool_calls_24h"`
-	A2ADelegations      int64   `json:"a2a_delegations_24h"`
-	PolicyDenials       int64   `json:"policy_denials_24h"`
+	A2ADelegations           int64    `json:"a2a_delegations_24h"`
+	PolicyDenials            int64    `json:"policy_denials_24h"`
 }
 
 type PolicyDenial struct {
