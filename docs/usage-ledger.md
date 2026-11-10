@@ -50,6 +50,11 @@ Unknown query parameters and unknown `group_by` fields are rejected with
 | `access_point_id`, `caller_kind` | Set only when the exchange entered through an [access point](access-points.md). `caller_kind` is `agent`, `user` or `client`. |
 | `status` | `ok`, `error`, `denied` (HTTP 401, 403, 407 or 429), or `unknown` (the response began but did not complete, or the client disconnected). |
 | `source` | `managed` for records captured on AIPlex paths, `reported` for `POST /api/v1/llm/usage`. |
+| `http_status` | The HTTP status the caller received. Omitted when the exchange had none. |
+| `error_class` | The reason for a non-`ok` status. See [error classes](#error-classes). |
+| `operation` | The native operation ID, for managed model exchanges. |
+| `started_at`, `finished_at`, `latency_ms` | Timing of the exchange. |
+| `streaming` | `true` when the response was a stream, or a WebSocket relay. |
 | `requests` | Requests counted for the record. |
 | `usage` | Provider-normalized counters, each nullable: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `total_tokens`. Optional [unit fields](#units-and-modality-splits) appear only when reported. The whole object is `null` when no counter or unit is known. |
 | `batch` | `true` when the exchange belongs to a provider batch job (its creation, retrieval, or the results fetch that settled it). Omitted otherwise. |
@@ -79,7 +84,8 @@ A record gets `unknown` cost when:
 
 - a known non-zero quantity has no matching meter in the price,
 - a priced meter's quantity is unknown, or
-- more than one price matches the model and provider.
+- no single price is the best match. Two or more matching prices tie on the number of
+  selectors (see [prices](#prices)).
 
 Prices are never invented. The bundled stores contain no built-in price list.
 
@@ -164,10 +170,12 @@ subset and an input modality split are priced, cost is estimated only if the
 priced cache subset is zero, because cached tokens can also be audio or image
 tokens. A known, non-zero unit without a price makes the cost unknown.
 
-Optional selectors narrow a price: `batch` (`true` matches only batch exchanges,
-`false` only others), `image_size` and `image_quality`. Among the prices that
-match a record, the one with the most selectors (`provider` counts as one) wins;
-a tie is no match. There is no built-in batch discount: configure a `batch: true`
+A price matches a record when its `model_id` equals the record's model, its `provider`
+(when set) equals the record's provider, the record's `started_at` falls in its effective
+window, and every selector it sets matches the record. Optional selectors narrow a price:
+`batch` (`true` matches only batch exchanges, `false` only others), `image_size` and
+`image_quality`. Among the prices that match a record, the one with the most selectors
+(`provider` counts as one) wins. A tie is no match, and the cost is `unknown`. There is no built-in batch discount: configure a `batch: true`
 price with the contracted batch rates.
 
 `input_tokens` is the total input. When `cache_read_tokens` is also priced, only
@@ -175,6 +183,23 @@ the uncached remainder is charged at the input rate. `reasoning_tokens` is charg
 in addition to `output_tokens`, so price it only for providers that report
 reasoning separately. Optional `provider` narrows a price to one provider. A
 price without `provider` matches any provider for that model.
+
+## Error classes
+
+`error_class` is set when `status` is not `ok`. Provider and gateway failures use the
+HTTP-status class below. A quota, capacity or session reason replaces that class.
+
+| `error_class` | Set when |
+| --- | --- |
+| `unauthenticated` (401), `forbidden` (403), `not_found` (404), `conflict` (409), `rate_limited` (429), `invalid_request` (400, 413, 415, 422), `client_error` (other 4xx), `unsupported` (501), `upstream_error` (502), `unavailable` (503), `timeout` (504), `server_error` (other 5xx) | The HTTP status is 400 or higher. |
+| `stream_aborted` | The response began but did not complete. |
+| `client_disconnected` | The caller disconnected, or a write to the caller failed. |
+| `session_usage_<bound>` | A WebSocket session ended without final usage. `<bound>` is `lower_bound`, `ambiguous` or `partial`. |
+| `capacity_cooldown` | The request was rejected by the surface's [capacity policy](model-providers.md#capacity-policy) while the provider was throttling. It is not a provider error. |
+| `capacity_shed` | The request was rejected by the capacity policy's headroom rule. Callers below `min_weight` are shed first. It is not a provider error. |
+| Quota reason codes | QuotaPlex refused the exchange before the provider was called. |
+
+The capacity rejections are status `denied`, with HTTP 429 and a `Retry-After` header.
 
 ## Worked example
 
@@ -232,10 +257,44 @@ them on restart. The bundled stores bound retention to 90 days. Records are
 written in the background. A failed write is logged with the record ID and does
 not change the response to the client.
 
+## CLI
+
+`aiplex usage records` and `aiplex usage summary` take the same filters: `--plane`,
+`--provider`, `--model`, `--tool`, `--agent`, `--user`, `--client`, `--access-point`,
+`--caller-kind`, `--status`, `--source`, `--since` and `--until`. `records` also takes
+`--limit`, `--cursor` and `--all`. `summary` takes `--by` and `--bucket` (`hour` or `day`).
+
+`aiplex usage records` prints one row per record with these columns:
+
+| Column | Shows |
+| --- | --- |
+| `ID`, `TIME`, `PLANE`, `MODEL/TOOL`, `AGENT`, `USER`, `CLIENT` | Identity and target. |
+| `SESSION` | `session` for a WebSocket session. |
+| `BATCH` | `batch` for a batch exchange. |
+| `STATUS` | The status. A capacity rejection shows its reason, for example `denied (capacity_cooldown)`. |
+| `IN`, `OUT`, `CACHE-W` | `input_tokens`, `output_tokens` and `cache_write_tokens`. Unknown counters show `—`. |
+| `MODALITY` | The modality splits. `in` lists input splits and `out` lists output splits. |
+| `UNITS` | Units the record reported: `audio-in`, `voice-session`, `video-out` (milliseconds) and `images`. |
+| `COST`, `LATENCY` | Cost and duration. |
+
+`aiplex usage get <id>` prints every field of one record, including `http_status`,
+`error_class`, `usage_bound`, `batch`, `image_size` and `image_quality`.
+
+`aiplex usage summary` prints one row per group, with these columns after the group keys:
+`REQUESTS`, `ERRORS`, `DENIED`, `IN`, `OUT`, `CACHE-W`, `MODALITY`, `UNITS`, `BATCH`, `COST`,
+`UNKNOWN` and `BOUNDED`. `BATCH` counts batch records. `BOUNDED` counts records with
+`lower_bound`, `ambiguous` or `partial` usage. The summary prints a note when any total
+includes bounded usage.
+
 ## Limits
 
 - Tool and agent records carry no token counts. Only model exchanges install a
   usage observer, so `usage` is `null` for them.
+- A record carries only the scalar `cache_write_tokens`. The per-TTL cache-write counters
+  (`cache_write_5m_tokens`, `cache_write_1h_tokens`, `cache_write_30m_tokens`,
+  `cache_write_12h_tokens`) and the `server_tool_*` counters have no field in the record, so
+  they are not in `usage`, summaries or price meters. They are used only by quota metering
+  and strict settlement. See [model metering profiles](model-metering-profiles.md#native-usage-composition).
 - Only managed paths and trusted reports are captured. Envoy routes, direct
   provider calls and other traffic that bypasses these paths produce no record.
 - A reported record is only as accurate as its reporter. The ledger does not

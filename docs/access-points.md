@@ -75,23 +75,40 @@ need the admin role.
 Client-facing routes are at the server root, not under `/api/v1`. They use the
 caller's own bearer token. A request without a verified identity is refused.
 
-| Path under `/ap/{id}` | Protocol | Notes |
+| Path under `/ap/{id}` | Protocol | Where the model is |
 | --- | --- | --- |
-| `POST /v1/chat/completions` | OpenAI Chat Completions | The model name is in the body. |
-| `POST /v1/responses` | OpenAI Responses | The model name is in the body. |
-| `POST /v1/messages` | Anthropic Messages | The model name is in the body. |
-| `POST /v1beta/models/{model}:{method}` | Google GenAI | The model name is in the path. |
-| `POST /model/{model}/converse` and `POST /model/{model}/converse-stream` | Bedrock Converse | The model name is in the path. Model IDs may contain `:`. |
-| `POST /model/{model}/invoke` and `POST /model/{model}/invoke-with-response-stream` | Bedrock InvokeModel | The model name is in the path. Model IDs may contain `:`. |
-| `GET /v1/realtime?model={model}` (WebSocket upgrade) | OpenAI Realtime | The model is selected by the query parameter. See [WebSocket sessions](#websocket-sessions). |
-| `GET /ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent?model={model}` (WebSocket upgrade) | Gemini Live (Vertex Live) | The model is selected by the query parameter. See [WebSocket sessions](#websocket-sessions). |
+| `POST /v1/chat/completions` | OpenAI Chat Completions | Body. |
+| `POST /v1/responses` | OpenAI Responses | Body. |
+| `POST /v1/embeddings` | OpenAI Embeddings | Body. |
+| `POST /v1/moderations` | OpenAI Moderations | Body. Without a model, the default moderation model routes the request. |
+| `POST /v1/images/generations`, `POST /v1/images/edits` | OpenAI Images | Body. The `model` form field for `edits`. |
+| `POST /v1/audio/transcriptions`, `POST /v1/audio/translations` | OpenAI Audio | Body. The `model` form field for multipart requests. |
+| `POST /v1/audio/speech` | OpenAI Audio | Body. |
+| `POST /v1/messages` | Anthropic Messages | Body. |
+| `POST /v1/messages/count_tokens` | Anthropic token counting | Body. |
+| `POST /v1beta/models/{model}:{method}` | Google GenAI | Path. |
+| `POST /v1beta/cachedContents`, `POST /v1beta/interactions` | Google GenAI (Developer API creations) | Body (`models/{model}`). |
+| `GET /v1beta/cachedContents`, and `GET`, `PATCH` or `DELETE` on `/v1beta/cachedContents/{id}` | Google GenAI | No model. See [model-less operations](#model-less-operations). |
+| `GET` or `DELETE` on `/v1beta/interactions/{id}`, `POST /v1beta/interactions/{id}/cancel` | Google GenAI | No model. See [model-less operations](#model-less-operations). |
+| `GET` or `DELETE` on `/v1/responses/{id}`, `POST /v1/responses/{id}/cancel` | OpenAI Responses | No model. See [model-less operations](#model-less-operations). |
+| `POST /model/{model}/converse` and `POST /model/{model}/converse-stream` | Bedrock Converse | Path. Model IDs may contain `:`. |
+| `POST /model/{model}/invoke` and `POST /model/{model}/invoke-with-response-stream` | Bedrock InvokeModel | Path. Model IDs may contain `:`. |
+| `GET /v1/realtime?model={model}` (WebSocket upgrade) | OpenAI Realtime | Query. See [WebSocket sessions](#websocket-sessions). |
+| `GET /ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent?model={model}` (WebSocket upgrade) | Gemini Live (Vertex Live) | Query. See [WebSocket sessions](#websocket-sessions). |
 | `GET /v1/models` | OpenAI-shaped list | Anthropic-shaped when the request carries `anthropic-version`. Only models the caller may use. |
 | `GET /v1beta/models` | Google GenAI list | Only models reachable through that protocol. |
-| `POST /mcp` | MCP Streamable HTTP | Aggregates every exposed tool as `{connection}__{tool}`. |
+| `POST /mcp` | MCP Streamable HTTP | Aggregates every exposed tool as `{connection}__{tool}`. See [aggregate tools/list](#aggregate-toolslist). |
 | `POST /mcp/{connection}` | MCP Streamable HTTP | One connection, with original tool names. |
 | `GET /v0.1/servers` | MCP registry listing | For clients that take a catalog URL. |
 | `GET /skills` | Skill manifest | Exposed skills. Requires `skillsplex`. |
 | `GET /.well-known/oauth-protected-resource`, `…/mcp`, `…/mcp/{connection}` | RFC 9728 metadata | Public. Points at the operator's authorization server. |
+
+Batch and file operations (`/v1/batches`, `/v1/files`, `/v1/messages/batches`,
+`/v1beta/batches`) are not routed through access points. See
+[model batches](model-batches.md#access-points).
+
+Provider SDKs that send their key in `x-api-key`, `x-goog-api-key` or `api-key` are
+accepted on the routes listed in [caller authentication](model-providers.md#caller-authentication).
 
 The same metadata is also served at the root as `/.well-known/oauth-protected-resource/ap/{id}/mcp`
 and `…/ap/{id}/mcp/{connection}`.
@@ -164,11 +181,64 @@ access point can rewrite it without touching a body the surface relays verbatim:
 
 The configuration check rejects an alias that the surface cannot rewrite.
 
+### Path translation
+
+Wire paths are the vendor-default paths. Some surfaces expose the same operation at another
+path, and the access point translates the wire path to the path the surface's client facade
+accepts:
+
+| Surface | Wire | Translated path |
+| --- | --- | --- |
+| `azure-openai` | Chat Completions | `/openai/v1/chat/completions` when the surface installs `azure.v1.chat-completions`. Otherwise `/openai/deployments/{native model}/chat/completions` when it installs `azure.deployments.chat-completions`. |
+| `azure-openai` | Responses | `/openai/v1/responses` when the surface installs `azure.v1.responses`. |
+| `openai-compatible` | Chat Completions | `{base_path}/chat/completions`, with `base_path` defaulting to `/v1`. |
+
+Every other surface and wire pair keeps the wire path. A wire that the surface does not
+install is refused.
+
+### Save-time rejection
+
+An access point is rejected when a model entry can never be served. For each model entry,
+the save requires all of the following:
+
+- The surface's protocol is served by at least one access-point wire. Otherwise the save
+  fails with `model surface … protocol … is not served by any access-point wire protocol`.
+- At least one wire that reaches the surface passes the facade path check for the native
+  model. Otherwise the save fails with `model surface … cannot serve native model …`. For
+  example, an Azure surface that installs neither Chat Completions operation cannot be used
+  with the Chat Completions wire.
+- The native model is listed on the surface.
+- A `name` that differs from `native_model` is allowed only on a surface whose body can be
+  rewritten (see the aliasing table above).
+
+### Model-less operations
+
+Some operations name no model. Their resource is addressed by ID (Responses retrieve, cancel
+and delete; cached contents and interactions get, update, cancel and delete), or the
+project-wide cached-content list is requested. The access point serves them by this rule:
+
+1. Among the access point's surfaces that speak the wire and have installed the operation,
+   an ID-addressed operation goes to the one surface through which the caller created the
+   resource. The binding is resource ownership, the same one `previous_response_id` uses. If
+   no surface owns the resource, the response is `404` in the caller's own error shape, the
+   same as a resource that does not exist. If several surfaces own it, the response is `409`.
+2. An operation with neither a model nor an ID (the cached-content list) is served only when
+   exactly one surface qualifies. Otherwise the response is `400`, and the message names the
+   ambiguity. The gateway also requires the explicit shared-listing grant.
+
+Admission, native errors, quota and ledger dimensions, and the operation scope check are the
+same as for every other access-point model request.
+
 Model surface protocols map to wire protocols as follows: `openai-chat` to Chat
-Completions, `openai-responses` to Responses, `anthropic-messages` to Messages,
-`google-genai` to GenAI, `bedrock-converse` to Bedrock Converse, `bedrock-invoke` to
-Bedrock InvokeModel and `openai-realtime` to OpenAI Realtime. Gemini Live is served from
-`google-genai` surfaces.
+Completions, `openai-responses` to Responses, `anthropic-messages` to Messages (and token
+counting), `google-genai` to GenAI, `bedrock-converse` to Bedrock Converse, `bedrock-invoke` to
+Bedrock InvokeModel, `openai-realtime` to OpenAI Realtime, `openai-embeddings` to Embeddings,
+`openai-moderations` to Moderations, `openai-images` to Images and `openai-audio` to Audio.
+Gemini Live is served from `google-genai` surfaces.
+
+A wire is reachable only through a surface that speaks its protocol. The model name is read
+from the place shown in the route table above. A request that names no model where one is
+required is refused.
 
 Model names may contain letters, digits, `.`, `_`, `@`, `/`, `:` and `-`. The colon is
 allowed because Bedrock model IDs use it.
@@ -231,6 +301,32 @@ request's `?model=`, while Responses WebSocket mode selects it per `response.cre
 so an access point cannot pin the model at connect time. The native gateway still serves the
 operation at `GET /api/v1/llm/gateway/{id}/v1/responses` for a surface, under the same
 admission rules.
+
+## Aggregate tools/list
+
+`POST /mcp` answers `tools/list` with one page that aggregates every connection the access
+point exposes. Each connection's own pages are followed within these bounds:
+
+| Bound | Value |
+| --- | --- |
+| Upstream pages per connection | 20 |
+| Tools across all connections | 2000. The check runs between pages, so the last page can pass the limit. Nothing already fetched is discarded. |
+| Total time spent listing upstreams | 20 seconds |
+
+A connection that fails, is denied or is unavailable at any page is omitted, and its error is
+not relayed. A connection that a bound cuts short keeps the tools fetched so far. The result
+then carries `_meta["io.aiplex/truncated"]`, a list of `{connection, reason}` entries. A
+result with no truncation has no `_meta` member. The reasons are:
+
+| Reason | Meaning |
+| --- | --- |
+| `page_limit` | The connection reached 20 pages. |
+| `cursor_loop` | The upstream returned a cursor it had already returned. |
+| `tool_limit` | The 2000-tool limit was reached. |
+| `time_limit` | The 20-second limit was reached. |
+
+A `tools/list` request on the aggregate that carries a `cursor` is refused. The aggregate
+returns one page.
 
 ## QoS and quota
 
@@ -340,3 +436,7 @@ access point admits.
 - Bedrock InvokeModel bodies that are not Messages-shaped are not observed for usage. See
   [model providers](model-providers.md) and the
   [usage-format coverage matrix](reference/usage-formats/coverage.md).
+- Batch and file operations are not routed. Batch usage is settled through the native route
+  or the client facade. See [model batches](model-batches.md).
+- The aggregate `tools/list` is bounded. It is not a complete listing when the result carries
+  a truncation marker. See [aggregate tools/list](#aggregate-toolslist).
