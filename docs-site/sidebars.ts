@@ -94,6 +94,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'guides/access-points'},
           items: [L('access-points', 'Specification and routes')],
         },
+        L('request-hooks', 'Request hooks'),
         {
           type: 'category',
           label: 'Identity',
@@ -148,6 +149,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'api/overview'},
           items: [
             'api/usage',
+            'api/hooks',
             'api/access-points',
             'api/overview-pane',
             'api/identity-agents',

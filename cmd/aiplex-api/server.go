@@ -362,7 +362,8 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		}
 		r.Get("/modules", moduleDiscovery(moduleRegistry))
 		mountUsageLedger(r, usageH, connectedH)
-		connectedH.MountAccessPoints(r) // /api/v1/access-points
+		mountHookPolicies(r, connectedH) // /api/v1/hooks/policies
+		connectedH.MountAccessPoints(r)  // /api/v1/access-points
 		// Single-pane overview: /api/v1/overview
 		api.NewOverviewHandler(connectedH, usageH.Ledger, store, federationH.Bindings).Mount(r)
 

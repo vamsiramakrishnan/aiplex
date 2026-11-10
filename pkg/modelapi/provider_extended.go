@@ -244,9 +244,11 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "operation denied", http.StatusForbidden)
 		return true
 	}
-	lease, err := g.prepareExecution(r, trusted, op, metadata, body)
+	// Extended operations (images, audio, files, batches) have no response
+	// extractor: the hooks refuse them up front when a response hook applies.
+	body, _, lease, err := g.prepareDispatch(r, trusted, op, metadata, body)
 	if err != nil {
-		writeExecutionError(w, err)
+		writeDispatchError(w, err)
 		return true
 	}
 	var run *executionRun

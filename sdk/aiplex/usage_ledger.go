@@ -23,6 +23,8 @@ import (
 // drift apart.
 type (
 	UsageLedgerRecord  = usageledger.Record
+	UsageHookSummary   = usageledger.HookSummary
+	UsageHookResult    = usageledger.HookResult
 	UsageLedgerPage    = usageledger.Page
 	UsageLedgerSummary = usageledger.Summary
 	UsageSummaryGroup  = usageledger.SummaryGroup
@@ -46,6 +48,9 @@ type UsageFilter struct {
 	// ErrorClass selects an exact error_class. UsageBound selects
 	// lower_bound, ambiguous, partial or "none" (final or unknown usage).
 	ErrorClass, UsageBound string
+	// HookDecision selects records by their request-hook decision (allow,
+	// deny, transform, error, skipped) or "none" (no hook ran).
+	HookDecision string
 	// Batch, when non-nil, selects batch (true) or non-batch (false) records.
 	Batch        *bool
 	Since, Until time.Time
@@ -53,7 +58,7 @@ type UsageFilter struct {
 
 func (f UsageFilter) values() url.Values {
 	q := url.Values{}
-	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound} {
+	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "hook_decision": f.HookDecision} {
 		if value != "" {
 			q.Set(name, value)
 		}
@@ -93,6 +98,7 @@ var usageGroupAliases = map[string]string{
 	"principal": "principal_id", "client": "client_id", "tool": "tool_name",
 	"access-point": "access_point_id", "access_point": "access_point_id", "accesspoint": "access_point_id",
 	"error-class": "error_class", "errorclass": "error_class", "bound": "usage_bound", "usage-bound": "usage_bound",
+	"hook": "hook_decision", "hooks": "hook_decision", "hook-decision": "hook_decision",
 	"caller-kind": "caller_kind", "caller_kind": "caller_kind", "callerkind": "caller_kind",
 }
 

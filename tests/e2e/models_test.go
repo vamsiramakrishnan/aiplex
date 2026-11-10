@@ -31,9 +31,9 @@ func withProviderSecrets(o *devstack.Options) {
 
 // modelEnv creates, with the CLI, one surface per provider type and an access
 // point "models" that exposes them.
-func modelEnv(t *testing.T) *env {
+func modelEnv(t *testing.T, opts ...stackOption) *env {
 	t.Helper()
-	e := start(t, withProviderSecrets)
+	e := start(t, append([]stackOption{withProviderSecrets}, opts...)...)
 	origin := e.stack.ModelsURL
 	surfaces := map[string]string{
 		"oai": `surface:

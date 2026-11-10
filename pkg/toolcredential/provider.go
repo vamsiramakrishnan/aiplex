@@ -285,6 +285,16 @@ func (p *Provider) Invalidate(auth Auth, t Target, rejected Credential) {
 	}
 }
 
+// ResolveSecret returns the value of a tenant secret reference for a caller
+// that presents it itself (a request-hook sidecar's bearer credential).
+// Errors never contain the value.
+func (p *Provider) ResolveSecret(ctx context.Context, tenant, ref string) (string, error) {
+	if p == nil {
+		return "", fail("provider_unavailable")
+	}
+	return p.secret(ctx, tenant, ref)
+}
+
 func (p *Provider) secret(ctx context.Context, tenant, ref string) (string, error) {
 	if p.secrets == nil {
 		return "", fail("secret_storage_not_configured")

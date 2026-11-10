@@ -111,8 +111,12 @@ func (g *Gateway) unauthorized(ctx context.Context, response *http.Response, cre
 // caller's request ID. Upstream challenges and bodies never reach it.
 func rpcDenied(w http.ResponseWriter, id json.RawMessage, err error) {
 	code, reason, message := RPCForbidden, "denied", "tool invocation denied"
+	status := http.StatusForbidden
 	var denial *Denial
 	if errors.As(err, &denial) {
+		if denial.Status >= 400 && denial.Status <= 599 {
+			status = denial.Status
+		}
 		if denial.Code != 0 {
 			code = denial.Code
 		}
@@ -135,7 +139,7 @@ func rpcDenied(w http.ResponseWriter, id json.RawMessage, err error) {
 	}{"2.0", id, rpcError{code, message, map[string]string{"reason": reason}}})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusForbidden)
+	w.WriteHeader(status)
 	_, _ = w.Write(body)
 }
 

@@ -109,6 +109,12 @@ var routeRules = func() []api.RouteRule {
 		tenantPrefix(nil, "/api/v1/clients/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/network/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/quota/", api.RouteOperator),
+		// Request-hook policies: operators read, write and dry-run them.
+		// Callers never read them: a policy names detection rules, patterns
+		// and sidecar endpoints, which would help a caller shape content to
+		// evade it. A caller learns of a policy only from a refusal's safe
+		// public message.
+		tenantPrefix(nil, "/api/v1/hooks/", api.RouteOperator),
 		tenantPrefix(nil, "/api/v1/iam/native/", api.RouteOperator),
 
 		// Deployment-wide administration (refused to other tenants).

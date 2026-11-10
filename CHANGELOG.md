@@ -36,6 +36,10 @@ There has been no tagged release yet. This section summarises what exists in the
 - `integrations/claude-code` (plugin with three skills), `integrations/gemini-cli` (extension) and a root `AGENTS.md`; a test checks that every `aiplex` command in them exists.
 - Gemini CLI's base URL and Antigravity's configuration are printed as remaining steps, not written: Gemini CLI has no settings key for the base URL, and Antigravity's config location is not documented.
 
+### Request hooks
+
+- Hook policies (`/api/v1/hooks/policies`, `aiplex hooks policies list|get|set|delete|test`, operators only) bind ordered hooks to the tenant, an access point, a model surface or a tool connection; narrower scopes add hooks and cannot remove a broader one. Hooks run on model requests and responses (OpenAI Chat, OpenAI Responses, Anthropic Messages, Gemini, Bedrock Converse, embeddings) and MCP `tools/call` arguments and results, after admission and before the quota lease, and can allow, deny with a safe message (HTTP 403 `hook_denied` in the caller's protocol) or mask text. Built-in `redact` (pattern rules, not a guarantee of PII removal) and `size_limit`, and an `http` sidecar hook with the AIPlex contract and Presidio and LLM Guard adapters (written from their documentation; not run against the services). Fail closed: a sidecar that cannot decide refuses the request unless `fail_open` is set. Streams under a response hook are refused by default, or buffered and re-emitted for OpenAI Chat and Anthropic. WebSocket sessions are refused on a hooked scope. Decisions are in the usage ledger (`hooks`, filter `hook_decision`), spans and metrics, without content. See `docs/request-hooks.md`.
+
 ### Observability
 
 - OpenTelemetry in `aiplex-api`: a SERVER span per HTTP request and a CLIENT span per managed model, tool and agent exchange, named and attributed per the GenAI and MCP semantic conventions. Those conventions are in Development status; the revision AIPlex follows and every name are in `pkg/telemetry/semconv.go`. See `docs/observability.md`.
