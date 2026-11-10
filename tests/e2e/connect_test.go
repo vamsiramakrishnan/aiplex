@@ -142,6 +142,11 @@ func TestWhoAndConnect(t *testing.T) {
 			}
 			return nil
 		})
+		// Cost objects carry the exact decimal next to amount and scale.
+		sum := e.mustCLI("usage", "summary", "-o", "json")
+		contains(t, sum.Out, `"amount_decimal": "0.`, "summary cost amount_decimal")
+		rec := e.mustCLI("usage", "records", "-o", "json")
+		contains(t, rec.Out, `"amount_decimal": "0.`, "record cost amount_decimal")
 	})
 
 	t.Run("every client profile", func(t *testing.T) {

@@ -120,7 +120,7 @@ export const GROUP_FIELDS = ['plane', 'provider', 'model_id', 'tool_name', 'acto
 export type GroupField = (typeof GROUP_FIELDS)[number]
 export type Bucket = '' | 'hour' | 'day'
 
-export interface CostTotal { currency: string; basis: Basis; amount: string; scale: number; records: number }
+export interface CostTotal { currency: string; basis: Basis; amount: string; scale: number; amount_decimal?: string; records: number }
 export interface SummaryGroup {
   key: Partial<Record<GroupField, string>>
   bucket_start?: string

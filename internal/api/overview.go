@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -229,6 +230,16 @@ type OverviewCost struct {
 	Basis    string `json:"basis"`
 	Amount   string `json:"amount"`
 	Scale    uint8  `json:"scale"`
+}
+
+// MarshalJSON adds amount_decimal (derived from amount and scale).
+func (c OverviewCost) MarshalJSON() ([]byte, error) {
+	type plain OverviewCost
+	decimal, _ := usageledger.DecimalString(c.Amount, c.Scale)
+	return json.Marshal(struct {
+		plain
+		AmountDecimal string `json:"amount_decimal,omitempty"`
+	}{plain(c), decimal})
 }
 
 // OverviewUsage is a ledger roll-up. Tokens lists only counters that were

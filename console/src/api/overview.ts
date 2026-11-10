@@ -7,7 +7,7 @@ import { parseUsageJSON, type Count } from './usage'
 export type SubjectKind = 'agent' | 'user' | 'client'
 export const SUBJECT_KINDS: readonly SubjectKind[] = ['agent', 'user', 'client']
 
-export interface OverviewCost { currency: string; basis: 'settled' | 'estimated' | string; amount: string; scale: number }
+export interface OverviewCost { currency: string; basis: 'settled' | 'estimated' | string; amount: string; scale: number; /** The same amount as an exact decimal string (derived by the server). */ amount_decimal?: string }
 /** Absent token counters are unknown, not zero; tokens_unknown counts records lacking them. */
 export interface OverviewUsage {
   requests: Count
