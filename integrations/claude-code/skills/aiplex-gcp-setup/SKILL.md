@@ -17,7 +17,7 @@ Ask for the GCP project ID and region. Check that `gcloud`, `terraform`, `helm` 
 aiplex init --project my-project --region us-central1 --dry-run
 ```
 
-Read the output with the user: account, project, billing, enabled APIs, and the account's role. `aiplex init` warns when the account is not Owner or Editor; Editor is not enough to apply the Terraform, so say what the warning says rather than skipping it.
+Read the output with the user: account, project, billing, enabled APIs, and the permission check. `aiplex init` reports which permissions the Terraform needs and the account lacks; it does not require Owner or Editor. Say what it reports rather than skipping it.
 
 ## 3. Generate the configuration
 
