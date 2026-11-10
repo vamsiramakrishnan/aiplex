@@ -24,12 +24,14 @@ No need to run terraform, helm, or kubectl directly.
 
 Flow:
   aiplex init                    # configure project
-  aiplex platform apply          # deploy everything
+  aiplex platform preflight      # check permissions, APIs and billing
+  aiplex platform apply          # deploy everything (runs the preflight first)
   aiplex platform status         # check infrastructure
   aiplex platform destroy        # tear down`,
 	}
 
 	cmd.AddCommand(
+		platformPreflightCmd(),
 		platformApplyCmd(),
 		platformStatusCmd(),
 		platformDestroyCmd(),
@@ -39,10 +41,11 @@ Flow:
 
 func platformApplyCmd() *cobra.Command {
 	var (
-		skipInfra   bool
-		skipDeploy  bool
-		autoApprove bool
-		valuesFile  string
+		skipInfra     bool
+		skipDeploy    bool
+		autoApprove   bool
+		valuesFile    string
+		skipPreflight bool
 	)
 
 	cmd := &cobra.Command{
@@ -50,6 +53,8 @@ func platformApplyCmd() *cobra.Command {
 		Short: "Deploy infrastructure and application (terraform + helm)",
 		Long: `Runs the full deployment pipeline:
 
+  0. Runs aiplex platform preflight and stops if a required permission,
+     API or billing is missing (--skip-preflight to override)
   1. Creates GCS bucket for Terraform state (if needed)
   2. Runs terraform init + apply (GKE, AlloyDB, Firestore, certs, DNS)
   3. Configures kubectl context
@@ -87,6 +92,15 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 
 			tfDir := findTerraformDir()
 			helmDir := findHelmDir()
+
+			// Step 0: permission preflight (before anything is created)
+			if !skipInfra {
+				fmt.Println("[0/6] Preflight: permissions, APIs, billing...")
+				if err := requirePreflight(cmd.Context(), os.Stdout, ctx.Project, skipPreflight); err != nil {
+					return err
+				}
+				fmt.Println()
+			}
 
 			// Step 1: Terraform state bucket
 			if !skipInfra {
@@ -241,6 +255,7 @@ Use --skip-deploy to only provision infrastructure (terraform).`,
 	cmd.Flags().BoolVar(&skipDeploy, "skip-deploy", false, "Skip Helm (only run Terraform)")
 	cmd.Flags().BoolVarP(&autoApprove, "yes", "y", false, "Auto-approve Terraform changes")
 	cmd.Flags().StringVarP(&valuesFile, "values", "f", "", "Helm values file override")
+	cmd.Flags().BoolVar(&skipPreflight, "skip-preflight", false, "Do not check permissions, APIs and billing before Terraform (prints a warning)")
 	return cmd
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
+	"github.com/vamsiramakrishnan/aiplex/internal/gcpsetup"
 )
 
 var gcpRegions = []string{
@@ -47,7 +48,8 @@ prerequisites, generates Terraform variables, and configures the CLI.
 
 What it does:
   1. Detects gcloud auth and active account
-  2. Validates GCP project, billing, and required APIs
+  2. Validates GCP project, billing, required APIs and the IAM permissions
+     the Terraform needs (the same check as aiplex platform preflight)
   3. Validates prerequisites (terraform, helm, kubectl)
   4. Generates terraform.tfvars for your environment
   5. Configures CLI context and credentials
@@ -293,42 +295,24 @@ Examples:
 				fmt.Println("    Check: https://console.cloud.google.com/billing/projects")
 			}
 
-			// Required APIs
-			requiredAPIs := []string{
-				"container.googleapis.com",
-				"alloydb.googleapis.com",
-				"firestore.googleapis.com",
-				"secretmanager.googleapis.com",
-				"certificatemanager.googleapis.com",
-				"artifactregistry.googleapis.com",
-				"iam.googleapis.com",
-				"dns.googleapis.com",
-				"mesh.googleapis.com",
-			}
-			enabledAPIs := checkAPIs(project, requiredAPIs)
-			disabledAPIs := []string{}
-			for _, api := range requiredAPIs {
-				if enabledAPIs[api] {
-					shortName := strings.TrimSuffix(api, ".googleapis.com")
-					fmt.Printf("  [pass] %s\n", shortName)
-				} else {
-					disabledAPIs = append(disabledAPIs, api)
+			// Permissions, APIs and billing: the same check aiplex platform
+			// apply runs (internal/gcpsetup). It names the exact permissions
+			// the Terraform needs, not Owner or Editor.
+			toggles := gcpsetup.DefaultToggles()
+			toggles.OrganizationID = orgID
+			report, account, perr := runGCPPreflight(cmd.Context(), preflightInput{project: project, toggles: toggles})
+			switch {
+			case perr != nil:
+				fmt.Printf("  [WARN] Permission preflight could not run: %v\n", perr)
+				fmt.Println("    aiplex platform apply runs it again and stops if it fails")
+			case report.OK:
+				fmt.Println("  [pass] Deployer permissions, APIs and billing (aiplex platform preflight)")
+				for _, w := range report.Warnings {
+					fmt.Printf("  [WARN] %s\n", w)
 				}
-			}
-			if len(disabledAPIs) > 0 {
-				fmt.Printf("  [info] %d API(s) will be auto-enabled by Terraform:\n", len(disabledAPIs))
-				for _, api := range disabledAPIs {
-					shortName := strings.TrimSuffix(api, ".googleapis.com")
-					fmt.Printf("         - %s\n", shortName)
-				}
-			}
-
-			// IAM permissions check
-			role := checkIAMRole(project, gcpAccount)
-			if role != "" {
-				fmt.Printf("  [pass] IAM role: %s\n", role)
-			} else {
-				fmt.Println("  [WARN] Cannot verify IAM role — you need Owner or Editor on the project")
+			default:
+				fmt.Println("  [WARN] Preflight found problems; aiplex platform apply will refuse until they are fixed:")
+				printPreflightReport(os.Stdout, report, account)
 			}
 			fmt.Println()
 
@@ -517,48 +501,6 @@ func checkBillingEnabled(project string) bool {
 		return false
 	}
 	return strings.TrimSpace(string(out)) == "True"
-}
-
-func checkAPIs(project string, apis []string) map[string]bool {
-	result := make(map[string]bool)
-	out, err := exec.Command("gcloud", "services", "list",
-		"--project", project, "--enabled", "--format=value(name)", "--quiet").Output()
-	if err != nil {
-		return result
-	}
-	enabled := strings.Split(strings.TrimSpace(string(out)), "\n")
-	enabledSet := make(map[string]bool)
-	for _, svc := range enabled {
-		enabledSet[strings.TrimSpace(svc)] = true
-	}
-	for _, api := range apis {
-		result[api] = enabledSet[api]
-	}
-	return result
-}
-
-func checkIAMRole(project, account string) string {
-	out, err := exec.Command("gcloud", "projects", "get-iam-policy", project,
-		"--flatten=bindings[].members",
-		"--filter=bindings.members:"+account,
-		"--format=value(bindings.role)",
-		"--quiet").Output()
-	if err != nil {
-		return ""
-	}
-	roles := strings.TrimSpace(string(out))
-	if strings.Contains(roles, "roles/owner") {
-		return "Owner"
-	}
-	if strings.Contains(roles, "roles/editor") {
-		return "Editor"
-	}
-	if roles != "" {
-		// Return first role found
-		lines := strings.Split(roles, "\n")
-		return lines[0]
-	}
-	return ""
 }
 
 // ─── Preflight Checks ──────────────────────────────────────

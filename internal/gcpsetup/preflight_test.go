@@ -327,3 +327,28 @@ func TestPredefinedBindingsCoverEveryEnabledFeature(t *testing.T) {
 		t.Error("basic roles must never be suggested")
 	}
 }
+
+func TestFeatureRolesGrantEveryPermissionWithoutRedundantRoles(t *testing.T) {
+	for _, f := range Features {
+		byLevel := FeatureRoles(f.ID)
+		for _, perm := range FeaturePermissions(f.ID) {
+			if !grantedBy(byLevel[perm.Level], perm.Name) {
+				t.Errorf("%s: %s not granted by suggested roles %v", f.ID, perm.Name, byLevel[perm.Level])
+			}
+		}
+		for _, roles := range byLevel {
+			if contains(roles, "roles/container.viewer") && contains(roles, "roles/container.developer") {
+				t.Errorf("%s: redundant roles/container.viewer next to roles/container.developer", f.ID)
+			}
+		}
+	}
+}
+
+func grantedBy(roles []string, perm string) bool {
+	for _, role := range roles {
+		if contains(roleGrants[role], perm) {
+			return true
+		}
+	}
+	return false
+}

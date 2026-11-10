@@ -312,45 +312,101 @@ func RoleSize(role string) int { return roleSize[role] }
 // would grant them, per resource. The map key is the resource
 // ("projects/P", "organizations/O", "gs://B").
 func (r *Report) MissingRoles() map[string][]string {
-	set := map[string]map[string]bool{}
+	perms := map[string][]string{}
 	for _, f := range r.Features {
 		for _, pr := range f.Problems {
-			if pr.State != StateMissing || pr.Role == "" {
-				continue
+			if pr.State == StateMissing && pr.Role != "" {
+				perms[pr.Resource] = append(perms[pr.Resource], pr.Name)
 			}
-			if set[pr.Resource] == nil {
-				set[pr.Resource] = map[string]bool{}
-			}
-			set[pr.Resource][pr.Role] = true
 		}
 	}
 	out := map[string][]string{}
-	for res, roles := range set {
-		out[res] = sortedKeys(roles)
+	for res, ps := range perms {
+		out[res] = rolesFor(ps)
 	}
 	return out
 }
 
-// FeatureRoles returns, for a feature, the distinct narrowest predefined roles
-// that together grant all its permissions, by level. It is the documented
-// alternative to the custom deployer role.
+// FeatureRoles returns, for a feature, the predefined roles that together
+// grant all its permissions, by level. It is the documented alternative to the
+// custom deployer role.
 func FeatureRoles(id FeatureID) map[Level][]string {
-	set := map[Level]map[string]bool{}
+	perms := map[Level][]string{}
 	for _, perm := range FeaturePermissions(id) {
-		role := narrowestRole[perm.Name]
+		perms[perm.Level] = append(perms[perm.Level], perm.Name)
+	}
+	out := map[Level][]string{}
+	for l, ps := range perms {
+		out[l] = rolesFor(ps)
+	}
+	return out
+}
+
+// rolesFor maps each permission to its narrowest role, then drops a role when
+// another chosen role already holds every permission it was chosen for (a
+// viewer role next to the matching editor role, for example). The result
+// grants every permission that has a recorded role.
+func rolesFor(perms []string) []string {
+	need := map[string]map[string]bool{}
+	for _, p := range perms {
+		role := narrowestRole[p]
 		if role == "" {
 			continue
 		}
-		if set[perm.Level] == nil {
-			set[perm.Level] = map[string]bool{}
+		if need[role] == nil {
+			need[role] = map[string]bool{}
 		}
-		set[perm.Level][role] = true
+		need[role][p] = true
 	}
-	out := map[Level][]string{}
-	for l, roles := range set {
-		out[l] = sortedKeys(roles)
+	roles := sortedKeys(boolSet(need))
+	// Smallest roles are the candidates for removal.
+	sortBySize(roles)
+	kept := map[string]bool{}
+	for _, r := range roles {
+		kept[r] = true
+	}
+	for _, r := range roles {
+		for _, other := range roles {
+			if other == r || !kept[other] || !holdsAll(other, need[r]) {
+				continue
+			}
+			kept[r] = false
+			break
+		}
+	}
+	var out []string
+	for r, k := range kept {
+		if k {
+			out = append(out, r)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func boolSet[V any](m map[string]V) map[string]bool {
+	out := make(map[string]bool, len(m))
+	for k := range m {
+		out[k] = true
 	}
 	return out
+}
+
+func sortBySize(roles []string) {
+	sort.SliceStable(roles, func(i, j int) bool { return roleSize[roles[i]] < roleSize[roles[j]] })
+}
+
+func holdsAll(role string, perms map[string]bool) bool {
+	held := map[string]bool{}
+	for _, p := range roleGrants[role] {
+		held[p] = true
+	}
+	for p := range perms {
+		if !held[p] {
+			return false
+		}
+	}
+	return true
 }
 
 func contains(list []string, s string) bool {
