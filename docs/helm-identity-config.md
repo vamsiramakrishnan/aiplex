@@ -54,3 +54,15 @@ the corresponding environment-variable file path. Directory mounts receive
 Kubernetes configuration updates; a `subPath` mount requires a pod restart to
 receive updated Secret/ConfigMap content. Restart the API after changing identity
 or provider configuration, since these are loaded at startup.
+
+## Federation switches
+
+These variables are read by the API at startup. Set them under `api.env` with the other
+environment variables. Each federation switch accepts `enabled` or `disabled`. An unset
+value means disabled. Any other value stops startup.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `AIPLEX_AGENT_FEDERATION` | off | `enabled` turns on live authentication with agent identity bindings. Requires `AIPLEX_TENANT_ID`. See [agent identity federation](agent-identity-federation.md). |
+| `AIPLEX_USER_FEDERATION` | off | `enabled` turns on live authentication with user identity providers. Requires `AIPLEX_TENANT_ID`. See [user identity federation](user-identity-federation.md). |
+| `AIPLEX_USER_DIRECTORY_CACHE_TTL` | `1m` | Lifetime of a resolved directory group view. At most `5m`. |
