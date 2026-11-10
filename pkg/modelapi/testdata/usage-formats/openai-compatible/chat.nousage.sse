@@ -1,0 +1,6 @@
+data: {"id":"chatcmpl-compat-4","object":"chat.completion.chunk","created":1700000103,"model":"fixture-model-a","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-compat-4","object":"chat.completion.chunk","created":1700000103,"model":"fixture-model-a","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+

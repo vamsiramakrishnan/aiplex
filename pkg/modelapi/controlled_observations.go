@@ -309,6 +309,15 @@ func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, read
 			}
 			terminal := markerComplete && latest != nil
 			if !terminal {
+				if latest != nil {
+					// Usage seen in a withheld tail whose stream never
+					// completed (e.g. no [DONE]) is kept as non-terminal
+					// telemetry; it settles nothing.
+					latest.Terminal = false
+					if run.observe(*latest) == nil {
+						g.emitLegacy(run.ctx, owner, latest)
+					}
+				}
 				finish(execution.Result{ResponseComplete: true, Err: fmt.Errorf("native terminal usage unavailable")})
 				return
 			}

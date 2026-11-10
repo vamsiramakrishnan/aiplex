@@ -290,6 +290,18 @@ var (
 )
 
 var (
+	callAzureChat   = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderAzureOpenAI}, ProtocolOpenAIChat, []string{"fixture-model-a"}, "azure.v1.chat-completions"), path: "/openai/v1/chat/completions", body: `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}]}`}
+	callAzureChatS  = with(callAzureChat, func(c *fixtureCall) {
+		c.body = `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}`
+	})
+	callAzureDeploy = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderAzureOpenAI, APIVersion: "2024-10-21"}, ProtocolOpenAIChat, []string{"fixture-model-a"}, "azure.deployments.chat-completions"), path: "/openai/deployments/fixture-model-a/chat/completions", body: `{"messages":[{"role":"user","content":"hi"}]}`}
+	callAzureResp   = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderAzureOpenAI}, ProtocolOpenAIResponses, []string{"fixture-model-a"}, "azure.v1.responses"), path: "/openai/v1/responses", body: `{"model":"fixture-model-a","input":"hi"}`}
+	// The generic compatible surface declares OpenAI usage semantics; the
+	// quota host refuses a token profile without that declaration.
+	callCompat  = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAICompatible, UsageSemantics: UsageSemanticsOpenAI}, ProtocolOpenAIChat, []string{"fixture-model-a"}, "compat.chat-completions"), path: "/v1/chat/completions", body: `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}]}`}
+	callCompatS = with(callCompat, func(c *fixtureCall) {
+		c.body = `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}`
+	})
 	callLive        = &fixtureCall{surface: googleSurfaceFor("google", "live.connect"), path: "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent", body: `{"setup":{"model":"model-a"}}`, ws: "live"}
 	callRealtime    = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIRealtime, []string{"fixture-model-c"}, "openai.v1.realtime"), path: "/v1/realtime?model=fixture-model-c", ws: "realtime"}
 	callResponsesWS = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIResponses, []string{"fixture-model-b"}, "openai.v1.responses-websocket"), path: "/v1/responses", ws: "responses"}
@@ -351,6 +363,20 @@ func usageRoutes() []fixtureRoute {
 		unsupported("openai", "batch.output.jsonl", "batch", "jsonl-file", "batch output files are downloaded artifacts, not gateway responses; no /v1/batches operation"),
 		unsupported("openai", "batch.errors.jsonl", "batch", "jsonl-file", "batch error files are downloaded artifacts, not gateway responses"),
 		unsupported("openai", "batch.object.json", "batch", "json", "no /v1/batches operation"),
+
+		// ---------------- Azure OpenAI (docs/reference/usage-formats/azure-openai.md) ----------------
+		exact("azure-openai", "chat.json", "v1-chat-completions", "json", callAzureChat, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("azure-openai", "chat.sse", "v1-chat-completions", "sse", callAzureChatS, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("azure-openai", "chat.interrupted.sse", "v1-chat-completions", "sse", callAzureChatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("azure-openai", "deployments-chat.json", "deployments-chat-completions", "json", callAzureDeploy, convOpenAI, natOpenAI, true, strictRefuses, "prompt_tokens_details is optional in the Azure CompletionUsage schema and absent here; openai-text requires the cached-input breakdown (fail closed)"),
+		exact("azure-openai", "responses.json", "v1-responses", "json", callAzureResp, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("azure-openai", "responses.sse", "v1-responses", "sse", callAzureResp, convOpenAI, natOpenAI, true, strictSettles, ""),
+
+		// ---------------- Generic OpenAI-compatible (usage_semantics: "openai") ----------------
+		exact("openai-compatible", "chat.json", "chat-completions", "json", callCompat, convOpenAI, natOpenAI, true, strictRefuses, "server reports no prompt_tokens_details; openai-text requires the cached-input breakdown (fail closed)"),
+		exact("openai-compatible", "chat.final-usage.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai-compatible", "chat.no-done.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("openai-compatible", "chat.nousage.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 
 		// ---------------- Anthropic ----------------
 		exact("anthropic", "messages.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
@@ -434,6 +460,9 @@ func usageRoutes() []fixtureRoute {
 	}
 	return routes
 }
+
+// usageFixtureProviders are the fixture directories under testdata/usage-formats.
+var usageFixtureProviders = []string{"openai", "anthropic", "google", "azure-openai", "openai-compatible"}
 
 func withAllow(r fixtureRoute, allow map[string]string) fixtureRoute {
 	r.allowUnknown = allow
@@ -625,7 +654,7 @@ func TestUsageFormatConformance(t *testing.T) {
 		}
 		byFile[key] = route
 	}
-	for _, provider := range []string{"openai", "anthropic", "google"} {
+	for _, provider := range usageFixtureProviders {
 		expected := loadExpected(t, provider)
 		entries, err := os.ReadDir(filepath.Join("testdata", "usage-formats", provider))
 		if err != nil {
@@ -650,7 +679,7 @@ func TestUsageFormatConformance(t *testing.T) {
 		}
 	}
 	expectations := map[string]map[string]expectedUsage{}
-	for _, provider := range []string{"openai", "anthropic", "google"} {
+	for _, provider := range usageFixtureProviders {
 		expectations[provider] = loadExpected(t, provider)
 	}
 	for _, route := range routes {
@@ -721,6 +750,12 @@ func checkFixture(t *testing.T, route fixtureRoute, data []byte, want canonical)
 					got[f] = nil
 				}
 			}
+		}
+		if route.native == natOpenAI && want["cache_write_tokens"] == nil && got["cache_write_tokens"] != nil && *got["cache_write_tokens"] == 0 {
+			// Strict OpenAI-format settlement: an absent cache_write_tokens
+			// (documented default 0; models without separately billed writes
+			// keep written tokens in ordinary input) settles as 0.
+			got["cache_write_tokens"] = nil
 		}
 		if diffs := compareCanonical(want, got, route.allowUnknown); len(diffs) > 0 {
 			t.Errorf("strict settlement mismatch: %s\n want %s\n got  %s", strings.Join(diffs, "; "), describe(want), describe(got))
@@ -970,7 +1005,7 @@ func renderCoverage(routes []fixtureRoute) string {
 		counts[row.provider][row.status]++
 	}
 	b.WriteString("## Summary (rows)\n\n| Provider | exact | advisory | unsupported |\n| --- | --- | --- | --- |\n")
-	for _, p := range []string{"anthropic", "google", "openai"} {
+	for _, p := range []string{"anthropic", "azure-openai", "google", "openai", "openai-compatible"} {
 		fmt.Fprintf(&b, "| %s | %d | %d | %d |\n", p, counts[p][statusExact], counts[p][statusAdvisory], counts[p][statusUnsupported])
 	}
 	b.WriteString("\n## Matrix\n\n| Provider | Surface | Transport | Status | Fixtures | Notes |\n| --- | --- | --- | --- | --- | --- |\n")

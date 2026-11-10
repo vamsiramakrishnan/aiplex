@@ -49,8 +49,10 @@ cannot hold).
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
 | anthropic | 8 | 0 | 5 |
+| azure-openai | 5 | 0 | 0 |
 | google | 10 | 2 | 12 |
 | openai | 6 | 0 | 11 |
+| openai-compatible | 2 | 0 | 0 |
 
 ## Matrix
 
@@ -69,6 +71,11 @@ cannot hold).
 | anthropic | rate-limit-metadata | json | unsupported | `ratelimit.json` | documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits |
 | anthropic | vertex-rawPredict | json | exact | `vertex-raw.json` |  |
 | anthropic | vertex-streamRawPredict | sse | exact | `vertex-raw-interrupted.sse`<br>`vertex-raw.sse` |  |
+| azure-openai | deployments-chat-completions | json | exact | `deployments-chat.json` | observation exact; strict settlement fails closed for this fixture: prompt_tokens_details is optional in the Azure CompletionUsage schema and absent here; openai-text requires the cached-input breakdown (fail closed) |
+| azure-openai | v1-chat-completions | json | exact | `chat.json` |  |
+| azure-openai | v1-chat-completions | sse | exact | `chat.interrupted.sse`<br>`chat.sse` |  |
+| azure-openai | v1-responses | json | exact | `responses.json` |  |
+| azure-openai | v1-responses | sse | exact | `responses.sse` |  |
 | google | gemini-batch | json | unsupported | `gemini-batch-inlined.json` | no Developer API batch operation; job resources carry no token totals |
 | google | gemini-cachedContents | json | unsupported | `gemini-cachedcontent-create.json` | no Gemini Developer API surface and not replayed: DA cache names (cachedContents/{id}) are outside the Vertex resource scope, and how cache creation is billed is UNCONFIRMED (cache.create is request-count; usageMetadata.totalTokenCount is not mapped to cache writes) |
 | google | gemini-countTokens | json | unsupported | `gemini-count-tokens.json (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it; countTokens is an estimate and must never be recorded as usage |
@@ -110,3 +117,5 @@ cannot hold).
 | openai | responses | websocket | exact | `responses.interrupted.ws.jsonl`<br>`responses.ws.jsonl` |  |
 | openai | responses-cancel | json | unsupported | `responses.background.cancelled.json (format-checked)` | POST /v1/responses/{id}/cancel is not an OpenAI provider operation; response body checked through the Responses observer |
 | openai | responses-retrieve | json | unsupported | `responses.background.queued.json (format-checked)` | GET /v1/responses/{id} (background poll) is not an OpenAI provider operation; response body checked through the Responses observer |
+| openai-compatible | chat-completions | json | exact | `chat.json` | observation exact; strict settlement fails closed for this fixture: server reports no prompt_tokens_details; openai-text requires the cached-input breakdown (fail closed) |
+| openai-compatible | chat-completions | sse | exact | `chat.final-usage.sse`<br>`chat.no-done.sse`<br>`chat.nousage.sse` |  |

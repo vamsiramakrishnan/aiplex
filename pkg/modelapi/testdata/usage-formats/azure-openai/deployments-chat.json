@@ -1,0 +1,1 @@
+{"id":"chatcmpl-7R1nGnsXO8n4oi9UPz2f3UHdgAYMn","created":1686676106,"model":"fixture-model-a","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"Synthetic answer."}}],"usage":{"completion_tokens":557,"prompt_tokens":33,"total_tokens":590}}

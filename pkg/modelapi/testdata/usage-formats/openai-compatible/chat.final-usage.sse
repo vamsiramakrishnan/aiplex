@@ -1,0 +1,6 @@
+data: {"id":"chatcmpl-compat-2","object":"chat.completion.chunk","created":1700000101,"model":"fixture-model-a","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-compat-2","object":"chat.completion.chunk","created":1700000101,"model":"fixture-model-a","choices":[{"index":0,"delta":{"content":" there"},"finish_reason":"stop"}],"usage":{"prompt_tokens":300,"completion_tokens":12,"total_tokens":312,"prompt_tokens_details":{"cached_tokens":256}}}
+
+data: [DONE]
+
