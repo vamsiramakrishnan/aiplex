@@ -119,6 +119,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'operations/configuration',
         L('helm-identity-config', 'Identity configuration (Helm)'),
+        L('observability', 'Observability (OpenTelemetry)'),
         'operations/authorization-policy',
         L('modules', 'Independent modules'),
         'operations/networking',

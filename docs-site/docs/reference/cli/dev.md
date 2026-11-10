@@ -44,6 +44,11 @@ or is killed, the local API stops with it.
 The local API calls only loopback upstreams and the public OpenAI, Anthropic
 and Gemini APIs; allow another origin with --allow-origin https://host.
 
+--otel URL exports OpenTelemetry traces and metrics over OTLP/HTTP to a
+collector you run (for example Jaeger on http://127.0.0.1:4318). Without it
+nothing is exported; OTEL_* variables already in your environment are passed
+to the local API unchanged.
+
 A real provider key is read from the environment variable you name with
 --api-key-env. It is passed only to the local API process's environment; it
 is never printed, accepted as a flag value, or written to disk.
@@ -57,6 +62,7 @@ Examples:
   aiplex dev --detach && aiplex dev status
   aiplex dev --provider openai --api-key-env OPENAI_API_KEY
   aiplex dev --provider anthropic --api-key-env ANTHROPIC_API_KEY --model claude-haiku-4-5
+  aiplex dev --otel http://127.0.0.1:4318    # traces and metrics to a local collector or Jaeger
   eval "$(aiplex dev env)"    # in another terminal: AIPLEX_URL, AIPLEX_TOKEN, OPENAI_BASE_URL, ...
 
 Available Commands:
@@ -77,6 +83,7 @@ Flags:
       --no-console             Do not serve the Console
       --no-tools               Do not start the built-in MCP server's tool connection
       --open                   Open the Console in a browser
+      --otel string            Export OpenTelemetry traces and metrics (OTLP/HTTP) to this collector endpoint, e.g. http://127.0.0.1:4318
       --port int               API port on 127.0.0.1 (default 8080)
       --provider string        Model provider: mock, openai, anthropic or gemini (default "mock")
 
