@@ -32,10 +32,7 @@ DIST="$WORK/dist"; STAGE="$WORK/stage"
 mkdir -p "$DIST" "$STAGE" "$DEV_HOME" "$WORK/install"
 
 step "Console"
-CONSOLE_RESTORE=""
 if command -v npm >/dev/null; then
-    cp "$ROOT/console/dist/index.html" "$WORK/placeholder-index.html"
-    CONSOLE_RESTORE=1
     (cd "$ROOT/console" && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null) || fail "console build"
 else
     echo "npm not found: the archive will carry the placeholder Console (aiplex version says so)"
@@ -44,11 +41,7 @@ fi
 step "Build aiplex and aiplex-api ($OS/$ARCH, release ldflags)"
 (cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT" -o "$STAGE/aiplex" ./cmd/aiplex-cli) || fail "build aiplex"
 (cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o "$STAGE/aiplex-api" ./cmd/aiplex-api) || fail "build aiplex-api"
-if [[ -n "$CONSOLE_RESTORE" ]]; then
-    # Leave the source tree as it was: the committed placeholder page.
-    rm -rf "$ROOT/console/dist/assets" "$ROOT/console/dist/favicon.svg"
-    cp "$WORK/placeholder-index.html" "$ROOT/console/dist/index.html"
-fi
+# The Console build writes to the git-ignored console/built; nothing to restore.
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$STAGE/"
 
 step "Pack aiplex_${VERSION}_${OS}_${ARCH}.tar.gz"

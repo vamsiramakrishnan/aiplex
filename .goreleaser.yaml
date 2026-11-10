@@ -20,10 +20,10 @@ project_name: aiplex
 
 before:
   hooks:
-    # The Console is embedded from console/dist (go:embed). Release binaries
+    # The Console is embedded from console/built (go:embed), written by the Console build. Release binaries
     # must carry the built Console, not the placeholder page: build it first
     # (the release workflow runs `cd console && npm ci && npm run build`).
-    - sh -c 'grep -q "<script" console/dist/index.html || { echo "console/dist holds the placeholder page; run make console before goreleaser" >&2; exit 1; }'
+    - sh -c 'test -s console/built/index.html || { echo "the Console is not built (console/built/index.html is missing); run make console before goreleaser" >&2; exit 1; }'
 
 builds:
   - id: aiplex
