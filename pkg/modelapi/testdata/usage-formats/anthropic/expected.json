@@ -150,7 +150,7 @@
     "cache_write_tokens": 128,
     "reasoning_tokens": null,
     "total_tokens": 2003,
-    "notes": "POST /model/{modelId}/invoke ; modelId is in the PATH (never in body); body carries anthropic_version=bedrock-2023-05-31. AWS API reference lists only Content-Type / X-Amzn-Bedrock-PerformanceConfig-Latency / X-Amzn-Bedrock-Service-Tier response headers - NO token-count headers documented. Response body is model-native; that it is the Anthropic Messages shape incl. usage is UNCONFIRMED by the pages read (docs only show response_body.get('content'))."
+    "notes": "POST /model/{modelId}/invoke ; modelId is in the PATH (never in body); body carries anthropic_version=bedrock-2023-05-31. AWS API reference lists only Content-Type / X-Amzn-Bedrock-PerformanceConfig-Latency / X-Amzn-Bedrock-Service-Tier response headers - NO token-count headers documented. Response body is model-native; that it is the Anthropic Messages shape incl. usage is UNCONFIRMED: the provider documentation does not state it (docs only show response_body.get('content'))."
   },
   "bedrock-invoke-stream.jsonl": {
     "input_tokens": 640,
@@ -159,7 +159,7 @@
     "cache_write_tokens": 128,
     "reasoning_tokens": null,
     "total_tokens": 2003,
-    "notes": "POST /model/{modelId}/invoke-with-response-stream. Wire = AWS event stream (application/vnd.amazon.eventstream); each frame :event-type=chunk with payload {\"bytes\": <base64>}; each line here is the base64-DECODED JSON, i.e. the Anthropic event. Same cumulative-delta semantics as Messages SSE. amazon-bedrock-invocationMetrics in the last chunk: UNCONFIRMED (not in AWS pages read), so not modeled."
+    "notes": "POST /model/{modelId}/invoke-with-response-stream. Wire = AWS event stream (application/vnd.amazon.eventstream); each frame :event-type=chunk with payload {\"bytes\": <base64>}; each line here is the base64-DECODED JSON, i.e. the Anthropic event. Same cumulative-delta semantics as Messages SSE. amazon-bedrock-invocationMetrics in the last chunk: UNCONFIRMED (not in the AWS documentation), so not modeled."
   },
   "bedrock-invoke-stream-interrupted.jsonl": {
     "input_tokens": 640,

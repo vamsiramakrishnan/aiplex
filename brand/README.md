@@ -198,7 +198,7 @@ Don't:
 | Docs navbar logo, dark theme | `logo/aiplex-lockup-horizontal-reversed.svg` |
 | Favicon (docs and Console) | `logo/aiplex-favicon.svg`. It switches with `prefers-color-scheme`; add an `.ico`/PNG fallback if needed. |
 | Console header | `logo/aiplex-lockup-horizontal-mono.svg` inlined so it takes the header's text colour, or the light/reversed pair |
-| Social card (`og:image`) | `social/aiplex-social-card.svg`. Platforms need a raster: use `.renders/export/aiplex-social-card.png` (1200 × 630). |
+| Social card (`og:image`) | `social/aiplex-social-card.svg`. Platforms need a raster: `docs-site/static/img/aiplex-social-card.png` (1200 × 630) is the tracked copy, and `node brand/scripts/render.js export` writes a fresh one to `.renders/export/`. |
 | README banner | `social/aiplex-readme-banner.svg`. It has its own Ink panel, so it reads on light and dark pages. |
 | Brand sheet | `brand-sheet.svg` on light pages, `brand-sheet-dark.svg` on dark pages (same content). |
 | Architecture diagram (README, docs) | `diagrams/architecture.svg` and `diagrams/architecture-dark.svg` (1200 × 660). In Markdown, use `<picture>` with `prefers-color-scheme` sources to swap them. |
