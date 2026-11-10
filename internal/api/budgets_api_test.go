@@ -30,15 +30,7 @@ func budgetAPINew(t *testing.T, withQuota bool) *budgetAPIFixture {
 	b := &budgetAPIFixture{apFixture: f}
 	b.records = attachLedger(t, f.h)
 	if withQuota {
-		policy := quotaplex.Policy{Version: quotaplex.Version, TenantID: "tenant", ID: "budget-api", Revision: 1, EffectiveAt: apQuotaNow.Add(-time.Hour),
-			Meters:   map[string]quotaplex.Meter{"requests": {ID: "requests", Unit: "requests"}, "calls": {ID: "calls", Unit: "calls"}, "usd": {ID: "usd", Unit: "money", Currency: "USD", Scale: 6}, "tokens": {ID: "tokens", Unit: "tokens"}},
-			Accounts: []quotaplex.Account{{ID: "team", TenantWide: true}}, Concurrency: []quotaplex.ConcurrencyRule{{ID: "tenant", Scope: quotaplex.Scope{Kind: "tenant"}, Limit: 50}}}
-		config := QuotaHostConfig{Tenants: []QuotaTenantConfig{{Policy: policy, Activate: true}}, Bindings: []QuotaBinding{{ID: "github-search", TenantID: "tenant", Plane: "mcplex", ResourceID: "github", OperationID: "tools/call:search", Profile: "request-count", FundingAccountID: "team", Provider: "mcp", Meters: map[string]string{"requests": "requests", "tool_calls": "calls"}}}}
-		quota, err := NewQuotaHost(context.Background(), config, quotaplex.NewMemoryStore(), func() time.Time { return apQuotaNow }, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		f.h.Quota = quota
+		f.h.Quota = budgetTestHost(t)
 		f.h.AttachBudgets()
 	}
 	access := f.access
@@ -57,6 +49,21 @@ func budgetAPINew(t *testing.T, withQuota bool) *budgetAPIFixture {
 	router.Route("/api/v1", func(r chi.Router) { f.h.MountBudgets(r) })
 	b.api = router
 	return b
+}
+
+// budgetTestHost meters access-point tool calls per request and has money and
+// token meters so cost and token budgets can be saved.
+func budgetTestHost(t *testing.T) *QuotaHost {
+	t.Helper()
+	policy := quotaplex.Policy{Version: quotaplex.Version, TenantID: "tenant", ID: "budget-api", Revision: 1, EffectiveAt: apQuotaNow.Add(-time.Hour),
+		Meters:   map[string]quotaplex.Meter{"requests": {ID: "requests", Unit: "requests"}, "calls": {ID: "calls", Unit: "calls"}, "usd": {ID: "usd", Unit: "money", Currency: "USD", Scale: 6}, "tokens": {ID: "tokens", Unit: "tokens"}},
+		Accounts: []quotaplex.Account{{ID: "team", TenantWide: true}}, Concurrency: []quotaplex.ConcurrencyRule{{ID: "tenant", Scope: quotaplex.Scope{Kind: "tenant"}, Limit: 50}}}
+	config := QuotaHostConfig{Tenants: []QuotaTenantConfig{{Policy: policy, Activate: true}}, Bindings: []QuotaBinding{{ID: "github-search", TenantID: "tenant", Plane: "mcplex", ResourceID: "github", OperationID: "tools/call:search", Profile: "request-count", FundingAccountID: "team", Provider: "mcp", Meters: map[string]string{"requests": "requests", "tool_calls": "calls"}}}}
+	quota, err := NewQuotaHost(context.Background(), config, quotaplex.NewMemoryStore(), func() time.Time { return apQuotaNow }, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return quota
 }
 
 func (b *budgetAPIFixture) call(method, path, body string) *httptest.ResponseRecorder {
