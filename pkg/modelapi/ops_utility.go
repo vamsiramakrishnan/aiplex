@@ -116,6 +116,16 @@ func utilityCoverage(op Operation) ExecutionCoverage {
 	if !ok {
 		return ExecutionCoverage{}
 	}
+	switch op.ID {
+	case "gemini.models.generateContent", "gemini.models.streamGenerateContent":
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "gemini-text"}
+	case "gemini.interactions.create":
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "gemini-interaction-text"}
+	}
+	if o.spec.kind == utilEmbedding {
+		// Input-only token profile (token_profiles.go embeddingOperation).
+		return ExecutionCoverage{RequestCount: true, TokenProfile: "embedding-input"}
+	}
 	return ExecutionCoverage{RequestCount: true, Asynchronous: o.spec.asynchronous}
 }
 

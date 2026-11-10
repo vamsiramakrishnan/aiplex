@@ -207,7 +207,11 @@ func (h *QuotaHost) extendedBounds(ctx context.Context, binding QuotaBinding, ta
 // rejection is provider evidence that no batch exists and settles one request
 // with zero for every other bound meter.
 func (l *quotaHostLease) finishBatchLocked(ctx context.Context, result execution.Result) error {
-	if result.ResponseComplete && result.Err == nil && result.StatusCode >= 400 && result.StatusCode < 500 && result.StatusCode != 408 && result.StatusCode != 429 {
+	// One rule for every exchange: only a documented not-processed rejection
+	// of the create itself (modelapi rejectedBeforeProcessing) releases it.
+	// Later polls and results fetches are separate attempts and never release
+	// an open batch.
+	if result.ResponseComplete && result.Err == nil && result.Rejected {
 		zero := map[string]int64{}
 		for native := range l.binding.Meters {
 			zero[native] = 0

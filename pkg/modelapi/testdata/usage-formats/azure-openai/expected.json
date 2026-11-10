@@ -1,0 +1,56 @@
+{
+  "chat.json": {
+    "input_tokens": 1566,
+    "output_tokens": 1518,
+    "cache_read_tokens": 1408,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 576,
+    "total_tokens": 3084,
+    "notes": "v1 Chat Completions (POST {endpoint}/openai/v1/chat/completions). Usage numbers are Microsoft's prompt-caching example (prompt_tokens_details.cached_tokens and cache_write_tokens; audio_tokens null). OpenAI semantics: prompt includes cache reads/writes, completion includes reasoning."
+  },
+  "chat.sse": {
+    "input_tokens": 1200,
+    "output_tokens": 40,
+    "cache_read_tokens": 1024,
+    "cache_write_tokens": 128,
+    "reasoning_tokens": 16,
+    "total_tokens": 1240,
+    "notes": "stream_options.include_usage: an additional chunk with choices [] carries the whole-request usage before data: [DONE]; every other chunk has usage null (Azure v1 reference ChatCompletionStreamOptions)."
+  },
+  "chat.interrupted.sse": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "Stream cut before the usage chunk: 'If the stream is interrupted, you may not receive the final usage chunk'."
+  },
+  "deployments-chat.json": {
+    "input_tokens": 33,
+    "output_tokens": 557,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 590,
+    "notes": "Microsoft's documented chat completion example response; prompt_tokens_details and completion_tokens_details are optional (Required: No) and absent here, so the cache split is unknown."
+  },
+  "responses.json": {
+    "input_tokens": 2000,
+    "output_tokens": 300,
+    "cache_read_tokens": 1536,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 120,
+    "total_tokens": 2300,
+    "notes": "POST {endpoint}/openai/v1/responses; OpenAI.ResponseUsage: input_tokens, input_tokens_details.cached_tokens (required), output_tokens, output_tokens_details.reasoning_tokens (required), total_tokens."
+  },
+  "responses.sse": {
+    "input_tokens": 640,
+    "output_tokens": 24,
+    "cache_read_tokens": 512,
+    "cache_write_tokens": null,
+    "reasoning_tokens": 8,
+    "total_tokens": 664,
+    "notes": "Usage on the response.completed event (OpenAI.ResponseCompletedEvent carries the OpenAI.Response)."
+  }
+}

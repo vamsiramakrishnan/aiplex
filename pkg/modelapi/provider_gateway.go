@@ -103,6 +103,9 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	var run *executionRun
 	if lease != nil {
 		run = &executionRun{lease: lease, ctx: r.Context()}
+		if bedrockConverse(op) || embeddingOperation(op) {
+			run.dispatchedModel = metadata.Model
+		}
 		defer run.close()
 		if receipt, ok := lease.(execution.Receipt); ok {
 			id := receipt.AttemptID()
@@ -195,7 +198,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Terminal: terminal}); err != nil {
+		if err = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Terminal: terminal, Rejected: !success && g.rejectedBeforeProcessing(response.StatusCode)}); err != nil {
 			writeExecutionError(w, err)
 			return
 		}

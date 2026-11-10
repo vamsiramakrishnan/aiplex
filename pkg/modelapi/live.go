@@ -87,17 +87,51 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 		closeWebSocket(connection, websocket.ClosePolicyViolation, "operation denied")
 		return
 	}
-	run, e := g.prepareSession(r, trusted, op, metadata, setup)
-	if e != nil {
-		closeWebSocketForExecution(connection, e)
-		return
+	var gate *liveWindowGate
+	var run *executionRun
+	if g.surface.WebSocket.tokenMetering() && g.options.Execution != nil {
+		// Renewable allowance: the first window is admitted and claimed
+		// before credentials and the dial (see session_metering.go).
+		if resumed {
+			closeWebSocket(connection, websocket.ClosePolicyViolation, "token-metered sessions cannot resume")
+			return
+		}
+		admit := func(n int) (*executionRun, error) {
+			window, err := g.admitSessionExchange(r, trusted, op, metadata.Model, setup, n, g.normalizeModel(metadata.Model))
+			if err == nil && window != nil && requestCountRun(window) {
+				window.finish(execution.Result{Err: fmt.Errorf("request-count lease in token mode")})
+				err = &execution.StatusError{Status: http.StatusNotImplemented, Code: "UNSUPPORTED_EXECUTION_TRANSPORT", Message: "token-metered sessions require a token profile binding"}
+			}
+			return window, err
+		}
+		first, err := admit(0)
+		if err != nil {
+			closeWebSocketForExecution(connection, err)
+			return
+		}
+		gate = &liveWindowGate{gateway: g, admit: admit, allowance: g.surface.SessionAllowance(), current: first}
+		defer func() {
+			if gate.current != nil {
+				gate.current.close()
+			}
+		}()
+	} else {
+		var err error
+		if run, err = g.prepareSession(r, trusted, op, metadata, setup); err != nil {
+			closeWebSocketForExecution(connection, err)
+			return
+		}
+		if run != nil {
+			defer run.close()
+		}
+		if err = run.beforeDispatch(r.Context()); err != nil {
+			closeWebSocketForExecution(connection, err)
+			return
+		}
 	}
-	if run != nil {
-		defer run.close()
-	}
-	if e = run.beforeDispatch(r.Context()); e != nil {
-		closeWebSocketForExecution(connection, e)
-		return
+	var sessionGate wsGate
+	if gate != nil {
+		sessionGate = gate
 	}
 	token, e := g.options.TokenSource.Token(r.Context())
 	if e != nil || token == "" {
@@ -124,7 +158,7 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 		return
 	}
 	_ = connection.SetReadDeadline(time.Time{})
-	g.pumpWebSocket(r.Context(), connection, upstream, owner, op, &liveAdapter{gateway: g, owner: owner, resumed: resumed}, run)
+	g.pumpWebSocket(r.Context(), connection, upstream, owner, op, &liveAdapter{gateway: g, owner: owner, resumed: resumed}, run, sessionGate)
 }
 
 func (g *Gateway) validateLiveSetup(ctx context.Context, owner Owner, payload []byte) (Metadata, error) {

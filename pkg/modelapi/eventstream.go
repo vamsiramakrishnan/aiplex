@@ -313,6 +313,7 @@ func (g *Gateway) copyEventStream(w http.ResponseWriter, r *http.Request, body i
 		return
 	}
 	latest.Terminal = true
+	run.modelIdentity(latest)
 	if err := normalizeForRun(op, latest, run); err != nil {
 		_ = run.finish(execution.Result{StatusCode: status, ResponseComplete: true, Err: err})
 		return

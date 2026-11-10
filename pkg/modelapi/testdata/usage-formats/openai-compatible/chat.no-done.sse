@@ -1,0 +1,6 @@
+data: {"id":"chatcmpl-compat-3","object":"chat.completion.chunk","created":1700000102,"model":"fixture-model-a","choices":[{"index":0,"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-compat-3","object":"chat.completion.chunk","created":1700000102,"model":"fixture-model-a","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-compat-3","object":"chat.completion.chunk","created":1700000102,"model":"fixture-model-a","choices":[],"usage":{"prompt_tokens":50,"completion_tokens":5,"total_tokens":55,"prompt_tokens_details":{"cached_tokens":0}}}
+

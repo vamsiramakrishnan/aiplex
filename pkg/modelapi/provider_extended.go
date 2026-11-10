@@ -556,7 +556,8 @@ func (x *extendedExchange) serve() {
 			x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
 			return
 		}
-		if err = x.run.finish(execution.Result{StatusCode: x.response.StatusCode, ResponseComplete: true}); err != nil {
+		// The same not-processed rule as the text paths (rejections.go).
+		if err = x.run.finish(execution.Result{StatusCode: x.response.StatusCode, ResponseComplete: true, Rejected: x.g.rejectedBeforeProcessing(x.response.StatusCode)}); err != nil {
 			writeExecutionError(x.w, err)
 			return
 		}

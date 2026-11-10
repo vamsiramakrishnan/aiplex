@@ -1,0 +1,10 @@
+data: {"id":"chatcmpl-azure-fixture-2","object":"chat.completion.chunk","created":1700000001,"model":"fixture-model-a","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-azure-fixture-2","object":"chat.completion.chunk","created":1700000001,"model":"fixture-model-a","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-azure-fixture-2","object":"chat.completion.chunk","created":1700000001,"model":"fixture-model-a","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}
+
+data: {"id":"chatcmpl-azure-fixture-2","object":"chat.completion.chunk","created":1700000001,"model":"fixture-model-a","choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":40,"total_tokens":1240,"prompt_tokens_details":{"audio_tokens":null,"cached_tokens":1024,"cache_write_tokens":128},"completion_tokens_details":{"audio_tokens":null,"reasoning_tokens":16}}}
+
+data: [DONE]
+

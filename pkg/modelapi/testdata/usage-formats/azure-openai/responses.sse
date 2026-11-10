@@ -1,0 +1,9 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_azure_fixture_2","object":"response","created_at":1700000020,"status":"in_progress","model":"fixture-model-a","output":[],"usage":null}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":1,"item_id":"msg_az2","output_index":0,"content_index":0,"delta":"Hi"}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":2,"response":{"id":"resp_azure_fixture_2","object":"response","created_at":1700000020,"status":"completed","model":"fixture-model-a","output":[{"id":"msg_az2","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Hi","annotations":[]}]}],"usage":{"input_tokens":640,"input_tokens_details":{"cached_tokens":512},"output_tokens":24,"output_tokens_details":{"reasoning_tokens":8},"total_tokens":664}}}
+

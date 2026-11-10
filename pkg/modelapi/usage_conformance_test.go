@@ -299,6 +299,18 @@ var (
 )
 
 var (
+	callAzureChat  = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderAzureOpenAI}, ProtocolOpenAIChat, []string{"fixture-model-a"}, "azure.v1.chat-completions"), path: "/openai/v1/chat/completions", body: `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}]}`}
+	callAzureChatS = with(callAzureChat, func(c *fixtureCall) {
+		c.body = `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}`
+	})
+	callAzureDeploy = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderAzureOpenAI, APIVersion: "2024-10-21"}, ProtocolOpenAIChat, []string{"fixture-model-a"}, "azure.deployments.chat-completions"), path: "/openai/deployments/fixture-model-a/chat/completions", body: `{"messages":[{"role":"user","content":"hi"}]}`}
+	callAzureResp   = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderAzureOpenAI}, ProtocolOpenAIResponses, []string{"fixture-model-a"}, "azure.v1.responses"), path: "/openai/v1/responses", body: `{"model":"fixture-model-a","input":"hi"}`}
+	// The generic compatible surface declares OpenAI usage semantics; the
+	// quota host refuses a token profile without that declaration.
+	callCompat  = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAICompatible, UsageSemantics: UsageSemanticsOpenAI}, ProtocolOpenAIChat, []string{"fixture-model-a"}, "compat.chat-completions"), path: "/v1/chat/completions", body: `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}]}`}
+	callCompatS = with(callCompat, func(c *fixtureCall) {
+		c.body = `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}`
+	})
 	callLive        = &fixtureCall{surface: googleSurfaceFor("google", "live.connect"), path: "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent", body: `{"setup":{"model":"model-a"}}`, ws: "live"}
 	callRealtime    = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIRealtime, []string{"fixture-model-c"}, "openai.v1.realtime"), path: "/v1/realtime?model=fixture-model-c", ws: "realtime"}
 	callResponsesWS = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIResponses, []string{"fixture-model-b"}, "openai.v1.responses-websocket"), path: "/v1/responses", ws: "responses"}
@@ -335,11 +347,11 @@ func usageRoutes() []fixtureRoute {
 	const sessionReason = "WebSocket session: one request-count admission and one settlement per session; usage events are advisory, final only with clean close and complete per-response/snapshot evidence, otherwise labelled lower_bound/ambiguous"
 	routes := []fixtureRoute{
 		// ---------------- OpenAI ----------------
-		exact("openai", "chat.json", "chat-completions", "json", callOpenAIChat, convOpenAI, natOpenAI, true, strictRefuses, cwRefuse),
+		exact("openai", "chat.json", "chat-completions", "json", callOpenAIChat, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "chat.sse", "chat-completions", "sse", callOpenAIChatS, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "chat.interrupted.sse", "chat-completions", "sse", callOpenAIChatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai", "chat.nousage.sse", "chat-completions", "sse", callOpenAIChatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
-		exact("openai", "responses.json", "responses", "json", callResponses, convOpenAI, natOpenAI, true, strictRefuses, cwRefuse),
+		exact("openai", "responses.json", "responses", "json", callResponses, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "responses.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai", "responses.failed.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai", "responses.incomplete.sse", "responses", "sse", callResponses, convOpenAI, natOpenAI, false, strictUnknown, ""),
@@ -349,27 +361,41 @@ func usageRoutes() []fixtureRoute {
 		unsupported("openai", "embeddings.json", "embeddings", "json", "no /v1/embeddings operation on the OpenAI provider surface"),
 		unsupported("openai", "moderation.json", "moderations", "json", "no /v1/moderations operation (no usage documented)"),
 
+		// ---------------- Azure OpenAI (docs/reference/usage-formats/azure-openai.md) ----------------
+		exact("azure-openai", "chat.json", "v1-chat-completions", "json", callAzureChat, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("azure-openai", "chat.sse", "v1-chat-completions", "sse", callAzureChatS, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("azure-openai", "chat.interrupted.sse", "v1-chat-completions", "sse", callAzureChatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("azure-openai", "deployments-chat.json", "deployments-chat-completions", "json", callAzureDeploy, convOpenAI, natOpenAI, true, strictRefuses, "prompt_tokens_details is optional in the Azure CompletionUsage schema and absent here; openai-text requires the cached-input breakdown (fail closed)"),
+		exact("azure-openai", "responses.json", "v1-responses", "json", callAzureResp, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("azure-openai", "responses.sse", "v1-responses", "sse", callAzureResp, convOpenAI, natOpenAI, true, strictSettles, ""),
+
+		// ---------------- Generic OpenAI-compatible (usage_semantics: "openai") ----------------
+		exact("openai-compatible", "chat.json", "chat-completions", "json", callCompat, convOpenAI, natOpenAI, true, strictRefuses, "server reports no prompt_tokens_details; openai-text requires the cached-input breakdown (fail closed)"),
+		exact("openai-compatible", "chat.final-usage.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai-compatible", "chat.no-done.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("openai-compatible", "chat.nousage.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
+
 		// ---------------- Anthropic ----------------
 		exact("anthropic", "messages.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
-		exact("anthropic", "messages.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
+		exact("anthropic", "messages.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "messages-server-tool.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictRefuses, toolRefuse),
 		exact("anthropic", "messages-usage-absent.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, false, strictUnknown, ""),
 		exact("anthropic", "messages-interrupted.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, false, strictUnknown, ""),
 		exact("anthropic", "messages-error-midstream.sse", "messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, false, strictUnknown, ""),
-		exact("anthropic", "messages-iterations.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
+		exact("anthropic", "messages-iterations.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "messages-code-execution.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, toolRefuse),
 		unsupported("anthropic", "count-tokens.json", "count-tokens", "json", "no /v1/messages/count_tokens operation (an estimate, never consumption)"),
 		unsupported("anthropic", "managed-agents-session.json", "managed-agents", "json", "no Managed Agents operation: the session object usage is a documented cumulative snapshot (platform.claude.com/docs/en/managed-agents/session-observability, re-read 2026-11-10), but the session.usage event envelope is still not shown and a session has no single terminal exchange through which a snapshot could settle once without double counting repeated polls"),
 		unsupported("anthropic", "ratelimit.json", "rate-limit-metadata", "json", "documentation blob of rate-limit headers/429 bodies, not a response; header parsing is covered by pkg/providerlimits"),
-		exact("anthropic", "vertex-raw.json", "vertex-rawPredict", "json", callVertexClaude, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
-		exact("anthropic", "vertex-raw.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
+		exact("anthropic", "vertex-raw.json", "vertex-rawPredict", "json", callVertexClaude, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "vertex-raw.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "vertex-raw-interrupted.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convAnthropic, natAnthropic, false, strictUnknown, ""),
-		advisory("anthropic", "bedrock-invoke.json", "bedrock-invoke", "json", callInvoke, convAnthropic, natAnthropic, true, requestCount+"; the InvokeModel body is model-native and its Messages shape is UNCONFIRMED by AWS"),
-		advisory("anthropic", "bedrock-invoke-stream.jsonl", "bedrock-invoke-stream", "aws-eventstream", callInvokeS, convAnthropic, natAnthropic, true, requestCount+"; decoded chunk shape UNCONFIRMED by AWS"),
-		advisory("anthropic", "bedrock-invoke-stream-interrupted.jsonl", "bedrock-invoke-stream", "aws-eventstream", callInvokeS, convAnthropic, natAnthropic, false, requestCount),
-		withAllow(advisory("anthropic", "bedrock-converse.json", "bedrock-converse", "json", callConverse, convAnthropic, natAnthropic, true, requestCount+"; inputTokens/cache composition UNCONFIRMED (observer proves exclusivity only when inputTokens < cache counters)"), nil),
-		advisory("anthropic", "bedrock-converse-stream.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, true, requestCount),
-		advisory("anthropic", "bedrock-converse-stream-interrupted.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, false, requestCount),
+		exact("anthropic", "bedrock-invoke.json", "bedrock-invoke", "json", callInvoke, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "bedrock-invoke-stream.jsonl", "bedrock-invoke-stream", "aws-eventstream", callInvokeS, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "bedrock-invoke-stream-interrupted.jsonl", "bedrock-invoke-stream", "aws-eventstream", callInvokeS, convAnthropic, natAnthropic, false, strictUnknown, ""),
+		exact("anthropic", "bedrock-converse.json", "bedrock-converse", "json", callConverse, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "bedrock-converse-stream.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, true, strictSettles, ""),
+		exact("anthropic", "bedrock-converse-stream-interrupted.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, false, strictUnknown, ""),
 		formatOnly(exact("anthropic", "bedrock-mantle.sse", "bedrock-mantle-messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictNotApplicable, ""), statusUnsupported, "no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer"),
 
 		// ---------------- Google ----------------
@@ -394,46 +420,44 @@ func usageRoutes() []fixtureRoute {
 		exact("google", "vertex-generate.sse", "vertex-streamGenerateContent", "sse", callVertexStream, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-cumulative.sse", "vertex-streamGenerateContent", "sse", callVertexStream, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-interrupted.sse", "vertex-streamGenerateContent", "sse", callVertexStream, convGemini, natGemini, false, strictUnknown, ""),
-		func() fixtureRoute {
-			// Observed and settled exactly by the gateway, but the quota host
-			// admits protected Gemini streaming only with alt=sse, so the token
-			// profile is not reachable on this framing: advisory in practice.
-			r := exact("google", "vertex-generate.stream.json", "vertex-streamGenerateContent", "json-array", with(callVertexStream, func(c *fixtureCall) { c.media = "application/json" }), convGemini, natGemini, true, strictSettles, "")
-			r.status, r.reason = statusAdvisory, "JSON-array framing (no alt=sse) is observed exactly, but the quota host admits protected Gemini streaming only with alt=sse; usage is ledger telemetry"
-			return r
-		}(),
+		// JSON-array framing (no alt=sse) is buffered under a lease, observed
+		// exactly and settled before delivery; the quota host admits it.
+		exact("google", "vertex-generate.stream.json", "vertex-streamGenerateContent", "json-array", with(callVertexStream, func(c *fixtureCall) { c.media = "application/json" }), convGemini, natGemini, true, strictSettles, ""),
 		advisory("google", "vertex-count-tokens.json", "vertex-countTokens", "json", callVertexCount, convNoConsumption, natGemini, false, "countTokens is an input-size estimate, never consumption; only the request is counted"),
-		advisory("google", "vertex-embed-predict.json", "vertex-predict", "json", callVertexPredict, convGemini, natGemini, true, requestCount),
-		exact("google", "vertex-openai-chat.json", "vertex-openai-chat", "json", callVertexChat, convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
+		exact("google", "vertex-embed-predict.json", "vertex-predict", "json", callVertexPredict, convGemini, natGemini, true, strictSettles, ""),
+		exact("google", "vertex-openai-chat.json", "vertex-openai-chat", "json", callVertexChat, convVertexOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("google", "vertex-openai-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
 			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
-		}), convVertexOpenAI, natOpenAI, true, strictRefuses, noCached),
+		}), convVertexOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("google", "vertex-openai-chat-interrupted.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
 			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
 		}), convVertexOpenAI, natOpenAI, false, strictUnknown, ""),
-		exact("google", "vertex-maas-chat.json", "vertex-openai-chat", "json", callVertexChat, convOpenAI, natOpenAI, true, strictRefuses, noCached),
+		exact("google", "vertex-maas-chat.json", "vertex-openai-chat", "json", callVertexChat, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("google", "vertex-maas-chat.sse", "vertex-openai-chat", "sse", with(callVertexChat, func(c *fixtureCall) {
 			c.body = `{"model":"google/model-a","messages":[{"role":"user","content":"hi"}],"stream":true}`
-		}), convOpenAI, natOpenAI, true, strictRefuses, noCached),
-		exact("google", "vertex-claude-rawpredict.json", "vertex-rawPredict", "json", callVertexClaude, convGoogleClaude, natAnthropic, true, strictRefuses, cwRefuse),
-		exact("google", "vertex-claude-streamrawpredict.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convGoogleClaude, natAnthropic, true, strictRefuses, cwRefuse),
+		}), convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("google", "vertex-claude-rawpredict.json", "vertex-rawPredict", "json", callVertexClaude, convGoogleClaude, natAnthropic, true, strictSettles, ""),
+		exact("google", "vertex-claude-streamrawpredict.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convGoogleClaude, natAnthropic, true, strictSettles, ""),
 		exact("google", "vertex-claude-streamrawpredict-interrupted.sse", "vertex-streamRawPredict", "sse", callVertexClaudeS, convGoogleClaude, natAnthropic, false, strictUnknown, ""),
 		exact("google", "vertex-interactions.json", "vertex-interactions", "json", callInteraction, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-interactions.sse", "vertex-interactions", "sse", callInteraction, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-interactions-interrupted.sse", "vertex-interactions", "sse", callInteraction, convGemini, natGemini, false, strictUnknown, ""),
-		advisory("google", "vertex-live.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, true, sessionReason+"; snapshot semantics (cumulative) and Vertex field names are UNCONFIRMED; resumed sessions are labelled ambiguous"),
-		advisory("google", "vertex-live-interrupted.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, false, sessionReason),
-		advisory("openai", "realtime.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, true, sessionReason+"; input-transcription usage is a separate transcription_* meter (ASR model) not merged into the session tokens; duration-billed transcription seconds are not captured by the token ledger (session labelled partial)"),
-		advisory("openai", "realtime.cancelled.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, sessionReason),
-		advisory("openai", "realtime.interrupted.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, sessionReason),
-		advisory("openai", "responses.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, true, sessionReason),
-		advisory("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, false, sessionReason),
+		exact("google", "vertex-live.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, true, strictSettles, ""),
+		exact("google", "vertex-live-interrupted.ws.jsonl", "vertex-live", "websocket", callLive, convGemini, natGemini, false, strictUnknown, ""),
+		exact("openai", "realtime.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai", "realtime.cancelled.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("openai", "realtime.interrupted.ws.jsonl", "realtime", "websocket", callRealtime, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		exact("openai", "responses.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai", "responses.interrupted.ws.jsonl", "responses", "websocket", callResponsesWS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 	}
 	// Utility operations (ops_utility_routes_test.go) replace the matching
 	// unsupported/format-checked entries above; media and batch routes
 	// (usage_conformance_extended_test.go) are appended.
 	return append(overrideRoutes(routes, utilityRoutes()), extendedUsageRoutes()...)
 }
+
+// usageFixtureProviders are the fixture directories under testdata/usage-formats.
+var usageFixtureProviders = []string{"openai", "anthropic", "google", "azure-openai", "openai-compatible"}
 
 func withAllow(r fixtureRoute, allow map[string]string) fixtureRoute {
 	r.allowUnknown = allow
@@ -638,7 +662,7 @@ func TestUsageFormatConformance(t *testing.T) {
 		}
 		byFile[key] = route
 	}
-	for _, provider := range []string{"openai", "anthropic", "google"} {
+	for _, provider := range usageFixtureProviders {
 		expected := loadExpected(t, provider)
 		entries, err := os.ReadDir(filepath.Join("testdata", "usage-formats", provider))
 		if err != nil {
@@ -663,7 +687,7 @@ func TestUsageFormatConformance(t *testing.T) {
 		}
 	}
 	expectations := map[string]map[string]expectedUsage{}
-	for _, provider := range []string{"openai", "anthropic", "google"} {
+	for _, provider := range usageFixtureProviders {
 		expectations[provider] = loadExpected(t, provider)
 	}
 	for _, route := range routes {
@@ -738,6 +762,12 @@ func checkFixture(t *testing.T, route fixtureRoute, data []byte, want canonical)
 					got[f] = nil
 				}
 			}
+		}
+		if route.native == natOpenAI && want["cache_write_tokens"] == nil && got["cache_write_tokens"] != nil && *got["cache_write_tokens"] == 0 {
+			// Strict OpenAI-format settlement: an absent cache_write_tokens
+			// (documented default 0; models without separately billed writes
+			// keep written tokens in ordinary input) settles as 0.
+			got["cache_write_tokens"] = nil
 		}
 		if diffs := compareCanonical(want, got, route.allowUnknown); len(diffs) > 0 {
 			t.Errorf("strict settlement mismatch: %s\n want %s\n got  %s", strings.Join(diffs, "; "), describe(want), describe(got))
@@ -904,10 +934,16 @@ func checkWebSocketFixture(t *testing.T, route fixtureRoute, data []byte, want c
 			}
 		}
 	}
-	// A token-metered lease is refused before credentials or the dial.
+	// On a session-metered surface a token-metered lease is refused before
+	// credentials or the dial.
 	run, dials := runFixtureWebSocket(t, route, data, modeStrict)
 	if dials != 0 || run.aborts != 1 || len(run.results) != 0 {
 		t.Errorf("token-metered session admitted: dials=%d aborts=%d results=%+v", dials, run.aborts, run.results)
+	}
+	// On a token-metered surface every response / allowance window is
+	// admitted, settled exactly or retained (session_metering_test.go).
+	if route.strict != strictNotApplicable {
+		checkTokenSessionFixture(t, route, data, want)
 	}
 }
 
@@ -981,7 +1017,7 @@ func renderCoverage(routes []fixtureRoute) string {
 		counts[row.provider][row.status]++
 	}
 	b.WriteString("## Summary (rows)\n\n| Provider | exact | advisory | unsupported |\n| --- | --- | --- | --- |\n")
-	for _, p := range []string{"anthropic", "google", "openai"} {
+	for _, p := range []string{"anthropic", "azure-openai", "google", "openai", "openai-compatible"} {
 		fmt.Fprintf(&b, "| %s | %d | %d | %d |\n", p, counts[p][statusExact], counts[p][statusAdvisory], counts[p][statusUnsupported])
 	}
 	b.WriteString("\n## Matrix\n\n| Provider | Surface | Transport | Status | Fixtures | Notes |\n| --- | --- | --- | --- | --- | --- |\n")
@@ -1030,16 +1066,28 @@ total when reported, else input + output. Per-directory rules:
 | ` + "`google/vertex-openai-chat*`" + ` | output = completion + reasoning (completion excludes reasoning) |
 | ` + "`google/*count-tokens*`" + ` | not consumption: no usage may be observed |
 
-Strict Gemini settlement treats an omitted ` + "`cachedContentTokenCount`" + ` as 0 (proto3 zero
-omission; conservative, all input charged as uncached) and derives thoughts as
-total - prompt - candidates. WebSocket sessions are request-count metered: one
-admission and one settlement per session; usage without final evidence is
-labelled ` + "`lower_bound`" + `, ` + "`ambiguous`" + ` (resumed Live session) or ` + "`partial`" + ` (units the
-ledger has no field for, such as Realtime input-transcription meters billed to
-another model). Non-token units the ledger holds (audio/voice/video milliseconds,
+Strict Gemini settlement treats an omitted ` + "`cachedContentTokenCount`" + ` as 0: the field is a
+plain proto3 ` + "`int32`" + ` without presence in both the Vertex and Developer API protos, and
+the proto3 JSON mapping omits default values. Thoughts are derived as
+total - prompt - candidates. Cache writes are a separate meter (scalar or per-TTL);
+OpenAI-format strict settlement treats an absent ` + "`cache_write_tokens`" + ` as 0 (documented
+default; models without separately billed writes keep them in ordinary input).
+Strict lease rows also cover Azure OpenAI (` + "`azure-openai/`" + `) and generic compatible
+servers that declare ` + "`usage_semantics: \"openai\"`" + ` (` + "`openai-compatible/`" + `), both in the
+OpenAI convention. Non-token units the ledger holds (audio/voice/video milliseconds,
 generated images, per-modality token splits) are compared by the media and batch
 checks; batch results files are aggregated with the gateway's own batch parser
 and must settle only when complete.
+
+WebSocket sessions run two ways. On a session-metered surface (default) one
+request-count admission and one settlement per session; usage without final
+evidence is labelled ` + "`lower_bound`" + `, ` + "`ambiguous`" + ` (resumed Live session) or ` + "`partial`" + `
+(units the ledger has no field for, such as Realtime input-transcription meters
+billed to another model). On a token-metered surface
+(` + "`websocket.metering: \"token\"`" + `) the harness replays the fixture with one lease per
+admitted Realtime/Responses response or Live allowance window: complete sessions
+settle every lease and the settled leases add up to the fixture's usage; an
+interrupted session leaves its open lease unsettled.
 
 `
 

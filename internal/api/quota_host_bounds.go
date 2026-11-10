@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 )
 
@@ -261,6 +262,23 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 	if !quotaStrictProfile(binding.Profile) || in.Plane != "llmplex" || in.Model != binding.Model || !quotaProfileOperation(binding) {
 		return nil, nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "operation has no supported exposure contract")
 	}
+	if binding.Profile == quotaProfileLiveAllowance {
+		// The allowance is the gateway-enforced exposure: the saved surface
+		// configuration fixes it and the relay renews or closes before it is
+		// exhausted. No provider bound authority is involved.
+		if in.SessionAllowance <= 0 {
+			return nil, nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "the surface does not meter sessions by token allowance")
+		}
+		for native := range binding.Meters {
+			if native != "requests" {
+				counts[native] = in.SessionAllowance
+			}
+		}
+		return counts, nil, nil
+	}
+	if binding.OperationID == "compat.chat-completions" && in.UsageSemantics != modelapi.UsageSemanticsOpenAI {
+		return nil, nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "the compatible server has no declared OpenAI usage semantics")
+	}
 	if len(in.Headers.Values("Anthropic-Beta")) > 0 || len(in.Headers.Values("Last-Event-ID")) > 0 {
 		return nil, nil, quotaStatus(400, "QUOTA_PROTOCOL_UNSUPPORTED", "beta features and stream resumption require their own exposure profile")
 	}
@@ -269,17 +287,30 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 		return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "request query is outside the protected profile")
 	}
 	for key, values := range query {
+		if key == "model" && binding.OperationID == "openai.v1.realtime" && len(values) == 1 && values[0] == binding.Model {
+			continue // the Realtime connect-time model selector
+		}
+		if key == "alt" && binding.OperationID == "gemini.interactions.create" && len(values) == 1 && values[0] == "sse" {
+			continue // Developer API Interactions streaming selector
+		}
+		if key == "api-version" && binding.OperationID == "azure.deployments.embeddings" {
+			continue // operator-pinned; caller values never cross upstream
+		}
 		if binding.Profile != quotaProfileGemini || key != "alt" || len(values) != 1 || (values[0] != "json" && values[0] != "sse") {
 			return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "partial responses and unknown query options are unsupported")
 		}
 	}
-	if (in.OperationID == "models.streamGenerateContent" && query.Get("alt") != "sse") || (in.OperationID == "models.generateContent" && query.Get("alt") == "sse") {
+	// streamGenerateContent is admitted with alt=sse (SSE frames) or without
+	// it (one JSON array, buffered and observed whole before delivery).
+	if (in.OperationID == "models.generateContent" || in.OperationID == "endpoints.generateContent" || in.OperationID == "gemini.models.generateContent") && query.Get("alt") == "sse" {
 		return nil, nil, quotaStatus(400, "QUOTA_QUERY_UNSUPPORTED", "request transport does not match protected native response semantics")
 	}
 	var output int64
 	var err error
 	if binding.Profile == quotaProfileGemini {
 		output, err = quotaGeminiTextOutput(in.Body)
+	} else if binding.Profile == quotaProfileEmbedding {
+		output, err = 0, quotaEmbeddingRequest(binding.OperationID, in.Body)
 	} else {
 		output, err = quotaProviderTextOutput(binding, in.Body)
 	}
@@ -301,13 +332,32 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 		copyBounds[key] = value
 	}
 	proof.NativeBounds = copyBounds
-	// This profile encodes the shared input ceiling in both disjoint input
-	// reservations and the enforced combined-output limit in both output subsets.
-	if copyBounds["uncached_input_tokens"] <= 0 || copyBounds["cached_tokens"] != copyBounds["uncached_input_tokens"] || copyBounds["output_tokens"] != output || ((binding.Profile == quotaProfileGemini || binding.Profile == quotaProfileInteraction) && copyBounds["thought_tokens"] != output) {
+	// The proof attests one provider-enforced input ceiling (keyed by the
+	// first input subset) and the requested output cap. Every disjoint input
+	// subset (uncached, cache read, each mapped cache-write meter) reserves
+	// that whole ceiling; every output subset reserves the output cap.
+	inputs := quotaProfileInputCounters(binding)
+	ceiling, attested := copyBounds["uncached_input_tokens"]
+	if !attested {
+		ceiling = copyBounds["input_tokens"]
+	}
+	if ceiling <= 0 || copyBounds["output_tokens"] != output || ((binding.Profile == quotaProfileGemini || binding.Profile == quotaProfileInteraction) && copyBounds["thought_tokens"] != output) {
 		return nil, nil, quotaStatus(503, "QUOTA_BOUNDS_UNAVAILABLE", "provider exposure proof omits a conservative token bound")
 	}
-	for _, native := range quotaProfileCounters(binding.Profile) {
-		counts[native] = copyBounds[native]
+	for _, native := range inputs {
+		if value, present := copyBounds[native]; present && value != ceiling {
+			return nil, nil, quotaStatus(503, "QUOTA_BOUNDS_UNAVAILABLE", "provider exposure proof omits a conservative token bound")
+		}
+		copyBounds[native] = ceiling
+	}
+	for _, native := range quotaProfileOutputCounters(binding.Profile) {
+		copyBounds[native] = output
+	}
+	proof.NativeBounds = copyBounds
+	for native := range binding.Meters {
+		if native != "requests" {
+			counts[native] = copyBounds[native]
+		}
 	}
 	return counts, &proof, nil
 }

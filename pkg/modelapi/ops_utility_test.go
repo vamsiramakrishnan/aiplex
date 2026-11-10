@@ -413,8 +413,9 @@ func TestUtilitySurfaceValidation(t *testing.T) {
 				found = found || o.ID == id
 			}
 		}
-		if !found || !Coverage(Operation{ID: id}).RequestCount || Coverage(Operation{ID: id}).TokenProfile != "" {
-			t.Fatalf("%s must be request-count only", id)
+		want := map[string]string{"gemini.models.generateContent": "gemini-text", "openai.v1.embeddings": "embedding-input"}[id]
+		if !found || !Coverage(Operation{ID: id}).RequestCount || Coverage(Operation{ID: id}).TokenProfile != want {
+			t.Fatalf("%s coverage: want request-count with token profile %q", id, want)
 		}
 	}
 }

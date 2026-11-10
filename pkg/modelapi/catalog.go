@@ -60,12 +60,28 @@ type Surface struct {
 	// Provider selects a non-Google native provider. Nil keeps the Google
 	// Cloud surface contract (project/location/version/publisher) unchanged.
 	Provider *Provider `json:"provider,omitempty"`
+	// WebSocket configures how session operations (live.connect,
+	// openai.v1.realtime, openai.v1.responses-websocket) are metered and
+	// bounded. Nil keeps the defaults (see WebSocketSessions).
+	WebSocket *WebSocketSessions `json:"websocket,omitempty"`
 }
 
 var segmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]*$`)
 
 func validSegment(s string) bool { return segmentPattern.MatchString(s) && s != "." && s != ".." }
 func (s Surface) Validate() error {
+	if e := s.WebSocket.validate(); e != nil {
+		return e
+	}
+	if s.WebSocket.tokenMetering() {
+		for _, o := range s.Operations {
+			if o.ID == openAILiveOperation {
+				// Live voice is billed by session seconds; no token path can
+				// observe them. It keeps session (request-count) metering.
+				return fmt.Errorf("websocket.metering %q is not supported for %s (billed by session seconds); use %q", SessionMeteringToken, openAILiveOperation, SessionMeteringSession)
+			}
+		}
+	}
 	if s.Provider != nil {
 		return s.validateProvider()
 	}
@@ -279,6 +295,10 @@ func cloneSurface(s Surface) Surface {
 	s.Agents = append([]string(nil), s.Agents...)
 	s.Operations = append([]Operation(nil), s.Operations...)
 	s.Provider = cloneProvider(s.Provider)
+	if s.WebSocket != nil {
+		copy := *s.WebSocket
+		s.WebSocket = &copy
+	}
 	return s
 }
 

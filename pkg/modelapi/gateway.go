@@ -206,7 +206,11 @@ func compileOperation(s Surface, o Operation) (compiledOperation, error) {
 }
 func (g *Gateway) Surface() Surface { return cloneSurface(g.surface) }
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	bounded, cancel := context.WithTimeout(r.Context(), g.options.MaxStreamDuration)
+	limit := g.options.MaxStreamDuration
+	if websocketUpgrade(r) {
+		limit = g.surface.WebSocket.maxSession(limit)
+	}
+	bounded, cancel := context.WithTimeout(r.Context(), limit)
 	defer cancel()
 	r = r.WithContext(bounded)
 	if g.surface.Provider != nil {
@@ -282,6 +286,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var run *executionRun
 	if lease != nil {
 		run = &executionRun{lease: lease, ctx: r.Context()}
+		if embeddingOperation(op) {
+			// Embedding responses carry no model identifier.
+			run.dispatchedModel = g.normalizeModel(metadata.Model)
+		}
 		defer run.close()
 		if receipt, ok := lease.(execution.Receipt); ok {
 			id := receipt.AttemptID()
@@ -367,7 +375,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Terminal: terminal}); err != nil {
+		if err = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Terminal: terminal, Rejected: !success && g.rejectedBeforeProcessing(response.StatusCode)}); err != nil {
 			writeExecutionError(w, err)
 			return
 		}
