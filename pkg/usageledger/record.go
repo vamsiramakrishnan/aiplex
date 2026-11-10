@@ -290,6 +290,10 @@ type Record struct {
 	// Hooks summarizes request-hook decisions on the exchange (hooks.go).
 	// It never holds content or matched text.
 	Hooks *HookSummary `json:"hooks,omitempty"`
+	// ToolPolicyRule is the identifier of the tool policy rule that refused
+	// the call (error_class tool_policy_denied or tool_policy_error). Empty
+	// for a default deny and when no rule decided. Never arguments.
+	ToolPolicyRule string `json:"tool_policy_rule,omitempty"`
 }
 
 // NewID returns a random record identifier.
@@ -340,7 +344,7 @@ func (r Record) Validate() error {
 			return invalid("%s required", name)
 		}
 	}
-	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "span_id": r.SpanID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
+	for name, value := range map[string]string{"provider": r.Provider, "resource_id": r.ResourceID, "operation": r.Operation, "model_id": r.ModelID, "model_version": r.ModelVersion, "tool_name": r.ToolName, "principal_id": r.PrincipalID, "principal_display": r.PrincipalDisplay, "actor_id": r.ActorID, "actor_display": r.ActorDisplay, "client_id": r.ClientID, "access_point_id": r.AccessPointID, "request_id": r.RequestID, "trace_id": r.TraceID, "span_id": r.SpanID, "quota_attempt_id": r.QuotaAttemptID, "error_class": r.ErrorClass, "tool_policy_rule": r.ToolPolicyRule, "image_size": r.ImageSize, "image_quality": r.ImageQuality} {
 		if !validText(value, false) {
 			return invalid("%s is not bounded printable text", name)
 		}

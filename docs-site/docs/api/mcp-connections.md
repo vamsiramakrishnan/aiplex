@@ -15,6 +15,7 @@ An MCP connection is a saved, managed connection from AIPlex to one upstream MCP
 | DELETE | `/api/v1/mcp/connections/{id}` | Delete a connection. `If-Match` required. | `admin` or `deployer` |
 | POST | `/api/v1/mcp/connections/{id}/registration` | Register the OAuth client with the upstream authorization server | `admin` or `deployer` |
 | POST | `/api/v1/mcp/connections/{id}/invoke` | Send one MCP JSON-RPC request to the upstream. Also answers `tools/list`. | Per tool: `mcp:tools:{name}` grant, re-checked before dispatch |
+| POST | `/api/v1/mcp/connections/{id}/rules/test` | Dry-run the connection's policy rules against a sample call. Nothing is stored. | `admin` or `deployer` |
 | POST | `/api/v1/mcp/connections/{id}/authorization` | Start a delegated OAuth authorization for the caller | `mcp:authorize:{id}` grant, or `mcp:tools:{name}` for one allowed tool |
 | POST | `/api/v1/mcp/connections/{id}/authorization/complete` | Complete the authorization with the provider's response | Same as `authorization` |
 | GET | `/api/v1/mcp/connections/{id}/authorization` | Read the caller's authorization status | Same as `authorization` |
@@ -40,7 +41,7 @@ Returns the catalogue used to build a connection's `auth` block.
 | `default_type` | string | `oauth_user` |
 | `default_behaviour` | string | Explains that a connection without an `auth` block keeps its execution `credential_mode`: `delegated-oauth` uses `oauth_user` and `operator-bearer` uses the operator identity profile |
 | `secret_references` | object | `pattern`, `namespace` (omitted when no tenant is bound) and `note`. Secret fields take a reference name, never a value. |
-| `tools_policy` | array of field | The fields of a connection's `tools` block: `allow`, `deny` and `read_only` |
+| `tools_policy` | array of field | The fields of a connection's `tools` block: `allow`, `deny`, `read_only` and `rules` (described in [Policy rules on tool calls](../library/tool-policy-rules.md)) |
 
 A type has `type`, `title`, `description`, `execution_credential_mode` and `fields`. A field has `name`, `type`, `required`, `secret_reference` (`true` when the field holds a reference name), `enum` (omitted when empty) and `description`.
 
@@ -74,6 +75,7 @@ The resource `id` is the connection `id`. The body is the connection below. Unkn
 | `network_profile_ref` | string | No | Saved `network-profile` resource. Checked on every call. |
 | `auth` | object | No | Upstream credential. See Auth. Without it, `credential_mode` decides the credential. |
 | `tools` | object | No | Connection-level tool policy. See Tool policy. |
+| `provenance` | object | No | Where an imported connection came from. See Provenance. Informational only. |
 
 ### Execution
 
@@ -129,6 +131,23 @@ Secret fields hold reference names in the tenant's secret namespace, matching th
 | `allow` | array of string | Exact tool names, or prefixes ending in `*`. When present, only matching tools are callable. |
 | `deny` | array of string | Exact tool names, or prefixes ending in `*`. Deny wins over allow. An empty list is refused. |
 | `read_only` | boolean | Omitted unless `true`. Only tools whose gateway-observed `readOnlyHint` annotation is `true` are callable. Unknown annotations are denied. |
+| `rules` | array of rule | Omitted when empty; an empty list is refused. Up to 64 [policy rules](../library/tool-policy-rules.md), evaluated in order after the lists, the caller's scope and `read_only`. |
+
+A rule has:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | Required. `[a-z][a-z0-9_-]{0,62}`, unique in the list. |
+| `when` | string | Required. A CEL boolean expression, at most 1024 bytes and 256 syntax nodes. It is compiled and type-checked when the connection is saved; an expression that does not parse, uses an unknown variable or field, or is not boolean is rejected with `400` naming the rule. |
+| `effect` | string | Required. `deny` or `allow`. |
+| `message` | string | Optional, at most 200 printable bytes. Shown to the caller when the rule refuses a call. |
+| `description` | string | Optional, at most 500 printable bytes. |
+
+The first matching `deny` refuses a call. When the list has an `allow` rule, a call that matches none is refused. A rule that cannot be evaluated refuses the call. A refusal is a JSON-RPC error `-32001` with `data.reason` `tool_policy_denied` or `tool_policy_error` and `data.rule`, HTTP `403` on `invoke`. The variables, helpers, limits and the full order are in [Policy rules on tool calls](../library/tool-policy-rules.md).
+
+### Provenance
+
+Set by `aiplex mcp registry import`. The fields are `registry` (an `https` URL, or `http` to a loopback host), `name` (a registry server name), `version`, `retrieved_at` (RFC 3339) and `sha256` (64 lower-case hex digits of the server object as the registry served it). All are required when the block is present. Nothing in authorization or dispatch reads it. See [Import from the MCP Registry](../library/mcp-registry-import.md).
 
 ## GET `/api/v1/mcp/connections`
 
@@ -220,6 +239,56 @@ Deletes a connection. `If-Match` is required and must carry the current revision
 curl -sS -X DELETE "$AIPLEX_URL/api/v1/mcp/connections/connection-example" \
   -H "Authorization: Bearer $AIPLEX_TOKEN" \
   -H 'If-Match: "1"'
+```
+
+## POST `/api/v1/mcp/connections/{id}/rules/test`
+
+Evaluates the connection's [policy rules](../library/tool-policy-rules.md) against a sample call and returns the per-rule trace. Operators only. The sample is not stored, logged or written to the ledger. Only rules are evaluated: the name lists, the caller's scope, `read_only`, quota and request hooks are not part of the test. The body is at most 256 KiB and unknown fields are rejected.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `tool` | string | Required. The tool name of the sample call. |
+| `args` | object | The sample `arguments`. Over 64 KiB the answer is `decision: "error"`, `reason: "arguments_too_large"`. |
+| `subject` | object | The caller to simulate: `kind`, `principal`, `groups`, `groups_known`, `agent`, `client`. `groups_known` defaults to `true` when `groups` is set and `false` otherwise. |
+| `access_point` | string | Also apply this access point's rules for the connection, and set `access_point.id`. |
+| `annotations` | object | Simulated `read_only`, `destructive`, `idempotent`, `open_world`. Without it the gateway's stored observations are used (absent when unknown or stale). |
+| `rules` | array of rule | Rules to evaluate instead of the saved ones, for this request only. Compiled with the same checks as on save. |
+| `time` | string | RFC 3339 value of `request.time`. Default: now. |
+
+The answer:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `connection`, `tool` | string | Echo of the request |
+| `decision` | string | `allow`, `deny` or `error` |
+| `error_class` | string | `tool_policy_denied` or `tool_policy_error` when refused |
+| `reason` | string | `deny_rule_matched`, `no_allow_rule_matched`, `evaluation_error` or `arguments_too_large` |
+| `rule` | string | The rule that decided; omitted for the default deny |
+| `message` | string | What a caller would be told |
+| `trace` | array | Per rule: `set` (`connection` or `access_point`), `id`, `effect`, `result` (`matched`, `not_matched`, `error` or `not_evaluated`) and, for `error`, the evaluator's `error` text |
+| `list_hidden` | boolean | `true` when `tools/list` would hide this tool for this subject (decided without arguments) |
+| `note` | string | Reminds what the test does not cover |
+
+### Status codes and errors
+
+| Status | Code | When |
+|---|---|---|
+| 200 | none | Evaluated |
+| 400 | `INVALID_REQUEST` | The body is not valid, `tool` is not a tool name, `args` is not an object, or `time` is not RFC 3339 |
+| 400 | `INVALID_RULES` | The `rules` in the request do not compile; the message names the rule |
+| 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
+| 403 | `TENANT_REQUIRED` | No verified tenant binding |
+| 404 | `NOT_FOUND` | No such connection, or no such access point |
+| 409 | `INVALID_STORED_CONNECTION` or `INVALID_STORED_RULES` | A stored record no longer validates |
+| 413 | `REQUEST_TOO_LARGE` | The body is over 256 KiB |
+
+### Example
+
+```bash
+curl -sS -X POST "$AIPLEX_URL/api/v1/mcp/connections/connection-example/rules/test" \
+  -H "Authorization: Bearer $AIPLEX_TOKEN" -H "Content-Type: application/json" \
+  -d '{"tool":"read_file","args":{"path":"/etc/hosts"},"subject":{"kind":"user","groups":["eng"]}}'
 ```
 
 ## POST `/api/v1/mcp/connections/{id}/registration`

@@ -13,6 +13,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/pkg/clientplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
+	"github.com/vamsiramakrishnan/aiplex/pkg/toolpolicy"
 )
 
 // accessPointCaller is derived only from the verified identity and saved
@@ -147,6 +148,8 @@ type accessPointCall struct {
 	// are missing. It only changes the wording of the refusal; it never
 	// permits anything.
 	missingGrant string
+	// toolRules are the access point's policy rules by tool connection.
+	toolRules map[string][]toolpolicy.Rule
 }
 
 type accessPointKey struct{}
@@ -243,6 +246,14 @@ func (h *ConnectedHandler) accessPointGate(w http.ResponseWriter, r *http.Reques
 	}
 	revision := record.Revision
 	call := &accessPointCall{ID: id, CallerKind: caller.Kind, ClientID: caller.ClientID, Revision: revision, QoS: ap.QoS != nil}
+	for _, t := range ap.Tools {
+		if len(t.Rules) > 0 {
+			if call.toolRules == nil {
+				call.toolRules = map[string][]toolpolicy.Rule{}
+			}
+			call.toolRules[t.ConnectionRef] = t.Rules
+		}
+	}
 	if ap.QoS != nil {
 		call.Weight = ap.QoS.Weight
 	}

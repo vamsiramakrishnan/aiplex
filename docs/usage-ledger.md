@@ -95,6 +95,7 @@ unknown. Any other value is matched exactly.
 | `cost` | `basis`. When the basis is not `unknown`, also `currency`, `amount` (a decimal integer in minor units at `scale`), `scale` and `amount_decimal`, the same amount written as an exact decimal string (for example `0.000006` for `amount` `6` at scale `6`). |
 | `provider_limits` | The provider rate-limit observation from the native response, when one was reported. See [model providers](model-providers.md). |
 | `hooks` | Present when a [request hook](request-hooks.md) ran on the exchange. `decision` is the most significant decision of all runs (`deny`, then `error`, then `transform`, then `allow`, then `skipped`); `uninspected_parts` counts images, audio, files and unknown blocks that were present but not inspected; `fail_open_used` is `true` when a `fail_open` hook failed and the exchange continued without it. `results` lists each hook run: `id` (`policy/hook`), `type`, `phase` (`request` or `response`), `decision`, `rules` (rule identifiers with match `count`; for a denial the denying rule comes first), `duration_ms` and `fail_open_used`. It never holds content or the matched text. |
+| `tool_policy_rule` | The identifier of the [policy rule](tool-policy-rules.md) that refused a tool call (`error_class` `tool_policy_denied` or `tool_policy_error`). Omitted otherwise and for the default deny. Never the arguments. |
 | `quota_attempt_id` | QuotaPlex attempt, when quota admitted the exchange. |
 | `session` | `true` for a WebSocket session. One record covers the whole session, and its usage is final only with a terminal observation. Omitted otherwise. |
 | `request_id` | The request's correlation identifier (`X-Request-Id`). |
@@ -316,6 +317,8 @@ HTTP-status class below. A quota, capacity or session reason replaces that class
 | `capacity_shed` | The request was rejected by the capacity policy's headroom rule. Callers below `min_weight` are shed first. It is not a provider error. |
 | Quota reason codes | QuotaPlex refused the exchange before the provider was called. |
 | `hook_denied` | A [request hook](request-hooks.md) refused the request (before the provider was called; no quota is reserved) or withheld the response (after it; usage is still recorded). Status `denied`, HTTP 403. |
+| `tool_policy_denied` | A [policy rule](tool-policy-rules.md) on a tool call refused it: a matching `deny` rule, or no `allow` rule matched. Refused before quota, hooks and the upstream call. Status `denied`, HTTP 403. The record's `tool_policy_rule` names the rule (empty for the default deny). |
+| `tool_policy_error` | A policy rule on a tool call could not be evaluated (or the arguments were over the evaluation limit) and the call was refused. Status `denied`, HTTP 403. `tool_policy_rule` names the rule that failed. |
 | `hook_unavailable` | A request hook could not decide (timeout, unreachable or invalid sidecar) and is not `fail_open`. Status `error`, HTTP 503. |
 | `hook_policy_unavailable` | The tenant's hook policies could not be read, or a stored one no longer validates. Status `error`, HTTP 503. |
 

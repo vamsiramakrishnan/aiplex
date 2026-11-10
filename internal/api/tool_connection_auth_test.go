@@ -574,7 +574,7 @@ func TestToolAuthTypesCatalog(t *testing.T) {
 			Name string `json:"name"`
 		} `json:"tools_policy"`
 	}
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &response) != nil || len(response.Types) != 8 || response.DefaultType != "oauth_user" || response.Secrets.Namespace != "ns-tenant-" || len(response.Tools) != 3 {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &response) != nil || len(response.Types) != 8 || response.DefaultType != "oauth_user" || response.Secrets.Namespace != "ns-tenant-" || len(response.Tools) != 4 {
 		t.Fatal("auth-types catalog shape", w.Code, w.Body.String())
 	}
 	secretFields := 0

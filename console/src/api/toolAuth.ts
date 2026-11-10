@@ -37,6 +37,9 @@ export interface ToolPolicy {
   allow?: string[]
   deny?: string[]
   read_only?: boolean
+  // Policy rules are edited with the CLI (aiplex mcp connections rules). The
+  // editor keeps them as they are when it saves the other members.
+  rules?: Record<string, unknown>[]
 }
 
 export interface ToolConnectionSpec extends Record<string, unknown> {
@@ -198,6 +201,8 @@ export function applySelection(spec: ToolConnectionSpec, catalog: ToolAuthCatalo
   if (allow.length) policy.allow = allow
   if (deny.length) policy.deny = deny
   if (selection.readOnly) policy.read_only = true
+  const rules = (spec.tools as ToolPolicy | undefined)?.rules
+  if (rules?.length) policy.rules = rules
   if (Object.keys(policy).length) next.tools = policy
   else delete next.tools
   return next

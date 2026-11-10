@@ -148,7 +148,7 @@ Tools policy flags change only the part you pass: --allow and --deny replace tha
 	fl.StringSliceVar(&f.allow, "allow", nil, "Tool name or prefix ending in '*' that may be called (repeatable)")
 	fl.StringSliceVar(&f.deny, "deny", nil, "Tool name or prefix ending in '*' that may never be called (repeatable)")
 	fl.BoolVar(&f.readOnly, "read-only", false, "Only call tools annotated readOnlyHint=true")
-	fl.BoolVar(&f.clearTools, "clear-tools", false, "Remove the tools policy")
+	fl.BoolVar(&f.clearTools, "clear-tools", false, "Remove the tools policy, including its policy rules")
 	return cmd
 }
 
@@ -247,6 +247,9 @@ func printToolConnectionPolicy(c *aiplex.ToolConnectionRecord) {
 		}
 		if c.Tools.ReadOnly {
 			parts = append(parts, "read-only")
+		}
+		if len(c.Tools.Rules) > 0 {
+			parts = append(parts, fmt.Sprintf("rules=%d", len(c.Tools.Rules)))
 		}
 		if len(parts) > 0 {
 			policy = strings.Join(parts, " ")

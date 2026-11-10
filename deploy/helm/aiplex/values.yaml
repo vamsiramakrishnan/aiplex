@@ -62,6 +62,11 @@ denialIngest:
     key: token
 
 # ─── Rust ext_authz sidecar (optional; the default data path is OPA below) ───
+# The release pipeline does not build or push this image yet. Build it from
+# authz/Dockerfile with authz/ as the context and push it to
+# <global.registry>/aiplex-authz:<tag> (tag defaults to the chart appVersion):
+#   docker build -t "$REGISTRY/aiplex-authz:0.1.0" authz/ && docker push "$REGISTRY/aiplex-authz:0.1.0"
+# See docs/policy-denials.md.
 authz:
   enabled: false
   replicas: 2

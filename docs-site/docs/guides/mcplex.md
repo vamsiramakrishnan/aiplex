@@ -20,7 +20,7 @@ aiplex deploy TEMPLATE_ID --plane mcplex --name my-tool
 aiplex get instance INSTANCE_ID
 ```
 
-The API also serves the MCP registry listing for MCP clients at `GET /v0.1/servers`.
+The API also serves the MCP registry listing for MCP clients at `GET /v0.1/servers`. To bring servers in from the official registry, see [Import from the MCP Registry](../library/mcp-registry-import.md).
 
 ## Upstream auth and tool policy
 
@@ -32,6 +32,27 @@ aiplex tools set-auth --help
 ```
 
 Read [Tool connection auth and tool policy](../library/tool-connection-auth.md).
+
+## Policy rules on tool calls
+
+Add `rules` to the tools block to allow or deny a call on its arguments, the tool's annotations, the caller or the time, with expressions that are type-checked when saved and refuse the call when they cannot be evaluated:
+
+```bash
+aiplex mcp connections rules add search --id no-etc --effect deny \
+  --when "path_under(args.path, '/etc')" --message "files under /etc are off limits"
+aiplex mcp connections rules test search --tool read_file --args '{"path":"/etc/hosts"}' --group eng
+```
+
+Read [Policy rules on tool calls](../library/tool-policy-rules.md).
+
+## Import from the MCP Registry
+
+```bash
+aiplex mcp registry search github
+aiplex mcp registry import ai.adside/adside --allow-tools list_campaigns --dry-run
+```
+
+Remote Streamable HTTP servers import as ordinary, read-only tool connections; local packages do not. Read [Import from the MCP Registry](../library/mcp-registry-import.md).
 
 ## Delegated user OAuth
 

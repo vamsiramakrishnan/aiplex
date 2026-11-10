@@ -13,6 +13,11 @@ handlers, the per-surface gateway and access points) and `mcplex` (MCP
 `tools/call` through managed tool connections, directly or through an access
 point).
 
+On tool calls, [policy rules](tool-policy-rules.md) run first and decide allow or deny
+from structured facts (the tool, its arguments, the caller, the time). They do not look
+at content or change it; hooks do. A call a rule refuses never reaches the hook chain,
+and hooks see the arguments of a call the rules allowed.
+
 This page states what is implemented, what is inspected and what is not. Read
 the [limits](#limits-and-what-has-not-been-validated) before relying on hooks
 for compliance.

@@ -156,6 +156,7 @@ func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHa
 			resourceRoutes(r, h, "tool-connection")
 			r.Post("/{id}/registration", h.RegisterTool)
 			r.Post("/{id}/invoke", h.NativeTool)
+			r.Post("/{id}/rules/test", h.TestToolRules)
 			r.Post("/{id}/authorization", h.StartToolAuthorization)
 			r.Post("/{id}/authorization/complete", h.CompleteToolAuthorization)
 			r.Get("/{id}/authorization", h.GetToolAuthorization)

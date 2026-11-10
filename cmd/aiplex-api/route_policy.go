@@ -100,6 +100,8 @@ var routeRules = func() []api.RouteRule {
 		tenantRule(nil, "/api/v1/llm/gateway/{id}/*", api.RouteAuthenticated),
 		tenantRule(post, "/api/v1/a2a/connections/{id}/invoke", api.RouteAuthenticated),
 		tenantRule(post, "/api/v1/mcp/connections/{id}/invoke", api.RouteAuthenticated),
+		// Policy-rule dry run: describes the connection's rules, so operators only.
+		tenantRule(post, "/api/v1/mcp/connections/{id}/rules/test", api.RouteOperator),
 		tenantRule([]string{http.MethodGet, http.MethodPost, http.MethodDelete}, "/api/v1/mcp/connections/{id}/authorization", api.RouteAuthenticated),
 		tenantRule(post, "/api/v1/mcp/connections/{id}/authorization/complete", api.RouteAuthenticated),
 		tenantRule(post, "/api/v1/iam/native/bindings/{id}/read", api.RouteAuthenticated),

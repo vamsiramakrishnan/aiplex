@@ -195,6 +195,7 @@ var intendedRoutePolicy = map[string]string{
 	"DELETE /api/v1/mcp/connections/{id}":                      "op/t",
 	"POST /api/v1/mcp/connections/{id}/registration":           "op/t",
 	"POST /api/v1/mcp/connections/{id}/invoke":                 "auth/t+grant",
+	"POST /api/v1/mcp/connections/{id}/rules/test":             "op/t",
 	"GET /api/v1/mcp/connections/{id}/authorization":           "auth/t+grant",
 	"POST /api/v1/mcp/connections/{id}/authorization":          "auth/t+grant",
 	"DELETE /api/v1/mcp/connections/{id}/authorization":        "auth/t+grant",
