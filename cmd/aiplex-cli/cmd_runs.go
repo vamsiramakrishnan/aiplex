@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,7 +18,11 @@ import (
 //
 //	aiplex runs list      [--tenant] [--agent] [--has-unknown] [--has-obligations] [--limit]
 //	aiplex runs inspect   <run_id>
-//	aiplex runs events    <run_id>
+//	aiplex runs events    <run_id> [--from-seq N] [--limit N]
+//	aiplex runs effects   <run_id>
+//	aiplex runs obligations <run_id>
+//	aiplex runs budgets   <run_id>
+//	aiplex runs health
 //	aiplex runs audit     <run_id>
 //	aiplex runs redrive   <run_id>
 //	aiplex runs reconcile <run_id>
@@ -36,6 +43,10 @@ corresponding aiplex:runs:{action} scope.`,
 		runsListCmd(),
 		runsInspectCmd(),
 		runsEventsCmd(),
+		runsEffectsCmd(),
+		runsObligationsCmd(),
+		runsBudgetsCmd(),
+		runsHealthCmd(),
 		runsAuditCmd(),
 		runsRedriveCmd(),
 		runsReconcileCmd(),
@@ -78,7 +89,7 @@ func runsListCmd() *cobra.Command {
 			rows := make([][]string, 0, len(runs))
 			for _, r := range runs {
 				rows = append(rows, []string{
-					truncate(r.RunID, 16),
+					shorten(r.RunID, 16, truncEnd, false),
 					r.Status,
 					r.TenantID,
 					r.AgentID,
@@ -137,35 +148,289 @@ func runsInspectCmd() *cobra.Command {
 }
 
 func runsEventsCmd() *cobra.Command {
-	return &cobra.Command{
+	var fromSeq int64
+	var limit int
+	cmd := &cobra.Command{
 		Use:   "events <run_id>",
 		Short: "Show the ordered timeline for a run",
-		Args:  cobra.ExactArgs(1),
+		Long: `Show a run's journal events in sequence order, one page at a time.
+--from-seq is inclusive. When a page is full the command prints the exact
+command for the next page.`,
+		Example: `  aiplex runs events RUN_ID
+  aiplex runs events RUN_ID --from-seq 1000 --limit 500`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			events, err := newClient().ListRunEvents(context.Background(), args[0])
+			if fromSeq < 0 {
+				return fmt.Errorf("--from-seq must be 0 or more")
+			}
+			if limit < 1 {
+				return fmt.Errorf("--limit must be 1 or more")
+			}
+			events, err := newClient().ListRunEvents(context.Background(), args[0],
+				aiplex.ListRunEventsOpts{FromSeq: fromSeq, Limit: limit})
 			if err != nil {
 				return fmt.Errorf("list events: %w", err)
 			}
-			if output == "json" {
-				printJSON(events)
+			if events == nil {
+				events = []aiplex.ExecutionEvent{}
+			}
+			if spStructured(cmd, events) {
 				return nil
 			}
-			headers := []string{"SEQ", "TS", "KIND", "TOOL", "SCOPE"}
+			out := cmd.OutOrStdout()
 			rows := make([][]string, 0, len(events))
 			for _, e := range events {
 				rows = append(rows, []string{
 					fmt.Sprintf("%d", e.Seq),
-					e.Timestamp.Format("15:04:05"),
-					e.Kind,
-					e.Tool,
-					e.Scope,
+					runsTime(e.Timestamp),
+					orUnknown(e.Kind),
+					dashIfEmpty(e.Tool),
+					dashIfEmpty(e.Scope),
 				})
 			}
-			printTable(headers, rows)
-			fmt.Printf("\n%d event(s)\n", len(events))
+			spTable(out, []string{"SEQ", "TS", "KIND", "TOOL", "SCOPE"}, rows)
+			fmt.Fprintf(out, "\n%d event(s)\n", len(events))
+			if len(events) >= limit {
+				next := events[len(events)-1].Seq + 1
+				fmt.Fprintf(out, "\nMore: %s\n", runsEventsNextCommand(args[0], next, limit))
+			}
 			return nil
 		},
 	}
+	cmd.Flags().Int64Var(&fromSeq, "from-seq", 0, "first sequence number to return (inclusive)")
+	cmd.Flags().IntVar(&limit, "limit", 1000, "page size")
+	return cmd
+}
+
+// runsEffectsCmd lists a run's effect events. The outcome comes from the
+// event kind; an effect the backend reported as unknown stays "unknown".
+func runsEffectsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "effects <run_id>",
+		Example: "  aiplex runs effects RUN_ID\n  aiplex runs effects RUN_ID -o json",
+		Short:   "Show what a run attempted to do, and each effect's outcome",
+		Long: `Show the run's effect events: started, confirmed, failed, duplicate, or
+unknown. An unknown outcome means the backend could not tell whether the
+effect happened; it is neither success nor failure. Resolve it with
+'aiplex runs reconcile'. The API reads at most the first 10000 events of
+the run for this view.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			events, err := newClient().ListRunEffects(context.Background(), args[0])
+			if err != nil {
+				return fmt.Errorf("list effects: %w", err)
+			}
+			if events == nil {
+				events = []aiplex.ExecutionEvent{}
+			}
+			if spStructured(cmd, events) {
+				return nil
+			}
+			out := cmd.OutOrStdout()
+			unknown := 0
+			rows := make([][]string, 0, len(events))
+			for _, e := range events {
+				outcome := runsEffectOutcome(e.Kind)
+				if outcome == spUnknown {
+					unknown++
+				}
+				rows = append(rows, []string{fmt.Sprintf("%d", e.Seq), runsTime(e.Timestamp), outcome, dashIfEmpty(e.Tool), dashIfEmpty(e.Scope)})
+			}
+			spTable(out, []string{"SEQ", "TS", "OUTCOME", "TOOL", "SCOPE"}, rows)
+			fmt.Fprintf(out, "\n%d effect(s)", len(events))
+			if unknown > 0 {
+				fmt.Fprintf(out, ", %d with unknown outcome (see '%s')", unknown, runsRunCommand("reconcile", args[0]))
+			}
+			fmt.Fprintln(out)
+			return nil
+		},
+	}
+}
+
+func runsObligationsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "obligations <run_id>",
+		Example: "  aiplex runs obligations RUN_ID",
+		Short:   "Show the obligations a run created",
+		Long: `Show the run's obligation events: follow-up work the run owes, such as
+an undo for an effect. Drain them with 'aiplex runs compensate'. The API
+reads at most the first 10000 events of the run for this view.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			events, err := newClient().ListRunObligations(context.Background(), args[0])
+			if err != nil {
+				return fmt.Errorf("list obligations: %w", err)
+			}
+			if events == nil {
+				events = []aiplex.ExecutionEvent{}
+			}
+			if spStructured(cmd, events) {
+				return nil
+			}
+			out := cmd.OutOrStdout()
+			rows := make([][]string, 0, len(events))
+			for _, e := range events {
+				rows = append(rows, []string{fmt.Sprintf("%d", e.Seq), runsTime(e.Timestamp), dashIfEmpty(e.Tool), dashIfEmpty(e.Scope), dashIfEmpty(e.PayloadJSON)})
+			}
+			spTable(out, []string{"SEQ", "TS", "TOOL", "SCOPE", "DETAIL"}, rows)
+			fmt.Fprintf(out, "\n%d obligation(s)\n", len(events))
+			return nil
+		},
+	}
+}
+
+func runsBudgetsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "budgets <run_id>",
+		Example: "  aiplex runs budgets RUN_ID",
+		Short:   "Show the budget charges recorded on a run",
+		Long: `Show the run's budget charge events. A charge whose amount is missing
+from the event is shown as unknown, and the total says how many it leaves
+out. The API reads at most the first 10000 events of the run for this view.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			events, err := newClient().ListRunBudgets(context.Background(), args[0])
+			if err != nil {
+				return fmt.Errorf("list budgets: %w", err)
+			}
+			if events == nil {
+				events = []aiplex.ExecutionEvent{}
+			}
+			if spStructured(cmd, events) {
+				return nil
+			}
+			out := cmd.OutOrStdout()
+			var total float64
+			unknown := 0
+			rows := make([][]string, 0, len(events))
+			for _, e := range events {
+				amount := spUnknown
+				if usd, ok := runsChargedUSD(e.PayloadJSON); ok {
+					total += usd
+					amount = fmt.Sprintf("$%.2f", usd)
+				} else {
+					unknown++
+				}
+				rows = append(rows, []string{fmt.Sprintf("%d", e.Seq), runsTime(e.Timestamp), amount})
+			}
+			spTable(out, []string{"SEQ", "TS", "USD"}, rows)
+			fmt.Fprintf(out, "\n%d charge(s)\n", len(events))
+			switch {
+			case len(events) == 0:
+				fmt.Fprintln(out, "No budget charges recorded; no total.")
+			case unknown == len(events):
+				fmt.Fprintf(out, "Total charged: unknown (%d charge(s) with unknown amount)\n", unknown)
+			case unknown > 0:
+				fmt.Fprintf(out, "Total charged: $%.2f (excludes %d charge(s) with unknown amount)\n", total, unknown)
+			default:
+				fmt.Fprintf(out, "Total charged: $%.2f\n", total)
+			}
+			return nil
+		},
+	}
+}
+
+func runsHealthCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "health",
+		Example: "  aiplex runs health",
+		Short:   "Check whether the durable-run pipeline has delivered events",
+		Long: `Show when the API last ingested a run event, whether any run is known,
+and how many agent instances use the Tape runtime. Runs need the durable-run
+backend (Tape); with none connected the last ingest reads "none recorded".`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			h, err := newClient().GetRunsHealth(context.Background())
+			if err != nil {
+				return fmt.Errorf("runs health: %w", err)
+			}
+			if spStructured(cmd, h) {
+				return nil
+			}
+			out := cmd.OutOrStdout()
+			last := "none recorded"
+			if !h.LastIngestAt.IsZero() {
+				last = h.LastIngestAt.UTC().Format(time.RFC3339)
+			}
+			known := "no"
+			if h.HasRuns {
+				known = "yes"
+			}
+			fmt.Fprintf(out, "Last ingest:     %s\n", last)
+			fmt.Fprintf(out, "Runs known:      %s\n", known)
+			fmt.Fprintf(out, "Tape instances:  %d\n", h.TapeInstancesCount)
+			if !h.Now.IsZero() {
+				fmt.Fprintf(out, "Server time:     %s\n", h.Now.UTC().Format(time.RFC3339))
+			}
+			return nil
+		},
+	}
+}
+
+// runsEffectOutcome names an effect event's outcome from its kind. A missing
+// kind is shown as unknown and an unrecognised one as itself, never blank.
+func runsEffectOutcome(kind string) string {
+	switch kind {
+	case "effect.begin":
+		return "started"
+	case "effect.confirmed":
+		return "confirmed"
+	case "effect.failed":
+		return "failed"
+	case "effect.duplicate":
+		return "duplicate"
+	case "effect.unknown", "":
+		return spUnknown
+	}
+	return kind
+}
+
+// runsChargedUSD reads usd_charged from a budget event payload. ok is false
+// when the payload is absent, malformed or carries no amount: the amount is
+// unknown, not zero.
+func runsChargedUSD(payload string) (float64, bool) {
+	if payload == "" {
+		return 0, false
+	}
+	var p struct {
+		USDCharged *float64 `json:"usd_charged"`
+	}
+	if err := json.Unmarshal([]byte(payload), &p); err != nil || p.USDCharged == nil {
+		return 0, false
+	}
+	return *p.USDCharged, true
+}
+
+func runsTime(t time.Time) string {
+	if t.IsZero() {
+		return spUnknown
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return spUnknown
+	}
+	return s
+}
+
+func dashIfEmpty(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+var runsPlainArg = regexp.MustCompile(`^[A-Za-z0-9._:/@=-]+$`)
+
+// runsShellArg quotes a run id only when the shell would need it, so the
+// "More:" hint can be pasted as written.
+func runsShellArg(s string) string {
+	if runsPlainArg.MatchString(s) {
+		return s
+	}
+	return shellQuote(s)
 }
 
 func runsAuditCmd() *cobra.Command {
@@ -312,9 +577,18 @@ or UNKNOWN effects).`,
 	}
 }
 
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
+// runsRunCommand renders "aiplex runs <verb> <run_id>" so the shell hands the
+// id to the command as a positional argument even when it starts with "-".
+func runsRunCommand(verb, runID string) string {
+	if strings.HasPrefix(runID, "-") {
+		return "aiplex runs " + verb + " -- " + runsShellArg(runID)
 	}
-	return s[:n-1] + "…"
+	return "aiplex runs " + verb + " " + runsShellArg(runID)
+}
+
+func runsEventsNextCommand(runID string, fromSeq int64, limit int) string {
+	if strings.HasPrefix(runID, "-") {
+		return fmt.Sprintf("aiplex runs events --from-seq %d --limit %d -- %s", fromSeq, limit, runsShellArg(runID))
+	}
+	return fmt.Sprintf("aiplex runs events %s --from-seq %d --limit %d", runsShellArg(runID), fromSeq, limit)
 }

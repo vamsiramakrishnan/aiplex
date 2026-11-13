@@ -833,6 +833,9 @@ type ExecutionRun struct {
 	Obligations      int64      `json:"obligations"`
 	PolicyViolations int64      `json:"policy_violations"`
 	BudgetUSDCharged float64    `json:"budget_usd_charged"`
+	Compacted        bool       `json:"compacted"`
+	CompactedAt      *time.Time `json:"compacted_at,omitempty"`
+	RetainedUntil    *time.Time `json:"retained_until,omitempty"`
 }
 
 // ExecutionEvent is one journaled row in a run's timeline.
@@ -915,12 +918,37 @@ func (c *Client) GetRun(ctx context.Context, runID string) (*ExecutionRun, error
 	return &run, nil
 }
 
-// ListRunEvents returns the ordered timeline for a run.
-func (c *Client) ListRunEvents(ctx context.Context, runID string) ([]ExecutionEvent, error) {
+// ListRunEventsOpts pages a run's timeline. FromSeq is inclusive (the
+// server returns events with seq >= FromSeq); zero values use the server
+// defaults (from the start, 1000 events).
+type ListRunEventsOpts struct {
+	FromSeq int64
+	Limit   int
+}
+
+// ListRunEvents returns the ordered timeline for a run. Pass at most one
+// ListRunEventsOpts to page it; without one the server's defaults apply.
+func (c *Client) ListRunEvents(ctx context.Context, runID string, opts ...ListRunEventsOpts) ([]ExecutionEvent, error) {
+	if len(opts) > 1 {
+		return nil, fmt.Errorf("at most one ListRunEventsOpts")
+	}
+	path := "/api/v1/runs/" + url.PathEscape(runID) + "/events"
+	if len(opts) == 1 {
+		q := url.Values{}
+		if opts[0].FromSeq > 0 {
+			q.Set("from_seq", strconv.FormatInt(opts[0].FromSeq, 10))
+		}
+		if opts[0].Limit > 0 {
+			q.Set("limit", strconv.Itoa(opts[0].Limit))
+		}
+		if s := q.Encode(); s != "" {
+			path += "?" + s
+		}
+	}
 	var resp struct {
 		Events []ExecutionEvent `json:"events"`
 	}
-	if err := c.do(ctx, "GET", "/api/v1/runs/"+url.PathEscape(runID)+"/events", nil, &resp); err != nil {
+	if err := c.do(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Events, nil
