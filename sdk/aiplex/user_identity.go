@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/membership"
 	"github.com/vamsiramakrishnan/aiplex/pkg/userfederation"
 )
 
@@ -277,6 +279,33 @@ func (c *Client) PlanUserIdentityProvider(ctx context.Context, id string) (*User
 	}
 	var out UserIdentityPlan
 	if err = c.do(ctx, http.MethodPost, path+"/plan", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UserMembershipInvalidation is the answer of InvalidateUserMembership.
+type UserMembershipInvalidation struct {
+	PrincipalID string    `json:"principal_id"`
+	NotBefore   time.Time `json:"not_before"`
+	// Scope says where the invalidation applies: the cache is per server
+	// process, so call every replica or wait out the cache TTL.
+	Scope string `json:"scope"`
+}
+
+// InvalidateUserMembership forces the next request of the subject (the
+// verified subject claim value) to resolve its groups from the provider's
+// directory again (admin only). The provider must have a directory block.
+func (c *Client) InvalidateUserMembership(ctx context.Context, id, subject string) (*UserMembershipInvalidation, error) {
+	path, err := userProviderPath(id)
+	if err != nil {
+		return nil, err
+	}
+	if !membership.Text(subject) {
+		return nil, fmt.Errorf("aiplex: subject must be the verified subject claim value (non-empty, no surrounding space or control characters)")
+	}
+	var out UserMembershipInvalidation
+	if err = c.do(ctx, http.MethodPost, path+"/membership/invalidate", map[string]string{"subject": subject}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

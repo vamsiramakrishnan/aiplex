@@ -107,6 +107,61 @@ The built-in scope defaults apply when a role binding names no scopes:
 | `viewer` | None. The code comment says viewers read and do not execute. |
 | `agent` | None by default. Scopes are set per agent at registration. |
 
+### Managing role bindings
+
+A role binding maps an identity-provider group to a role, optionally restricted to one issuer (`provider`)
+and pool (`pool_id`). All of `/api/v1/iam/role-bindings` and `POST /api/v1/iam/validate-principal` are
+`admin` routes; `GET /api/v1/iam/roles` is open to any authenticated caller. The Go SDK
+(`sdk/aiplex/iam.go`) and the CLI reach all of them:
+
+| Route | CLI | Go SDK |
+| --- | --- | --- |
+| `GET /api/v1/iam/roles` | `aiplex iam roles` | `ListRoles` |
+| `GET /api/v1/iam/role-bindings` (`?group=`) | `aiplex iam role-bindings list [--group g]` | `ListRoleBindings` |
+| `GET /api/v1/iam/role-bindings/{id}` | `aiplex iam role-bindings get <id>` | `GetRoleBinding` |
+| `POST /api/v1/iam/role-bindings` | `aiplex iam role-bindings apply -f binding.yaml` (new binding) | `CreateRoleBinding` |
+| `PUT /api/v1/iam/role-bindings/{id}` | `aiplex iam role-bindings apply -f binding.yaml` (id exists) | `UpdateRoleBinding` |
+| `DELETE /api/v1/iam/role-bindings/{id}` | `aiplex iam role-bindings delete <id> [--yes]` | `DeleteRoleBinding` |
+| `POST /api/v1/iam/validate-principal` | `aiplex iam validate-principal <principal>` | `ValidatePrincipal` |
+| `POST /api/v1/identity/user-providers/{id}/membership/invalidate` | `aiplex identity user-providers invalidate-membership <id> --subject <s>` | `InvalidateUserMembership` |
+
+```yaml
+id: platform-admins        # optional on create; the server derives one from provider, pool, group and role
+group: platform-eng
+role: admin                # admin, deployer, viewer or agent
+provider: https://idp.example.com
+pool_id: workforce
+description: Platform engineers
+scopes: [mcp:tools:*]      # on create, omitted = the role's default scopes; on update it must be stated
+```
+
+Concurrency follows the handler, not the other configuration resources:
+
+- Create sends `If-Match: 0`. An existing ID is `409 CONFLICT`; nothing is overwritten.
+- Update and delete need the stored revision in `If-Match`. A missing header is `428`, a stale one is
+  `412 REVISION_CONFLICT`. The CLI exits with code 5 for both (see [the CLI exit codes](cli.md)).
+  `apply` reads the current revision and sends it, so a concurrent change between the read and the write
+  is still refused. A file written by `get -o yaml` carries its `revision`; `apply` refuses it (exit 5)
+  when the binding has moved on.
+- Update replaces `group`, `role`, `provider`, `pool_id` and `description` with the file's values, so
+  leaving one out clears it. The ID cannot change. The API itself keeps the stored scopes when `scopes`
+  is omitted from an update (or takes the new role's defaults when the role changes), so the CLI does not
+  rely on that: `apply` of an existing binding must state `scopes`, as a list or `[]` for none, and
+  refuses a file that omits it or writes `null` (exit 2) instead of keeping scopes the file does not
+  show. On create, omitting `scopes` gives the role's default scopes and `scopes: []` grants none.
+  `get` prints a binding with no stored scopes as `scopes: []`, so `get -o yaml | apply -f -` works for
+  bindings from the bootstrap file too.
+- Input the client refuses (unknown field, unknown role, bad ID) exits 2, as input the server rejects does.
+- `apply` without an `id` always creates, so applying the same file twice is a conflict the second time.
+- `delete` asks for confirmation on a terminal and refuses without `--yes` when there is none. People who
+  held a role only through the binding lose it on their next request, which can include you; the
+  bootstrap role bindings file is the way back.
+
+The client refuses what the server would refuse (blank or over-long group, unknown role, control
+characters, an ID with a path separator), but scope syntax is checked by the server only. The SDK and CLI
+were checked against the real API with `aiplex dev` and `tests/e2e/iam_test.go`; they were not run against
+a deployment backed by Firestore.
+
 ## What each caller can do
 
 | Caller | Public and internal routes | Authenticated routes | Operator routes | Admin routes |

@@ -32,6 +32,7 @@ var shortDescriptions = map[string]string{
 	"agents":   "Register agents, bind their cloud identities and set their permissions",
 	"a2a":      "Discover agents and delegate tasks between them (A2A)",
 	"identity": "Let people sign in with your corporate identity provider",
+	"iam":      "Map identity-provider groups to roles (admin, deployer, viewer) with role bindings",
 
 	"usage": "See what each request cost: records, totals and model prices",
 	"quota": "Inspect quota policy, balances, loans and admission decisions",
