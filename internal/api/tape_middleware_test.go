@@ -81,7 +81,7 @@ func TestBearerToken_EmptyEnv_503(t *testing.T) {
 // ── IPRateLimit ───────────────────────────────────────────────────────────
 
 func TestIPRateLimit_AllowsBurstThenRateLimits(t *testing.T) {
-	srv := mountWith(api.IPRateLimit(2, 3),  // 2 req/sec, burst 3
+	srv := mountWith(api.IPRateLimit(2, 3), // 2 req/sec, burst 3
 		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
 
 	// First 3 from one IP go through (burst).
@@ -272,8 +272,8 @@ func TestRequireTenant_Enabled_NoClaim_403(t *testing.T) {
 func TestIdempotency_CacheReleasesAfterTTL(t *testing.T) {
 	// We can't easily wait 5 minutes; this test asserts the structural
 	// invariant: a fresh key always hits the handler, even when only
-	// one digit of the body changes. (Real TTL behaviour is exercised
-	// implicitly by the use of time.AfterFunc.)
+	// one digit of the body changes. (Real TTL behaviour is exercised by
+	// TestIdempotency_ExpiredEntryRunsAgain.)
 	var hits int32
 	srv := mountWith(api.Idempotency(func(r *http.Request) string { return "x" }),
 		func(w http.ResponseWriter, r *http.Request) {
@@ -289,4 +289,177 @@ func TestIdempotency_CacheReleasesAfterTTL(t *testing.T) {
 		t.Errorf("expected distinct hashes to both fire, got %d", h)
 	}
 	_ = time.Now() // keep the time import (we're documenting TTL semantics)
+}
+
+func idempotentPost(srv http.Handler, ctx context.Context, key, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(body)).WithContext(ctx)
+	if key != "" {
+		req.Header.Set("Idempotency-Key", key)
+	}
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestIdempotency_ConcurrentIdenticalRequests_RunOnce(t *testing.T) {
+	const n = 16
+	var hits int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := mountWith(api.Idempotency(func(r *http.Request) string { return "x" }),
+		func(w http.ResponseWriter, r *http.Request) {
+			if atomic.AddInt32(&hits, 1) == 1 {
+				close(started)
+			}
+			<-release
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"run":"once"}`))
+		})
+
+	results := make(chan *httptest.ResponseRecorder, n)
+	for i := 0; i < n; i++ {
+		go func() { results <- idempotentPost(srv, context.Background(), "same", `{"a":1}`) }()
+	}
+	<-started
+	time.Sleep(50 * time.Millisecond) // let the others join the in-flight call
+	close(release)
+
+	replays := 0
+	for i := 0; i < n; i++ {
+		rec := <-results
+		if rec.Code != http.StatusAccepted || rec.Body.String() != `{"run":"once"}` {
+			t.Errorf("caller %d: got %d %q", i, rec.Code, rec.Body.String())
+		}
+		if rec.Header().Get("Content-Type") != "application/json" {
+			t.Errorf("caller %d: headers not replayed: %v", i, rec.Header())
+		}
+		if rec.Header().Get("X-Idempotent-Replay") == "true" {
+			replays++
+		}
+	}
+	// Late arrivals are answered from the cache, so this holds however the
+	// goroutines are scheduled; the handler must still run exactly once.
+	if h := atomic.LoadInt32(&hits); h != 1 {
+		t.Fatalf("expected handler to run once, ran %d times", h)
+	}
+	if replays != n-1 {
+		t.Errorf("expected %d replays, got %d", n-1, replays)
+	}
+}
+
+func TestIdempotency_Non2xx_NotCachedAfterCompletion(t *testing.T) {
+	var hits int32
+	srv := mountWith(api.Idempotency(func(r *http.Request) string { return "x" }),
+		func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&hits, 1)
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"busy"}`))
+		})
+	for i := 1; i <= 3; i++ {
+		rec := idempotentPost(srv, context.Background(), "k", `{}`)
+		if rec.Code != http.StatusConflict || rec.Header().Get("X-Idempotent-Replay") != "" {
+			t.Fatalf("attempt %d: got %d replay=%q", i, rec.Code, rec.Header().Get("X-Idempotent-Replay"))
+		}
+		if h := atomic.LoadInt32(&hits); h != int32(i) {
+			t.Fatalf("attempt %d: expected %d handler runs, got %d", i, i, h)
+		}
+	}
+}
+
+func TestIdempotency_SizeCapEvictsOldest(t *testing.T) {
+	var hits int32
+	srv := mountWith(api.IdempotencyWithLimits(func(r *http.Request) string { return "x" }, 2, time.Minute),
+		func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&hits, 1)
+			w.WriteHeader(http.StatusOK)
+		})
+	for _, key := range []string{"a", "b", "c"} {
+		idempotentPost(srv, context.Background(), key, `{}`)
+	}
+	// "b" and "c" are still cached; "a" was evicted when "c" was added.
+	for _, key := range []string{"c", "b"} {
+		if rec := idempotentPost(srv, context.Background(), key, `{}`); rec.Header().Get("X-Idempotent-Replay") != "true" {
+			t.Errorf("key %q: expected replay", key)
+		}
+	}
+	if h := atomic.LoadInt32(&hits); h != 3 {
+		t.Fatalf("expected 3 runs before the eviction check, got %d", h)
+	}
+	if rec := idempotentPost(srv, context.Background(), "a", `{}`); rec.Header().Get("X-Idempotent-Replay") != "" {
+		t.Errorf("evicted key replayed")
+	}
+	if h := atomic.LoadInt32(&hits); h != 4 {
+		t.Errorf("expected the evicted key to run again (4 runs), got %d", h)
+	}
+}
+
+func TestIdempotency_ExpiredEntryRunsAgain(t *testing.T) {
+	var hits int32
+	srv := mountWith(api.IdempotencyWithLimits(func(r *http.Request) string { return "x" }, 10, 20*time.Millisecond),
+		func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&hits, 1)
+			w.WriteHeader(http.StatusOK)
+		})
+	idempotentPost(srv, context.Background(), "k", `{}`)
+	time.Sleep(40 * time.Millisecond)
+	idempotentPost(srv, context.Background(), "k", `{}`)
+	if h := atomic.LoadInt32(&hits); h != 2 {
+		t.Errorf("expected an expired entry to run again, got %d runs", h)
+	}
+}
+
+func TestIdempotency_FirstCallerCancellationDoesNotAbortHandler(t *testing.T) {
+	var hits int32
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv := mountWith(api.Idempotency(func(r *http.Request) string { return "x" }),
+		func(w http.ResponseWriter, r *http.Request) {
+			atomic.AddInt32(&hits, 1)
+			cancel() // the first client disconnects mid-action
+			if err := r.Context().Err(); err != nil {
+				t.Errorf("handler context cancelled by the client: %v", err)
+			}
+			w.WriteHeader(http.StatusAccepted)
+		})
+	idempotentPost(srv, ctx, "k", `{}`)
+	rec := idempotentPost(srv, context.Background(), "k", `{}`)
+	if rec.Code != http.StatusAccepted || rec.Header().Get("X-Idempotent-Replay") != "true" {
+		t.Errorf("retry after disconnect: got %d replay=%q", rec.Code, rec.Header().Get("X-Idempotent-Replay"))
+	}
+	if h := atomic.LoadInt32(&hits); h != 1 {
+		t.Errorf("expected one run, got %d", h)
+	}
+}
+
+func TestIdempotency_PanicPropagatesAndIsNotCached(t *testing.T) {
+	var hits int32
+	srv := mountWith(api.Idempotency(func(r *http.Request) string { return "x" }),
+		func(w http.ResponseWriter, r *http.Request) {
+			if atomic.AddInt32(&hits, 1) == 1 {
+				panic(http.ErrAbortHandler)
+			}
+			w.WriteHeader(http.StatusOK)
+		})
+	func() {
+		defer func() {
+			if got := recover(); got != http.ErrAbortHandler {
+				t.Errorf("expected the original panic value, got %v", got)
+			}
+		}()
+		idempotentPost(srv, context.Background(), "k", `{}`)
+	}()
+	if rec := idempotentPost(srv, context.Background(), "k", `{}`); rec.Code != http.StatusOK || rec.Header().Get("X-Idempotent-Replay") != "" {
+		t.Errorf("after panic: got %d replay=%q", rec.Code, rec.Header().Get("X-Idempotent-Replay"))
+	}
+}
+
+func TestIdempotency_RecorderUnwraps(t *testing.T) {
+	srv := mountWith(api.Idempotency(func(r *http.Request) string { return "x" }),
+		func(w http.ResponseWriter, r *http.Request) {
+			if err := http.NewResponseController(w).Flush(); err != nil {
+				t.Errorf("ResponseController cannot reach the writer: %v", err)
+			}
+		})
+	idempotentPost(srv, context.Background(), "k", `{}`)
 }

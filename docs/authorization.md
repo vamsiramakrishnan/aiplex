@@ -163,7 +163,7 @@ A grant is a scope in the verified access. A grant `X:*` matches any scope that 
 | `aiplex:quota:*` | Other quota operations. The list is in [QuotaPlex administration](quotaplex-administration.md). |
 | `aiplex:runs:read` | Listing and reading runs, and the runs event stream. |
 | `aiplex:runs:read:cross_tenant` | Seeing runs of every tenant. |
-| `aiplex:runs:redrive`, `reconcile`, `cancel`, `signal`, `compensate`, `compact` | The matching run action. Each action is idempotent: a repeat with the same `Idempotency-Key` within 5 minutes returns the cached answer. |
+| `aiplex:runs:redrive`, `reconcile`, `cancel`, `signal`, `compensate`, `compact` | The matching run action. Each action is idempotent per caller, run and action, keyed by `Idempotency-Key` (or a hash of the body when absent). A repeat that arrives while the first is still running waits and gets the same response; a repeat within 5 minutes of a 2xx answer gets that answer replayed (`X-Idempotent-Replay: true`). Non-2xx answers are not kept. The action runs to completion even if its client disconnects. The cache is held in memory per API instance and capped at 10,000 answers; when full, the oldest is dropped early. |
 | Handler action grants (for example on the invocation routes) | Checked by each handler before a provider or tool credential is used. |
 
 Quota grants are checked again at the point of the operation, not only on the access that arrived with
