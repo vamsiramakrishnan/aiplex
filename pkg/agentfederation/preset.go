@@ -74,7 +74,14 @@ type Trust struct {
 	RequiredClaims map[string]string `json:"required_claims,omitempty"`
 }
 
-var supportedAlgorithms = []string{"RS256", "ES256"}
+// supportedAlgorithms are the JWS algorithms the shared JWKS verifier accepts.
+// Each is bound to one key type there: RS256 to RSA, ES256 to P-256 and ES384
+// to P-384.
+var supportedAlgorithms = []string{"RS256", "ES256", "ES384"}
+
+// SupportedAlgorithms returns the JWS algorithms ParseCompactJWT accepts, so
+// user identity presets report exactly the same list.
+func SupportedAlgorithms() []string { return append([]string(nil), supportedAlgorithms...) }
 
 const audienceDescription = "Exact audience (aud) the workload requests for AIPlex. Defaults to the AIPlex federation audience when the server has one configured; the stored binding always records it explicitly."
 
@@ -332,7 +339,7 @@ func presetList() []Preset {
 				{Name: "region", Label: "AWS region", Description: "Optional. Region used in the rendered token command (GetWebIdentityToken requires a regional STS endpoint).", Example: "us-east-1"},
 				audienceField(true, ""),
 			},
-			Notes: []string{"GetWebIdentityToken signs with ES384 or RS256; AIPlex verifies RS256 and ES256 only, so request --signing-algorithm RS256.", "Account and organization claims are nested under https://sts.amazonaws.com/ and are not matched; the role ARN subject already pins the account."},
+			Notes: []string{"GetWebIdentityToken signs with ES384 or RS256; AIPlex verifies either. The rendered token command requests ES384, which the account publishes as a P-384 key in its JWKS.", "Account and organization claims are nested under https://sts.amazonaws.com/ and are not matched; the role ARN subject already pins the account."},
 			derive: func(in map[string]string, _ string) (Trust, error) {
 				if err := validHTTPSURL(in["issuer"], "issuer", true); err != nil {
 					return Trust{}, err
@@ -506,7 +513,7 @@ func presetList() []Preset {
 		},
 		{
 			ID: PresetOIDC, DisplayName: "Generic OIDC workload", Cloud: "other",
-			Description:  "Any OIDC issuer that signs RS256/ES256 JWTs with a public JWKS. Every value is explicit.",
+			Description:  "Any OIDC issuer that signs RS256/ES256/ES384 JWTs with a public JWKS. Every value is explicit.",
 			IssuerShape:  "explicit",
 			SubjectShape: "explicit",
 			Inputs: []Field{

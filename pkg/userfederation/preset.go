@@ -90,7 +90,8 @@ type Trust struct {
 	ClientIDs []string `json:"client_ids,omitempty"`
 }
 
-var supportedAlgorithms = []string{"RS256", "ES256"}
+// supportedAlgorithms is the shared token parser's list (RS256, ES256, ES384).
+var supportedAlgorithms = agentfederation.SupportedAlgorithms()
 
 var (
 	guid      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -301,7 +302,7 @@ func presetList() []Preset {
 				{Name: "pool_id", Label: "Workforce pool ID", Description: "Optional. Documents which pool the tokens come from and is used in the rendered plan; it is not matched against the token.", Example: "acme-employees"},
 				audienceField("Exact `aud` of the tokens (for example the workforce provider resource name or OAuth client ID your IdP issues for AIPlex).", "//iam.googleapis.com/locations/global/workforcePools/acme-employees/providers/acme-oidc"),
 			}, groupFields("Name of the verified claim that carries groups, for example google.groups or a custom claim. A dotted name reaches into a nested object. Required when groups_from is `claim`; AIPlex has no verified default for this issuer.")...),
-			Notes:                []string{"Google documents the workforce STS token exchange and introspection endpoints but no issuer or JWKS for relying parties; if your tokens are the upstream IdP's ID tokens, the entra-id, okta or oidc preset is usually the more direct description of the trust.", "The token must be a signed RS256 or ES256 JWT with a key ID."},
+			Notes:                []string{"Google documents the workforce STS token exchange and introspection endpoints but no issuer or JWKS for relying parties; if your tokens are the upstream IdP's ID tokens, the entra-id, okta or oidc preset is usually the more direct description of the trust.", "The token must be a signed RS256, ES256 or ES384 JWT with a key ID."},
 			AllowsRequiredClaims: true,
 			derive: func(in map[string]string) (Trust, error) {
 				if err := issuerOrigin(in["issuer"]); err != nil {
@@ -402,7 +403,7 @@ func presetList() []Preset {
 		},
 		{
 			ID: PresetOIDC, DisplayName: "Generic OIDC provider", Vendor: "other",
-			Description:      "Any OIDC issuer that signs RS256/ES256 JWTs with a public JWKS. Every value is explicit.",
+			Description:      "Any OIDC issuer that signs RS256/ES256/ES384 JWTs with a public JWKS. Every value is explicit.",
 			IssuerShape:      "explicit",
 			SubjectShape:     "sub or oid (explicit)",
 			GroupSources:     claimOrAuthority,

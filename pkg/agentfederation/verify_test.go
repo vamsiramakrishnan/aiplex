@@ -168,9 +168,9 @@ func TestEngineReportsEachFailingCheck(t *testing.T) {
 		{"garbage", func() string { return "not-a-jwt" }, nil, CheckTokenShape, "segments"},
 		{"bearer prefix", func() string { return "Bearer abc.def.ghi" }, nil, CheckTokenShape, "whitespace"},
 		{"jwe", func() string { return "a.b.c.d.e" }, nil, CheckTokenShape, "JWE"},
-		{"es384", func() string {
-			return sign(t, testKey, map[string]any{"alg": "ES384", "kid": "k"}, ghClaims(f.now, "octo-org/octo-repo"))
-		}, nil, CheckTokenShape, "ES384"},
+		{"es512", func() string {
+			return sign(t, testKey, map[string]any{"alg": "ES512", "kid": "k"}, ghClaims(f.now, "octo-org/octo-repo"))
+		}, nil, CheckTokenShape, "ES512"},
 		{"no kid", func() string {
 			return sign(t, testKey, map[string]any{"alg": "RS256"}, ghClaims(f.now, "octo-org/octo-repo"))
 		}, nil, CheckTokenShape, "kid"},

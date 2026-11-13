@@ -74,7 +74,7 @@ func RenderPlan(p Provider, pc PlanContext) (Plan, error) {
 	switch p.Preset {
 	case PresetGoogleWorkforcePool:
 		plan.Steps = []Step{
-			{Title: "Decide which token you present", Description: "Google does not document an issuer or key set for relying parties that verify workforce pool tokens. Present a signed RS256/ES256 JWT whose `iss` is exactly " + p.Issuer + " and whose keys are served at " + p.JWKSURL + " over public HTTPS. If you present the upstream IdP's ID token instead, consider the entra-id, okta or oidc preset."},
+			{Title: "Decide which token you present", Description: "Google does not document an issuer or key set for relying parties that verify workforce pool tokens. Present a signed RS256/ES256/ES384 JWT whose `iss` is exactly " + p.Issuer + " and whose keys are served at " + p.JWKSURL + " over public HTTPS. If you present the upstream IdP's ID token instead, consider the entra-id, okta or oidc preset."},
 			{Title: "Confirm the audience", Description: "The token's aud must include " + p.Audience + "."},
 		}
 		plan.TokenSnippet = signIn
@@ -100,7 +100,7 @@ func RenderPlan(p Provider, pc PlanContext) (Plan, error) {
 		}
 		plan.TokenSnippet = signIn
 	default:
-		plan.Steps = []Step{{Title: "Configure the issuer", Description: "Ensure " + p.Issuer + " signs RS256 or ES256 tokens for audience " + p.Audience + " with keys at " + p.JWKSURL + ", reachable under the AIPlex outbound endpoint policy, and that the " + p.SubjectClaim + " claim is an immutable user identifier."}}
+		plan.Steps = []Step{{Title: "Configure the issuer", Description: "Ensure " + p.Issuer + " signs RS256, ES256 or ES384 tokens for audience " + p.Audience + " with keys at " + p.JWKSURL + ", reachable under the AIPlex outbound endpoint policy, and that the " + p.SubjectClaim + " claim is an immutable user identifier."}}
 		plan.TokenSnippet = signIn
 	}
 	switch {

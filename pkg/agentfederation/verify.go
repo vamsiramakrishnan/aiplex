@@ -177,12 +177,12 @@ func parseToken(token string) (parsedToken, string) {
 	if json.Unmarshal(rawHeader, &header) != nil {
 		return parsedToken{}, "JWT header is not a JSON object"
 	}
-	if header.Alg != "RS256" && header.Alg != "ES256" {
+	if !slices.Contains(supportedAlgorithms, header.Alg) {
 		alg := header.Alg
 		if len(alg) > 16 {
 			alg = alg[:16]
 		}
-		return parsedToken{}, fmt.Sprintf("JWT algorithm %q is not supported; request an RS256 or ES256 token", alg)
+		return parsedToken{}, fmt.Sprintf("JWT algorithm %q is not supported; request an RS256, ES256 or ES384 token", alg)
 	}
 	if header.Kid == "" {
 		return parsedToken{}, "JWT header has no key ID (kid)"

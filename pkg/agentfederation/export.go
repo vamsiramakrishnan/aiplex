@@ -10,7 +10,7 @@ import (
 // agent identity engine so sibling federation packages (user identity
 // providers) apply exactly the same rules instead of re-implementing them.
 
-// ParseCompactJWT parses an unverified compact JWS (RS256/ES256 with a key ID)
+// ParseCompactJWT parses an unverified compact JWS (RS256/ES256/ES384 with a key ID)
 // and returns its payload claims with numbers as json.Number. problem is
 // non-empty, and safe to show, when the token is not acceptable.
 func ParseCompactJWT(token string) (claims map[string]any, alg, problem string) {

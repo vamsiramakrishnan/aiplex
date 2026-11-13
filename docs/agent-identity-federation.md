@@ -47,7 +47,18 @@ stored binding always records the explicit issuer, JWKS URL, audience and subjec
 
 ## Presets
 
-Every preset accepts only RS256 and ES256 signatures and never accepts wildcards.
+Every preset accepts only RS256, ES256 and ES384 signatures and never accepts wildcards.
+Each algorithm is bound to one key type in the issuer's JWKS: RS256 to an RSA key of at
+least 2048 bits, ES256 to an EC key on P-256 and ES384 to an EC key on P-384. A token whose
+`alg` names a different algorithm than its key's type or curve is rejected, as are `none`,
+HS*, PS*, RS384 and ES512. EC signatures must be the raw `R||S` form of exactly 64 bytes
+(ES256) or 96 bytes (ES384); DER-encoded signatures are rejected. A JWK whose `alg`
+contradicts its `kty` or `crv`, whose point is not on its named curve, or whose coordinates
+are not full length is not loaded, so a token naming its `kid` fails as an unknown key.
+
+This is what the AIPlex API verifies. The gateway authorizer `aiplex-authz` (the Envoy
+`ext_authz` check on the gateway path) verifies RS256 only, so an ES256 or ES384 federated
+token is accepted by the API and refused by that authorizer.
 For all presets except `azure-managed-identity`, a missing `audience` takes the
 server's default audience. That default is `AIPLEX_AGENT_FEDERATION_AUDIENCE`, or
 `PUBLIC_URL` when it is unset.
@@ -139,8 +150,9 @@ provider is rejected. Restart the API after changing these variables.
   roles by claim name.
 - A certificate-bound token (one carrying `cnf`) is accepted only by the
   `gcp-agent-identity` preset.
-- AWS `GetWebIdentityToken` can sign with ES384 or RS256. AIPlex verifies only RS256
-  and ES256, so request RS256 from AWS.
+- AWS `GetWebIdentityToken` can sign with ES384 or RS256, and AIPlex verifies both. The
+  rendered token command requests ES384. ES384 verification is covered by tests with locally
+  generated P-384 keys; it has not been checked against a live AWS account.
 - `pull_request` subjects are not offered for GitHub Actions because every pull
   request, including ones from forks, shares them.
 - An overlap with a user identity provider is refused with a 409 unless the write sends

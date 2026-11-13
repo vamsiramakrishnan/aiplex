@@ -1,6 +1,7 @@
 package agentfederation
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -144,8 +145,11 @@ func TestRenderPlanForEveryPreset(t *testing.T) {
 	}
 	b, _ := NewBinding("tutor-agent", "aws", BindingRequest{Preset: PresetAWSSTSWebIdentity, Inputs: inputs[PresetAWSSTSWebIdentity]}, aud)
 	plan, _ := RenderPlan(b, PlanContext{})
-	if !strings.Contains(plan.TokenSnippet.Content, "--signing-algorithm RS256") || !strings.Contains(plan.TokenSnippet.Content, "https://sts.eu-west-1.amazonaws.com") {
-		t.Fatalf("AWS token snippet must request RS256 from a regional endpoint: %s", plan.TokenSnippet.Content)
+	if !strings.Contains(plan.TokenSnippet.Content, "--signing-algorithm ES384") || !strings.Contains(plan.TokenSnippet.Content, "https://sts.eu-west-1.amazonaws.com") {
+		t.Fatalf("AWS token snippet must request ES384 from a regional endpoint: %s", plan.TokenSnippet.Content)
+	}
+	if p, _ := Lookup(PresetAWSSTSWebIdentity); strings.Contains(strings.Join(p.Notes, " "), "request --signing-algorithm RS256") || !slices.Contains(p.Algorithms, "ES384") {
+		t.Fatalf("AWS preset still describes the RS256 workaround: %+v", p)
 	}
 	b, _ = NewBinding("tutor-agent", "gha", BindingRequest{Preset: PresetGitHubActions, Inputs: inputs[PresetGitHubActions]}, aud)
 	plan, _ = RenderPlan(b, PlanContext{})

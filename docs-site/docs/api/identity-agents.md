@@ -84,7 +84,7 @@ curl -sS "$AIPLEX_URL/api/v1/agents/identity-presets" -H "Authorization: Bearer 
       "subject_shape": "example",
       "issuer_shape": "example",
       "allows_required_claims": true,
-      "algorithms": ["RS256", "ES256"]
+      "algorithms": ["RS256", "ES256", "ES384"]
     }
   ],
   "default_audience": "https://aiplex.example.com",
