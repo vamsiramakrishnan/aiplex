@@ -16,6 +16,7 @@ The delegated OAuth flow that `oauth_user` uses is described in
 | `GET /api/v1/mcp/auth-types` | Describes each auth type: its fields, which are required, which are secret references, and the tools-policy fields. Drives CLI and console forms. |
 | `GET /api/v1/mcp/connections/{id}` | Read a connection, with its `auth` and `tools` blocks. |
 | `PUT /api/v1/mcp/connections/{id}` | Create or replace a connection. Updates send the current revision in `If-Match`. |
+| `POST /api/v1/mcp/connections/{id}/registration` | Register the connection's OAuth client (`oauth_user`). Operators only. CLI: `aiplex tool-auth register`. |
 | `POST /api/v1/mcp/connections/{id}/invoke` | Invoke one `tools/call` (JSON-RPC body). Subject to the checks below. |
 
 The `auth` and `tools` blocks are optional fields on the connection. A connection with
@@ -73,6 +74,51 @@ Next: expose it to callers on an access point:
 
 The URL in the first output is the built-in server's address on the machine, and it changes each time `aiplex dev`
 starts. The auth types, their fields and the tools policy are described in the sections below.
+
+### Call one tool
+
+`aiplex mcp connections call <id> <tool>` sends one `tools/call` through the gateway, with the connection's
+credential, tools policy and rules applied and the caller's `mcp:tools:{name}` grant checked, so a rule or a
+credential can be tried end to end. It is the CLI form of the `invoke` request. The call is real: a tool with side
+effects runs.
+
+```sh
+aiplex mcp connections call local-tools echo --args '{"text":"hi"}'
+aiplex mcp connections call search query --args-file query.yaml     # JSON or YAML; '-' reads stdin
+aiplex mcp connections call local-tools echo --args '{"text":"hi"}' -o json   # the raw result
+```
+
+Text content prints as text. Other content (an image, say) prints as its type and MIME type, without the payload;
+`-o json` prints the whole result. Arguments must be a JSON object. Exit codes follow [the CLI page](cli.md#exit-codes):
+
+| Outcome | Exit |
+| --- | --- |
+| Result printed | 0 |
+| Arguments not an object, unreadable file, `--args` with `--args-file`, bad connection ID | 2, before anything is sent |
+| Policy denial (`tool_policy_denied` or `tool_policy_error`) or a missing grant, shown with the rule ID | 3 |
+| Unknown connection | 4 |
+| The tool server answered a JSON-RPC error, the gateway could not reach it, or the tool ran and reported `isError` (its text is printed first) | 1 |
+
+Nothing secret is printed: the connection's credential never reaches the client, and the CLI prints no token. The
+arguments are not echoed in errors. A denial is shown with its rule ID and message, which an operator wrote.
+
+### Register the OAuth client for `oauth_user`
+
+A connection that uses per-user OAuth needs its OAuth client registered with the upstream authorization server before
+callers can authorize. Registration was only possible with `POST /api/v1/mcp/connections/{id}/registration`; the CLI
+now has it:
+
+```sh
+aiplex tool-auth register search      # admin or deployer; the client profile and issuer come from the connection
+aiplex tool-auth start search --redirect-uri https://app.example.com/callback
+```
+
+The request has no body and the command has no secret flag. A client secret held by the registration is a
+credential reference in secure credential storage, never a value on the command line or in the output; the command
+prints the registration mode, client ID, issuer and the credential reference. A value the API did not return is shown as
+`unknown`. `-o json` prints the stored `oauth-registration` envelope. Exit codes are as above (3 not permitted, 4 no such
+connection, 5 `CONNECTION_CHANGED`). The upstream registration and the `start` and `complete` steps were not validated
+against a live authorization server in this change; the end-to-end test reaches the route on the dev stack only.
 
 ## Auth types
 

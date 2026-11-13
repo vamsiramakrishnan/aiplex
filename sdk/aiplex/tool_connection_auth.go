@@ -1,9 +1,11 @@
 package aiplex
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -365,4 +367,134 @@ func (c *Client) ListConnectionTools(ctx context.Context, id string) ([]Connecti
 		cursor = out.Result.NextCursor
 	}
 	return all, nil
+}
+
+// ValidateToolConnectionID reports whether id is safe to put in a connection
+// route. The methods that take a connection ID check it the same way before
+// sending anything; callers that take input from a person can use it to
+// refuse bad input as a usage problem.
+func ValidateToolConnectionID(id string) error { return validateResourceID(id) }
+
+// ToolContent is one content item of a tool result. Binary payloads (such as
+// image data) are not decoded here; read them from ToolCallResult.Raw.
+type ToolContent struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+}
+
+// ToolCallResult is the result of one tools/call. Raw is the exact JSON-RPC
+// "result" object the server answered with.
+type ToolCallResult struct {
+	Content []ToolContent   `json:"content"`
+	IsError bool            `json:"isError,omitempty"`
+	Raw     json.RawMessage `json:"-"`
+}
+
+// ToolCallError is a JSON-RPC error answered to a tools/call, by the gateway
+// (a policy denial, for example) or by the tool server. StatusCode is the HTTP
+// status it came with. Reason and Rule are the gateway's data.reason and
+// data.rule when it gave them.
+type ToolCallError struct {
+	StatusCode int
+	Code       int
+	Message    string
+	Reason     string
+	Rule       string
+}
+
+func (e *ToolCallError) Error() string {
+	text := fmt.Sprintf("tools/call failed (%d): %s", e.Code, e.Message)
+	if e.Reason != "" {
+		text += " [" + e.Reason
+		if e.Rule != "" {
+			text += ", rule " + e.Rule
+		}
+		text += "]"
+	}
+	return text
+}
+
+// CallConnectionTool sends one tools/call through the gateway
+// (POST /api/v1/mcp/connections/{id}/invoke), with the connection's configured
+// credential and policy applied and the caller's mcp:tools:{name} grant
+// checked. arguments must be a JSON object, or empty for none. A JSON-RPC
+// error, including a policy denial, is returned as *ToolCallError; any other
+// refusal is an *Error. A result with IsError set is returned as a result: the
+// tool ran and reported a failure.
+func (c *Client) CallConnectionTool(ctx context.Context, id, tool string, arguments json.RawMessage) (*ToolCallResult, error) {
+	if err := validateResourceID(id); err != nil {
+		return nil, err
+	}
+	if tool == "" {
+		return nil, fmt.Errorf("aiplex: tool name is required")
+	}
+	args := json.RawMessage(`{}`)
+	if len(bytes.TrimSpace(arguments)) > 0 {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(arguments, &object); err != nil || object == nil {
+			return nil, fmt.Errorf("aiplex: tool arguments must be a JSON object")
+		}
+		args = arguments
+	}
+	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": tool, "arguments": args}})
+	if err != nil {
+		return nil, fmt.Errorf("aiplex: marshal request: %w", err)
+	}
+	path := "/api/v1/mcp/connections/" + url.PathEscape(id) + "/invoke"
+	if err = validateAPIPath(path); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("aiplex: create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", c.userAgent)
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("aiplex: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20+1))
+	if err != nil {
+		return nil, fmt.Errorf("aiplex: read response: %w", err)
+	}
+	if len(raw) > 8<<20 {
+		return nil, fmt.Errorf("aiplex: tools/call response exceeds 8 MiB")
+	}
+	var envelope struct {
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Data    struct {
+				Reason string `json:"reason"`
+				Rule   string `json:"rule"`
+			} `json:"data"`
+		} `json:"error"`
+	}
+	decodeErr := json.Unmarshal(raw, &envelope)
+	if envelope.Error != nil {
+		return nil, &ToolCallError{StatusCode: resp.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message, Reason: envelope.Error.Data.Reason, Rule: envelope.Error.Data.Rule}
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		var apiErr Error
+		if decodeErr != nil || json.Unmarshal(raw, &apiErr) != nil {
+			return nil, &Error{Code: "unknown", Message: resp.Status, StatusCode: resp.StatusCode}
+		}
+		apiErr.StatusCode = resp.StatusCode
+		return nil, &apiErr
+	}
+	if decodeErr != nil || len(envelope.Result) == 0 || string(envelope.Result) == "null" {
+		return nil, fmt.Errorf("aiplex: tools/call returned no result")
+	}
+	out := &ToolCallResult{Raw: envelope.Result}
+	if err = json.Unmarshal(envelope.Result, out); err != nil {
+		return nil, fmt.Errorf("aiplex: decode tools/call result: %w", err)
+	}
+	return out, nil
 }

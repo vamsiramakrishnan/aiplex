@@ -48,7 +48,7 @@ func mcpConnectionsCmd() *cobra.Command {
 		Example: `  aiplex mcp connections list
   aiplex mcp connections test local-tools`,
 	}
-	cmd.AddCommand(mcpConnListCmd(), mcpConnGetCmd(), mcpConnAddCmd(), mcpConnDeleteCmd(), mcpConnTestCmd(), mcpConnRulesCmd())
+	cmd.AddCommand(mcpConnListCmd(), mcpConnGetCmd(), mcpConnAddCmd(), mcpConnDeleteCmd(), mcpConnTestCmd(), mcpConnCallCmd(), mcpConnRulesCmd())
 	registerLister("mcp connections", func(ctx context.Context, c *aiplex.Client) ([]string, error) {
 		return resourceIDs(ctx, c, aiplex.ToolConnections)
 	})
@@ -463,6 +463,120 @@ can see. A failure here is what a client would hit.`,
 			return printConnectionTools(cmd.Context(), cmd.OutOrStdout(), c, args[0])
 		},
 	}
+}
+
+func mcpConnCallCmd() *cobra.Command {
+	var argsJSON, argsFile string
+	cmd := &cobra.Command{
+		Use:   "call <id> <tool> [--args JSON | --args-file <file>|-]",
+		Short: "Call one tool through the gateway and print the result",
+		Long: `Sends one tools/call through the gateway with the connection's credential and
+policy rules applied, and the caller's mcp:tools:<tool> grant checked, exactly
+as a client's call would be. Text content prints as text; other content prints
+as its type. -o json prints the raw result.
+
+Arguments are a JSON (or YAML) object from --args, or from --args-file (use -
+for stdin). A policy denial exits 3 and names the rule. A tool that ran and
+reported a failure prints its text and exits 1, as does a tool server error.
+
+Calls are real: a tool with side effects runs.`,
+		Example: `  aiplex mcp connections call local-tools echo --args '{"text":"hi"}'
+  aiplex mcp connections call search query --args-file query.json -o json
+  echo '{"a":1,"b":2}' | aiplex mcp connections call local-tools add --args-file -`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, tool := args[0], args[1]
+			if err := aiplex.ValidateToolConnectionID(id); err != nil {
+				return usageError(fmt.Sprintf("%q is not a valid connection ID", id))
+			}
+			if argsJSON != "" && argsFile != "" {
+				return usageError("--args and --args-file cannot be combined")
+			}
+			if argsFile != "" {
+				raw, err := spReadSpec(argsFile, cmd.InOrStdin())
+				if err != nil {
+					return usageError(err.Error())
+				}
+				argsJSON = string(raw)
+			}
+			var arguments json.RawMessage
+			if argsJSON != "" {
+				var object map[string]json.RawMessage
+				if err := json.Unmarshal([]byte(argsJSON), &object); err != nil || object == nil {
+					return usageError("the tool arguments must be a JSON object", `Example: --args '{"text":"hi"}'`)
+				}
+				arguments = json.RawMessage(argsJSON)
+			}
+			result, err := newClient().CallConnectionTool(cmd.Context(), id, tool, arguments)
+			if err != nil {
+				return explainToolCall(id, tool, err)
+			}
+			if machineOutput() {
+				var raw any
+				if json.Unmarshal(result.Raw, &raw) != nil {
+					return fmt.Errorf("call tool %s: the result cannot be read", tool)
+				}
+				spStructured(cmd, raw)
+			} else {
+				out := cmd.OutOrStdout()
+				if len(result.Content) == 0 {
+					fmt.Fprintln(out, "(the tool returned no content)")
+				}
+				for _, item := range result.Content {
+					if item.Type == "text" {
+						fmt.Fprintln(out, item.Text)
+						continue
+					}
+					fmt.Fprintf(out, "[%s content%s not shown; use -o json]\n", spDash(item.Type), mimeSuffix(item.MimeType))
+				}
+			}
+			if result.IsError {
+				return newCLIError(exitError, "the tool ran and reported an error ("+tool+" on "+id+")")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&argsJSON, "args", "", "Tool arguments as a JSON object")
+	cmd.Flags().StringVar(&argsFile, "args-file", "", "Read the tool arguments from a JSON or YAML file ('-' for stdin)")
+	return cmd
+}
+
+func mimeSuffix(mime string) string {
+	if mime == "" {
+		return ""
+	}
+	return " " + mime
+}
+
+// explainToolCall phrases a failed tools/call. A policy denial (HTTP 403 with
+// a JSON-RPC error) is shown as a denial and exits 3; the tool server's own
+// error and an unreachable upstream exit 1.
+func explainToolCall(id, tool string, err error) error {
+	var rpc *aiplex.ToolCallError
+	if errors.As(err, &rpc) {
+		switch rpc.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			hints := []string{}
+			if rpc.Rule != "" {
+				hints = append(hints, "Rule: "+rpc.Rule)
+			}
+			if rpc.Reason != "" {
+				hints = append(hints, "Reason: "+rpc.Reason)
+			}
+			hints = append(hints, "See the connection's rules with: aiplex mcp connections rules list "+id)
+			return newCLIError(exitAuth, fmt.Sprintf("call to %s on %s was denied: %s", tool, id, rpc.Message), hints...)
+		case http.StatusBadRequest, http.StatusUnprocessableEntity:
+			return newCLIError(exitUsage, fmt.Sprintf("call to %s on %s was refused: %s", tool, id, rpc.Message))
+		}
+		return newCLIError(exitError, fmt.Sprintf("the tool server answered %s on %s with an error (%d): %s", tool, id, rpc.Code, rpc.Message),
+			"List the tools the caller can see with: aiplex mcp connections test "+id)
+	}
+	var apiErr *aiplex.Error
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadGateway {
+		return newCLIError(exitError, "the gateway could not get a valid answer from the tool server: "+apiErr.Message,
+			"Check the connection with: aiplex mcp connections test "+id)
+	}
+	return fmt.Errorf("call tool %s on %s: %w", tool, id, err)
 }
 
 func printConnectionTools(ctx context.Context, out io.Writer, c *aiplex.Client, id string) error {

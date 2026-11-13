@@ -5,8 +5,26 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
 )
+
+// RegisterToolConnection registers the connection's OAuth client with its
+// upstream authorization server (POST /api/v1/mcp/connections/{id}/registration,
+// operators only). The request has no body: the client profile and issuer come
+// from the saved connection. The returned envelope is the stored
+// "oauth-registration" resource, whose spec is the public registration (client
+// identifier and a credential reference, never a secret).
+func (c *Client) RegisterToolConnection(ctx context.Context, id string) (*resources.Record, error) {
+	if err := validateResourceID(id); err != nil {
+		return nil, err
+	}
+	var out resources.Record
+	if err := c.do(ctx, http.MethodPost, "/api/v1/mcp/connections/"+url.PathEscape(id)+"/registration", nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
 
 func toolAuthorizationPath(id string) (string, error) {
 	if err := validateResourceID(id); err != nil {

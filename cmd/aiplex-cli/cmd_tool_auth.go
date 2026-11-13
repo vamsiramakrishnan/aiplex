@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vamsiramakrishnan/aiplex/pkg/toolauth"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 func toolAuthPrint(value any) {
@@ -72,7 +73,45 @@ func toolAuthCmd() *cobra.Command {
 		}
 		return e
 	}}
-	status := &cobra.Command{Use: "status <connection-id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	register := &cobra.Command{Use: "register <connection-id>", Args: cobra.ExactArgs(1), Short: "Register the connection's OAuth client with its authorization server (operators)",
+		Long: `Registers the OAuth client for a connection that uses per-user OAuth
+(oauth_user), using the client profile and issuer saved on the connection. The
+request carries no body and no secret: a client secret is held as a reference
+in secure credential storage, never given on the command line. Needs the admin
+or deployer role. Run it before: aiplex tool-auth start`,
+		Example: "  aiplex tool-auth register search\n  aiplex tool-auth register search -o json",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if e := aiplex.ValidateToolConnectionID(args[0]); e != nil {
+				return usageError(fmt.Sprintf("%q is not a valid connection ID", args[0]))
+			}
+			record, e := newClient().RegisterToolConnection(cmd.Context(), args[0])
+			if e != nil {
+				return fmt.Errorf("register OAuth client for %s: %w", args[0], e)
+			}
+			var registration toolauth.Registration
+			if machineOutput() {
+				toolAuthPrint(record)
+				return nil
+			}
+			if json.Unmarshal(record.Spec, &registration) != nil {
+				return fmt.Errorf("register OAuth client for %s: the API returned a registration that cannot be read", args[0])
+			}
+			unknown := func(v string) string {
+				if v == "" {
+					return "unknown"
+				}
+				return v
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "Registered the OAuth client for %s (revision %d).\n", args[0], record.Revision)
+			fmt.Fprintf(out, "  Mode:        %s\n  Client ID:   %s\n  Issuer:      %s\n", unknown(string(registration.Mode)), unknown(registration.ClientID), unknown(registration.Issuer))
+			if registration.CredentialRef != "" {
+				fmt.Fprintf(out, "  Credential:  %s (reference)\n", registration.CredentialRef)
+			}
+			fmt.Fprintf(out, "Next: aiplex tool-auth start %s --redirect-uri <one of the registered redirect URIs>\n", args[0])
+			return nil
+		}}
+	status := &cobra.Command{Use: "status <connection-id>", Args: cobra.ExactArgs(1), Short: "Show this owner's downstream tool grant status", RunE: func(cmd *cobra.Command, args []string) error {
 		value, e := newClient().GetToolAuthorization(cmd.Context(), args[0])
 		if e == nil {
 			toolAuthPrint(value)
@@ -82,6 +121,6 @@ func toolAuthCmd() *cobra.Command {
 	revoke := &cobra.Command{Use: "revoke <connection-id>", Args: cobra.ExactArgs(1), Short: "Revoke this owner's downstream tool grant", RunE: func(cmd *cobra.Command, args []string) error {
 		return newClient().RevokeToolAuthorization(cmd.Context(), args[0])
 	}}
-	cmd.AddCommand(start, complete, status, revoke)
+	cmd.AddCommand(register, start, complete, status, revoke)
 	return cmd
 }

@@ -320,6 +320,12 @@ curl -sS -X POST "$AIPLEX_URL/api/v1/mcp/connections/connection-example/registra
   -H "Authorization: Bearer $AIPLEX_TOKEN"
 ```
 
+The same call from the CLI (the Go SDK method is `RegisterToolConnection`). The command prints the public registration only: mode, client ID, issuer and the credential reference, never a secret. `-o json` prints the envelope.
+
+```bash
+aiplex tool-auth register connection-example
+```
+
 ## POST `/api/v1/mcp/connections/{id}/invoke`
 
 Sends one MCP JSON-RPC request to the upstream. The request body is a JSON-RPC 2.0 request, with a `method` such as `tools/call`. A `tools/list` request is answered with the tools the caller may call. Each `tools/call` is checked against the `mcp:tools:{name}` grant of the verified caller, and that grant is checked again just before the upstream request is sent.
@@ -337,6 +343,12 @@ curl -sS -X POST "$AIPLEX_URL/api/v1/mcp/connections/connection-example/invoke" 
   -H "Authorization: Bearer $AIPLEX_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"rpc","method":"tools/call","params":{"name":"search","arguments":{"query":"hello"}}}'
+```
+
+The same call from the CLI (the Go SDK method is `CallConnectionTool`). Text content prints as text and `-o json` prints the raw result. A policy denial exits 3 and names the rule, a tool server error exits 1, and an argument that is not a JSON object exits 2 before anything is sent.
+
+```bash
+aiplex mcp connections call connection-example search --args '{"query":"hello"}'
 ```
 
 ### Response
