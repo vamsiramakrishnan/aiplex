@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -239,8 +240,42 @@ func TestWhoListShowsUnknownNotZero(t *testing.T) {
 	if _, err = runSP(t, "", whoCmd(), "agent"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = runSP(t, "", whoCmd()); err == nil {
-		t.Fatal("no kind accepted")
+}
+
+func TestWhoWithNoKindListsEveryKind(t *testing.T) {
+	var calls []spCall
+	spServer(t, &calls, map[string]string{"GET /api/v1/overview/subjects": spSubjectsJSON})
+	out, err := runSP(t, "", whoCmd(), "--since", "7d")
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	var queries []string
+	for _, c := range calls {
+		queries = append(queries, c.query)
+	}
+	if want := []string{"kind=agent&since=7d", "kind=client&since=7d", "kind=user&since=7d"}; !slices.Equal(queries, want) {
+		t.Errorf("queries = %v, want %v", queries, want)
+	}
+	if strings.Count(out, "tutor") != 3 || !strings.Contains(out, "One caller in detail: aiplex who <agent|client|user> <id>") {
+		t.Errorf("want one table per kind and the detail hint: %s", out)
+	}
+	// A cursor continues one kind's listing, so it cannot be applied to all three.
+	calls = nil
+	if _, err = runSP(t, "", whoCmd(), "--cursor", "abc"); err == nil || !strings.Contains(err.Error(), "--kind") {
+		t.Fatalf("cursor without a kind: err = %v", err)
+	}
+	if len(calls) != 0 {
+		t.Errorf("a refused cursor must not call the API: %v", calls)
+	}
+	// Structured output is one object keyed by kind.
+	output = "json"
+	out, err = runSP(t, "", whoCmd())
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	var byKind map[string]json.RawMessage
+	if err = json.Unmarshal([]byte(out), &byKind); err != nil || len(byKind) != 3 {
+		t.Fatalf("json = %s (%v)", out, err)
 	}
 }
 

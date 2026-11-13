@@ -11,8 +11,9 @@ With a kind and an id, shows one caller in detail: how it authenticates, the
 models, tools and skills it can reach with the reason for each, quota coverage,
 and recent usage by model and tool.
 
-With --kind (or just a kind), lists callers of that kind with their identity,
-access points, last activity and usage over --since (default 24h).
+With no arguments, lists every caller, one table per kind. With --kind (or
+just a kind), lists callers of that kind with their identity, access points,
+last activity and usage over --since (default 24h).
 
 Unknown is shown as "unknown", never as zero. There is no user directory:
 known users are those named by an access point or seen in the usage ledger.
@@ -21,6 +22,7 @@ Usage:
   aiplex who [agent|user|client] [id] [flags]
 
 Examples:
+  aiplex who
   aiplex who --kind agent
   aiplex who agent tutor-agent
   aiplex who user principal-ab12… --since 7d
