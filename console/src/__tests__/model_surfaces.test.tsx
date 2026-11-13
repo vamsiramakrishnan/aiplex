@@ -274,6 +274,16 @@ describe('Model surfaces panel', () => {
     expect(await screen.findByRole('region', { name: 'Capacity of oa' })).toHaveTextContent('No provider limit has been observed on this replica yet')
   })
 
+  it('shows unknown operations for a surface that lists none, and a real 0 for an empty list', async () => {
+    const surface = (id: string, operations?: unknown[]) => ({ id, revision: 1, spec: { surface: { id, protocol: 'openai-chat', origin: 'https://x', provider: { id: 'openai' }, ...(operations ? { operations } : {}) }, auth: { type: 'bearer', secret_ref: 'k' } } })
+    routes['GET /api/v1/llm/surfaces/'] = () => ({ body: [surface('absent'), surface('empty', []), surface('one', [{ id: 'openai.v1.chat-completions' }])] })
+    show(<ModelSurfacesPanel />)
+    const cell = async (id: string) => (await screen.findByRole('rowheader', { name: id })).closest('tr')!.querySelectorAll('td')[2]
+    expect((await cell('absent')).textContent).toBe('unknown')
+    expect((await cell('empty')).textContent).toBe('0')
+    expect((await cell('one')).textContent).toBe('1')
+  })
+
   it('deletes at the listed revision and refreshes on a conflict', async () => {
     let listed = 2
     routes['GET /api/v1/llm/surfaces/'] = () => ({ body: [{ id: 'oa', revision: listed, spec: { surface: { id: 'oa', protocol: 'openai-chat', origin: 'https://x', provider: { id: 'openai' } }, auth: { type: 'bearer', secret_ref: 'k' } } }] })

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { deployInstance, getCatalog, type Template, type Manifest, applyManifest } from '../api/client'
 import { useModules } from '../hooks/useModules'
 
@@ -118,7 +118,7 @@ function DeployWizard() {
 
   return (
     <div>
-      {deploy.isSuccess && deploy.data && <p role="status" className="mb-4 text-sm">Deployment request completed for <a className="underline" href={`/instances/${encodeURIComponent(deploy.data.id)}`}>{deploy.data.id}</a>. Reported status: {deploy.data.status}.</p>}
+      {deploy.isSuccess && deploy.data && <p role="status" className="mb-4 text-sm">Deployment request completed for <Link className="underline" to={`/instances/${encodeURIComponent(deploy.data.id)}`}>{deploy.data.id}</Link>. Reported status: {deploy.data.status}.</p>}
       {/* Step indicator */}
       <div className="flex flex-wrap gap-2 mb-6">
         {steps.map((s, i) => (
@@ -226,8 +226,8 @@ function DeployWizard() {
             <div className="text-sm bg-brand-50 border border-brand-200 rounded p-3">
               <div className="font-medium text-brand-800">Pricing</div>
               <div className="text-brand-600">
-                ${selectedTemplate.pricing.input}/M input tokens,
-                ${selectedTemplate.pricing.output}/M output tokens
+                {selectedTemplate.pricing.input == null ? 'unknown' : `$${selectedTemplate.pricing.input}`}/M input tokens,
+                {selectedTemplate.pricing.output == null ? 'unknown' : `$${selectedTemplate.pricing.output}`}/M output tokens
               </div>
             </div>
           )}

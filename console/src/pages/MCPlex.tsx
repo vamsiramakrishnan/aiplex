@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getCatalog, listInstances } from '../api/client'
+import { countOf, tabLabel } from '../api/counts'
 import StatusBadge from '../components/StatusBadge'
 import ToolConnectionsPanel from '../components/ToolConnectionsPanel'
 
@@ -30,13 +31,13 @@ export default function MCPlex() {
           onClick={() => setTab('instances')}
           className={`px-4 py-2 rounded text-sm ${tab === 'instances' ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}
         >
-          Instances ({instances.data?.length ?? 0})
+          {tabLabel('Instances', instances.data?.length)}
         </button>
         <button
           onClick={() => setTab('catalog')}
           className={`px-4 py-2 rounded text-sm ${tab === 'catalog' ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}
         >
-          Catalog ({catalog.data?.total ?? 0})
+          {tabLabel('Catalog', catalog.data?.total)}
         </button>
         <button
           onClick={() => setTab('connections')}
@@ -74,10 +75,10 @@ export default function MCPlex() {
               <tbody>
                 {filteredInstances.map((inst) => (
                   <tr key={inst.id} className="border-t">
-                    <td className="px-4 py-3 font-medium">{inst.display_name || inst.id}</td>
+                    <td className="px-4 py-3 font-medium"><Link to={`/instances/${encodeURIComponent(inst.id)}`} className="hover:underline">{inst.display_name || inst.id}</Link></td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{inst.template_id}</td>
                     <td className="px-4 py-3"><StatusBadge status={inst.status} /></td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{inst.scopes?.length ?? 0} tools</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{countOf(inst.scopes, 'tool')}</td>
                   </tr>
                 ))}
               </tbody>

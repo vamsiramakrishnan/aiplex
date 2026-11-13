@@ -112,9 +112,6 @@ export interface CatalogPage {
 export const getCatalog = (plane?: string, page = 0) =>
   request<CatalogPage>(`/catalog?plane=${plane ?? ''}&page=${page}`)
 
-export const getTemplate = (id: string) =>
-  request<Template>(`/catalog/${id}`)
-
 // Instances
 export const listInstances = (plane?: string) =>
   request<Instance[]>(`/instances?plane=${plane ?? ''}`)
@@ -175,7 +172,6 @@ export interface LLMRouteConfig {
   budget?: UsageBudget
 }
 
-export const listLLMRoutes = () => request<LLMRouteConfig[]>('/llm/routes')
 export const putLLMRoute = (modelId: string, body: Partial<LLMRouteConfig>) =>
   request<LLMRouteConfig>(`/llm/routes/${modelId}`, {
     method: 'PUT', body: JSON.stringify(body), headers: { 'If-Match': String(body.revision ?? 0) }
@@ -284,9 +280,6 @@ export interface RoleBinding {
   created_at: string
   created_by: string
 }
-
-export const listRoleBindings = () =>
-  request<RoleBinding[]>('/iam/role-bindings')
 
 // Whoami
 export type WhoamiResponse = ResolvedAccess
@@ -464,5 +457,3 @@ export interface ResolvedAccess {
   group_scopes?: string[]
   manual_scopes?: string[]
 }
-
-export const getWhoami = () => request<ResolvedAccess>('/iam/whoami')

@@ -47,7 +47,7 @@ export default function ModelSurfacesPanel() {
           return <tr key={r.id} className="border-t border-gray-200 align-top dark:border-gray-800">
             <th scope="row" className="py-2 pr-4 font-normal">{r.id}</th>
             <td className="pr-4">{provider ?? 'google-cloud'}</td><td className="pr-4">{r.spec.surface.protocol}</td>
-            <td className="pr-4">{r.spec.surface.operations?.length ?? 0}</td><td className="pr-4">{(r.spec.surface.models ?? []).join(', ') || '—'}</td>
+            <td className="pr-4">{r.spec.surface.operations ? r.spec.surface.operations.length : api.UNKNOWN}</td><td className="pr-4">{(r.spec.surface.models ?? []).join(', ') || '—'}</td>
             <td className="pr-4">{authCell(r.spec)}</td><td className="pr-4">{r.spec.capacity_policy ? 'on' : 'off'}</td><td className="pr-4">{r.revision}</td>
             <td className="whitespace-nowrap">{confirmDelete?.id === r.id
               ? <span>Delete {r.id}? <button type="button" className="underline" disabled={busy} onClick={() => void remove(r)}>Confirm delete</button> <button type="button" className="underline" onClick={() => setConfirmDelete(null)}>Cancel</button></span>

@@ -1,15 +1,25 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getInstance, undeployInstance, getInstanceHistory } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import { SkeletonCard, SkeletonTable } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
+import { UNKNOWN } from '../api/usage'
+
+/** A timestamp the server did not send (or sent unparseable) is unknown, never the epoch or "Invalid Date". */
+const when = (v: string | null | undefined): string => {
+  if (!v) return UNKNOWN
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? UNKNOWN : d.toLocaleString()
+}
 
 export default function InstanceDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const toast = useToast()
+  const [confirming, setConfirming] = useState(false)
 
   const instance = useQuery({
     queryKey: ['instance', id],
@@ -68,13 +78,26 @@ export default function InstanceDetail() {
         </div>
         <div className="flex items-center gap-3">
           <StatusBadge status={inst.status} />
-          <button
-            onClick={() => undeploy.mutate()}
-            disabled={undeploy.isPending}
-            className="px-4 py-2 bg-status-denied-fg hover:bg-status-denied-fg disabled:opacity-50 text-status-denied-bg text-sm rounded-lg transition-colors"
-          >
-            {undeploy.isPending ? 'Undeploying...' : 'Undeploy'}
-          </button>
+          {confirming ? (
+            <span role="group" aria-label="Confirm undeploy" className="flex items-center gap-2 text-sm">
+              <span>Undeploy {inst.id}? This cannot be undone.</span>
+              <button
+                onClick={() => undeploy.mutate(undefined, { onSettled: () => setConfirming(false) })}
+                disabled={undeploy.isPending}
+                className="px-4 py-2 bg-status-denied-fg hover:bg-status-denied-fg disabled:opacity-50 text-status-denied-bg text-sm rounded-lg transition-colors"
+              >
+                {undeploy.isPending ? 'Undeploying...' : 'Confirm undeploy'}
+              </button>
+              <button onClick={() => setConfirming(false)} disabled={undeploy.isPending} className="px-3 py-2 text-sm rounded-lg bg-gray-100 dark:bg-gray-800">Cancel</button>
+            </span>
+          ) : (
+            <button
+              onClick={() => setConfirming(true)}
+              className="px-4 py-2 bg-status-denied-fg hover:bg-status-denied-fg disabled:opacity-50 text-status-denied-bg text-sm rounded-lg transition-colors"
+            >
+              Undeploy
+            </button>
+          )}
         </div>
       </div>
 
@@ -86,18 +109,18 @@ export default function InstanceDetail() {
           <InfoRow label="Namespace" value={inst.namespace} />
           <InfoRow label="Owner" value={inst.owner} />
           <InfoRow label="Deployed By" value={inst.deployed_by} />
-          <InfoRow label="Deployed At" value={new Date(inst.deployed_at).toLocaleString()} />
-          <InfoRow label="Updated At" value={new Date(inst.updated_at).toLocaleString()} />
-          <InfoRow label="Replicas" value={String(inst.replicas)} />
+          <InfoRow label="Deployed At" value={when(inst.deployed_at)} />
+          <InfoRow label="Updated At" value={when(inst.updated_at)} />
+          <InfoRow label="Replicas" value={inst.replicas === null || inst.replicas === undefined ? UNKNOWN : String(inst.replicas)} />
           {inst.spiffe_id && <InfoRow label="SPIFFE ID" value={inst.spiffe_id} mono />}
         </Section>
 
         <Section title="Health">
           {inst.health ? (
             <>
-              <InfoRow label="Status" value={inst.health.status} />
-              <InfoRow label="Last Check" value={new Date(inst.health.last_check).toLocaleString()} />
-              <InfoRow label="Latency" value={`${inst.health.latency_ms}ms`} />
+              <InfoRow label="Status" value={inst.health.status || UNKNOWN} />
+              <InfoRow label="Last Check" value={when(inst.health.last_check)} />
+              <InfoRow label="Latency" value={inst.health.latency_ms === null || inst.health.latency_ms === undefined ? UNKNOWN : `${inst.health.latency_ms}ms`} />
             </>
           ) : (
             <p className="text-sm text-gray-600 dark:text-gray-500">No health data available.</p>
@@ -107,7 +130,9 @@ export default function InstanceDetail() {
 
       {/* Scopes */}
       <Section title="Scopes">
-        {inst.scopes.length > 0 ? (
+        {inst.scopes === null || inst.scopes === undefined ? (
+          <p className="text-sm text-gray-600 dark:text-gray-500">Scopes not reported.</p>
+        ) : inst.scopes.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {inst.scopes.map((scope) => (
               <span
@@ -151,11 +176,11 @@ export default function InstanceDetail() {
                 {history.data.map((entry, i) => (
                   <tr key={i} className="border-t border-gray-100 dark:border-gray-800">
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
-                      {new Date(entry.timestamp).toLocaleString()}
+                      {when(entry.timestamp)}
                     </td>
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{entry.action}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-600 dark:text-gray-400">{entry.actor}</td>
-                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">{entry.details ?? '-'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">{entry.details ?? UNKNOWN}</td>
                   </tr>
                 ))}
               </tbody>
@@ -178,12 +203,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function InfoRow({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
   return (
     <div className="flex items-start py-1.5">
       <span className="text-sm text-gray-600 dark:text-gray-400 w-32 shrink-0">{label}</span>
       <span className={`text-sm text-gray-900 dark:text-gray-100 break-all ${mono ? 'font-mono text-xs' : ''}`}>
-        {value}
+        {value || UNKNOWN}
       </span>
     </div>
   )
