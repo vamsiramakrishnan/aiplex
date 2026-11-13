@@ -55,6 +55,13 @@ def test_usage_record_service_tier_server_tools_and_new_counters() -> None:
     assert bare.service_tier is None and bare.server_tools == {}
     assert bare.usage == UsageCounters.from_wire({"input_tokens": 1})
     assert bare.usage.cache_write_1h_tokens is None
+    # Every cache-write TTL the ledger records is read; absent ones stay None.
+    ttl = UsageCounters.from_wire(
+        {"cache_write_tokens": 30, "cache_write_5m_tokens": 10, "cache_write_30m_tokens": 0, "cache_write_12h_tokens": 20}
+    )
+    assert (ttl.cache_write_5m_tokens, ttl.cache_write_30m_tokens, ttl.cache_write_12h_tokens) == (10, 0, 20)
+    assert ttl.cache_write_1h_tokens is None
+    assert bare.usage.cache_write_5m_tokens is None and bare.usage.cache_write_12h_tokens is None
 
 
 def test_price_tiers_and_service_tier_round_trip_exactly() -> None:

@@ -648,8 +648,12 @@ class UsageCounters:
     cache_write_tokens: int | None = None
     reasoning_tokens: int | None = None
     total_tokens: int | None = None
-    #: Part of cache_write_tokens written with the one-hour TTL (a subset).
+    #: Parts of cache_write_tokens written with each TTL (subsets, never added
+    #: to it): 5m and 1h for Anthropic and Bedrock, 30m and 12h for OpenAI.
+    cache_write_5m_tokens: int | None = None
     cache_write_1h_tokens: int | None = None
+    cache_write_30m_tokens: int | None = None
+    cache_write_12h_tokens: int | None = None
     #: Gemini tool-use prompt tokens; not part of input_tokens.
     tool_use_prompt_tokens: int | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -664,7 +668,10 @@ class UsageCounters:
             cache_write_tokens=_opt_int(d, "cache_write_tokens"),
             reasoning_tokens=_opt_int(d, "reasoning_tokens"),
             total_tokens=_opt_int(d, "total_tokens"),
+            cache_write_5m_tokens=_opt_int(d, "cache_write_5m_tokens"),
             cache_write_1h_tokens=_opt_int(d, "cache_write_1h_tokens"),
+            cache_write_30m_tokens=_opt_int(d, "cache_write_30m_tokens"),
+            cache_write_12h_tokens=_opt_int(d, "cache_write_12h_tokens"),
             tool_use_prompt_tokens=_opt_int(d, "tool_use_prompt_tokens"),
             raw=dict(d),
         )

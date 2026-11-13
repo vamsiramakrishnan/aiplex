@@ -61,6 +61,15 @@ describe("metering fields", () => {
     expect(bare.serviceTier).toBeNull();
     expect(bare.serverTools).toEqual({});
     expect(parseUsageCounters({ input_tokens: 1 }).cacheWrite1hTokens).toBeNull();
+    // Every cache-write TTL the ledger records is read; absent ones stay null.
+    const ttl = parseUsageCounters({
+      cache_write_tokens: 30,
+      cache_write_5m_tokens: 10,
+      cache_write_30m_tokens: 0,
+      cache_write_12h_tokens: 20,
+    });
+    expect([ttl.cacheWrite5mTokens, ttl.cacheWrite30mTokens, ttl.cacheWrite12hTokens]).toEqual([10, 0, 20]);
+    expect(ttl.cacheWrite1hTokens).toBeNull();
     expect(() => parseUsageRecord({ id: "x", server_tools: { web_search: 1.5 } })).toThrow();
   });
 

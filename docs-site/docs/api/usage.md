@@ -135,7 +135,7 @@ The response is a page object.
 | `voice_session_milliseconds` | Milliseconds of a voice session |
 | `video_output_milliseconds` | Milliseconds of generated video |
 | `generated_images` | Count of generated images |
-| `cache_write_1h_tokens` | The part of `cache_write_tokens` written with the one-hour TTL. A subset, never added to it. |
+| `cache_write_5m_tokens`, `cache_write_1h_tokens`, `cache_write_30m_tokens`, `cache_write_12h_tokens` | The parts of `cache_write_tokens` written with each TTL (Anthropic and Bedrock report 5m and 1h; OpenAI Responses reports 30m and 12h). Subsets, never added to it. |
 | `tool_use_prompt_tokens` | Gemini tool-use prompt tokens. Not part of `input_tokens`. |
 
 ### Status codes and errors
@@ -256,7 +256,7 @@ Aggregates the visible records that match the filters. It accepts every filter p
 | `partial_usage_records` | integer | Omitted when zero |
 | `cost` | array of object | Exact totals per currency and basis. Each entry has `currency`, `basis`, `amount` (decimal string), `amount_decimal` (the same amount as an exact decimal string), `scale` and `records`. Estimated costs are added by their unrounded `exact` value and the total is rounded up once. |
 | `unknown_cost_records` | integer | Records with no amount |
-| `modality_tokens` | object of integer | Omitted when empty. Sums of the per-modality token splits and of `cache_write_1h_tokens` over records that reported them. |
+| `modality_tokens` | object of integer | Omitted when empty. Sums of the per-modality token splits and of the per-TTL cache writes over records that reported them. |
 | `units` | object of integer | Omitted when empty. Sums of the unit fields. |
 | `unit_records` | object of integer | Omitted when empty. Number of records that reported each unit. Records that did not report a unit are not counted as zero. |
 | `batch_records` | integer | Omitted when zero. Records of provider batch exchanges. |
@@ -381,7 +381,7 @@ The spec is decoded strictly: unknown fields are rejected.
 | `tiers` | array | No | Context-length overrides, at most 8: each `{"above_input_tokens": n, "meters": {...}}` with `n` positive and strictly increasing. When the record's `input_tokens` (total input, cache included) is greater than `n`, the whole request is priced at that tier's `meters`, which must name exactly the base meters. An unknown `input_tokens` makes the cost unknown. |
 | `source` | object | No | Provenance of a price imported from the bundled catalogue: `catalog` (required), `commit`, `retrieved_at`, `source_url`. It is a label only; it never changes matching or cost. |
 
-Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `requests`, the modality splits `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens`, `output_text_tokens`, `output_audio_tokens`, `output_image_tokens`, the unit meters `audio_input_milliseconds`, `voice_session_milliseconds`, `video_output_milliseconds`, `generated_images`, `tool_use_prompt_tokens`, `cache_write_1h_tokens` (which requires `cache_write_tokens` to be priced too), and per-call server-tool meters named `server_tool.<kind>` with a lowercase kind such as `server_tool.web_search`. Any other name is rejected.
+Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `requests`, the modality splits `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens`, `output_text_tokens`, `output_audio_tokens`, `output_image_tokens`, the unit meters `audio_input_milliseconds`, `voice_session_milliseconds`, `video_output_milliseconds`, `generated_images`, `tool_use_prompt_tokens`, the per-TTL cache-write meters `cache_write_5m_tokens`, `cache_write_1h_tokens`, `cache_write_30m_tokens` and `cache_write_12h_tokens` (each requires `cache_write_tokens` to be priced too), and per-call server-tool meters named `server_tool.<kind>` with a lowercase kind such as `server_tool.web_search`. Any other name is rejected.
 
 ### Status codes and errors
 

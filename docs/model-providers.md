@@ -144,9 +144,10 @@ output-inclusive token profile:
   observation that reports positive cache writes, and the exposure is retained.
 
 For the OpenAI and Anthropic token profiles, reasoning tokens are diagnostic and already
-included in `output_tokens`, so they are not added again. The one-hour cache-write part and the
-server-tool request counts are in the usage ledger record (`cache_write_1h_tokens`,
-`server_tools`); the other per-TTL counters are not. See [usage ledger](usage-ledger.md#limits).
+included in `output_tokens`, so they are not added again. The per-TTL cache-write parts and the
+server-tool request counts are in the usage ledger record (`cache_write_5m_tokens`,
+`cache_write_1h_tokens`, `cache_write_30m_tokens`, `cache_write_12h_tokens`, `server_tools`).
+See [usage ledger](usage-ledger.md#limits).
 
 ## WebSocket sessions
 

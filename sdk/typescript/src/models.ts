@@ -695,8 +695,14 @@ export interface UsageCounters {
   cacheWriteTokens: number | null;
   reasoningTokens: number | null;
   totalTokens: number | null;
-  /** Part of cacheWriteTokens written with the one-hour TTL (a subset). */
+  /**
+   * Parts of cacheWriteTokens written with each TTL (subsets, never added to
+   * it): 5m and 1h for Anthropic and Bedrock, 30m and 12h for OpenAI.
+   */
+  cacheWrite5mTokens: number | null;
   cacheWrite1hTokens: number | null;
+  cacheWrite30mTokens: number | null;
+  cacheWrite12hTokens: number | null;
   /** Gemini tool-use prompt tokens; not part of inputTokens. */
   toolUsePromptTokens: number | null;
   raw: Record<string, unknown>;
@@ -714,7 +720,10 @@ export function parseUsageCounters(value: unknown): UsageCounters {
     cacheWriteTokens: optInt(obj, "cache_write_tokens", "UsageCounters"),
     reasoningTokens: optInt(obj, "reasoning_tokens", "UsageCounters"),
     totalTokens: optInt(obj, "total_tokens", "UsageCounters"),
+    cacheWrite5mTokens: optInt(obj, "cache_write_5m_tokens", "UsageCounters"),
     cacheWrite1hTokens: optInt(obj, "cache_write_1h_tokens", "UsageCounters"),
+    cacheWrite30mTokens: optInt(obj, "cache_write_30m_tokens", "UsageCounters"),
+    cacheWrite12hTokens: optInt(obj, "cache_write_12h_tokens", "UsageCounters"),
     toolUsePromptTokens: optInt(obj, "tool_use_prompt_tokens", "UsageCounters"),
     raw: obj,
   };
