@@ -80,7 +80,7 @@ func TestBasicsHealthDoctorWhoamiAndContexts(t *testing.T) {
 			t.Fatal(r)
 		}
 		contains(t, r.Out, "API healthy", "doctor")
-		contains(t, r.Out, "Authenticated access working", "doctor")
+		contains(t, r.Out, "Authenticated as developer@localhost", "doctor")
 		notContains(t, r.Out, "[FAIL]", "doctor against a local API")
 	})
 
@@ -90,6 +90,9 @@ func TestBasicsHealthDoctorWhoamiAndContexts(t *testing.T) {
 			t.Fatal(r)
 		}
 		contains(t, r.Out, "API Server", "health")
+		// The signed-in probes carry the CLI's token: a local dev API must not FAIL them.
+		contains(t, r.Out, "[pass] Catalog", "health with a token")
+		notContains(t, r.Out, "[FAIL]", "health against a local API")
 	})
 }
 
