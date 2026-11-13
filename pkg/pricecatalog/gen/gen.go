@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/big"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -352,7 +354,7 @@ func buildEntry(provider, model, key string, raw map[string]any) (pricecatalog.E
 			leftOut[field] = true
 		}
 	}
-	e.Blocking, e.LeftOut = sortedKeys(blocking), sortedKeys(leftOut)
+	e.Blocking, e.LeftOut = slices.Sorted(maps.Keys(blocking)), slices.Sorted(maps.Keys(leftOut))
 	return e, true
 }
 
@@ -384,18 +386,6 @@ func serverToolPrice(provider string, v any) (string, bool) {
 		price = dec
 	}
 	return price, price != ""
-}
-
-func sortedKeys(m map[string]bool) []string {
-	if len(m) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // skipped lists the ids left out of the last build because upstream stated two

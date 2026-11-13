@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -407,7 +408,7 @@ func TestDCRRefreshCapabilityIsPinnedToPersistedRegisteredGrantTypes(t *testing.
 	}
 	key := CredentialKey{TenantID: "tenant", Issuer: f.issuer, ProfileID: p.ID}
 	credential, _, e := cfg.Credentials.Get(ctx, key)
-	if e != nil || !contains(credential.GrantTypes, "refresh_token") {
+	if e != nil || !slices.Contains(credential.GrantTypes, "refresh_token") {
 		t.Fatal("registered grant capability not persisted", credential, e)
 	}
 	credential.GrantTypes[0] = "changed"

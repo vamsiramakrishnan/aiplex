@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -287,7 +288,7 @@ func (c Change) Diff() string {
 				n++
 			}
 		}
-		return diffName("a", c.Path) + ": " + itoa(n) + " lines changed; content not shown\n"
+		return diffName("a", c.Path) + ": " + strconv.Itoa(n) + " lines changed; content not shown\n"
 	}
 	newName := ""
 	if c.Delete {
@@ -298,9 +299,4 @@ func (c Change) Diff() string {
 		d = diffHeader(c.Path, c.Existed, newName) + "(a value changed; content redacted)\n"
 	}
 	return d
-}
-
-func itoa(n int) string {
-	b, _ := json.Marshal(n)
-	return string(b)
 }

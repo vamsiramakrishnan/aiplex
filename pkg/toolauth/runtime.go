@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -236,7 +237,7 @@ func (r *Runtime) Begin(ctx context.Context, in AuthorizationStart) (Authorizati
 	if reg.TenantID != in.Key.Owner.TenantID || reg.Resource != in.Key.Resource || reg.Issuer != in.Key.Issuer || reg.ProfileID != in.Key.ProfileID || reg.ClientID == "" || reg.PKCEMethod != "S256" || reg.ResourceParameter != reg.Resource || r.registration.allowedURL(reg.AuthorizationEndpoint) != nil || r.registration.allowedURL(reg.TokenEndpoint) != nil {
 		return AuthorizationChallenge{}, runtimeError("registration_binding_invalid")
 	}
-	if ValidateRedirectURI(in.RedirectURI) != nil || !contains(reg.RedirectURIs, in.RedirectURI) {
+	if ValidateRedirectURI(in.RedirectURI) != nil || !slices.Contains(reg.RedirectURIs, in.RedirectURI) {
 		return AuthorizationChallenge{}, runtimeError("redirect_not_registered")
 	}
 	scopes, e := validScopes(in.Scopes)
@@ -613,7 +614,7 @@ func (r *Runtime) exchange(ctx context.Context, reg Registration, fields url.Val
 			return runtimeToken{}, e
 		}
 		for _, scope := range scopes {
-			if !contains(requested, scope) {
+			if !slices.Contains(requested, scope) {
 				return runtimeToken{}, runtimeError("token_scope_escalation")
 			}
 		}

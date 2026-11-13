@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -367,7 +368,7 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 
 	// 4. Audience.
 	auds := audiences(claims["aud"])
-	if contains(auds, reference.Audience) {
+	if slices.Contains(auds, reference.Audience) {
 		add(CheckAudience, StatusPass, fmt.Sprintf("audience includes %q", reference.Audience)+unverified)
 	} else if len(auds) == 0 {
 		add(CheckAudience, StatusFail, fmt.Sprintf("token has no aud claim; request it with audience %q", reference.Audience)+unverified)

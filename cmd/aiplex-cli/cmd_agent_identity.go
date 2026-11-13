@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -166,24 +168,15 @@ func agentIdentityGetCmd() *cobra.Command {
 			if b.ActorID != "" {
 				fmt.Fprintf(out, "Actor:       %s\n", b.ActorID)
 			}
-			for _, k := range sortedKeys(b.Inputs) {
+			for _, k := range slices.Sorted(maps.Keys(b.Inputs)) {
 				fmt.Fprintf(out, "Input:       %s=%s\n", k, b.Inputs[k])
 			}
-			for _, k := range sortedKeys(b.ExtraClaims) {
+			for _, k := range slices.Sorted(maps.Keys(b.ExtraClaims)) {
 				fmt.Fprintf(out, "Claim:       %s=%s\n", k, b.ExtraClaims[k])
 			}
 			return nil
 		},
 	}
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 // parseKeyValues turns repeated key=value flags into a map, rejecting

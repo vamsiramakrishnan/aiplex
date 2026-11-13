@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math/big"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -271,7 +273,7 @@ func convert(provider, model, rel, sourceURL string, doc map[string]any) (pricec
 			leftOut["cost."+name] = true
 		}
 	}
-	e.Blocking, e.LeftOut = sortedKeys(blocking), sortedKeys(leftOut)
+	e.Blocking, e.LeftOut = slices.Sorted(maps.Keys(blocking)), slices.Sorted(maps.Keys(leftOut))
 	return e, true
 }
 
@@ -289,18 +291,6 @@ func perThousand(price string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func sortedKeys(m map[string]bool) []string {
-	if len(m) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // skipped lists ids left out because two files stated different prices.

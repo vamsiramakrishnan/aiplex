@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -107,21 +108,21 @@ func AuditLog(next http.Handler) http.Handler {
 
 func classifyMutation(method, path string) (resource, action string) {
 	switch {
-	case contains(path, "/instances"):
+	case strings.Contains(path, "/instances"):
 		resource = "instance"
-	case contains(path, "/agents"):
+	case strings.Contains(path, "/agents"):
 		resource = "agent"
-	case contains(path, "/llm/routes"):
+	case strings.Contains(path, "/llm/routes"):
 		resource = "llm_route"
-	case contains(path, "/llm/providers"):
+	case strings.Contains(path, "/llm/providers"):
 		resource = "llm_provider"
-	case contains(path, "/a2a/delegations"):
+	case strings.Contains(path, "/a2a/delegations"):
 		resource = "delegation"
-	case contains(path, "/iam/role-bindings"):
+	case strings.Contains(path, "/iam/role-bindings"):
 		resource = "role_binding"
-	case contains(path, "/auth/consent"):
+	case strings.Contains(path, "/auth/consent"):
 		resource = "consent"
-	case contains(path, "/auth/users"):
+	case strings.Contains(path, "/auth/users"):
 		resource = "user_scopes"
 	default:
 		resource = "unknown"
@@ -138,19 +139,6 @@ func classifyMutation(method, path string) (resource, action string) {
 		action = "delete"
 	}
 	return
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsStr(s, substr))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 // AuditContext returns a logger enriched with audit context.

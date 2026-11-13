@@ -2,6 +2,7 @@ package agentfederation
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -27,7 +28,7 @@ func NumericDate(raw any) (int64, bool) { return numeric(raw) }
 func Clip(s string) string { return clip(s) }
 
 // Contains reports whether values includes v.
-func Contains(values []string, v string) bool { return contains(values, v) }
+func Contains(values []string, v string) bool { return slices.Contains(values, v) }
 
 // ExactValue rejects empty, padded, over-long or wildcard values.
 func ExactValue(label, value string) error { return exactValue(label, value) }

@@ -21,6 +21,8 @@
 package gcpsetup
 
 import (
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -421,7 +423,7 @@ func TerraformAPIs() []string {
 			set[a] = true
 		}
 	}
-	return sortedKeys(set)
+	return slices.Sorted(maps.Keys(set))
 }
 
 // AllAPIs returns bootstrap and Terraform-managed APIs, sorted.
@@ -433,7 +435,7 @@ func AllAPIs() []string {
 	for _, a := range TerraformAPIs() {
 		set[a] = true
 	}
-	return sortedKeys(set)
+	return slices.Sorted(maps.Keys(set))
 }
 
 // DeployerRolePermissions returns the permissions of the optional custom
@@ -448,16 +450,7 @@ func DeployerRolePermissions() []string {
 			}
 		}
 	}
-	return sortedKeys(set)
-}
-
-func sortedKeys(set map[string]bool) []string {
-	out := make([]string, 0, len(set))
-	for k := range set {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(set))
 }
 
 // ShortAPI trims ".googleapis.com".

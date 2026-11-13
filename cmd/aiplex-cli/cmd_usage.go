@@ -1410,7 +1410,7 @@ func usagePricesDeleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Uint64Var(&revision, "revision", 0, "Expected revision")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	return cmd
 }
 

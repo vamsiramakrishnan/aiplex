@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/agentidentity"
@@ -127,7 +128,7 @@ func Derive(presetID string, inputs map[string]string, extraClaims map[string]st
 		if value != strings.TrimSpace(value) || len(value) > 1024 || strings.ContainsAny(value, "\x00\r\n\t") {
 			return Trust{}, fmt.Errorf("input %q must be a single bounded value without surrounding whitespace", name)
 		}
-		if len(field.Enum) > 0 && value != "" && !contains(field.Enum, value) {
+		if len(field.Enum) > 0 && value != "" && !slices.Contains(field.Enum, value) {
 			return Trust{}, fmt.Errorf("input %q must be one of %s", name, strings.Join(field.Enum, ", "))
 		}
 		if value != "" {
@@ -261,15 +262,6 @@ func issuerOrigin(issuer string) error {
 		return fmt.Errorf("issuer must be the bare https origin reported by the provider")
 	}
 	return nil
-}
-
-func contains(values []string, v string) bool {
-	for _, x := range values {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 func presetList() []Preset {

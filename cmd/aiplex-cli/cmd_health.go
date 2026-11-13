@@ -216,30 +216,17 @@ func runHealthCheck(client *http.Client, url string, verbose bool) healthResult 
 
 func simplifyError(err error) string {
 	msg := err.Error()
-	if contains(msg, "connection refused") {
+	if strings.Contains(msg, "connection refused") {
 		return "connection refused — server not running?"
 	}
-	if contains(msg, "no such host") {
+	if strings.Contains(msg, "no such host") {
 		return "DNS resolution failed — check domain"
 	}
-	if contains(msg, "timeout") {
+	if strings.Contains(msg, "timeout") {
 		return "connection timed out — check network/firewall"
 	}
-	if contains(msg, "certificate") {
+	if strings.Contains(msg, "certificate") {
 		return "TLS error — check SSL certificate"
 	}
 	return msg
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

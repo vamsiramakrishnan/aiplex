@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -132,7 +134,7 @@ func Run(ctx context.Context, g Google, cfg Config) (*Report, error) {
 	// APIs first: a disabled bootstrap API explains every other failure.
 	services, svcErr := g.EnabledServices(ctx, cfg.Project)
 	for _, api := range AllAPIs() {
-		res := APIResult{Name: api, Bootstrap: contains(BootstrapAPIs, api)}
+		res := APIResult{Name: api, Bootstrap: slices.Contains(BootstrapAPIs, api)}
 		switch {
 		case svcErr != nil && res.Bootstrap && errors.Is(svcErr, ErrServiceDisabled) && api == "serviceusage.googleapis.com":
 			res.State, res.Reason = StateDisabled, "the Service Usage API answered that it is disabled"
@@ -271,14 +273,14 @@ func testTarget(ctx context.Context, g Google, t target, perms []Permission) []P
 				switch {
 				case e != nil:
 					out = append(out, problem(perm, StateUnknown, describe(t), e.Error()))
-				case !contains(one, perm.Name):
+				case !slices.Contains(one, perm.Name):
 					out = append(out, problem(perm, StateMissing, describe(t), ""))
 				}
 			}
 			continue
 		}
 		for _, perm := range batch {
-			if !contains(granted, perm.Name) {
+			if !slices.Contains(granted, perm.Name) {
 				out = append(out, problem(perm, StateMissing, describe(t), ""))
 			}
 		}
@@ -358,7 +360,7 @@ func rolesFor(perms []string) []string {
 		}
 		need[role][p] = true
 	}
-	roles := sortedKeys(boolSet(need))
+	roles := slices.Sorted(maps.Keys(boolSet(need)))
 	// Smallest roles are the candidates for removal.
 	sortBySize(roles)
 	kept := map[string]bool{}
@@ -407,15 +409,6 @@ func holdsAll(role string, perms map[string]bool) bool {
 		}
 	}
 	return true
-}
-
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }
 
 // Member returns the IAM member string for an account e-mail.

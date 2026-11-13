@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -195,7 +194,7 @@ func mcpRulesRemoveCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	return cmd
 }
 
@@ -240,7 +239,7 @@ for confirmation (--yes without a terminal). An empty list removes every rule.`,
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "Rules as JSON or YAML ('-' for stdin)")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }
@@ -315,7 +314,7 @@ is false); pass --group for each group, or --groups-known=false to be explicit.`
 				}
 			}
 			if rulesFile != "" {
-				raw, err := spReadSpec(rulesFile, os.Stdin)
+				raw, err := spReadSpec(rulesFile, cmd.InOrStdin())
 				if err != nil {
 					return err
 				}
