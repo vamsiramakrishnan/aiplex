@@ -15,19 +15,31 @@ from .errors import AiplexError, redact_value
 from .models import (
     AccessPointRecord,
     AccessPointSpec,
+    Budget,
+    BudgetPreview,
+    BudgetPreviewRequest,
+    BudgetRecord,
     BudgetStatus,
     ConnectConfig,
     Feedback,
+    HookPolicy,
+    HookPolicyRecord,
+    HookPolicyTest,
+    HookPolicyTestResult,
     ModelPrice,
     ModelPriceRecord,
     ModelSurface,
+    ModelSurfaceSpec,
     OverviewAccessPointDetail,
     OverviewAccessPointPage,
     OverviewAccessPointSummary,
     OverviewSubject,
     OverviewSubjectDetail,
     OverviewSubjectPage,
+    SurfaceCapacity,
     ToolConnection,
+    ToolConnectionSpec,
+    UsageConfig,
     UsageFilter,
     UsageRecord,
     UsageRecordPage,
@@ -99,6 +111,12 @@ def _validate_overview_limit(limit: int | None) -> None:
 def _validate_overview_kind(kind: str) -> None:
     if not isinstance(kind, str) or kind not in _VALID_OVERVIEW_KINDS:
         raise ValueError(f"invalid overview subject kind: {kind!r}")
+
+
+def _expect_array(data: Any, name: str) -> list[Any]:
+    if not isinstance(data, list):
+        raise AiplexError(f"{name} must be a JSON array", code="decode_error", status_code=None)
+    return data
 
 
 class Client:
@@ -263,6 +281,58 @@ class Client:
         """
         quoted = _quote_segment(id, "id")
         return BudgetStatus.from_wire(self._request("GET", f"/api/v1/budgets/{quoted}/status"))
+
+    def list_budgets(self) -> list[BudgetRecord]:
+        """List every budget of the tenant (operators only)."""
+        data = self._request("GET", "/api/v1/budgets")
+        return [BudgetRecord.from_wire(item) for item in _expect_array(data, "budgets list")]
+
+    def get_budget(self, id: str) -> BudgetRecord:
+        """Fetch one budget with its current revision (operators only)."""
+        quoted = _quote_segment(id, "id")
+        return BudgetRecord.from_wire(self._request("GET", f"/api/v1/budgets/{quoted}"))
+
+    def put_budget(self, spec: Budget, revision: int = 0) -> BudgetRecord:
+        """Create (revision 0) or replace (the stored revision) the budget named by ``spec.id``.
+
+        A stale revision raises an ``AiplexError`` for which ``is_revision_conflict`` is true.
+        """
+        if not isinstance(spec, Budget):
+            raise ValueError("spec must be a Budget")
+        _validate_non_negative_revision(revision)
+        quoted = _quote_segment(spec.id, "spec.id")  # type: ignore[arg-type]
+        data = self._request(
+            "PUT",
+            f"/api/v1/budgets/{quoted}",
+            json_body=spec.to_wire(),
+            headers={"If-Match": str(revision)},
+        )
+        return BudgetRecord.from_wire(data)
+
+    def delete_budget(self, id: str, revision: int) -> None:
+        """Delete a budget at the given positive revision.
+
+        Its counters stay in the quota store until their windows end.
+        """
+        quoted = _quote_segment(id, "id")
+        _validate_positive_revision(revision)
+        self._request(
+            "DELETE",
+            f"/api/v1/budgets/{quoted}",
+            headers={"If-Match": str(revision)},
+            expect_no_content=True,
+        )
+
+    def preview_budget(self, request: BudgetPreviewRequest) -> BudgetPreview:
+        """Ask which budgets a hypothetical request would draw from, and why.
+
+        Changes nothing; a ``draft`` specification is validated but never
+        stored. Administrators only.
+        """
+        if not isinstance(request, BudgetPreviewRequest):
+            raise ValueError("request must be a BudgetPreviewRequest")
+        data = self._request("POST", "/api/v1/budgets/preview", json_body=request.to_wire())
+        return BudgetPreview.from_wire(data)
 
     def whoami(self) -> Whoami:
         """Return the authenticated caller's identity, roles, and scopes."""
@@ -641,3 +711,135 @@ class Client:
         quoted = _quote_segment(id, "id")
         data = self._request("GET", f"/api/v1/mcp/connections/{quoted}")
         return ToolConnection.from_wire(data)
+
+    def put_model_surface(self, id: str, spec: ModelSurfaceSpec, revision: int = 0) -> ModelSurface:
+        """Create (revision 0) or replace a model surface at the stored revision.
+
+        Credentials are references only (``spec.auth.secret_ref`` names a
+        secret). The server performs all validation.
+        """
+        quoted = _quote_segment(id, "id")
+        if not isinstance(spec, ModelSurfaceSpec):
+            raise ValueError("spec must be a ModelSurfaceSpec")
+        _validate_non_negative_revision(revision)
+        data = self._request(
+            "PUT",
+            f"/api/v1/llm/surfaces/{quoted}",
+            json_body=spec.to_wire(),
+            headers={"If-Match": str(revision)},
+        )
+        return ModelSurface.from_wire(data)
+
+    def delete_model_surface(self, id: str, revision: int) -> None:
+        """Delete a model surface at the given positive revision."""
+        quoted = _quote_segment(id, "id")
+        _validate_positive_revision(revision)
+        self._request(
+            "DELETE",
+            f"/api/v1/llm/surfaces/{quoted}",
+            headers={"If-Match": str(revision)},
+            expect_no_content=True,
+        )
+
+    def get_model_surface_capacity(self, id: str) -> SurfaceCapacity:
+        """Last provider limit observation and capacity policy state of a surface.
+
+        Advisory, per replica. Administrators only.
+        """
+        quoted = _quote_segment(id, "id")
+        return SurfaceCapacity.from_wire(self._request("GET", f"/api/v1/llm/surfaces/{quoted}/capacity"))
+
+    def put_tool_connection(self, id: str, spec: ToolConnectionSpec, revision: int = 0) -> ToolConnection:
+        """Create (revision 0) or replace a tool connection at the stored revision.
+
+        ``spec.id`` may be left unset; it is sent as ``id``. Secrets are
+        references (``auth.secret_ref``), never values. The server validates.
+        """
+        quoted = _quote_segment(id, "id")
+        if not isinstance(spec, ToolConnectionSpec):
+            raise ValueError("spec must be a ToolConnectionSpec")
+        if spec.id is not None and spec.id != id:
+            raise ValueError("spec.id must equal id")
+        _validate_non_negative_revision(revision)
+        body = spec.to_wire()
+        body["id"] = id
+        data = self._request(
+            "PUT",
+            f"/api/v1/mcp/connections/{quoted}",
+            json_body=body,
+            headers={"If-Match": str(revision)},
+        )
+        return ToolConnection.from_wire(data)
+
+    def delete_tool_connection(self, id: str, revision: int) -> None:
+        """Delete a tool connection at the given positive revision."""
+        quoted = _quote_segment(id, "id")
+        _validate_positive_revision(revision)
+        self._request(
+            "DELETE",
+            f"/api/v1/mcp/connections/{quoted}",
+            headers={"If-Match": str(revision)},
+            expect_no_content=True,
+        )
+
+    def list_hook_policies(self) -> list[HookPolicyRecord]:
+        """List the tenant's request-hook policies (operators only)."""
+        data = self._request("GET", "/api/v1/hooks/policies/")
+        return [HookPolicyRecord.from_wire(item) for item in _expect_array(data, "hook policies list")]
+
+    def get_hook_policy(self, id: str) -> HookPolicyRecord:
+        """Fetch one hook policy with its current revision."""
+        quoted = _quote_segment(id, "id")
+        return HookPolicyRecord.from_wire(self._request("GET", f"/api/v1/hooks/policies/{quoted}"))
+
+    def put_hook_policy(self, policy: HookPolicy, revision: int = 0) -> HookPolicyRecord:
+        """Create (revision 0) or replace the hook policy named by ``policy.id``.
+
+        The server validates the policy (hook types, regular expressions,
+        sidecar endpoints); this client does not.
+        """
+        if not isinstance(policy, HookPolicy):
+            raise ValueError("policy must be a HookPolicy")
+        _validate_non_negative_revision(revision)
+        quoted = _quote_segment(policy.id, "policy.id")  # type: ignore[arg-type]
+        data = self._request(
+            "PUT",
+            f"/api/v1/hooks/policies/{quoted}",
+            json_body=policy.to_wire(),
+            headers={"If-Match": str(revision)},
+        )
+        return HookPolicyRecord.from_wire(data)
+
+    def delete_hook_policy(self, id: str, revision: int) -> None:
+        """Delete a hook policy at the given positive revision."""
+        quoted = _quote_segment(id, "id")
+        _validate_positive_revision(revision)
+        self._request(
+            "DELETE",
+            f"/api/v1/hooks/policies/{quoted}",
+            headers={"If-Match": str(revision)},
+            expect_no_content=True,
+        )
+
+    def test_hook_policy(self, id: str, sample: HookPolicyTest) -> HookPolicyTestResult:
+        """Run a saved policy's hooks over sample texts. The sample is never stored."""
+        quoted = _quote_segment(id, "id")
+        if not isinstance(sample, HookPolicyTest):
+            raise ValueError("sample must be a HookPolicyTest")
+        data = self._request("POST", f"/api/v1/hooks/policies/{quoted}/test", json_body=sample.to_wire())
+        return HookPolicyTestResult.from_wire(data)
+
+    def get_usage_config(self) -> UsageConfig:
+        """The deployment's usage settings (trace link template, feedback and tag keys)."""
+        return UsageConfig.from_wire(self._request("GET", "/api/v1/usage/config"))
+
+    def list_usage_feedback(self, record_id: str) -> list[Feedback]:
+        """A usage record's feedback history, newest first."""
+        quoted = _quote_segment(record_id, "record id")
+        data = self._request("GET", f"/api/v1/usage/records/{quoted}/feedback")
+        if not isinstance(data, dict):
+            raise AiplexError("feedback response must be a JSON object", code="decode_error", status_code=None)
+        items = data.get("feedback")
+        if items is None:
+            return []
+        return [Feedback.from_wire(item) for item in _expect_array(items, "feedback")]
