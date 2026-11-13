@@ -132,8 +132,9 @@ A record gets `unknown` cost when:
   selectors (see [prices](#prices)),
 - the price has context-length tiers and the record's `input_tokens` is unknown,
 - the record reports a quantity the price separates but does not rate: a non-text modality
-  count when the price rates another modality of that direction, one-hour cache writes, Gemini
-  tool-use prompt tokens, or a server-tool call count (see below), or
+  count when the price rates another modality of that direction, one-hour or 12-hour cache
+  writes, Gemini tool-use prompt tokens, or a server-tool call count (see below),
+- the record's per-TTL cache writes add up to more than its `cache_write_tokens`, or
 - the record's service tier is not one the price covers.
 
 Prices are never invented. The binary carries a third-party list-price catalogue, but nothing is priced from it automatically: an operator imports the entries they choose ([price catalogue](#price-catalogue)).
@@ -180,7 +181,8 @@ them, and are omitted when the provider did not report them (unknown, not zero):
 | `voice_session_milliseconds` | milliseconds | Voice duration of a seconds-metered session. |
 | `video_output_milliseconds` | milliseconds | Generated video duration, when a provider reports it. |
 | `generated_images` | images | Images returned by an image generation or edit. |
-| `cache_write_1h_tokens` | tokens | The part of `cache_write_tokens` written with the one-hour TTL (Anthropic `usage.cache_creation.ephemeral_1h_input_tokens`, Bedrock `cacheDetails` TTL `1h`). A subset of `cache_write_tokens`. The remainder is the five-minute write. |
+| `cache_write_5m_tokens`, `cache_write_1h_tokens` | tokens | The parts of `cache_write_tokens` written with the five-minute and one-hour TTL (Anthropic `usage.cache_creation.ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`, Bedrock `cacheDetails` TTL `5m` / `1h`). Subsets of `cache_write_tokens` that sum to it. |
+| `cache_write_30m_tokens`, `cache_write_12h_tokens` | tokens | The parts of `cache_write_tokens` written with the 30-minute and 12-hour TTL (OpenAI Responses `input_tokens_details.cache_write_tokens_details.ttl_30m_tokens` / `ttl_12h_tokens`). Subsets of `cache_write_tokens` that sum to it. |
 | `tool_use_prompt_tokens` | tokens | Gemini `toolUsePromptTokenCount`: tokens a built-in tool retrieved, reported apart from `promptTokenCount` and **not** part of `input_tokens`. Never zero-filled. |
 
 A Gemini `promptTokensDetails` or `candidatesTokensDetails` list names only the modalities
@@ -189,10 +191,15 @@ that carried tokens (on the Gemini Developer API a text-only prompt lists `TEXT`
 zeros; when the list does not add up, they stay unknown. Without this a price that rates audio
 could never cost a text-only request.
 
-Summaries report them separately: `modality_tokens` (sums of the splits and of
-`cache_write_1h_tokens`),
+Summaries report them separately: `modality_tokens` (sums of the splits and of the
+per-TTL cache writes, beside `cache_write_tokens` and never added to it),
 `units` (sums of the unit fields), `unit_records` (records that reported each
-unit) and `batch_records`. Each is omitted when empty. Batch usage is recorded
+unit) and `batch_records`. Each is omitted when empty. `aiplex usage records -o wide` and
+`aiplex usage summary -o wide` show the reported TTLs after the cache-write total, as
+`30 (5m=10 1h=20)`; a TTL that was not reported is left out. In a summary the per-TTL figures
+are sums over the records that reported them, while the total also counts records that reported
+only `cache_write_tokens`, so the figures need not add up to the total (`100 (5m=10 1h=20)`).
+Batch usage is recorded
 once, on the results fetch that settled the batch; see
 [model metering profiles](model-metering-profiles.md#provider-batches).
 
@@ -223,7 +230,7 @@ them with your contracted prices. Each meter is `numerator` fixed-point money
 units, at the price's `scale`, per `denominator` raw units. Allowed meters are
 `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`,
 `reasoning_tokens`, `requests`, every modality split, every unit field and
-`cache_write_1h_tokens` listed under [units](#units-and-modality-splits), and per-call
+every per-TTL cache write listed under [units](#units-and-modality-splits), and per-call
 `server_tool.<kind>` meters ([server tools](#server-tools)). A zero numerator declares a
 free meter.
 A priced modality split is charged at its own rate and removed from its parent
@@ -243,13 +250,30 @@ why the Gemini zero-fill above matters. A price with no non-text modality rate i
 charges every input token at `input_tokens` and every output token at `output_tokens`, as
 before. Text is the remainder and needs no rate of its own.
 
-`cache_write_1h_tokens` is the part of `cache_write_tokens` written with the one-hour TTL.
-When priced it is charged at its own rate and removed from `cache_write_tokens`, which then
-covers the five-minute writes. Positive one-hour writes with no one-hour rate are `unknown`
-(they are not priced at the five-minute rate), and a price that rates them must also rate
-`cache_write_tokens`. A reported zero `cache_write_tokens` means zero one-hour writes; a
-positive total without a TTL breakdown leaves the one-hour part unknown, so the cost is
-unknown. `tool_use_prompt_tokens` (Gemini) is a unit that must be rated when it is positive;
+**Per-TTL cache writes.** `cache_write_tokens` is rated at the provider's default TTL: five
+minutes for Anthropic and Bedrock, 30 minutes for OpenAI (the catalogue's
+`cache_creation_input_token_cost` is that rate; it states one-hour and 12-hour rates
+separately). Each of `cache_write_5m_tokens`, `cache_write_1h_tokens`, `cache_write_30m_tokens`
+and `cache_write_12h_tokens` may carry its own rate:
+
+- A priced TTL is charged at its own rate and removed from `cache_write_tokens`, which is
+  charged at its rate only for the rest. A price that rates a TTL must also rate
+  `cache_write_tokens`.
+- An unpriced five-minute or 30-minute write is charged at the `cache_write_tokens` rate.
+  Positive one-hour or 12-hour writes with no rate of their own are `unknown`: they are never
+  charged at the default-TTL rate.
+- A priced TTL whose count the record does not hold is `unknown`. A reported zero
+  `cache_write_tokens` means zero writes of every TTL.
+- The TTL counts never exceed `cache_write_tokens`, alone or together. A record whose counts
+  do is `unknown`, whatever the price rates. A record with a positive TTL count and no
+  `cache_write_tokens` is `unknown` too: its total is at least that count and cannot be priced.
+  Observers always report the total with its breakdown; this covers other writers.
+
+A positive `cache_write_tokens` reported without a TTL breakdown (OpenAI Chat Completions, an
+Anthropic response without `cache_creation`) is charged at the `cache_write_tokens` rate when
+the price rates no TTL: the ledger cannot tell that some of it was a one-hour or 12-hour
+write, so such a cost can be too low. Rate the long TTLs to make those records `unknown`
+instead. `tool_use_prompt_tokens` (Gemini) is a unit that must be rated when it is positive;
 the catalogue does not rate it.
 
 A price matches a record when its `model_id` equals the record's model, its `provider`
@@ -449,7 +473,11 @@ What to know before relying on it:
   unknown cost unless the price declares the meter; `--reasoning-included` declares it as a free meter
   on your say-so. Do not use it for providers that report reasoning separately from output.
 - **What is not imported** is listed on `show` and `import`: per-image, per-second, per-character,
-  per-page and per-query rates, other tools' surcharges, the 12-hour and other long cache lifetimes,
+  per-page and per-query rates, other tools' surcharges, the 12-hour and other long cache lifetimes
+  (the pinned litellm snapshot names `cache_creation_input_token_cost_above_12hr` and the models.dev
+  snapshot `cost.text.input.cache.write.30m` as left out, without a value, so no 5m, 30m or 12h
+  meter is imported and none is derived from another rate; a record with positive 12-hour writes is
+  `unknown` under an imported OpenAI price until you add `cache_write_12h_tokens` yourself),
   and cached-input rates for a modality whose own token rate is imported (a record that has both
   cached tokens and tokens of that modality is `unknown`, so it cannot be mispriced). Pricing a price
   cannot express that changes what a request costs makes the import refuse unless you pass
@@ -734,10 +762,10 @@ mock-gpt  1         0       0       1   9    USD 0.000006 (estimated)
 
 - Tool and agent records carry no token counts. Only model exchanges install a
   usage observer, so `usage` is `null` for them.
-- A record holds `cache_write_tokens` and its one-hour part, `cache_write_1h_tokens`. The other
-  per-TTL counters (`cache_write_5m_tokens`, which is the remainder, and OpenAI's
-  `cache_write_30m_tokens` and `cache_write_12h_tokens`) have no field, so the 12-hour OpenAI cache
-  rate is not a price meter. Server-tool request counts are in `server_tools`, per
+- A cache write reported without its TTL breakdown is charged at the `cache_write_tokens` rate
+  under a price that rates no TTL, so a one-hour or 12-hour write among it is undercharged (see
+  [per-TTL cache writes](#prices)). The catalogue imports no 12-hour rate, because its pinned
+  snapshots carry none. Server-tool request counts are in `server_tools`, per
   [server tools](#server-tools). See [model metering profiles](model-metering-profiles.md#native-usage-composition).
 - Only managed paths and trusted reports are captured. Envoy routes, direct
   provider calls and other traffic that bypasses these paths produce no record.

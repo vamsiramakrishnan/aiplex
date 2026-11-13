@@ -32,10 +32,18 @@ const (
 	CounterVideoOutputMilliseconds  = "video_output_milliseconds"
 	CounterGeneratedImages          = "generated_images"
 
-	// CounterCacheWrite1h is the part of cache_write_tokens written with the
-	// one-hour TTL (Anthropic usage.cache_creation.ephemeral_1h_input_tokens,
-	// Bedrock cacheDetails ttl 1h). It is a SUBSET of cache_write_tokens.
-	CounterCacheWrite1h = "cache_write_1h_tokens"
+	// The per-TTL cache-write counters are SUBSETS of cache_write_tokens;
+	// within one provider they do not overlap and sum to it.
+	//
+	// CounterCacheWrite5m and CounterCacheWrite1h are the five-minute and
+	// one-hour writes of Anthropic (usage.cache_creation.ephemeral_5m/1h_input_tokens)
+	// and Bedrock (cacheDetails ttl 5m/1h). CounterCacheWrite30m and
+	// CounterCacheWrite12h are the OpenAI Responses writes
+	// (input_tokens_details.cache_write_tokens_details.ttl_30m/12h_tokens).
+	CounterCacheWrite5m  = "cache_write_5m_tokens"
+	CounterCacheWrite1h  = "cache_write_1h_tokens"
+	CounterCacheWrite30m = "cache_write_30m_tokens"
+	CounterCacheWrite12h = "cache_write_12h_tokens"
 	// CounterToolUsePrompt is the Gemini toolUsePromptTokenCount: tokens
 	// retrieved by built-in tools, reported apart from promptTokenCount. It is
 	// NOT part of input_tokens.
@@ -51,8 +59,13 @@ var (
 	ModalityCounters = append(append([]string{}, InputModalityCounters...), OutputModalityCounters...)
 	// UnitCounters lists the non-token units in wire order.
 	UnitCounters = []string{CounterAudioInputMilliseconds, CounterVoiceSessionMilliseconds, CounterVideoOutputMilliseconds, CounterGeneratedImages, CounterToolUsePrompt}
-	// CacheSubsetCounters are token subsets of cache_write_tokens.
-	CacheSubsetCounters = []string{CounterCacheWrite1h}
+	// CacheSubsetCounters are the per-TTL token subsets of cache_write_tokens.
+	CacheSubsetCounters = []string{CounterCacheWrite5m, CounterCacheWrite1h, CounterCacheWrite30m, CounterCacheWrite12h}
+	// CacheWriteLongTTLCounters are the subsets the cache_write_tokens rate
+	// does not cover: the provider prices them differently from its default
+	// TTL (five minutes for Anthropic and Bedrock, 30 minutes for OpenAI), so
+	// a positive count needs its own rate (see EstimateWith).
+	CacheWriteLongTTLCounters = []string{CounterCacheWrite1h, CounterCacheWrite12h}
 )
 
 // heldCounters lists every modality, cache-subset and unit field in wire order.
@@ -81,9 +94,12 @@ type UnitUsage struct {
 	VoiceSessionMilliseconds *int64 `json:"voice_session_milliseconds,omitempty"`
 	VideoOutputMilliseconds  *int64 `json:"video_output_milliseconds,omitempty"`
 	GeneratedImages          *int64 `json:"generated_images,omitempty"`
-	// CacheWrite1hTokens is a subset of cache_write_tokens; ToolUsePromptTokens
-	// is a separate quantity (see the counter constants).
+	// The CacheWrite*Tokens fields are subsets of cache_write_tokens;
+	// ToolUsePromptTokens is a separate quantity (see the counter constants).
+	CacheWrite5mTokens  *int64 `json:"cache_write_5m_tokens,omitempty"`
 	CacheWrite1hTokens  *int64 `json:"cache_write_1h_tokens,omitempty"`
+	CacheWrite30mTokens *int64 `json:"cache_write_30m_tokens,omitempty"`
+	CacheWrite12hTokens *int64 `json:"cache_write_12h_tokens,omitempty"`
 	ToolUsePromptTokens *int64 `json:"tool_use_prompt_tokens,omitempty"`
 }
 
@@ -111,8 +127,14 @@ func (u *UnitUsage) field(name string) **int64 {
 		return &u.VideoOutputMilliseconds
 	case CounterGeneratedImages:
 		return &u.GeneratedImages
+	case CounterCacheWrite5m:
+		return &u.CacheWrite5mTokens
 	case CounterCacheWrite1h:
 		return &u.CacheWrite1hTokens
+	case CounterCacheWrite30m:
+		return &u.CacheWrite30mTokens
+	case CounterCacheWrite12h:
+		return &u.CacheWrite12hTokens
 	case CounterToolUsePrompt:
 		return &u.ToolUsePromptTokens
 	}

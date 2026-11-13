@@ -539,7 +539,7 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 		row := []string{r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalDisplay), usageDash(r.PrincipalID), usageDash(r.ClientID),
 			usageDash(usageAccessPointCell(r)), usageSessionCell(r), usageBatchCell(r), usageTagsCell(r.Tags), usageStatusCell(r), usageHooksCell(r),
 			usageAttemptsCell(r), usageBackendCell(r), usageCacheCell(r),
-			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageRecordCounter(r, usageledger.CounterCacheWrite),
+			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageCacheWriteCell(r),
 			usageModalityCell(r), usageUnitsCell(r), cost, latency}
 		if reported {
 			row = append(row[:4], append([]string{usageSourceCell(r)}, row[4:]...)...)
@@ -771,6 +771,38 @@ func usageModalityCell(r usageledger.Record) string {
 	})
 }
 
+var usageCacheTTLShort = strings.NewReplacer("cache_write_", "", "_tokens", "")
+
+// usageCacheWriteText appends the reported per-TTL cache writes, subsets of
+// the total, to a cache-write cell: "30 (5m=10 1h=20)". TTLs that were not
+// reported are omitted, never shown as zero.
+func usageCacheWriteText(total string, get func(string) (int64, bool)) string {
+	parts := []string{}
+	for _, name := range usageledger.CacheSubsetCounters {
+		if v, ok := get(name); ok {
+			parts = append(parts, usageCacheTTLShort.Replace(name)+"="+strconv.FormatInt(v, 10))
+		}
+	}
+	if len(parts) == 0 {
+		return total
+	}
+	return total + " (" + strings.Join(parts, " ") + ")"
+}
+
+func usageCacheWriteCell(r usageledger.Record) string {
+	return usageCacheWriteText(usageRecordCounter(r, usageledger.CounterCacheWrite), func(name string) (int64, bool) {
+		v := r.Usage.UnitCounter(name)
+		if v == nil {
+			return 0, false
+		}
+		return *v, true
+	})
+}
+
+func usageGroupCacheWrite(g usageledger.SummaryGroup) string {
+	return usageCacheWriteText(usageTokens(g, usageledger.CounterCacheWrite), func(name string) (int64, bool) { v, ok := g.ModalityTokens[name]; return v, ok })
+}
+
 func usageRecordDetail(r usageledger.Record) [][2]string {
 	httpStatus := "—"
 	if r.HTTPStatus != 0 {
@@ -795,7 +827,7 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		rows = append(rows, [2]string{name, usageRecordCounter(r, name)})
 	}
 	// Modality splits are subsets of input_tokens / output_tokens, and the
-	// one-hour cache writes a subset of cache_write_tokens.
+	// per-TTL cache writes subsets of cache_write_tokens.
 	for _, name := range append(append([]string{}, usageledger.ModalityCounters...), usageledger.CacheSubsetCounters...) {
 		rows = append(rows, [2]string{name + " (subset)", usageUnitCounter(r, name)})
 	}
@@ -1086,7 +1118,7 @@ func usageSummaryTable(s *usageledger.Summary) *outTable {
 			row = append(row, start)
 		}
 		row = append(row, strconv.FormatInt(g.Requests, 10), strconv.FormatInt(g.Errors, 10), strconv.FormatInt(g.Denied, 10),
-			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageTokens(g, usageledger.CounterCacheWrite),
+			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageGroupCacheWrite(g),
 			usageGroupModality(g), usageGroupUnits(g), usageGroupBatch(g), usageCostTotals(g), usageUnknownCounts(g), usageBoundedCounts(g))
 		if withFeedback {
 			row = append(row, usageFeedbackCell(g))
