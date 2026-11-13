@@ -38,6 +38,28 @@ import {
   parseBudgetStatus,
   type BudgetStatus,
 } from "./models.js";
+import {
+  type BudgetPreview,
+  type BudgetPreviewInput,
+  type BudgetRecord,
+  type BudgetSpec,
+  type HookPolicyRecord,
+  type HookPolicySpec,
+  type HookPolicyTestInput,
+  type HookPolicyTestResult,
+  type ModelSurfaceSpec,
+  type SurfaceCapacity,
+  type ToolConnectionSpec,
+  type UsageConfig,
+  parseBudgetPreview,
+  parseBudgetRecord,
+  parseHookPolicyRecord,
+  parseHookPolicyTestResult,
+  parseSurfaceCapacity,
+  parseUsageConfig,
+  toWireBudgetPreview,
+  toWireHookPolicyTest,
+} from "./admin.js";
 
 const USER_AGENT = "aiplex-sdk-ts/0.1.0";
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -924,5 +946,255 @@ export class AiplexClient {
       `/api/v1/mcp/connections/${encodeURIComponent(id)}`,
     );
     return parseToolConnection(data);
+  }
+
+  /**
+   * Lists every budget of the tenant with its revision (operators only).
+   */
+  public async listBudgets(): Promise<BudgetRecord[]> {
+    const data = await this.#request("GET", "/api/v1/budgets");
+    return parseList(data, "listBudgets", parseBudgetRecord);
+  }
+
+  /**
+   * Gets one budget definition with its current revision (operators only).
+   * Members read counters with {@link AiplexClient.getBudgetStatus}.
+   */
+  public async getBudget(id: string): Promise<BudgetRecord> {
+    validateId(id, "id");
+    const data = await this.#request("GET", `/api/v1/budgets/${encodeURIComponent(id)}`);
+    return parseBudgetRecord(data);
+  }
+
+  /**
+   * Creates (`revision` 0) or replaces (`revision` equal to the stored one) the
+   * budget named by `spec.id` (administrators only). A stale revision fails
+   * with a 409 `REVISION_CONFLICT` error.
+   */
+  public async putBudget(spec: BudgetSpec, revision = 0): Promise<BudgetRecord> {
+    if (!spec || typeof spec !== "object") {
+      throw new TypeError("spec must be a BudgetSpec object");
+    }
+    validateId(spec.id, "spec.id");
+    validatePutRevision(revision);
+    const data = await this.#request("PUT", `/api/v1/budgets/${encodeURIComponent(spec.id)}`, {
+      body: spec,
+      headers: { "If-Match": String(revision) },
+    });
+    return parseBudgetRecord(data);
+  }
+
+  /**
+   * Deletes a budget at the specified positive revision (administrators only).
+   * Counters stay in the quota store until their windows end.
+   */
+  public async deleteBudget(id: string, revision: number): Promise<void> {
+    validateId(id, "id");
+    validateDeleteRevision(revision);
+    await this.#request("DELETE", `/api/v1/budgets/${encodeURIComponent(id)}`, {
+      headers: { "If-Match": String(revision) },
+      expectNoContent: true,
+    });
+  }
+
+  /**
+   * Answers which budgets a hypothetical request would draw from and why
+   * (administrators only). Changes nothing; a `draft` is validated, never stored.
+   */
+  public async previewBudget(input: BudgetPreviewInput): Promise<BudgetPreview> {
+    if (!input || typeof input !== "object" || !input.subject || typeof input.subject !== "object") {
+      throw new TypeError("input.subject is required");
+    }
+    const data = await this.#request("POST", "/api/v1/budgets/preview", {
+      body: toWireBudgetPreview(input),
+    });
+    return parseBudgetPreview(data);
+  }
+
+  /**
+   * Creates (`revision` 0) or replaces a model surface. The server validates
+   * the spec. Credentials are references (`auth.secret_ref`), never values.
+   */
+  public async putModelSurface(
+    id: string,
+    spec: ModelSurfaceSpec,
+    revision = 0,
+  ): Promise<ModelSurface> {
+    validateId(id, "id");
+    if (!spec || typeof spec !== "object") {
+      throw new TypeError("spec must be a ModelSurfaceSpec object");
+    }
+    validatePutRevision(revision);
+    const data = await this.#request("PUT", `/api/v1/llm/surfaces/${encodeURIComponent(id)}`, {
+      body: spec,
+      headers: { "If-Match": String(revision) },
+    });
+    return parseModelSurface(data);
+  }
+
+  /**
+   * Deletes a model surface at the specified positive revision.
+   */
+  public async deleteModelSurface(id: string, revision: number): Promise<void> {
+    validateId(id, "id");
+    validateDeleteRevision(revision);
+    await this.#request("DELETE", `/api/v1/llm/surfaces/${encodeURIComponent(id)}`, {
+      headers: { "If-Match": String(revision) },
+      expectNoContent: true,
+    });
+  }
+
+  /**
+   * Reads a surface's last provider limit observation on the replica that
+   * answered, plus its capacity policy state (administrators only). Advisory.
+   */
+  public async getModelSurfaceCapacity(id: string): Promise<SurfaceCapacity> {
+    validateId(id, "id");
+    const data = await this.#request(
+      "GET",
+      `/api/v1/llm/surfaces/${encodeURIComponent(id)}/capacity`,
+    );
+    return parseSurfaceCapacity(data);
+  }
+
+  /**
+   * Creates (`revision` 0) or replaces a tool connection. `spec.id` must equal
+   * `id`. Credentials are references (`auth.secret_ref` and similar), never values.
+   */
+  public async putToolConnection(
+    id: string,
+    spec: ToolConnectionSpec,
+    revision = 0,
+  ): Promise<ToolConnection> {
+    validateId(id, "id");
+    if (!spec || typeof spec !== "object") {
+      throw new TypeError("spec must be a ToolConnectionSpec object");
+    }
+    if (spec.id !== id) {
+      throw new TypeError("spec.id must equal id");
+    }
+    validatePutRevision(revision);
+    const data = await this.#request("PUT", `/api/v1/mcp/connections/${encodeURIComponent(id)}`, {
+      body: spec,
+      headers: { "If-Match": String(revision) },
+    });
+    return parseToolConnection(data);
+  }
+
+  /**
+   * Deletes a tool connection at the specified positive revision.
+   */
+  public async deleteToolConnection(id: string, revision: number): Promise<void> {
+    validateId(id, "id");
+    validateDeleteRevision(revision);
+    await this.#request("DELETE", `/api/v1/mcp/connections/${encodeURIComponent(id)}`, {
+      headers: { "If-Match": String(revision) },
+      expectNoContent: true,
+    });
+  }
+
+  /**
+   * Lists the tenant's request-hook policies with their revisions.
+   */
+  public async listHookPolicies(): Promise<HookPolicyRecord[]> {
+    const data = await this.#request("GET", "/api/v1/hooks/policies/");
+    return parseList(data, "listHookPolicies", parseHookPolicyRecord);
+  }
+
+  /**
+   * Gets one hook policy with its current revision.
+   */
+  public async getHookPolicy(id: string): Promise<HookPolicyRecord> {
+    validateId(id, "id");
+    const data = await this.#request("GET", `/api/v1/hooks/policies/${encodeURIComponent(id)}`);
+    return parseHookPolicyRecord(data);
+  }
+
+  /**
+   * Creates (`revision` 0) or replaces the hook policy named by `policy.id`.
+   * The server validates it, including sidecar endpoints.
+   */
+  public async putHookPolicy(policy: HookPolicySpec, revision = 0): Promise<HookPolicyRecord> {
+    if (!policy || typeof policy !== "object") {
+      throw new TypeError("policy must be a HookPolicySpec object");
+    }
+    validateId(policy.id, "policy.id");
+    validatePutRevision(revision);
+    const data = await this.#request(
+      "PUT",
+      `/api/v1/hooks/policies/${encodeURIComponent(policy.id)}`,
+      { body: policy, headers: { "If-Match": String(revision) } },
+    );
+    return parseHookPolicyRecord(data);
+  }
+
+  /**
+   * Deletes a hook policy at the specified positive revision.
+   */
+  public async deleteHookPolicy(id: string, revision: number): Promise<void> {
+    validateId(id, "id");
+    validateDeleteRevision(revision);
+    await this.#request("DELETE", `/api/v1/hooks/policies/${encodeURIComponent(id)}`, {
+      headers: { "If-Match": String(revision) },
+      expectNoContent: true,
+    });
+  }
+
+  /**
+   * Runs a saved policy's hooks over sample texts. Nothing is stored or logged.
+   */
+  public async testHookPolicy(
+    id: string,
+    sample: HookPolicyTestInput,
+  ): Promise<HookPolicyTestResult> {
+    validateId(id, "id");
+    const body = toWireHookPolicyTest(sample);
+    const data = await this.#request(
+      "POST",
+      `/api/v1/hooks/policies/${encodeURIComponent(id)}/test`,
+      { body },
+    );
+    return parseHookPolicyTestResult(data);
+  }
+
+  /**
+   * Reads the deployment's usage settings (trace link template, whether
+   * feedback and feedback comments are enabled, allowed tag keys).
+   */
+  public async getUsageConfig(): Promise<UsageConfig> {
+    const data = await this.#request("GET", "/api/v1/usage/config");
+    return parseUsageConfig(data);
+  }
+
+  /**
+   * Lists a usage record's feedback history, newest first.
+   */
+  public async listUsageFeedback(recordId: string): Promise<Feedback[]> {
+    validateId(recordId, "recordId");
+    const data = await this.#request(
+      "GET",
+      `/api/v1/usage/records/${encodeURIComponent(recordId)}/feedback`,
+    );
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
+      throw new AiplexError({
+        statusCode: null,
+        code: "decode_error",
+        message: "listUsageFeedback: expected JSON object",
+      });
+    }
+    // The handler always writes the key (null when there is no history).
+    // A missing key is a malformed answer, not "no feedback".
+    const list = (data as Record<string, unknown>)["feedback"];
+    if (list === undefined) {
+      throw new AiplexError({
+        statusCode: null,
+        code: "decode_error",
+        message: "listUsageFeedback: missing feedback list",
+      });
+    }
+    if (list === null) {
+      return [];
+    }
+    return parseList(list, "listUsageFeedback", parseFeedback);
   }
 }
