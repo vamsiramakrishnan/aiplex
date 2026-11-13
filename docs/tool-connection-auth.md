@@ -37,7 +37,7 @@ aiplex mcp connections test search
 aiplex access-points create team --tool search --allow-groups eng
 ```
 
-`--tools` lists the tools callers may use. Without it, `create` discovers them by calling `tools/list` on the
+`--tools` lists the tools callers may use. Without it, `create` discovers them by an MCP Streamable HTTP handshake (`initialize`, then `tools/list`, following pages) against the
 server from this machine, which works only with `--auth none`. `--allow` and `--deny` set the tools policy,
 and `--update` replaces an existing connection. Delete with `aiplex mcp connections delete <id>`, which asks
 first on a terminal (see [the CLI page](cli.md#confirmation-prompts-and---yes)).

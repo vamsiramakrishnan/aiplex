@@ -3,10 +3,13 @@ package deploy_test
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/deploy"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
@@ -62,13 +65,23 @@ func TestDeploymentDiscoveryRequiresAdapterOptIn(t *testing.T) {
 func TestOptedInAdapterDiscoversThroughFakeTransport(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
+	// A compliant MCP server (the SDK's own) behind the faked transport.
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "fake", Version: "1"}, nil)
+	mcp.AddTool(mcpServer, &mcp.Tool{Name: "discovered-tool"}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{}, nil, nil
+	})
+	backend := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, nil))
+	t.Cleanup(backend.Close)
+	backendURL, _ := url.Parse(backend.URL)
 	requests := 0
 	http.DefaultTransport = discoveryTripwireTransport(func(r *http.Request) (*http.Response, error) {
 		requests++
 		if !strings.HasSuffix(r.URL.Host, ".svc.cluster.local:8080") || r.URL.Path != "/mcp" {
 			t.Fatalf("unexpected discovery target: %s", r.URL)
 		}
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","result":{"tools":[{"name":"discovered-tool"}]}}`))}, nil
+		r = r.Clone(r.Context())
+		r.URL.Scheme, r.URL.Host, r.Host = backendURL.Scheme, backendURL.Host, backendURL.Host
+		return original.RoundTrip(r)
 	})
 	store := registry.NewMemoryStore()
 	tmpl := &models.Template{ID: "test", Plane: models.PlaneMCPlex, Tools: []models.ToolInfo{{Name: "template-tool"}}}
@@ -80,7 +93,7 @@ func TestOptedInAdapterDiscoversThroughFakeTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requests != 1 || len(inst.Scopes) != 1 || inst.Scopes[0] != "mcp:tools:discovered-tool" {
+	if requests == 0 || len(inst.Scopes) != 1 || inst.Scopes[0] != "mcp:tools:discovered-tool" {
 		t.Fatalf("discovery not used: requests=%d scopes=%v", requests, inst.Scopes)
 	}
 }

@@ -68,7 +68,7 @@ non-interactively**. Whether a secret exists is checked by the API when the conn
 ## Safety defaults
 
 - **The tools are chosen by you.** Import needs `--allow-tools a,b` (exact names, no
-  wildcards) or `--probe`. `--probe` sends `tools/list` from this machine to the server, without a
+  wildcards) or `--probe`. `--probe` connects from this machine (MCP Streamable HTTP: `initialize`, then `tools/list` across pages, via the official MCP Go SDK; a server that answers only a bare `tools/list` without `initialize` is not accepted), without a
   credential, and uses what it finds; it refuses a server that declares a credential, a URL that
   is not `https`, a redirect, and hosts that are or resolve to private, loopback or link-local
   addresses (a registry could otherwise aim it at your network). With neither, the command stops

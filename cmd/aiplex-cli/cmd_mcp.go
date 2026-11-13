@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/mcpdiscover"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
@@ -419,8 +418,8 @@ func buildToolConnectionSpec(ctx context.Context, id string, f mcpAddFlags, out 
 	return raw, err
 }
 
-// discoverMCPTools calls initialize and tools/list on an MCP server directly
-// (no credential), accepting JSON or SSE responses.
+// discoverMCPTools lists the tools of an MCP server directly (no credential)
+// through the shared SDK-based client.
 func discoverMCPTools(ctx context.Context, endpoint, version string) ([]string, error) {
 	return discoverMCPToolsWith(ctx, endpoint, version, false)
 }
@@ -432,110 +431,14 @@ func discoverMCPToolsWith(ctx context.Context, endpoint, version string, noRedir
 	if noRedirect {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
-	session := ""
-	call := func(id int, method string, params any) (json.RawMessage, error) {
-		msg := map[string]any{"jsonrpc": "2.0", "method": method}
-		if id > 0 {
-			msg["id"] = id
+	tools, err := mcpdiscover.ListTools(ctx, client, endpoint, mcpdiscover.Options{ProtocolVersion: version})
+	if err != nil {
+		if errors.Is(err, mcpdiscover.ErrCredentialRequired) {
+			return nil, fmt.Errorf("the server requires a credential; pass --tools and --auth")
 		}
-		if params != nil {
-			msg["params"] = params
-		}
-		body, _ := json.Marshal(msg)
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json, text/event-stream")
-		req.Header.Set("MCP-Protocol-Version", version)
-		if session != "" {
-			req.Header.Set("Mcp-Session-Id", session)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		if s := resp.Header.Get("Mcp-Session-Id"); s != "" {
-			session = s
-		}
-		if id == 0 {
-			return nil, nil
-		}
-		if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			return nil, fmt.Errorf("the server requires a credential (HTTP %d); pass --tools and --auth", resp.StatusCode)
-		}
-		if resp.StatusCode/100 != 2 {
-			return nil, fmt.Errorf("%s answered HTTP %d", method, resp.StatusCode)
-		}
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-		if err != nil {
-			return nil, err
-		}
-		if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-			raw = lastSSEData(raw)
-		}
-		var envelope struct {
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if err := json.Unmarshal(raw, &envelope); err != nil {
-			return nil, fmt.Errorf("%s: response is not JSON-RPC", method)
-		}
-		if envelope.Error != nil {
-			return nil, fmt.Errorf("%s: %s", method, envelope.Error.Message)
-		}
-		return envelope.Result, nil
-	}
-	if _, err := call(1, "initialize", map[string]any{"protocolVersion": version, "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "aiplex-cli", "version": version}}); err != nil {
 		return nil, err
 	}
-	_, _ = call(0, "notifications/initialized", nil)
-	var names []string
-	cursor := ""
-	for page := 0; page < 20; page++ {
-		var params any
-		if cursor != "" {
-			params = map[string]any{"cursor": cursor}
-		}
-		result, err := call(page+2, "tools/list", params)
-		if err != nil {
-			return nil, err
-		}
-		var listed struct {
-			Tools []struct {
-				Name string `json:"name"`
-			} `json:"tools"`
-			NextCursor string `json:"nextCursor"`
-		}
-		if err := json.Unmarshal(result, &listed); err != nil {
-			return nil, fmt.Errorf("tools/list: unexpected result")
-		}
-		for _, t := range listed.Tools {
-			names = append(names, t.Name)
-		}
-		if listed.NextCursor == "" {
-			break
-		}
-		cursor = listed.NextCursor
-	}
-	return names, nil
-}
-
-func lastSSEData(raw []byte) []byte {
-	var last []byte
-	sc := bufio.NewScanner(bytes.NewReader(raw))
-	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.HasPrefix(line, "data:") {
-			last = []byte(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
-	}
-	return last
+	return mcpdiscover.Names(tools), nil
 }
 
 func mcpConnTestCmd() *cobra.Command {
