@@ -2,7 +2,8 @@ package models
 
 import "time"
 
-// Plane represents one of the three AIPlex planes.
+// Plane names the plex a deployed instance belongs to. "Plane" and "plex" mean
+// the same module here; docs/naming.md says what a plex is.
 type Plane string
 
 const (
