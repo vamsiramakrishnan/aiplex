@@ -20,9 +20,9 @@ func TestBudgetClientRoutesAndRevisions(t *testing.T) {
 		case r.Method == http.MethodDelete:
 			w.WriteHeader(204)
 		case r.URL.Path == "/api/v1/budgets/team/status":
-			json.NewEncoder(w).Encode(map[string]any{"id": "team", "unit": "requests", "limit": "5", "spent": "2", "reserved": "0", "remaining": "3", "window": map[string]any{}})
+			json.NewEncoder(w).Encode(map[string]any{"id": "team", "unit": "cost", "currency": "USD", "limit": "5", "spent": "2", "reserved": "0", "remaining": "3", "window": map[string]any{}, "include_tool_calls": true})
 		case r.URL.Path == "/api/v1/budgets/preview":
-			json.NewEncoder(w).Encode(map[string]any{"hypothetical": true, "draws": []any{map[string]any{"id": "team", "direct": true, "unit": "requests", "limit": "5", "window": map[string]any{}}}, "skipped": []any{}, "notes": []any{}})
+			json.NewEncoder(w).Encode(map[string]any{"hypothetical": true, "draws": []any{map[string]any{"id": "team", "direct": true, "unit": "cost", "currency": "USD", "limit": "5", "window": map[string]any{}, "include_tool_calls": true}}, "skipped": []any{}, "notes": []any{}})
 		case r.URL.Path == "/api/v1/budgets":
 			json.NewEncoder(w).Encode([]map[string]any{{"id": "team", "revision": 3, "spec": map[string]any{"id": "team"}}})
 		default:
@@ -39,10 +39,10 @@ func TestBudgetClientRoutesAndRevisions(t *testing.T) {
 	if rec, err := c.PutBudget(ctx, spec, 3); err != nil || rec.Revision != 4 {
 		t.Fatal(rec, err)
 	}
-	if st, err := c.GetBudgetStatus(ctx, "team"); err != nil || st.Spent != "2" || st.Remaining != "3" {
+	if st, err := c.GetBudgetStatus(ctx, "team"); err != nil || st.Spent != "2" || st.Remaining != "3" || !st.IncludeToolCalls {
 		t.Fatal(st, err)
 	}
-	if p, err := c.PreviewBudgets(ctx, aiplex.BudgetPreviewRequest{Subject: aiplex.BudgetPreviewSubject{Principal: "x"}}); err != nil || !p.Hypothetical || len(p.Draws) != 1 {
+	if p, err := c.PreviewBudgets(ctx, aiplex.BudgetPreviewRequest{Subject: aiplex.BudgetPreviewSubject{Principal: "x"}}); err != nil || !p.Hypothetical || len(p.Draws) != 1 || !p.Draws[0].IncludeToolCalls {
 		t.Fatal(p, err)
 	}
 	if err := c.DeleteBudget(ctx, "team", 0); err == nil {

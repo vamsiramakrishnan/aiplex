@@ -251,6 +251,74 @@ func TestBudgetsTeamTreeUnknownPriceStatusAndLedgerAgree(t *testing.T) {
 	}
 }
 
+// A cost budget counts tool calls only when it sets include_tool_calls. The
+// local tariff prices a model call at 0.001 USD and a tool call at 0.002 USD.
+func TestBudgetsCostCountsToolCallsOnlyWhenOptedIn(t *testing.T) {
+	e, caller := budgetEnv(t)
+	tia, mo := caller("tia", "toolers"), caller("mo", "modelers")
+	for _, sub := range []string{"tia", "mo"} {
+		id := auth.CanonicalPrincipalID(e.stack.IssuerURL, devstack.DevPoolID, sub)
+		e.mustCLI("agents", "user-scopes", "set", id, "--scopes", "llm:model:mock-gpt,llm:surface:local-models:*,mcp:tools:*")
+	}
+	e.mustCLI("budgets", "create", "tool-spend", "--name", "Tool spend", "--unit", "cost", "--currency", "USD", "--amount", "0.005", "--window", "month", "--group", "toolers", "--include-tool-calls")
+	e.mustCLI("budgets", "create", "model-spend", "--name", "Model spend", "--unit", "cost", "--currency", "USD", "--amount", "0.001", "--window", "month", "--group", "modelers")
+	if r := e.cli("budgets", "create", "tok", "--unit", "tokens", "--amount", "10", "--window", "day", "--include-tool-calls"); r.Code == 0 || !strings.Contains(r.Err+r.Out, "include_tool_calls") {
+		t.Fatalf("a token budget accepted include_tool_calls: %s", r)
+	}
+	r := e.mustCLI("budgets", "preview", "--group", "toolers", "--group", "modelers", "--plane", "mcplex")
+	contains(t, r.Out, "tool-spend", "opted-in budget draws on the tool plane")
+	contains(t, r.Out, "Skipped model-spend", "budget that did not opt in is skipped on the tool plane")
+
+	mcp := func(token string) *mcpClient {
+		c := &mcpClient{e: e, path: "/ap/local/mcp", extraHdr: []string{"Authorization", "Bearer " + token}}
+		c.initialize("2025-06-18")
+		return c
+	}
+	called := func() int { return len(e.stack.MCP.CallBodies()) }
+
+	// Not opted in: tool calls pass through a 0.001 USD model budget untouched.
+	moTools := mcp(mo)
+	for i := 0; i < 3; i++ {
+		if got := callText(t, moTools.call("local-tools__echo", map[string]any{"text": "mo"})); got != "mo" {
+			t.Fatalf("mo echo %d = %q", i, got)
+		}
+	}
+	if resp := e.chat(mo, "mock-gpt"); resp.Status != 200 {
+		t.Fatalf("mo chat: %d %s", resp.Status, resp.Body)
+	}
+	if resp := e.chat(mo, "mock-gpt"); resp.Status != 429 {
+		t.Fatalf("model-spend still counts model calls: %d %s", resp.Status, resp.Body)
+	}
+	if st := budgetStatusOf(t, e.mustCLI("budgets", "status", "model-spend", "-o", "json")); st["spent"] != "0.001000" || st["include_tool_calls"] != nil {
+		t.Fatalf("model-spend status: %v", st)
+	}
+
+	// Opted in: two tool calls (0.004) and a model call (0.001) spend 0.005;
+	// the next tool call is refused before it reaches the tool server.
+	tiaTools := mcp(tia)
+	for i := 0; i < 2; i++ {
+		callText(t, tiaTools.call("local-tools__echo", map[string]any{"text": "tia"}))
+	}
+	if resp := e.chat(tia, "mock-gpt"); resp.Status != 200 {
+		t.Fatalf("tia chat: %d %s", resp.Status, resp.Body)
+	}
+	before := called()
+	refused := tiaTools.call("local-tools__echo", map[string]any{"text": "over"})
+	if refused.Error == nil && refused.Status == 200 {
+		t.Fatalf("exhausted tool budget admitted a call: %s", refused.Raw)
+	}
+	contains(t, refused.Raw, "is exhausted", "tool refusal says the budget is exhausted")
+	if called() != before {
+		t.Fatalf("the refused tool call reached the tool server")
+	}
+	st := budgetStatusOf(t, e.mustCLI("budgets", "status", "tool-spend", "-o", "json"))
+	if st["spent"] != "0.005000" || st["reserved"] != "0.000000" || st["include_tool_calls"] != true {
+		t.Fatalf("tool-spend status: %v", st)
+	}
+	t.Logf("tool refusal: status=%d %s", refused.Status, refused.Raw)
+	t.Logf("tool-spend status: %v", st)
+}
+
 // Local state is in memory: a restart of the API forgets budgets and counters.
 func TestBudgetsLocalRestartLosesInMemoryState(t *testing.T) {
 	e, caller := budgetEnv(t)

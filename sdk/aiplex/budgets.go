@@ -134,6 +134,8 @@ type BudgetStatus struct {
 	Remaining   string       `json:"remaining"`
 	OverLimit   bool         `json:"over_limit,omitempty"`
 	Window      BudgetWindow `json:"window"`
+	// IncludeToolCalls is set on a cost budget that also counts tool calls.
+	IncludeToolCalls bool `json:"include_tool_calls,omitempty"`
 
 	UnknownCostRequests *int64                 `json:"unknown_cost_requests,omitempty"`
 	OnUnknownCost       string                 `json:"on_unknown_cost,omitempty"`
@@ -189,6 +191,8 @@ type BudgetPreviewDraw struct {
 	Limit       string         `json:"limit"`
 	Window      budgets.Window `json:"window"`
 	Draft       bool           `json:"draft,omitempty"`
+	// IncludeToolCalls is set on a cost budget that also counts tool calls.
+	IncludeToolCalls bool `json:"include_tool_calls,omitempty"`
 }
 
 // BudgetPreviewSkipped is a matched budget that does not count this plane.

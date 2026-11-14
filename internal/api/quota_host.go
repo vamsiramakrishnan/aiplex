@@ -155,6 +155,10 @@ type QuotaInvocation struct {
 	// UsageSemantics is the saved surface's declaration of a generic
 	// compatible server's usage contract (provider.usage_semantics).
 	UsageSemantics string
+	// DeploymentAction is set by the managed deployment path (never from a
+	// request). A deployment action runs on the tool plane but is not a tool
+	// call for budgets: a cost budget's include_tool_calls does not count it.
+	DeploymentAction bool
 }
 
 // Prepare builds one typed, admitted execution lease shared by native model and

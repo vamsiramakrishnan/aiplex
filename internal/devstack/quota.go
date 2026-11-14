@@ -106,11 +106,18 @@ func quotaFile(tenant string, noTools, tariff bool) (map[string]any, error) {
 	if tariff {
 		// A placeholder per-request tariff on the primary surface only, so a
 		// cost budget has a price to count there and the other surfaces have
-		// none. It is not any provider's price.
+		// none, and a per-call tariff on the seeded tool connection, so a cost
+		// budget that sets include_tool_calls has a tool price to count. It is
+		// not any provider's price.
 		policy["meters"].(map[string]any)["requests"] = map[string]any{"id": "requests", "unit": "requests", "billable": true}
 		policy["meters"].(map[string]any)["usd"] = map[string]any{"id": "usd", "unit": "money", "currency": "USD", "scale": 6}
-		policy["price_books"] = []any{map[string]any{"id": "dev-tariff", "revision": 1, "match": map[string]any{"resource_id": SeedSurface},
+		books := []any{map[string]any{"id": "dev-tariff", "revision": 1, "match": map[string]any{"resource_id": SeedSurface},
 			"prices": []any{map[string]any{"meter_id": "requests", "money_meter_id": "usd", "numerator": 1000, "denominator": 1}}}}
+		if !noTools {
+			books = append(books, map[string]any{"id": "dev-tool-tariff", "revision": 1, "match": map[string]any{"plane": "mcplex", "resource_id": SeedConnection},
+				"prices": []any{map[string]any{"meter_id": "requests", "money_meter_id": "usd", "numerator": 2000, "denominator": 1}}})
+		}
+		policy["price_books"] = books
 	}
 	return map[string]any{
 		"version": "v1",

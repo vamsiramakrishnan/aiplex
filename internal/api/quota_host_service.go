@@ -457,7 +457,7 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 	if accessPoint != nil {
 		project = accessPoint.Project
 	}
-	budgetSet, err := h.resolveBudgets(ctx, in.Context.TenantID, tenant, budgetFacts(principal, actor, identity, target, project), in.Plane)
+	budgetSet, err := h.resolveBudgets(ctx, in.Context.TenantID, tenant, budgetFacts(principal, actor, identity, target, project), in.Plane, in.DeploymentAction)
 	if err != nil {
 		return nil, err
 	}

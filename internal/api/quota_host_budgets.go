@@ -188,6 +188,8 @@ type budgetDraws struct {
 	Matches []budgets.Match
 	Skipped []budgets.Match
 	Facts   budgets.Facts
+	// Plane is the plane of the request the draws were resolved for.
+	Plane string
 }
 
 // budgetFacts builds the matching facts from verified inputs only: the token's
@@ -205,9 +207,17 @@ func budgetFacts(principal quotaplex.Subject, actor *quotaplex.Subject, identity
 }
 
 // resolveBudgets turns the request's verified facts into draws. With no
-// budget source, or no budget the request matches, it returns none.
-func (h *QuotaHost) resolveBudgets(ctx context.Context, tenantID string, tenant quotaTenant, facts budgets.Facts, plane string) (budgetDraws, error) {
-	out := budgetDraws{Facts: facts}
+// budget source, or no budget the request matches, it returns none. Which
+// budgets count the plane is Budget.Applies: a cost budget draws from a tool
+// call only when it sets include_tool_calls, so a budget that has not opted
+// in is skipped exactly as before. The draw itself does not depend on the
+// plane: QuotaPlex sums the money meters the matching price book gives the
+// call, and denies the draw when there is no such price.
+//
+// A deployment action (deployment true) draws only from request budgets: a
+// cost budget's include_tool_calls never charges or refuses a deployment.
+func (h *QuotaHost) resolveBudgets(ctx context.Context, tenantID string, tenant quotaTenant, facts budgets.Facts, plane string, deployment bool) (budgetDraws, error) {
+	out := budgetDraws{Facts: facts, Plane: plane}
 	if h.budgets == nil {
 		return out, nil
 	}
@@ -218,7 +228,7 @@ func (h *QuotaHost) resolveBudgets(ctx context.Context, tenantID string, tenant 
 	}
 	meters := tenant.policy.Policy().Meters
 	for _, m := range tree.Resolve(facts) {
-		if !m.Budget.Applies(plane) {
+		if !m.Budget.Applies(plane) || (deployment && !m.Budget.AppliesToDeploymentAction()) {
 			out.Skipped = append(out.Skipped, m)
 			continue
 		}
@@ -291,7 +301,11 @@ func (h *QuotaHost) budgetAdmissionError(ctx context.Context, tenant quotaTenant
 			base.Message += fmt.Sprintf("; the window resets in %s", denied.Decision.RetryAfter.Round(time.Second))
 		}
 	case "unpriced_meter", "budget_cost_unknown":
-		base.Message = fmt.Sprintf("budget %s is a cost budget and this model has no price, so the request cannot be costed", name)
+		what := "this model has"
+		if bd.Plane == budgets.PlaneTools {
+			what = "this tool call has"
+		}
+		base.Message = fmt.Sprintf("budget %s is a cost budget and %s no price, so the request cannot be costed", name, what)
 	case "unsupported_meter":
 		base.Message = fmt.Sprintf("budget %s counts %s, which this operation cannot meter", name, match.Budget.Limit.Unit)
 	}

@@ -34,7 +34,12 @@ QuotaPlex must be enabled (aiplex dev --quota does this locally).
 
 Cost budgets need a price for every model they count. A model with no price is
 refused by default (--on-unknown-cost deny); allow_and_flag admits it and counts
-it as unknown cost instead.`,
+it as unknown cost instead.
+
+A cost budget counts model calls only, unless it is created or updated with
+--include-tool-calls: then managed tool calls draw their price too, and a tool
+call with no price is treated like a model with no price. Deployment actions are
+not tool calls for this purpose: they are never charged or refused by it.`,
 		Example:     "  aiplex budgets list\n  aiplex budgets status platform",
 		Annotations: map[string]string{"kind": "budget"},
 	}
@@ -129,6 +134,9 @@ func budgetsGetCmd() *cobra.Command {
 			if s.Limit.Unit == budgets.UnitCost {
 				fmt.Fprintf(out, "  Unknown cost: %s\n", s.EffectiveOnUnknownCost())
 			}
+			if s.IncludeToolCalls {
+				fmt.Fprintln(out, "  Counts:   model and tool calls")
+			}
 			m := s.Members
 			if budgetMemberCount(m) == 0 {
 				fmt.Fprintln(out, "  Members:  none directly (draws only through child budgets)")
@@ -170,7 +178,7 @@ type budgetSpecFlags struct {
 	name, parent, unit, currency, amount, window, timezone, onUnknown string
 	groups, users, agents, clients, accessPoints, projects            []string
 	thresholds                                                        []int
-	update                                                            bool
+	update, includeToolCalls                                          bool
 }
 
 func (f *budgetSpecFlags) bind(cmd *cobra.Command, forCreate bool) {
@@ -184,6 +192,7 @@ func (f *budgetSpecFlags) bind(cmd *cobra.Command, forCreate bool) {
 	fl.StringVar(&f.timezone, "timezone", "", "IANA time zone of a calendar window (default UTC)")
 	fl.StringVar(&f.onUnknown, "on-unknown-cost", "", "Cost budgets: deny (default) refuses a model with no price; allow_and_flag admits it and counts it as unknown cost")
 	fl.IntSliceVar(&f.thresholds, "threshold", nil, "Alert threshold in percent, repeatable (default 50, 80, 100)")
+	fl.BoolVar(&f.includeToolCalls, "include-tool-calls", false, "Cost budgets: also count managed tool calls at their price (off by default: model calls only; deployment actions are never counted by it); --include-tool-calls=false turns it off")
 	if forCreate {
 		fl.StringSliceVar(&f.groups, "group", nil, "Member group name from your identity provider, repeatable")
 		fl.StringSliceVar(&f.users, "user", nil, "Member user (principal id, or name@localhost in aiplex dev), repeatable")
@@ -294,7 +303,7 @@ Group names are qualified with the identity provider you are signed in to. Use
 				if err != nil {
 					return err
 				}
-				spec = budgets.Budget{ID: id, DisplayName: f.name, Parent: f.parent, Limit: budgets.Limit{Unit: f.unit, Currency: f.currency, Amount: f.amount}, Window: w, OnUnknownCost: f.onUnknown, Thresholds: f.thresholds}
+				spec = budgets.Budget{ID: id, DisplayName: f.name, Parent: f.parent, Limit: budgets.Limit{Unit: f.unit, Currency: f.currency, Amount: f.amount}, Window: w, OnUnknownCost: f.onUnknown, Thresholds: f.thresholds, IncludeToolCalls: f.includeToolCalls}
 			}
 			c := newClient()
 			if file == "" {
@@ -350,6 +359,7 @@ client, access-point or project. Changing the unit, currency or window starts a
 new counter; changing only the amount keeps the spend so far.`,
 		Example: `  aiplex budgets update platform --amount 400.00
   aiplex budgets update platform --add group=data-eng --remove project=old
+  aiplex budgets update platform --include-tool-calls
   aiplex budgets update platform -f budget.yaml`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -393,6 +403,9 @@ new counter; changing only the amount keeps the spend so far.`,
 			}
 			if fl.Changed("threshold") {
 				spec.Thresholds = f.thresholds
+			}
+			if fl.Changed("include-tool-calls") {
+				spec.IncludeToolCalls = f.includeToolCalls
 			}
 			if fl.Changed("window") || fl.Changed("timezone") {
 				window := f.window
@@ -587,6 +600,9 @@ func renderBudgetStatus(out io.Writer, st *aiplex.BudgetStatus) {
 	}
 	fmt.Fprintf(out, "Budget %s\n  Window:    %s to %s\n", name, st.Window.Start.UTC().Format("2006-01-02 15:04Z"), st.Window.End.UTC().Format("2006-01-02 15:04Z"))
 	fmt.Fprintf(out, "  Limit:     %s %s\n  Spent:     %s\n  Reserved:  %s (held by requests in flight)\n  Remaining: %s\n", st.Limit, unit, st.Spent, st.Reserved, st.Remaining)
+	if st.IncludeToolCalls {
+		fmt.Fprintln(out, "  Counts:    model and tool calls")
+	}
 	if st.OverLimit {
 		fmt.Fprintln(out, "  Over limit: a settled request used more than its reservation; new requests are refused")
 	}
