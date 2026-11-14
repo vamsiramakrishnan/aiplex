@@ -248,7 +248,10 @@ func setupE2EServer(t *testing.T) *httptest.Server {
 	r.Use(api.RequestID)
 	r.Use(api.CORS("*"))
 	r.Use(api.MaxBody(1 << 20))
-	r.Use(api.WIFAuth(wifValidator))
+	// The smoke test calls the API with no identity, so the server runs in
+	// development mode: outside it the runs routes refuse a caller with no
+	// verified identity and tenant.
+	r.Use(api.WIFAuthMode(wifValidator, true))
 
 	instanceH := api.NewInstanceHandler(store, engine)
 	runsH := api.NewRunsHandler(store)
