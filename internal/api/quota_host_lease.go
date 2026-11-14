@@ -377,7 +377,11 @@ func (l *quotaHostLease) Finish(ctx context.Context, result execution.Result) er
 	if l.binding.Profile == quotaProfileBatch {
 		return l.finishBatchLocked(bounded, result)
 	}
-	if result.NotSent && l.binding.Plane == "llmplex" {
+	// A tool-usage call follows the same never-started rule as a model
+	// exchange (pkg/execution dispatch.go); a request-count tool binding
+	// keeps its contract, so its result never carries these.
+	toolUsage := l.binding.Profile == quotaProfileToolUsage
+	if result.NotSent && (l.binding.Plane == "llmplex" || toolUsage) {
 		// No request byte reached the provider (connection never
 		// established): the attempt consumed nothing, not even a request, so
 		// it settles at zero instead of leaving uncertain exposure. A routed
@@ -399,7 +403,7 @@ func (l *quotaHostLease) Finish(ctx context.Context, result execution.Result) er
 	if l.binding.Profile == quotaProfileRequests && result.ResponseComplete {
 		return l.terminalLocked(bounded, map[string]int64{"requests": 1, "tool_calls": 1})
 	}
-	if (result.Rejected || result.Cached) && result.ResponseComplete && l.binding.Plane == "llmplex" {
+	if ((result.Rejected || result.Cached) && result.ResponseComplete && l.binding.Plane == "llmplex") || (toolUsage && result.Rejected && result.ResponseComplete) {
 		// A documented not-processed rejection (see modelapi
 		// rejectedBeforeProcessing), or an answer served from the AIPlex
 		// response cache: one request, zero consumption. No model ran, so

@@ -75,7 +75,12 @@ type Options struct {
 	InspectResponse func(ctx context.Context, request Request, mediaType string, body []byte) ([]byte, error)
 	// Retry retries transport failures of tools/list and of tools/call on
 	// tools the host marks repeatable (retry.go). Nil never retries.
-	Retry             *TransportRetry
+	Retry *TransportRetry
+	// ObserveUsage receives a call's usage (requests, tool_calls, response
+	// bytes and duration; usage.go) when the call has no execution lease.
+	// With a lease, the lease's terminal observation carries the same
+	// counters instead, so usage is reported once.
+	ObserveUsage      func(context.Context, map[string]int64)
 	AllowHTTPForTests bool
 	MaxBodyBytes      int64
 	MaxResponseBytes  int64
@@ -108,6 +113,10 @@ func NewGateway(connection Connection, options Options) (*Gateway, error) {
 	if options.MaxDuration == 0 {
 		options.MaxDuration = 5 * time.Minute
 	}
+	// A connection's own bounds apply to its calls (usage.go); a quota
+	// binding that meters bytes or duration reserves exactly these.
+	options.MaxResponseBytes = connection.EffectiveMaxResponseBytes(options.MaxResponseBytes)
+	options.MaxDuration = connection.EffectiveMaxDuration(options.MaxDuration)
 	if options.MaxBodyBytes < 1 || options.MaxBodyBytes > 8<<20 || options.MaxResponseBytes < 1 || options.MaxResponseBytes > 64<<20 || options.MaxDuration < time.Second || options.MaxDuration > 30*time.Minute {
 		return nil, fmt.Errorf("tool execution bounds are invalid")
 	}
@@ -266,9 +275,29 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	claimed = true
+	// Only a usage-metering lease receives never-started results (the rule
+	// shared with model exchanges, pkg/execution dispatch.go); a
+	// request-count lease keeps its contract unchanged.
+	metered := lease != nil && usageProfile(lease)
+	finishEarly := func(result execution.Result) {
+		cleanup, stop := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
+		defer stop()
+		finished = true
+		_ = lease.Finish(cleanup, result)
+	}
 	repeatable := g.options.Retry != nil && g.options.Retry.Call != nil && g.options.Retry.Call(r.Context(), copyRequest(request))
-	credential, response, err := g.send(r.Context(), upstreamBody, repeatable)
+	sendContext, connected := execution.ConnectionTrace(r.Context())
+	// The duration runs on the monotonic clock from the first dispatch to
+	// the end of the response body (time.Since uses the monotonic reading).
+	dispatchedAt := time.Now()
+	credential, response, err := g.send(sendContext, upstreamBody, repeatable)
 	if err != nil {
+		// No try obtained a connection (a dial refused, an endpoint policy
+		// refusal, or a credential that could not be resolved for the try):
+		// nothing was sent.
+		if metered && !connected() {
+			finishEarly(execution.Result{NotSent: true, Err: err})
+		}
 		if _, ok := err.(errCredential); ok {
 			http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
 			return
@@ -280,19 +309,28 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	uncertainStatus = response.StatusCode
 	g.unauthorized(r.Context(), response, credential)
 	responseBody, readErr := io.ReadAll(io.LimitReader(response.Body, g.options.MaxResponseBytes+1))
+	elapsed := time.Since(dispatchedAt)
+	complete := readErr == nil && int64(len(responseBody)) <= g.options.MaxResponseBytes
 	media, _, mediaErr := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	validResponse := media == "application/json" && ValidateResponse(responseBody, request.ID) == nil
 	if media == "text/event-stream" && g.connection.Mode == StatelessStreamableHTTP {
 		validResponse = validateStreamResponse(responseBody, request.ID) == nil
 	}
-	terminal := readErr == nil && int64(len(responseBody)) <= g.options.MaxResponseBytes && response.StatusCode >= 200 && response.StatusCode < 300 && mediaErr == nil && response.Header.Get("MCP-Session-Id") == "" && validResponse
+	terminal := complete && response.StatusCode >= 200 && response.StatusCode < 300 && mediaErr == nil && response.Header.Get("MCP-Session-Id") == "" && validResponse
 	if !terminal {
+		if metered && complete && execution.RejectedBeforeProcessing(response.StatusCode) {
+			finishEarly(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Rejected: true, Err: errors.New("tool request refused before processing")})
+		}
 		http.Error(w, "tool response did not establish terminal usage", http.StatusBadGateway)
 		return
 	}
+	usage := map[string]int64{"requests": 1, "tool_calls": 1, CounterToolResponseBytes: int64(len(responseBody)), CounterToolDurationMilliseconds: durationMilliseconds(elapsed, g.options.MaxDuration)}
+	if lease == nil && g.options.ObserveUsage != nil {
+		g.options.ObserveUsage(r.Context(), usage)
+	}
 	if lease != nil {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Second)
-		err = lease.Observe(cleanup, execution.Observation{Source: "upstream", Counters: map[string]int64{"requests": 1, "tool_calls": 1}, Cumulative: true, Terminal: true})
+		err = lease.Observe(cleanup, execution.Observation{Source: "upstream", Counters: usage, Cumulative: true, Terminal: true})
 		if err == nil {
 			// A failed acknowledgement is retried through durable host evidence;
 			// do not replace a terminal Finish with a contradictory unknown one.

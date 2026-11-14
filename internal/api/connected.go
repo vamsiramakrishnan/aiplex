@@ -417,6 +417,9 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 			if e := c.Execution.Validate(); e != nil {
 				return e
 			}
+			if e := h.Quota.checkToolUsageConnection(tenant, c); e != nil {
+				return e
+			}
 			if c.Execution.CredentialMode != toolexec.DelegatedOAuth && c.Execution.CredentialMode != toolexec.ConnectionAuth {
 				if e := h.Runtime.CheckDestination(tenant, c.Execution.IdentityRef, c.ResourceURL); e != nil {
 					return e

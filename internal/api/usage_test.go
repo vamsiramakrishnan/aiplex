@@ -233,8 +233,13 @@ func TestUsageLedgerQuotaDenialKeepsQuotaOutcome(t *testing.T) {
 		t.Fatalf("records %+v", all)
 	}
 	denied, ok := all[0], all[1]
-	if ok.Plane != usageledger.PlaneMCP || ok.Status != usageledger.StatusOK || ok.ToolName != "search" || ok.Operation != "tools/call" || ok.Provider != "mcp" || ok.QuotaAttemptID != w.Header().Get("X-Aiplex-Attempt-ID") || ok.Usage != nil || ok.Cost.Basis != usageledger.BasisUnknown {
+	if ok.Plane != usageledger.PlaneMCP || ok.Status != usageledger.StatusOK || ok.ToolName != "search" || ok.Operation != "tools/call" || ok.Provider != "mcp" || ok.QuotaAttemptID != w.Header().Get("X-Aiplex-Attempt-ID") || ok.Cost.Basis != usageledger.BasisUnknown {
 		t.Fatalf("tool record: %+v", ok)
+	}
+	// A tool call's record carries its response size and duration (and no
+	// token counters).
+	if bytes := ok.Usage.UnitCounter(usageledger.CounterToolResponseBytes); bytes == nil || *bytes != int64(len(managedToolResponse)) || ok.Usage.UnitCounter(usageledger.CounterToolDurationMilliseconds) == nil || ok.Usage.InputTokens != nil {
+		t.Fatalf("tool record usage: %+v", ok.Usage)
 	}
 	if denied.Status != usageledger.StatusDenied || denied.HTTPStatus != 429 || denied.ErrorClass == "" || denied.ToolName != "search" {
 		t.Fatalf("quota denial record: %+v", denied)

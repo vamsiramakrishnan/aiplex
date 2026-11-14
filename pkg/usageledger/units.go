@@ -31,6 +31,12 @@ const (
 	CounterVoiceSessionMilliseconds = "voice_session_milliseconds"
 	CounterVideoOutputMilliseconds  = "video_output_milliseconds"
 	CounterGeneratedImages          = "generated_images"
+	// CounterToolResponseBytes and CounterToolDurationMilliseconds are a
+	// managed tool call's response body size and its gateway-measured
+	// duration (dispatch to end of the response, monotonic clock, rounded
+	// up). Both are known only for a complete response (pkg/toolexec usage.go).
+	CounterToolResponseBytes        = "tool_response_bytes"
+	CounterToolDurationMilliseconds = "tool_duration_milliseconds"
 
 	// The per-TTL cache-write counters are SUBSETS of cache_write_tokens;
 	// within one provider they do not overlap and sum to it.
@@ -58,7 +64,7 @@ var (
 	// ModalityCounters lists every modality split in wire order.
 	ModalityCounters = append(append([]string{}, InputModalityCounters...), OutputModalityCounters...)
 	// UnitCounters lists the non-token units in wire order.
-	UnitCounters = []string{CounterAudioInputMilliseconds, CounterVoiceSessionMilliseconds, CounterVideoOutputMilliseconds, CounterGeneratedImages, CounterToolUsePrompt}
+	UnitCounters = []string{CounterAudioInputMilliseconds, CounterVoiceSessionMilliseconds, CounterVideoOutputMilliseconds, CounterGeneratedImages, CounterToolUsePrompt, CounterToolResponseBytes, CounterToolDurationMilliseconds}
 	// CacheSubsetCounters are the per-TTL token subsets of cache_write_tokens.
 	CacheSubsetCounters = []string{CounterCacheWrite5m, CounterCacheWrite1h, CounterCacheWrite30m, CounterCacheWrite12h}
 	// CacheWriteLongTTLCounters are the subsets the cache_write_tokens rate
@@ -94,6 +100,8 @@ type UnitUsage struct {
 	VoiceSessionMilliseconds *int64 `json:"voice_session_milliseconds,omitempty"`
 	VideoOutputMilliseconds  *int64 `json:"video_output_milliseconds,omitempty"`
 	GeneratedImages          *int64 `json:"generated_images,omitempty"`
+	ToolResponseBytes        *int64 `json:"tool_response_bytes,omitempty"`
+	ToolDurationMilliseconds *int64 `json:"tool_duration_milliseconds,omitempty"`
 	// The CacheWrite*Tokens fields are subsets of cache_write_tokens;
 	// ToolUsePromptTokens is a separate quantity (see the counter constants).
 	CacheWrite5mTokens  *int64 `json:"cache_write_5m_tokens,omitempty"`
@@ -127,6 +135,10 @@ func (u *UnitUsage) field(name string) **int64 {
 		return &u.VideoOutputMilliseconds
 	case CounterGeneratedImages:
 		return &u.GeneratedImages
+	case CounterToolResponseBytes:
+		return &u.ToolResponseBytes
+	case CounterToolDurationMilliseconds:
+		return &u.ToolDurationMilliseconds
 	case CounterCacheWrite5m:
 		return &u.CacheWrite5mTokens
 	case CounterCacheWrite1h:

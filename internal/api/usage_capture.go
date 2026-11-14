@@ -269,6 +269,12 @@ func (c *usageCapture) instrumentTool(opts *toolexec.Options) {
 		return
 	}
 	c.set(func(r *usageledger.Record) { r.Provider = "mcp"; r.Operation = "tools/call" })
+	// Without a quota lease the gateway reports a complete call's response
+	// bytes and duration here; with one, the lease's terminal observation
+	// carries them (wrapLease).
+	opts.ObserveUsage = func(_ context.Context, counters map[string]int64) {
+		c.observe(counters, true, "", true, "")
+	}
 	if opts.List != nil && opts.List.Authorize != nil {
 		list := *opts.List
 		listAuthorize := list.Authorize

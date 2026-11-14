@@ -761,6 +761,9 @@ var usageUnitLabel = map[string]string{
 	usageledger.CounterVoiceSessionMilliseconds: "voice-session",
 	usageledger.CounterVideoOutputMilliseconds:  "video-out",
 	usageledger.CounterGeneratedImages:          "images",
+	usageledger.CounterToolUsePrompt:            "tool-use-prompt",
+	usageledger.CounterToolResponseBytes:        "tool-response",
+	usageledger.CounterToolDurationMilliseconds: "tool-time",
 }
 
 // usageUnitValue renders one reported unit quantity: milliseconds as a
@@ -775,6 +778,12 @@ func usageUnitValue(name string, v int64, size, quality string) string {
 			cell += " (" + dims + ")"
 		}
 		return cell
+	}
+	switch name {
+	case usageledger.CounterToolResponseBytes:
+		return fmt.Sprintf("%d bytes", v)
+	case usageledger.CounterToolUsePrompt:
+		return fmt.Sprintf("%d tokens", v)
 	}
 	return usageDuration(v)
 }
@@ -984,8 +993,10 @@ func usageUnitCounter(r usageledger.Record, name string) string {
 		if r.ImageSize != "" || r.ImageQuality != "" {
 			cell += " (" + strings.TrimSpace(r.ImageSize+" "+r.ImageQuality) + ")"
 		}
-	case usageledger.CounterAudioInputMilliseconds, usageledger.CounterVoiceSessionMilliseconds, usageledger.CounterVideoOutputMilliseconds:
+	case usageledger.CounterAudioInputMilliseconds, usageledger.CounterVoiceSessionMilliseconds, usageledger.CounterVideoOutputMilliseconds, usageledger.CounterToolDurationMilliseconds:
 		cell += " ms (" + usageDuration(*v) + ")"
+	case usageledger.CounterToolResponseBytes:
+		cell += " bytes"
 	}
 	if r.UsageBound != "" {
 		cell += " (" + r.UsageBound + ")"

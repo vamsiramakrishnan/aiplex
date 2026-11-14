@@ -41,11 +41,9 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -398,11 +396,11 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 	}
 	dialContext := r.Context()
 	seconds := g.secondsRun(run, op)
-	var connected atomic.Bool
+	connected := func() bool { return true }
 	if seconds {
 		// As for an HTTP exchange (dispatch.go do): a connection obtained
 		// means the handshake may have been sent.
-		dialContext = httptrace.WithClientTrace(dialContext, &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { connected.Store(true) }})
+		dialContext, connected = execution.ConnectionTrace(dialContext)
 	}
 	upstream, response, e := g.options.LiveDialer.DialContext(dialContext, websocketEndpoint(g.surface.Origin, r.URL.EscapedPath(), upstreamQuery.Encode()), signing.Header)
 	if response != nil {
@@ -416,7 +414,7 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 	if e != nil {
 		result := execution.Result{Err: e}
 		if seconds {
-			result = g.secondsDialResult(e, connected.Load(), response)
+			result = g.secondsDialResult(e, connected(), response)
 		}
 		_ = run.finish(result)
 		closeWebSocket(connection, websocket.CloseTryAgainLater, "upstream unavailable")

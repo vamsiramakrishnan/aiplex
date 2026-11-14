@@ -256,6 +256,10 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 	if binding.Profile == quotaProfileRequests {
 		return counts, nil, nil
 	}
+	if binding.Profile == quotaProfileToolUsage {
+		usage, err := toolUsageBounds(binding, in)
+		return usage, nil, err
+	}
 	if quotaExtendedProfile(binding.Profile) {
 		return h.extendedBounds(ctx, binding, target, in, now)
 	}
