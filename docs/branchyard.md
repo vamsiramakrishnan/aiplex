@@ -64,6 +64,8 @@ An AIPlex access point is a Branchyard backend. A turn's model calls go harness,
 
    Under that `url`, Branchyard's model gateway calls `POST /v1/messages` and `POST /v1/messages/count_tokens` (Anthropic Messages), `POST /v1/chat/completions` (OpenAI Chat Completions), `POST /v1/responses` (OpenAI Responses) and `GET /v1/models`. AIPlex does not translate between wires, which is why there is one backend per wire.
 
+   Branchyard asks an AIPlex backend for those routes and no others. A harness's request for any other path that would go to an AIPlex backend (the access point's tools endpoint `/mcp`, another wire, embeddings, one model by id) is refused by Branchyard's gateway with its own `403` before anything is sent, so the backend's credential is used for these calls only. The `url` is required: a Branchyard backend without one is addressed at its provider's public API, where an AIPlex credential must never go, so Branchyard refuses an AIPlex backend that has none. `aiplex connect` always writes it.
+
 2. **Put a token in `AIPLEX_TOKEN`**, in the shell that runs `by`:
 
    ```bash
@@ -163,7 +165,7 @@ A Branchyard run on one machine rather than on a server (its issuer is `branchya
 
 ## Status: what was tested
 
-**Run together on 14 November 2026.** Branchyard's qualification script (`tools/qualify_aiplex.py` in the Branchyard repository) ran the real `by` (Branchyard commit cc9e7dc) against a real `aiplex dev` (AIPlex commit f4e3991) on one machine over loopback: AIPlex's mock providers, a stand-in direct provider, and Branchyard's stand-in agent running a script as the harness. No model and no real coding agent were involved. It has two scenarios, a stored token and a Branchyard-signed token, of 24 checks each; all passed, twice in a row. The records are `docs/evidence/aiplex-control-plane-2026-11-14.json` and `docs/evidence/aiplex-signed-token-2026-11-14.json` in the Branchyard repository. What the stored-token scenario showed:
+**Run together on 14 November 2026.** Branchyard's qualification script (`tools/qualify_aiplex.py` in the Branchyard repository) ran the real `by` (Branchyard commit 8d6c52f) against a real `aiplex dev` (AIPlex commit f4e3991) on one machine over loopback: AIPlex's mock providers, a stand-in direct provider, and Branchyard's stand-in agent running a script as the harness. No model and no real coding agent were involved. It has two scenarios, a stored token and a Branchyard-signed token, of 24 checks each; all passed, twice in a row. The records are `docs/evidence/aiplex-control-plane-2026-11-14.json` and `docs/evidence/aiplex-signed-token-2026-11-14.json` in the Branchyard repository. What the stored-token scenario showed:
 
 - `by config validate` accepts the file `aiplex connect local --client branchyard --write` produces, as written and with other backends added.
 - Seven calls went through one turn's gateway on the Anthropic and OpenAI wires, one of them streamed. For each call routed to AIPlex there is exactly one ledger record, found by `--request-id` and by `--client-request-id`, whose `client_request_id` is Branchyard's call id and whose tags are the branch, the turn and the harness.
