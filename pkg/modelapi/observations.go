@@ -15,7 +15,10 @@ import (
 )
 
 type jsonObservation struct {
-	usage            *UsageObservation
+	usage *UsageObservation
+	// advisory usage (an InvokeModel family body) is ledger telemetry only:
+	// it is never fed to a token-metered lease.
+	advisory         bool
 	resource         Resource
 	nativeTerminal   bool
 	gemini           bool
@@ -49,6 +52,15 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 	}
 	if result, handled, err := inspectStateless(g.surface.ID, op, data, includeUsage); handled {
 		return result, err
+	}
+	if route := invokeRouteOf(ctx); bedrockInvoke(op) && !route.anthropic {
+		// A documented family is read only by its own parser, and an id that
+		// names another vendor never reaches the Anthropic one, whatever the
+		// body looks like (bedrock_invoke_families.go).
+		if !includeUsage || op.ID != "bedrock.invoke" || route.family == nil {
+			return jsonObservation{}, nil
+		}
+		return g.inspectInvokeFamily(route.family, op, data), nil
 	}
 	if bedrockOperation(op) && !(bedrockInvoke(op) && anthropicShaped(data)) {
 		return g.inspectBedrockJSON(op, data, includeUsage)

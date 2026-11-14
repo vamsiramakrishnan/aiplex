@@ -469,7 +469,7 @@ func usageRoutes() []fixtureRoute {
 	// Utility operations (ops_utility_routes_test.go) replace the matching
 	// unsupported/format-checked entries above; media and batch routes
 	// (usage_conformance_extended_test.go) are appended.
-	return append(overrideRoutes(routes, utilityRoutes()), extendedUsageRoutes()...)
+	return append(append(overrideRoutes(routes, utilityRoutes()), extendedUsageRoutes()...), bedrockFamilyRoutes()...)
 }
 
 // usageFixtureProviders are the fixture directories under testdata/usage-formats.

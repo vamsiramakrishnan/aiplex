@@ -95,6 +95,11 @@ func (g *Gateway) observeControlledJSON(owner Owner, op Operation, data []byte, 
 		}
 		return false, err
 	}
+	if value.advisory && !requestCountRun(run) {
+		// Advisory family usage never settles a token-metered lease: the
+		// lease stays unsettled, as for any body it cannot read.
+		value.usage = nil
+	}
 	if value.usage == nil || !value.nativeTerminal {
 		if observeErr := observeVersionMetadata(run, value); observeErr != nil {
 			return false, observeErr

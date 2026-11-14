@@ -64,6 +64,10 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	if g.serveProviderExtended(w, r, trusted, owner, op, params) {
 		return
 	}
+	if bedrockInvoke(op) {
+		// The model id (path) selects the InvokeModel body family.
+		r = r.WithContext(withInvokeModel(r.Context(), params["model"]))
+	}
 	if op.ID == geminiLiveOperation {
 		// Gemini Live on the Developer API: the Vertex Live relay with the
 		// surface credential. As on the Google Cloud path, the operation is

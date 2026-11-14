@@ -84,12 +84,59 @@ Bedrock rows appear under the `anthropic` provider in the coverage matrix.
 | --- | --- | --- | --- | --- | --- | --- |
 | `bedrock` | `bedrock.converse` | `POST /model/{model}/converse` | `bedrock-converse` | HTTP | Request count, or `bedrock-converse-text` token profile | exact in the matrix |
 | `bedrock` | `bedrock.converse-stream` | `POST /model/{model}/converse-stream` | `bedrock-converse` | AWS event stream | Request count, or `bedrock-converse-text` token profile | exact in the matrix |
-| `bedrock` | `bedrock.invoke` | `POST /model/{model}/invoke` | `bedrock-invoke` | HTTP | Request count, or `anthropic-text` token profile (Messages-shaped bodies only) | exact for Messages-shaped bodies. Other InvokeModel bodies are not observed. |
+| `bedrock` | `bedrock.invoke` | `POST /model/{model}/invoke` | `bedrock-invoke` | HTTP | Request count, or `anthropic-text` token profile (Messages-shaped bodies only) | exact for Messages-shaped bodies; advisory for the documented families below; other bodies are not observed. |
 | `bedrock` | `bedrock.invoke-stream` | `POST /model/{model}/invoke-with-response-stream` | `bedrock-invoke` | AWS event stream | Request count, or `anthropic-text` token profile (Messages-shaped chunks only) | exact for Messages-shaped chunks. Other chunks are not observed. |
 | `bedrock` | `bedrock-mantle.messages` | `POST /anthropic/v1/messages` on `bedrock-mantle.{region}.api.aws` | `anthropic-messages` | HTTP, SSE (`"stream": true`) | Request count, or `anthropic-text` token profile | exact in the matrix (`bedrock-mantle-messages`). See [Bedrock Mantle Messages](#bedrock-mantle-messages). |
 
 The matrix holds the level for each Bedrock row. The `anthropic-text` profile is admitted
 for Bedrock InvokeModel only when the body is Messages-shaped.
+
+#### InvokeModel bodies of other model families
+
+InvokeModel carries each model family's own body. Usage is read for these families, chosen
+only by the model id in the request path, never by the body. Every field name is taken from
+AWS's model-parameter reference (read 2026-11-14):
+
+| Family | Model ids | Fields read (non-streaming `bedrock.invoke`) | Streaming (`bedrock.invoke-stream`) | Source |
+| --- | --- | --- | --- | --- |
+| Amazon Nova (v1 understanding) | `amazon.nova-micro-v1…`, `amazon.nova-lite-v1…`, `amazon.nova-pro-v1…` | `usage.inputTokens`, `usage.outputTokens`, `usage.totalTokens`; `stopReason` marks the end | Not observed: the stream chunk is not documented | [Nova response structure](https://docs.aws.amazon.com/nova/latest/userguide/complete-request-schema-response.html) |
+| Amazon Titan Text | `amazon.titan-text-express-v1`, `amazon.titan-text-lite-v1`, `amazon.titan-text-premier-v1…` | `inputTextTokenCount`; the one `results` item's `tokenCount`; `completionReason` marks the end | Not observed: the chunk fields are documented, but not which chunk is final or whether `totalOutputTextTokenCount` is cumulative | [Titan Text models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-titan-text.html) |
+| Meta Llama 3 Instruct (3, 3.1, 3.2, 3.3) | `meta.llama3-…` | `prompt_token_count`, `generation_token_count`; `stop_reason` marks the end | Not observed: the stream chunk is not documented | [Meta Llama models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-meta.html) |
+
+- **Model id rule.** An id in AWS's `vendor.model` form (optionally behind a cross-Region
+  prefix, or embedded in a `foundation-model/` or `inference-profile/` ARN) that names a vendor
+  other than `anthropic` is read only by the family parser that claims it, and otherwise its
+  usage is unknown: it never reaches the Anthropic Messages parser. An id that names no vendor
+  (an ARN without an embedded model id, such as a provisioned model or an application
+  inference profile, or a name without a dot) is read as Messages only when the body is
+  Messages-shaped, as before.
+- **Ids and prefixes.** A family is selected by the documented id prefix, after removing a
+  cross-Region prefix. The accepted prefixes are those AWS shows: `us.`, `eu.`, `apac.`, `in.`
+  ([geographic cross-Region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/geographic-cross-region-inference.html)),
+  `ca.` (the Nova Lite model card), `jp.` (the Nova 2 Lite model card) and `global.`
+  ([global cross-Region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html)).
+  Any other prefix leaves the id unrecognised and its usage unknown. The id forms are from the
+  [InvokeModel API reference](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html).
+  A surface refuses a path model that contains `/`, so ARNs cannot be relayed today.
+- **Not covered.** Nova Premier, Nova 2, Llama 4, Llama 2, Cohere, Mistral, AI21, DeepSeek,
+  Writer and the other families: no InvokeModel response shape for them was read from AWS's
+  documentation, so their usage is unknown.
+- **No fallback.** A body is read only by its own family's parser. A body of another shape,
+  including an Anthropic Messages body under a family's id, gives unknown usage. Missing,
+  null, negative, fractional or non-numeric counts are unknown, never 0; an undocumented
+  member in Nova's `usage`, or a Nova `totalTokens` that is not `inputTokens` plus
+  `outputTokens`, makes the whole report unknown. A Titan `inputTextTokenCount` without the
+  result's `tokenCount` records input only.
+- **End marker.** A family's counts are read only when its documented end marker
+  (`stopReason`, `completionReason`, `stop_reason`) is a non-empty string; otherwise the
+  usage is unknown. AWS's documented complete responses always carry it, so a body without it
+  does not match the documented shape.
+- **Advisory only.** These counts are ledger telemetry. They are not a token profile: a
+  token-metered lease is never settled from them, so a hard token limit keeps refusing these
+  bodies exactly as before. AWS documents no invocation-metrics trailer for
+  `InvokeModelWithResponseStream`, so none is read.
+- **Not validated live.** The fixtures are built from AWS's documented response shapes with
+  synthetic values; none was recorded from, or tested against, live AWS.
 
 #### Bedrock Mantle Messages
 
@@ -705,8 +752,9 @@ Limits of this gate:
   work, cached-content retention or internal tool or agent work.
 - Token quota applies only to operations with a token profile, and only when the quota
   binding selects it. Advisory usage is recorded but does not bound or settle quota.
-- Bedrock InvokeModel usage is observed only when the body has the Messages shape. Other
-  InvokeModel bodies are model-specific and are not observed.
+- Bedrock InvokeModel usage is observed when the body has the Messages shape, and as advisory
+  telemetry for the documented Nova, Titan Text and Llama 3 bodies (non-streaming only). Other
+  InvokeModel bodies, and those families' streams, are not observed.
 - Anthropic token metering fails closed for server-tool calls, and for cache writes when the
   binding maps no cache-write meter.
 - A provider's `401` or `403` is the **gateway's** credential being refused, since a caller never

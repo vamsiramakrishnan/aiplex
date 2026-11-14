@@ -205,5 +205,41 @@
     "reasoning_tokens": 21,
     "total_tokens": 1888,
     "notes": "Newer Bedrock endpoint POST https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages: same body as the Claude API, standard SSE, anthropic.-prefixed model id IN BODY, anthropic-version header, SigV4 service bedrock-mantle. Usage assumed identical to Messages; any Bedrock-specific differences UNCONFIRMED."
+  },
+  "bedrock-invoke-nova.json": {
+    "input_tokens": 431,
+    "output_tokens": 57,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": 488,
+    "notes": "DOCUMENTED, not recorded: Amazon Nova (v1 understanding models) InvokeModel body, shape from https://docs.aws.amazon.com/nova/latest/userguide/complete-request-schema-response.html (read 2026-11-14): stopReason, usage {inputTokens, outputTokens, totalTokens}. Values synthetic. Selected by model id amazon.nova-{micro,lite,pro}-v1 (optionally behind a cross-Region prefix)."
+  },
+  "bedrock-invoke-titan-text.json": {
+    "input_tokens": 219,
+    "output_tokens": 63,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "DOCUMENTED, not recorded: Amazon Titan Text InvokeModel body, shape from https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-titan-text.html (read 2026-11-14): inputTextTokenCount, results (one item) {tokenCount, outputText, completionReason}. No total is reported. Values synthetic."
+  },
+  "bedrock-invoke-llama.json": {
+    "input_tokens": 157,
+    "output_tokens": 41,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "DOCUMENTED, not recorded: Meta Llama 3 Instruct InvokeModel body, shape from https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-meta.html (read 2026-11-14): generation, prompt_token_count, generation_token_count, stop_reason. No total is reported. Values synthetic."
+  },
+  "bedrock-invoke-stream-titan-text.jsonl": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null,
+    "total_tokens": null,
+    "notes": "DOCUMENTED, not recorded: decoded InvokeModelWithResponseStream chunks for Titan Text, shape from model-parameters-titan-text.html (read 2026-11-14): index, inputTextTokenCount, totalOutputTextTokenCount, outputText, completionReason. The page does not say which chunk is final or whether totalOutputTextTokenCount is cumulative, so the stream is not observed: usage unknown."
   }
 }
