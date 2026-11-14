@@ -31,6 +31,7 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - The Python and TypeScript SDKs have the admin operations of the Go SDK: budgets (list, get, put, delete, preview), model surface put, delete and capacity, tool connection put and delete, hook policies (list, get, put, delete, test), usage configuration and feedback listing. Writes carry the revision in `If-Match`, stored fields an SDK does not model are written back unchanged, and a value the server did not send is `None` or `null`, never 0. Both read the per-TTL cache-write counters.
 - Console: a Role bindings tab on the Permissions page; an access point's routing state and cache purge; a Budgets tab under QuotaPlex with create, edit, delete and preview; a Hooks screen with a dry run (the editor takes the JSON document the API returns; YAML files are applied with `aiplex hooks policies set -f`); seconds metering for Live voice in the surface editor; a client registration prefilled from a profile; a run's effects, obligations and charges. The command palette is built from the navigation, so it follows the signed-in roles and the enabled modules. A value the API did not send is shown as unknown on the Dashboard and in lists, and figures kept after a failed refresh say when they were last refreshed. Tested with the API mocked, not against a live server.
 - Examples for the Python and TypeScript SDKs (`examples/sdk-python`, `examples/sdk-typescript`); `make examples-test` runs them when `EXAMPLES_INSTALL_SDKS=1`.
+- Console, MCPlex (operators): add and delete a tool connection, list its tools through the gateway, and add, move, replace, remove and dry-run its policy rules. No input takes a secret value; reference fields, pasted specifications and URLs are checked for known token shapes and for URLs carrying credentials, and a refusal never repeats what was typed. A secret with no recognisable shape in a free-text field is not caught. Tested with the API mocked.
 
 ### Packaging and install
 
@@ -122,6 +123,7 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - A2APlex: connections to Google, AWS, Foundry and Copilot agents, with actor-separated sessions and reported delegation history; Agent Card discovery.
 - SkillsPlex: skill discovery and reported invocation history.
 - ClientPlex: client profiles and reviewed configuration plans for Antigravity, Codex and Claude clients.
+- ClientPlex plans and `aiplex connect --write` build their settings from one package and are compared byte for byte in tests. New plans: a Claude Code token helper and a Gemini CLI profile (gateway key only). `credential_env` names the variable the launcher holds the credential in; when it is not the client's own variable the plan binds the credential to it and adds a shell line copying it across.
 
 ### Identity and authorization
 
@@ -170,6 +172,7 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - A record with 12-hour cache writes priced by an imported catalogue price is now `unknown`, where it was charged at the base cache-write rate; add a `cache_write_12h_tokens` rate to price it.
 - The dashboard denials route honours `limit` from 1 to 1000 and refuses any other value with 400; it used to return 50 whatever was asked.
 - Go SDK: a malformed resource id is an `InputError` on every call, and the CLI exits with code 2 for it where some commands exited 1. `RunsHealth` and `UsageConfig` fields are pointers, so an absent value can be told from zero or empty. A non-JSON error body's first line (printable characters only, at most 300) is the error message, where it used to be the HTTP status text.
+- ClientPlex registrations: a field that promises control the plan cannot deliver is refused when written, and a stored registration carrying it gets no plan (409 naming the field) until it is removed: `allowed_models` in direct mode, and `managed` on a client with no managed configuration (Codex, Gemini CLI, Antigravity direct). Any other field with no effect is accepted and named in a plan warning. `allowed_models` is not enforced by the client configuration; the destination's own model list decides what is served. The `platform` field, which nothing read, is removed: a PUT carrying it is refused, and a stored registration carrying it still reads and plans, so drop it before writing the document back.
 
 ### Upgrading an existing deployment
 
