@@ -18,13 +18,18 @@ What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
     generateContent), so Claude Code, Codex and the OpenAI, Anthropic and
     Google SDKs all work with no key (or a real provider with --provider and
     --api-key-env, which exposes one model)
-  - a built-in MCP server with three tools (echo, add, reset_counter)
+  - a built-in MCP server with three tools (echo, add, reset_counter), and a
+    second one that refuses requests without an API key
+  - stand-in identity providers for federation (a workforce one, a workload
+    one and one nobody configures), served on loopback; the API trusts them
+    only after you configure them (see "aiplex dev token --help")
   - the Console, when this binary carries a built Console
 
 What is created through the normal APIs:
   - model surfaces "local-models", "local-responses", "local-messages" and
-    "local-gemini", access point "local", tool connection "local-tools" and,
-    for the mock models, placeholder prices
+    "local-gemini", access point "local", tool connections "local-tools" and
+    "local-tools-keyed" (its key is held as a secret reference, never in the
+    connection) and, for the mock models, placeholder prices
 
 To see role-based behaviour, "aiplex dev token --user bob [--role deployer]" mints
 a token for a second caller (bob@localhost) from the same local issuer; use it
@@ -212,13 +217,25 @@ Exit codes:
 ### `aiplex dev token`
 
 ```text
-Prints a token for a second local caller, signed by the same local issuer as your
-own, so you can see what a caller with no role, a deployer or another admin gets.
+Prints a token for a second local caller, so you can see what a caller with no
+role, a deployer or another admin gets, and try identity federation.
 
 The token is printed on stdout (nothing else), so it can be captured; what it
 is for goes to stderr. It is valid for an hour, only for the local API that
 issued it, and is minted by the local token issuer (loopback only), which
 accepts the request only with your own developer token.
+
+  --issuer local         (default) signed by the same local issuer as your own
+                         token: email <name>@localhost, subject <name>
+  --issuer idp           a stand-in workforce identity provider: email
+                         <name>@idp.localhost. The API refuses it until you
+                         apply a user identity provider for it (the command is
+                         printed on stderr); then it is a user with no role
+  --issuer workload      a stand-in workload identity provider, for agents:
+                         subject <name>, no email. Bind an agent to it with
+                         "aiplex agents identity bind" (printed on stderr)
+  --issuer unconfigured  an issuer nobody configured; its tokens are refused
+                         (401), which is its use
 
   --role none      (default) no role: the caller sees only the access points
                    that admit it. Admission is not a grant: to call a model
@@ -230,8 +247,13 @@ accepts the request only with your own developer token.
   --groups         extra identity-provider groups in the token (for access
                    points that admit a group)
 
-The caller's email is <name>@localhost, and its subject is <name>, so
-"aiplex access-points create team --allow-users <name>@localhost ..." admits it.
+--role applies to the local issuer only: a token from idp, workload or
+unconfigured never carries a role (roles come from role bindings), and --role
+is refused with them.
+
+With the local issuer the caller's email is <name>@localhost, and its subject is
+<name>, so "aiplex access-points create team --allow-users <name>@localhost ..."
+admits it.
 
 Usage:
   aiplex dev token --user <name> [--role none|deployer|admin] [--groups a,b] [flags]
@@ -240,12 +262,15 @@ Examples:
   aiplex dev token --user bob
   aiplex dev token --user dana --role deployer
   aiplex dev token --user carol --groups eng,research
+  aiplex dev token --user alice --issuer idp      # needs a user identity provider for the local idp
+  aiplex dev token --user ci-1 --issuer workload  # needs an agent identity binding
 
 Flags:
       --groups string   Extra groups for the token, comma separated
   -h, --help            help for token
+      --issuer string   Who signs the token: local, idp, workload, unconfigured (default "local")
       --role string     Role: none, deployer or admin (default "none")
-      --user string     Name of the caller to mint a token for (its email is <name>@localhost)
+      --user string     Name of the caller to mint a token for (its email is <name>@localhost; <name>@idp.localhost with --issuer idp)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

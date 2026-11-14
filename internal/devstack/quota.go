@@ -92,6 +92,7 @@ func quotaFile(tenant string, noTools, tariff bool) (map[string]any, error) {
 	if !noTools {
 		for _, tool := range MockTools {
 			add("mcplex", SeedConnection, "tools/call:"+tool, "", "mcp", true)
+			add("mcplex", SeedKeyedConnection, "tools/call:"+tool, "", "mcp", true)
 		}
 	}
 	policy := map[string]any{

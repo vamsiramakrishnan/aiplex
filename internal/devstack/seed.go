@@ -22,7 +22,12 @@ const (
 	// routing: list it as a second backend of mock-gpt.
 	SeedSurfaceB   = "local-models-b"
 	SeedConnection = "local-tools"
-	MockModel      = "mock-gpt"
+	// SeedKeyedConnection is the tool connection to the keyed MCP server: its
+	// upstream refuses requests without an API key, and the connection holds
+	// the key only as the secret reference KeyedSecretRef. It is not on access
+	// point "local"; add it with: aiplex access-points create team --tool local-tools-keyed
+	SeedKeyedConnection = "local-tools-keyed"
+	MockModel           = "mock-gpt"
 	// MockSecretRef is the secret reference the extra mock surfaces use. Their
 	// providers require a credential scheme, so the stack gives the API process
 	// a throwaway value under this reference (the mock ignores it).
@@ -65,7 +70,10 @@ type Seeded struct {
 	// Models lists every model on the access point, the primary one first.
 	Models     []SeededModel
 	Connection string // empty when no tool connection was seeded
-	Tools      []string
+	// KeyedConnection is the tool connection that authenticates to its upstream
+	// with an API key held as a secret reference; empty when no tools were seeded.
+	KeyedConnection string
+	Tools           []string
 }
 
 // DefaultModel is the model wired for each provider unless overridden.
@@ -318,6 +326,11 @@ func (s *Stack) Seed(ctx context.Context, o SeedOptions) (*Seeded, error) {
 		if err = api.Create(ctx, "/api/v1/mcp/connections/"+SeedConnection, ToolConnectionSpec(SeedConnection, s.MCPURL, MockTools, nil, nil)); err != nil {
 			return nil, fmt.Errorf("create tool connection: %w", err)
 		}
+		keyedAuth := map[string]any{"type": "api_key", "in": "header", "name": KeyedMCPHeader, "secret_ref": KeyedSecretRef}
+		if err = api.Create(ctx, "/api/v1/mcp/connections/"+SeedKeyedConnection, ToolConnectionSpec(SeedKeyedConnection, s.KeyedMCPURL, MockTools, keyedAuth, nil)); err != nil {
+			return nil, fmt.Errorf("create tool connection %s: %w", SeedKeyedConnection, err)
+		}
+		out.KeyedConnection = SeedKeyedConnection
 		ap["tools"] = []map[string]any{{"connection_ref": SeedConnection}}
 		out.Connection, out.Tools = SeedConnection, append([]string(nil), MockTools...)
 	}

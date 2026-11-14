@@ -572,6 +572,9 @@ func explainToolCall(id, tool string, err error) error {
 			"List the tools the caller can see with: aiplex mcp connections test "+id)
 	}
 	var apiErr *aiplex.Error
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusServiceUnavailable {
+		return explainGateway503("tools/call "+tool, id, apiErr)
+	}
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadGateway {
 		return newCLIError(exitError, "the gateway could not get a valid answer from the tool server: "+apiErr.Message,
 			"Check the connection with: aiplex mcp connections test "+id)
@@ -607,6 +610,29 @@ func printConnectionTools(ctx context.Context, out io.Writer, c *aiplex.Client, 
 	return nil
 }
 
+// explainGateway503 reports a 503 from the connection's invoke route with the
+// server's own code and message first. The gateway answers a plain-text
+// "... credential unavailable" (which the SDK reports with code "unknown" and
+// the text as the message) when it cannot get the credential the connection
+// names, a secret reference or an identity; only then is the credential
+// explained. Other 503s (TOOL_CONFIGURATION_UNAVAILABLE, QUOTA_UNAVAILABLE,
+// TOOL_EXECUTION_UNAVAILABLE, ...) are shown as the server said them.
+func explainGateway503(what, id string, apiErr *aiplex.Error) error {
+	detail := apiErr.Message
+	if apiErr.Code != "" && apiErr.Code != "unknown" {
+		detail = apiErr.Code + ": " + detail
+	}
+	msg := fmt.Sprintf("%s through the gateway failed (503): %s", what, detail)
+	if apiErr.Code != "unknown" || !strings.Contains(apiErr.Message, "credential unavailable") {
+		return newCLIError(exitError, msg, "The gateway could not serve the call; retry, and check the API log if it persists.")
+	}
+	hints := []string{"The gateway could not get the connection's credential: its secret reference has no readable value, or its identity profile could not produce a token. Check the connection's auth with: aiplex mcp connections get " + id}
+	if isLoopbackURL(resolveAPIURL()) {
+		hints = append(hints, "With aiplex dev, a secret reference NAME is read from the variable AIPLEX_TOOL_SECRET_<NAME> (upper case, - as _) in the environment aiplex dev started with.")
+	}
+	return newCLIError(exitError, msg, hints...)
+}
+
 func explainToolTest(id string, err error) error {
 	var rpc *aiplex.ToolListError
 	if errors.As(err, &rpc) {
@@ -615,6 +641,9 @@ func explainToolTest(id string, err error) error {
 			"Change it with: aiplex tools set-auth "+id+" --auth-type ...")
 	}
 	var apiErr *aiplex.Error
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusServiceUnavailable {
+		return explainGateway503("tools/list", id, apiErr)
+	}
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadGateway {
 		hints := []string{"The gateway could not get a valid answer from the server at the connection's URL."}
 		if isLoopbackURL(resolveAPIURL()) {

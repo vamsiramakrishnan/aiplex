@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Client is an AIPlex API client.
@@ -114,8 +115,9 @@ func (c *Client) doWithHeaders(ctx context.Context, method, path string, body, o
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		var apiErr Error
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
-			return &Error{Code: "unknown", Message: resp.Status, StatusCode: resp.StatusCode}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err := json.Unmarshal(raw, &apiErr); err != nil {
+			return &Error{Code: "unknown", Message: plainErrorText(raw, resp.Status), StatusCode: resp.StatusCode}
 		}
 		apiErr.StatusCode = resp.StatusCode
 		return &apiErr
@@ -1071,4 +1073,32 @@ func (c *Client) SetUserScopesAtRevision(ctx context.Context, id string, scopes 
 		return nil, err
 	}
 	return c.GetUserScopes(ctx, id)
+}
+
+// plainErrorText is the first line of a non-JSON error body (for example the
+// gateway's "operator tool credential unavailable"), trimmed and cut at 300
+// characters; fallback when it has none. The text may come from a proxy in
+// front of the API and is printed to a terminal, so only printable characters
+// are kept: control characters (C0 and C1, which include terminal escapes) and
+// format characters (bidirectional overrides, zero-width marks) are dropped,
+// and any other white space becomes a plain space.
+func plainErrorText(body []byte, fallback string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(string(body)), "\n")
+	line = strings.TrimSpace(strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsPrint(r):
+			return r
+		case unicode.IsSpace(r):
+			return ' '
+		default:
+			return -1
+		}
+	}, line))
+	if line == "" {
+		return fallback
+	}
+	if r := []rune(line); len(r) > 300 {
+		line = string(r[:300])
+	}
+	return line
 }

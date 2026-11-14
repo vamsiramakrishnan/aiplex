@@ -37,6 +37,7 @@ type devState struct {
 	Models      []string `json:"models,omitempty"`
 	PID         int      `json:"pid"`
 	IssuerURL   string   `json:"issuer_url,omitempty"`
+	Federation  bool     `json:"federation,omitempty"`
 	Console     string   `json:"console,omitempty"`
 	ConsoleNote string   `json:"console_note,omitempty"`
 	StartedAt   string   `json:"started_at,omitempty"`
@@ -78,13 +79,18 @@ What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
     generateContent), so Claude Code, Codex and the OpenAI, Anthropic and
     Google SDKs all work with no key (or a real provider with --provider and
     --api-key-env, which exposes one model)
-  - a built-in MCP server with three tools (echo, add, reset_counter)
+  - a built-in MCP server with three tools (echo, add, reset_counter), and a
+    second one that refuses requests without an API key
+  - stand-in identity providers for federation (a workforce one, a workload
+    one and one nobody configures), served on loopback; the API trusts them
+    only after you configure them (see "aiplex dev token --help")
   - the Console, when this binary carries a built Console
 
 What is created through the normal APIs:
   - model surfaces "local-models", "local-responses", "local-messages" and
-    "local-gemini", access point "local", tool connection "local-tools" and,
-    for the mock models, placeholder prices
+    "local-gemini", access point "local", tool connections "local-tools" and
+    "local-tools-keyed" (its key is held as a secret reference, never in the
+    connection) and, for the mock models, placeholder prices
 
 To see role-based behaviour, "aiplex dev token --user bob [--role deployer]" mints
 a token for a second caller (bob@localhost) from the same local issuer; use it
@@ -225,7 +231,7 @@ func runDev(parent context.Context, o devOptions) error {
 		consoleURL, consoleNote = startDevConsole(ctx, stack.APIURL, stack.Token, o.consolePort)
 	}
 	statePath, _ := devStatePath()
-	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, IssuerURL: stack.IssuerURL, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339Nano), APILog: logPath, DevLog: detachedLogPath()}
+	state := devState{URL: stack.APIURL, Context: o.contextName, AccessPoint: seeded.AccessPoint, Model: seeded.Model, Protocol: seeded.Protocol, IssuerURL: stack.IssuerURL, Federation: stack.Federation != nil, Provider: seeded.Provider, Models: seededModelNames(seeded), PID: os.Getpid(), Console: consoleURL, ConsoleNote: consoleNote, StartedAt: time.Now().UTC().Format(time.RFC3339Nano), APILog: logPath, DevLog: detachedLogPath()}
 	if raw, e := json.MarshalIndent(state, "", "  "); e == nil && statePath != "" {
 		_ = os.WriteFile(statePath, raw, 0o600)
 		defer os.Remove(statePath)
@@ -465,6 +471,10 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	}
 	if seeded.Connection != "" {
 		row("Tools", seeded.Connection+": "+strings.Join(seeded.Tools, ", ")+"  (built-in MCP server)")
+		row("Keyed tools", seeded.KeyedConnection+"  (API key from a secret reference; try: aiplex mcp connections test "+seeded.KeyedConnection+")")
+	}
+	if s.Federation != nil {
+		row("Identity", "federation on; stand-in providers on loopback: aiplex dev token --issuer idp|workload|unconfigured")
 	}
 	row("Access point", seeded.AccessPoint+"  ->  "+s.APIURL+"/ap/"+seeded.AccessPoint)
 	if seeded.Price != "" {
