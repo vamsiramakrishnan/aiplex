@@ -81,7 +81,17 @@ func (authzVerifier) Verify(_ context.Context, token string) (map[string]any, er
 	case "runs-operator":
 		claims["groups"] = []any{"runs-operators"}
 	default:
-		return nil, errUnknownTestToken
+		// "group.<group>[@<hd>]" names one group and, optionally, the
+		// workforce domain (hd) claim, for tests that bind their own scopes.
+		group, ok := strings.CutPrefix(name, "group.")
+		if !ok || group == "" {
+			return nil, errUnknownTestToken
+		}
+		if g, hd, found := strings.Cut(group, "@"); found {
+			group, claims["hd"] = g, hd
+		}
+		claims["sub"] = "subject-" + group
+		claims["groups"] = []any{group}
 	}
 	return claims, nil
 }

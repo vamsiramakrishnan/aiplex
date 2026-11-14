@@ -255,19 +255,22 @@ func compactedAtFromPayload(payload string, fallback time.Time) time.Time {
 // List returns the most recent runs for a tenant / agent.
 //   GET /api/v1/runs?tenant_id=...&agent_id=...&limit=100
 //
-// Multi-tenant enforcement: if the caller carries a
-// tenant claim, the result set is filtered to that tenant unless they
-// also hold `aiplex:runs:read:cross_tenant`. A `tenant_id=` filter
-// from a single-tenant caller for *another* tenant returns empty
-// (not 403) — silently denying cross-tenant visibility.
+// Multi-tenant enforcement (runsTenant): a caller bound to one tenant sees
+// only that tenant's runs unless they also hold
+// `aiplex:runs:read:cross_tenant`. A `tenant_id=` filter from such a caller
+// for *another* tenant returns empty (not 403), so the existence of other
+// tenants is not revealed. The query value can only narrow, never widen.
 func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 	limit := parseIntDefault(q.Get("limit"), 100)
 	tenantFilter := q.Get("tenant_id")
 
-	callerTenant, crossTenant := TenantFromContext(ctx)
-	if callerTenant != "" && !crossTenant {
+	view, ok := runsTenant(w, r)
+	if !ok {
+		return
+	}
+	if callerTenant := view.tenant; !view.all {
 		if tenantFilter == "" {
 			tenantFilter = callerTenant
 		} else if tenantFilter != callerTenant {
@@ -284,6 +287,9 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 		runStoreError(w, r, err)
 		return
 	}
+	// The store query is already scoped; re-check each row so a store that
+	// treats the filter loosely can never return another tenant's run.
+	runs = filterRuns(runs, func(rn models.ExecutionRun) bool { return view.visible(rn.TenantID) })
 	// Optional client-side filters that don't need a separate query
 	// path: hide finished runs / show only those with unresolved
 	// follow-ups. Cheap to compute in-memory because the store already
@@ -627,21 +633,40 @@ func budgetUSDFromPayload(payload string) float64 {
 	return p.USDCharged
 }
 
-// Health returns the last-ingest timestamp + total runs known. The
-// Runs page uses this to render a "is the pipeline
-// live?" checklist on its empty state.
-//   GET /api/v1/runs/_health
+// Health reports whether the run pipeline is live, for the Runs page's
+// empty-state checklist.
+//
+//   - has_runs is scoped like List: the caller's tenant, or every tenant for
+//     the all-tenants view.
+//   - last_ingest_at and tape_instances_count describe the whole deployment,
+//     so they are returned only to the all-tenants view (development mode,
+//     the cross-tenant scope, or the opt-out with no tenant). A caller
+//     confined to one tenant does not get them.
+//
+// A value the store cannot read is omitted, never reported as zero or false.
+// A zero last_ingest_at means no ingest has been recorded.
+//
+//	GET /api/v1/runs/_health
 func (h *RunsHandler) Health(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	lastIngest, _ := h.store.LastIngestAt(ctx)
-	runs, _ := h.store.ListExecutionRuns(ctx, "", "", 1)
-	tapeInstances, _ := h.store.CountInstancesWithRuntime(ctx, models.RuntimeEngineTape)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"last_ingest_at":        lastIngest,
-		"has_runs":              len(runs) > 0,
-		"tape_instances_count":  tapeInstances,
-		"now":                   time.Now().UTC(),
-	})
+	view, ok := runsTenant(w, r)
+	if !ok {
+		return
+	}
+	body := map[string]any{"now": time.Now().UTC()}
+	if runs, err := h.store.ListExecutionRuns(ctx, view.tenant, "", 1); err == nil {
+		runs = filterRuns(runs, func(rn models.ExecutionRun) bool { return view.visible(rn.TenantID) })
+		body["has_runs"] = len(runs) > 0
+	}
+	if view.all {
+		if lastIngest, err := h.store.LastIngestAt(ctx); err == nil {
+			body["last_ingest_at"] = lastIngest
+		}
+		if tapeInstances, err := h.store.CountInstancesWithRuntime(ctx, models.RuntimeEngineTape); err == nil {
+			body["tape_instances_count"] = tapeInstances
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // ListOperatorAudit returns the operator-action trail for a run —

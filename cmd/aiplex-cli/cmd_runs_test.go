@@ -148,6 +148,37 @@ func TestRunsHealthNoIngestIsNotATimestamp(t *testing.T) {
 	}
 }
 
+// A caller confined to one tenant gets no deployment-wide values; the CLI
+// prints them as unknown, never as zero, and the JSON output omits them.
+func TestRunsHealthOmittedValuesAreUnknown(t *testing.T) {
+	var calls []spCall
+	spServer(t, &calls, map[string]string{"GET /api/v1/runs/_health": `{"has_runs":true,"now":"2026-05-01T10:05:00Z"}`})
+	out, err := runSP(t, "", runsCmd(), "health")
+	if err != nil {
+		t.Fatal(out, err)
+	}
+	for _, want := range []string{"Last ingest:     unknown", "Runs known:      yes", "Tape instances:  unknown"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "none recorded") || strings.Contains(out, "0001") || strings.Contains(out, "Tape instances:  0") {
+		t.Errorf("an omitted value was shown as zero:\n%s", out)
+	}
+	output = "json"
+	out, err = runSP(t, "", runsCmd(), "health")
+	var h map[string]any
+	if err != nil || json.Unmarshal([]byte(out), &h) != nil {
+		t.Fatal(out, err)
+	}
+	if _, ok := h["tape_instances_count"]; ok {
+		t.Errorf("json output invents tape_instances_count: %s", out)
+	}
+	if _, ok := h["last_ingest_at"]; ok {
+		t.Errorf("json output invents last_ingest_at: %s", out)
+	}
+}
+
 func runsEventsBody(from, n int) string {
 	var parts []string
 	for i := 0; i < n; i++ {

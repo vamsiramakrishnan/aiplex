@@ -6,14 +6,16 @@ import (
 	"time"
 )
 
-// RunsHealth is the answer of GET /api/v1/runs/_health. LastIngestAt is the
-// zero time when the API has recorded no ingest (or could not read it); that
-// is "none recorded", not a real timestamp.
+// RunsHealth is the answer of GET /api/v1/runs/_health. A nil field is
+// unknown: the API omits a value it could not read, and omits the
+// deployment-wide LastIngestAt and TapeInstancesCount for a caller confined
+// to one tenant. Never read nil as zero or false. A non-nil LastIngestAt
+// holding the zero time means no ingest has been recorded.
 type RunsHealth struct {
-	LastIngestAt       time.Time `json:"last_ingest_at"`
-	HasRuns            bool      `json:"has_runs"`
-	TapeInstancesCount int       `json:"tape_instances_count"`
-	Now                time.Time `json:"now"`
+	LastIngestAt       *time.Time `json:"last_ingest_at,omitempty"`
+	HasRuns            *bool      `json:"has_runs,omitempty"`
+	TapeInstancesCount *int       `json:"tape_instances_count,omitempty"`
+	Now                time.Time  `json:"now"`
 }
 
 // GetRunsHealth reports whether the durable-run pipeline has delivered events.

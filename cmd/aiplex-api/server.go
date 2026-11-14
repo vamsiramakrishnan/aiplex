@@ -245,6 +245,9 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 	})
 	sseH := api.NewSSEHandler(store)
 	runsH := api.NewRunsHandler(store)
+	if api.TenantOptional() {
+		log.Warn().Msg(api.RequireTenantEnv + "=0 — callers with no tenant see every tenant's runs; use only on a single-tenant deployment")
+	}
 	// Real Tape admin client when TAPE_URL is set.
 	// Falls back to NoopTapeAdmin (the default) in dev paths where
 	// no tape-server is reachable, so the API still starts cleanly.
@@ -386,10 +389,12 @@ func newServer(ctx context.Context, cfg *config.Config, opts serverOptions) (srv
 		// aiplex:runs:read at the gateway authz layer; operator
 		// actions (redrive / reconcile / cancel / signal / compensate)
 		// are under aiplex:runs:* scopes.
-		// Multi-tenant enforcement: require a tenant
-		// claim or aiplex:runs:read:cross_tenant before any /runs route.
-		// Opt-in via AIPLEX_REQUIRE_TENANT=1 so existing dev paths
-		// don't break overnight.
+		// Multi-tenant enforcement (api.RequireTenant): an identity naming
+		// two tenants is always refused; a caller with neither a tenant nor
+		// aiplex:runs:read:cross_tenant is refused unless the operator set
+		// AIPLEX_REQUIRE_TENANT=0. Development mode serves the local
+		// developer every run. List, Health and RunVisible repeat the same
+		// decision, so the filter does not depend on this middleware alone.
 		// Reads need aiplex:runs:read and each action aiplex:runs:{action},
 		// enforced here as well as at the gateway; a run outside the caller's
 		// tenant claim answers as missing (RunVisible).

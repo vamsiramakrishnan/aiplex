@@ -237,33 +237,27 @@ func TestIdempotency_BodyReplayable(t *testing.T) {
 func TestTenantFromContext_FromScope(t *testing.T) {
 	ctx := context.Background()
 	// Without WIFAccess present, returns empty.
-	gotID, gotCross := api.TenantFromContext(ctx)
-	if gotID != "" || gotCross {
-		t.Errorf("expected ('', false) for empty ctx, got (%q, %v)", gotID, gotCross)
+	gotID, gotCross, err := api.TenantFromContext(ctx)
+	if gotID != "" || gotCross || err != nil {
+		t.Errorf("expected ('', false, nil) for empty ctx, got (%q, %v, %v)", gotID, gotCross, err)
 	}
 }
 
-func TestRequireTenant_Disabled_Passes(t *testing.T) {
-	t.Setenv("AIPLEX_REQUIRE_TENANT", "")
-	srv := chi.NewRouter()
-	srv.Use(api.RequireTenant)
-	srv.Get("/x", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
-	if rec.Code != http.StatusNoContent {
-		t.Errorf("disabled mode should pass: got %d", rec.Code)
-	}
-}
-
-func TestRequireTenant_Enabled_NoClaim_403(t *testing.T) {
-	t.Setenv("AIPLEX_REQUIRE_TENANT", "1")
-	srv := chi.NewRouter()
-	srv.Use(api.RequireTenant)
-	srv.Get("/x", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("enabled-no-claim: expected 403, got %d", rec.Code)
+// Outside development mode, a request with no verified identity is refused
+// even with the tenant opt-out set: the opt-out admits tenantless verified
+// callers, never unauthenticated ones. (The full matrix is in
+// runs_tenant_test.go.)
+func TestRequireTenant_Unauthenticated_Refused(t *testing.T) {
+	for _, setting := range []string{"", "1", "0"} {
+		t.Setenv("AIPLEX_REQUIRE_TENANT", setting)
+		srv := chi.NewRouter()
+		srv.Use(api.RequireTenant)
+		srv.Get("/x", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/x", nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("setting %q: expected 401, got %d", setting, rec.Code)
+		}
 	}
 }
 

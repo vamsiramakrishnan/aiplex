@@ -782,49 +782,57 @@ func (r *responseRecorder) Unwrap() http.ResponseWriter { return r.ResponseWrite
 //  2. WIFIdentity.Domain — the workforce identity's `hd` claim,
 //     mapped via env AIPLEX_DOMAIN_TENANT_MAP (k=v,k=v).
 //
-// Returns ("", false) when no tenant info is available; callers
-// decide whether to deny or fall through (the AIPLEX_REQUIRE_TENANT
-// env var, when "1", flips that to "deny by default").
-func TenantFromContext(ctx context.Context) (tenantID string, crossTenant bool) {
+// The domain map is consulted only when no tenant scope is present. Repeats
+// of one tenant count as one. More than one distinct tenant, from the scopes
+// or from the domain map, returns ErrAmbiguousTenant: no grant is ever
+// preferred over another. Returns ("", false, nil) when no tenant info is
+// available; the runs routes then refuse unless the operator opted out
+// (see RequireTenant).
+func TenantFromContext(ctx context.Context) (tenantID string, crossTenant bool, err error) {
 	access := GetWIFAccess(ctx)
 	if access == nil {
-		return "", false
+		return "", false, nil
 	}
+	tenants := map[string]bool{}
 	for _, scope := range access.Scopes {
 		switch {
 		case scope == "aiplex:runs:read:cross_tenant":
 			crossTenant = true
 		case strings.HasPrefix(scope, "aiplex:tenant:"):
-			tenantID = scope[len("aiplex:tenant:"):]
+			if id := scope[len("aiplex:tenant:"):]; id != "" {
+				tenants[id] = true
+			}
 		}
 	}
-	if tenantID == "" && access.Identity.Domain != "" {
+	if len(tenants) == 0 && access.Identity.Domain != "" {
 		// Optional convention: map workforce domain → tenant via env.
 		for _, pair := range strings.Split(os.Getenv("AIPLEX_DOMAIN_TENANT_MAP"), ",") {
 			if i := strings.IndexByte(pair, '='); i > 0 {
 				d, t := strings.TrimSpace(pair[:i]), strings.TrimSpace(pair[i+1:])
 				if d == access.Identity.Domain && t != "" {
-					tenantID = t
-					break
+					tenants[t] = true
 				}
 			}
 		}
 	}
-	return tenantID, crossTenant
+	if len(tenants) > 1 {
+		return "", crossTenant, ErrAmbiguousTenant
+	}
+	for id := range tenants {
+		tenantID = id
+	}
+	return tenantID, crossTenant, nil
 }
 
-// RequireTenant returns 403 unless the caller has either a tenant
-// claim OR the cross-tenant scope. Wired on /api/v1/runs* in main.go.
+// RequireTenant guards every /api/v1/runs route (wired in
+// cmd/aiplex-api/server.go). It refuses an identity that names more than one
+// tenant (403 TENANT_AMBIGUOUS) and, by default, a caller with neither a
+// tenant nor the cross-tenant scope (403 TENANT_REQUIRED). The only opt-out
+// for tenantless callers is AIPLEX_REQUIRE_TENANT=0; loopback-only
+// development mode keeps serving the local developer every run.
 func RequireTenant(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if os.Getenv("AIPLEX_REQUIRE_TENANT") != "1" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		tenant, cross := TenantFromContext(r.Context())
-		if tenant == "" && !cross {
-			Error(w, r, http.StatusForbidden, "TENANT_REQUIRED",
-				"caller has no tenant claim and no cross-tenant scope")
+		if _, ok := runsTenant(w, r); !ok {
 			return
 		}
 		next.ServeHTTP(w, r)

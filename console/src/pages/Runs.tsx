@@ -421,7 +421,12 @@ function EmptyRunsChecklist() {
     refetchInterval: 30_000,
   })
 
-  const tapeOK = (healthQ.data?.tape_instances_count ?? 0) > 0
+  // Absent values are unknown (for example, deployment-wide values withheld
+  // from a caller confined to one tenant); their rows say so instead of
+  // showing zero.
+  const tapeCount = healthQ.data?.tape_instances_count
+  const ingestKnown = healthQ.data?.last_ingest_at !== undefined
+  const tapeOK = (tapeCount ?? 0) > 0
   const ingestRecent = (() => {
     if (!healthQ.data?.last_ingest_at) return false
     const last = new Date(healthQ.data.last_ingest_at).getTime()
@@ -455,14 +460,16 @@ function EmptyRunsChecklist() {
         <Row
           ok={tapeOK}
           title="At least one Instance with runtime.engine=tape"
-          body={`${healthQ.data?.tape_instances_count ?? 0} Tape-backed instance(s) deployed.`}
+          body={tapeCount === undefined ? 'Unknown: the number of Tape-backed instances is not available to you.' : `${tapeCount} Tape-backed instance(s) deployed.`}
           href="https://github.com/vamsiramakrishnan/aiplex/blob/main/docs-site/docs/guides/tape-runtime.md"
         />
         <Row
           ok={ingestRecent}
           title="Tape ingestion seen recently"
           body={
-            healthQ.data?.last_ingest_at
+            healthQ.data && !ingestKnown
+              ? 'Unknown: the last ingest time is not available to you.'
+              : healthQ.data?.last_ingest_at
               ? (new Date(healthQ.data.last_ingest_at).getFullYear() <= 1 ? 'No event has ever been ingested.' : `Last event at ${new Date(healthQ.data.last_ingest_at).toLocaleString()}.`)
               : 'No events ingested yet — has the AIPlex outbox sink been wired into Tape?'
           }

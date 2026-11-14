@@ -438,12 +438,15 @@ export const runCompensate = (runID: string) =>
     withIdempotencyKey(runID, 'compensate'),
   )
 
-// Runs health — drives the empty-state checklist.
+// Runs health — drives the empty-state checklist. An absent field is unknown,
+// never zero: the API omits a value it could not read, and omits the
+// deployment-wide last_ingest_at and tape_instances_count for a caller
+// confined to one tenant.
 
 export interface RunsHealth {
-  last_ingest_at: string
-  has_runs: boolean
-  tape_instances_count: number
+  last_ingest_at?: string
+  has_runs?: boolean
+  tape_instances_count?: number
   now: string
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -348,17 +349,26 @@ backend (Tape); with none connected the last ingest reads "none recorded".`,
 				return nil
 			}
 			out := cmd.OutOrStdout()
-			last := "none recorded"
-			if !h.LastIngestAt.IsZero() {
+			// An omitted value is unknown: the API could not read it, or it
+			// describes the whole deployment and the caller is confined to
+			// one tenant. It is never shown as zero.
+			last, known, instances := "unknown", "unknown", "unknown"
+			switch {
+			case h.LastIngestAt == nil:
+			case h.LastIngestAt.IsZero():
+				last = "none recorded"
+			default:
 				last = h.LastIngestAt.UTC().Format(time.RFC3339)
 			}
-			known := "no"
-			if h.HasRuns {
-				known = "yes"
+			if h.HasRuns != nil {
+				known = map[bool]string{true: "yes", false: "no"}[*h.HasRuns]
+			}
+			if h.TapeInstancesCount != nil {
+				instances = strconv.Itoa(*h.TapeInstancesCount)
 			}
 			fmt.Fprintf(out, "Last ingest:     %s\n", last)
 			fmt.Fprintf(out, "Runs known:      %s\n", known)
-			fmt.Fprintf(out, "Tape instances:  %d\n", h.TapeInstancesCount)
+			fmt.Fprintf(out, "Tape instances:  %s\n", instances)
 			if !h.Now.IsZero() {
 				fmt.Fprintf(out, "Server time:     %s\n", h.Now.UTC().Format(time.RFC3339))
 			}

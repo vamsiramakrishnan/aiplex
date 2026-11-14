@@ -191,6 +191,7 @@ Other codes a caller can see:
 | Code | Source |
 | --- | --- |
 | `403 TENANT_REQUIRED` | No tenant can be resolved, or the identity holds more than one tenant grant on a tenant route. See [tenant rules](#tenant-rules). |
+| `403 TENANT_AMBIGUOUS` | A runs route, for an identity whose scopes or domain mapping name more than one tenant. |
 | `403 RUNS_SCOPE_REQUIRED` | A runs route without its `aiplex:runs:*` grant. |
 | `403 FORBIDDEN`, `ADMIN_REQUIRED`, `RESOURCE_FORBIDDEN` | Handler-level checks, after the route class passed. |
 | `404 NOT_FOUND` | A record that exists but is not visible to the caller. The response does not say which. |
@@ -210,13 +211,43 @@ caller has exactly one tenant scope and it equals the deployment's home tenant. 
 `AIPLEX_TENANT_ID`, or `development` in development mode when that variable is empty. Any other caller
 gets `403 DEPLOYMENT_SCOPE_REQUIRED`.
 
-The runs API resolves the tenant differently (`internal/api/middleware.go`, `internal/api/runs_access.go`):
+The runs API resolves the tenant from the verified identity only (`TenantFromContext` in
+`internal/api/middleware.go`, `runsTenant` in `internal/api/runs_access.go`). The same decision is made
+on every runs route: `/api/v1/runs`, `/api/v1/runs/_health`, every `/api/v1/runs/{run_id}` read and
+action, and the per-run mode of `GET /events/stream?run_id=`.
 
-- The tenant comes from an `aiplex:tenant:<id>` scope. If there is none, it comes from the identity's
-  domain, through `AIPLEX_DOMAIN_TENANT_MAP` (a comma-separated list of `domain=tenant`).
-- `AIPLEX_REQUIRE_TENANT=1` makes `/api/v1/runs` refuse callers that have neither a tenant nor the
-  cross-tenant grant, with `403 TENANT_REQUIRED`. Any other value leaves this check off.
-- A run outside the caller's tenant is answered as `404 NOT_FOUND`, as if it did not exist.
+- The tenant comes from the `aiplex:tenant:<id>` scopes. If there are none, it comes from the identity's
+  domain (`hd` claim), through `AIPLEX_DOMAIN_TENANT_MAP` (a comma-separated list of `domain=tenant`).
+  Repeats of the same tenant count as one.
+- **Two tenants are always refused.** Scopes that name more than one distinct tenant, or a domain that
+  the map sends to more than one tenant, get `403 TENANT_AMBIGUOUS`, whatever the configuration and
+  even with the cross-tenant grant. Neither tenant is chosen. (An identity with two tenant scopes is
+  usually stopped one step earlier by the route policy with `403 DEPLOYMENT_SCOPE_REQUIRED`, because
+  the runs routes are deployment-wide; either way it sees no run.)
+- `aiplex:runs:read:cross_tenant` sees the runs of every tenant.
+- **A caller with no tenant is refused by default.** A verified caller with neither a tenant nor the
+  cross-tenant grant gets `403 TENANT_REQUIRED`. No setting is needed for this.
+- **The one opt-out** is `AIPLEX_REQUIRE_TENANT=0`, exactly. It is for single-tenant deployments: a
+  verified caller with no tenant then sees every run. The server logs a warning at startup when it is
+  set. It never admits an unauthenticated request and never resolves two tenants. Any other value,
+  including the former `1`, an empty value, `true` or `yes`, means a tenant is required.
+- **Development mode** (`AIPLEX_DEV_MODE=true`, loopback only) serves the local developer every run,
+  with or without a token, as before. Ambiguous identities are refused there too.
+- A run outside the caller's tenant is answered as `404 NOT_FOUND`, as if it did not exist, and an
+  operator action on it does nothing. The list is filtered to the caller's tenant; a `tenant_id`
+  query for another tenant returns an empty list. `GET /api/v1/runs/_health` reports `has_runs` for
+  the caller's tenant only. Its `last_ingest_at` and `tape_instances_count` describe every tenant's
+  ingestion pipeline, so they are returned only to the all-tenants view (development mode, the
+  cross-tenant grant, or the opt-out with no tenant) and omitted, as unknown, for a confined caller.
+- No header, query parameter or body field can name or widen the tenant.
+
+**This is a change of default.** Before, a caller with no tenant saw every tenant's runs unless the
+operator set `AIPLEX_REQUIRE_TENANT=1`, and an identity with two tenant scopes was resolved to the last
+one. A deployment whose run readers have no tenant grant must now give them an `aiplex:tenant:<id>`
+scope or the cross-tenant grant, or set `AIPLEX_REQUIRE_TENANT=0` if it serves one tenant.
+
+`cmd/aiplex-api/runs_tenant_test.go` walks every mounted `/api/v1/runs` route of the production router;
+a runs route it cannot classify fails the test.
 
 ## Grants
 
@@ -324,5 +355,10 @@ Some access point and MCP authorization responses set `no-store` themselves.
 - **The route class is not the whole check.** A route classed `authenticated` depends on its handler for
   scoping and grants. The route table shows the class; it does not prove each handler is correct.
 - **Two tenant grants are not resolved.** On tenant routes an identity with two `aiplex:tenant:<id>` scopes
-  is refused with `403 TENANT_REQUIRED`. The runs API does not refuse; it takes one of the two. Do not
-  grant two tenant scopes to one identity.
+  is refused with `403 TENANT_REQUIRED`; on the runs API it is refused with `403 TENANT_AMBIGUOUS` (or
+  earlier by the route policy). There is no way to choose between two grants: do not grant two tenant
+  scopes to one identity.
+- **Runs routes are deployment-wide in the route policy.** A caller bound to a tenant other than the
+  home tenant (`AIPLEX_TENANT_ID`) through a scope is refused with `403 DEPLOYMENT_SCOPE_REQUIRED` before
+  the runs tenant filter applies; one bound through the domain map reaches the filter. The tenant
+  filter itself is tested against the production router, not against a live identity provider.

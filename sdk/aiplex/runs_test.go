@@ -213,7 +213,21 @@ func TestGetRunsHealth_Decodes(t *testing.T) {
 	}))
 	defer srv.Close()
 	h, err := newTestClient(srv).GetRunsHealth(context.Background())
-	if err != nil || !h.HasRuns || h.TapeInstancesCount != 2 || h.LastIngestAt.Minute() != 0 || h.Now.Minute() != 5 {
+	if err != nil || h.HasRuns == nil || !*h.HasRuns || h.TapeInstancesCount == nil || *h.TapeInstancesCount != 2 ||
+		h.LastIngestAt == nil || h.LastIngestAt.Hour() != 10 || h.Now.Minute() != 5 {
+		t.Fatalf("%v %+v", err, h)
+	}
+}
+
+// A caller confined to one tenant gets no deployment-wide values; they decode
+// as unknown (nil), not as zero.
+func TestGetRunsHealth_OmittedFieldsAreUnknown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"has_runs":false,"now":"2026-05-01T10:05:00Z"}`))
+	}))
+	defer srv.Close()
+	h, err := newTestClient(srv).GetRunsHealth(context.Background())
+	if err != nil || h.LastIngestAt != nil || h.TapeInstancesCount != nil || h.HasRuns == nil || *h.HasRuns {
 		t.Fatalf("%v %+v", err, h)
 	}
 }
