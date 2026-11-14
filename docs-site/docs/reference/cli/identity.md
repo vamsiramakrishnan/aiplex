@@ -68,13 +68,14 @@ Examples:
   aiplex identity user-providers apply -f okta.yaml
 
 Available Commands:
-  presets     List provider presets and the inputs each one needs
-  list        List user identity providers
-  get         Show one user identity provider
-  apply       Create or replace a user identity provider from a JSON or YAML file
-  delete      Remove a user identity provider
-  plan        Show the setup steps for a user identity provider
-  verify      Dry-run a user token against the identity providers
+  presets               List provider presets and the inputs each one needs
+  list                  List user identity providers
+  get                   Show one user identity provider
+  apply                 Create or replace a user identity provider from a JSON or YAML file
+  delete                Remove a user identity provider
+  plan                  Show the setup steps for a user identity provider
+  verify                Dry-run a user token against the identity providers
+  invalidate-membership Make a person's directory groups be looked up again on their next request (admin)
 
 Flags:
   -h, --help   help for user-providers
@@ -337,6 +338,46 @@ Flags:
   -h, --help                help for verify
       --provider string     Provider ID to pin the check to
       --token-file string   File containing the token, or - for stdin
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+#### `aiplex identity user-providers invalidate-membership`
+
+```text
+Forces the next request of one person to resolve their groups from the
+provider's directory again, no earlier than now, instead of using a cached
+answer. Use it after removing someone from a group. The subject is the verified
+subject claim value of the person's token. The provider needs a directory
+block.
+
+The cache is per server process: run this against every replica, or wait out the
+cache lifetime.
+
+Usage:
+  aiplex identity user-providers invalidate-membership <id> --subject <subject> [flags]
+
+Examples:
+  aiplex identity user-providers invalidate-membership okta --subject 00u1abcd
+
+Flags:
+  -h, --help             help for invalidate-membership
+      --subject string   The person's verified subject claim value (required)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

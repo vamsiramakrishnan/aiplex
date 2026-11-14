@@ -45,6 +45,7 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex skills`](./skills.md) | Inspect skill servers and skill invocations |
 | [`aiplex agents`](./agents.md) | Register agents, bind their cloud identities and set their permissions |
 | [`aiplex identity`](./identity.md) | Let people sign in with your corporate identity provider |
+| [`aiplex iam`](./iam.md) | Map identity-provider groups to roles (admin, deployer, viewer) with role bindings |
 | [`aiplex a2a`](./a2a.md) | Discover agents and delegate tasks between them (A2A) |
 | [`aiplex usage`](./usage.md) | See what each request cost: records, totals and model prices |
 | [`aiplex quota`](./quota.md) | Inspect quota policy, balances, loans and admission decisions |
@@ -115,6 +116,7 @@ Tools:
 Agents and identity:
   agents        Register agents, bind their cloud identities and set their permissions
   identity      Let people sign in with your corporate identity provider
+  iam           Map identity-provider groups to roles (admin, deployer, viewer) with role bindings
   a2a           Discover agents and delegate tasks between them (A2A)
 
 Usage and quota:
