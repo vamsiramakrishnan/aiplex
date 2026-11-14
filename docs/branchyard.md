@@ -95,13 +95,13 @@ The caller AIPlex sees is the owner of the token: a signed-in person, an agent, 
 - **Tags**, from the request header `X-AIPlex-Tags: by_branch=<branch>,by_turn=<turn>,by_harness=<harness>`. A value holds only `A-Z a-z 0-9 _ . : / @ + ( ) -` and space, at most 64 characters; Branchyard leaves out a key whose value does not fit rather than cutting it. On a Branchyard server `<branch>` is `<repo>/<branch>`. The whole header is at most 512 bytes; if it would be longer, keys are dropped from the end until it fits.
 - **The trace id**, when Branchyard's model gateway sends a W3C `traceparent` (AIPlex continues the trace).
 
-Branchyard's model gateway removes these headers if the harness sent them and sets its own, so a harness cannot name its own branch or turn. It never sends a person's name or email address.
+Branchyard's model gateway sets these headers itself and forwards the harness's own request headers by allow-list (the content headers, `Accept`, the API's version and beta headers and a few more), so a harness cannot name its own branch or turn, and cannot present an identity assertion, a client address or a cookie to AIPlex. It never sends a person's name or email address.
 
 **The operator must allow the tags.** AIPlex keeps a tag only when its key is in `AIPLEX_TAG_KEYS_ALLOWED` (default: none), so set `AIPLEX_TAG_KEYS_ALLOWED=by_branch,by_turn,by_harness`. It stores at most `AIPLEX_TAG_MAX_VALUES` distinct values per key and tenant (default 50); past that a value is stored as `(other)`, which matters for `by_turn`, whose values never repeat. Tags are labels for grouping (`tag:by_branch`); the join is `client_request_id`. See [tags](usage-ledger.md#tags).
 
 ## Finding the record for a call
 
-Branchyard records AIPlex's request id with each call and `by log` shows it. From either id, in AIPlex:
+Branchyard records AIPlex's request id with each call: `by log` shows it, and `by log --json` has it with the call's own id as `control_plane.request_id` and `control_plane.call_id` on the call's `model` event (the call id is on the event even when no answer came back). From either id, in AIPlex:
 
 ```bash
 aiplex usage records --client-request-id <id>     # Branchyard's id for the call
@@ -118,6 +118,8 @@ Every response from an access point route carries `X-Aiplex-Request-Id`, AIPlex'
 Branchyard treats a response with `X-Aiplex-Error-Code` as AIPlex's decision: it returns it to the harness as it is, with its status, body and `Retry-After`, and does not try another backend, whatever the status. A response without the header (a provider's own error relayed by AIPlex, a 5xx, a connection failure) follows Branchyard's usual rules, which for a route that names an AIPlex backend can only move the call to another AIPlex backend. AIPlex being unreachable is never worked around by calling a provider directly.
 
 AIPlex's own availability answers carry the code as well, for example when it could not reach the provider or no backend of a routed model was available. AIPlex has done its own routing and retries by then, so Branchyard treats those as final too. The rule is simple: the header is present whenever AIPlex wrote the body, and absent when the body is the provider's.
+
+What the harness sees of AIPlex is deliberately little. Branchyard relays response headers from an AIPlex backend by allow-list (the content type, `Retry-After`, the provider's rate-limit headers and request id), so `X-Aiplex-Request-Id` and `X-Aiplex-Error-Code` stop at Branchyard, which records them; it neither follows nor relays a redirect; and it replaces a refusal body that contains the credential it sent. It also removes the variable that holds the AIPlex token from the harness's environment. In a local turn the harness still runs as the same person, so that is a precaution and not a boundary; a sandboxed turn is one. Branchyard's own guide has the exact lists.
 
 ## Federated identity for a Branchyard server
 
@@ -161,12 +163,22 @@ A Branchyard run on one machine rather than on a server (its issuer is `branchya
 
 ## Status: what was tested
 
-Each side is tested in its own repository against a stand-in for the other. AIPlex and Branchyard have not been run together yet; until they have, treat the two halves as agreeing on paper only.
+**Run together on 14 November 2026.** Branchyard's qualification script (`tools/qualify_aiplex.py` in the Branchyard repository) ran the real `by` (Branchyard commit 408700d) against a real `aiplex dev` (AIPlex commit f4e3991) on one machine over loopback: AIPlex's mock providers, a stand-in direct provider, and Branchyard's stand-in agent running a script as the harness. No model and no real coding agent were involved. All 24 checks passed, twice in a row; the record is `docs/evidence/aiplex-control-plane-2026-11-14.json` in the Branchyard repository. What it showed:
 
-| Part | Tested in this repository | How |
+- `by config validate` accepts the file `aiplex connect local --client branchyard --write` produces, as written and with other backends added.
+- Seven calls went through one turn's gateway on the Anthropic and OpenAI wires, one of them streamed. For each call routed to AIPlex there is exactly one ledger record, found by `--request-id` and by `--client-request-id`, whose `client_request_id` is Branchyard's call id and whose tags are the branch, the turn and the harness.
+- A call AIPlex refused (`MODEL_NOT_FOUND`) was final: its Branchyard route named two AIPlex backends, and AIPlex holds one record for it.
+- Headers the harness forged (`X-Client-Request-Id`, `X-AIPlex-Tags`) reached AIPlex as neither an id nor a tag.
+- A call with a plain Branchyard route, and a call no route takes, went to the direct provider and left no record in AIPlex. With AIPlex stopped, an AIPlex-routed call failed with Branchyard's own 502 and the direct provider received nothing.
+- No variable of the harness's environment held the token, the response headers it received were on Branchyard's allow-list, and the token was in no file of the run and in no captured output.
+
+The first runs found two defects, both fixed before that record: the ledger record of a refused call had no tags (AIPlex), and the harness's environment held the token's variable (Branchyard).
+
+| Part | Tested in this repository | Run with the real Branchyard |
 | --- | --- | --- |
-| `aiplex connect --client branchyard` (print, `--write`, merge, refusals, idempotence, undo, no token) | Yes | Unit tests in `internal/harness` and `cmd/aiplex-cli`, and an end-to-end test against `aiplex dev` that parses the written TOML. By hand against a real `aiplex dev`: the print path, a merge into a file with another backend, a route and comments, and a file with a token pasted as the `[secrets]` value (refused, the value not echoed). `by config validate` has not been run on a written file |
-| `X-Aiplex-Request-Id`, `X-Aiplex-Error-Code` | Yes | Unit tests over every refusal the access point routes produce and over relayed provider errors on three wires, streamed and not, including a provider that sets the headers itself; an end-to-end test with the real binaries. Not run: several replicas |
-| Tags, `client_request_id`, and the lookups by `client_request_id`, `request_id` and `trace_id` | Yes | Unit tests on the in-memory store and the Firestore wire fake, and an end-to-end test that sends the headers Branchyard sends and finds the record by each id. Not run: the Firestore emulator for the new filters |
-| Federated identity with the `branchyard` preset | Yes, against a stand-in issuer | Unit tests of the EdDSA verification and of each refusal, and an end-to-end test that binds an agent, calls a model through `local` with a stand-in token and reads the ledger record. Not run: a token minted by a real Branchyard server |
-| What Branchyard sends and does with the answers | No | That is Branchyard's side of the contract, tested in its repository against a stand-in for AIPlex |
+| `aiplex connect --client branchyard` (print, `--write`, merge, refusals, idempotence, undo, no token) | Unit tests in `internal/harness` and `cmd/aiplex-cli`; an end-to-end test against `aiplex dev` that parses the written TOML | Yes: the written file is accepted by `by config validate` and used for the run |
+| `X-Aiplex-Request-Id`, `X-Aiplex-Error-Code` | Unit tests over every refusal the access point routes produce and over relayed provider errors on three wires, streamed and not, including a provider that sets the headers itself; an end-to-end test | Yes, for a success and for `MODEL_NOT_FOUND`. Other refusals (quota, a caller not allowed, no backend) were not provoked in that run |
+| Tags, `client_request_id`, and the lookups by `client_request_id` and `request_id` | Unit tests on the in-memory store and the Firestore wire fake; an end-to-end test | Yes, on the in-memory store of `aiplex dev`. Not run: the Firestore emulator for the new filters; the lookup by `trace_id` (a local Branchyard turn sends no `traceparent`) |
+| Federated identity with the `branchyard` preset | Unit tests of the EdDSA verification and of each refusal; an end-to-end test with a stand-in issuer | No. Branchyard's side of the signed token is not built yet, so no token minted by a real Branchyard server has been verified |
+
+Not validated: a real model or a real coding agent through this path; a Branchyard server; a deployed AIPlex (real quota, a person's or an agent's token, several replicas); another operating system.

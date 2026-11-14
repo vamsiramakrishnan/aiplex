@@ -82,6 +82,7 @@ Exercised against live services ([details](model-providers.md#exercised-against-
 - The Gemini Developer API and z.ai (as `openai-compatible` and through the `anthropic` provider). Ledger usage matched the provider's responses.
 - Claude Code, Gemini CLI and Codex loading the files `aiplex connect --write` writes. Codex was run against the mock model only. Antigravity CLI loaded its MCP server entry; a model turn was not observed.
 - Claude Code telemetry sent to the OTLP receiver and recorded as reported usage.
+- Branchyard's real `by` against a real `aiplex dev` on 14 November 2026, with mock providers and a stand-in agent (no model): the configuration `connect --client branchyard --write` produces, the ledger join by Branchyard's call id, the tags, a refusal being final and an outage failing closed. The record is in the Branchyard repository ([details](branchyard.md#status-what-was-tested)).
 
 Not validated:
 
@@ -89,7 +90,7 @@ Not validated:
 - Any comparison of AIPlex's usage or cost figures against a provider invoice, and the Presidio and LLM Guard adapters against the real services.
 - A deployment to a live cloud project, and load, availability or backup-restore behaviour. The Google Cloud permissions table, the preflight, the custom deployer role and the narrowed runtime grants have not been run against a live project.
 - macOS and Windows; the container image build and push; the Homebrew cask; budgets on managed Firestore (they have run on the emulator only).
-- AIPlex and Branchyard run together. Each side of [the Branchyard integration](branchyard.md#status-what-was-tested) is tested against a stand-in for the other; the new usage filters have not run on the Firestore emulator.
+- For [the Branchyard integration](branchyard.md#status-what-was-tested): a token minted by a real Branchyard server (the `branchyard` federation preset is tested against a stand-in issuer only), a real model or coding agent through Branchyard, and the new usage filters on the Firestore emulator.
 - Features built from provider documentation and run only against fixtures and fake upstreams: Gemini Live on the Gemini Developer API (API-key header authentication on that endpoint was not observed working), Anthropic Messages on the Bedrock Mantle endpoint (the SigV4 service name is taken from AWS's count-tokens page), DeepSeek usage semantics, live voice metering by seconds against OpenAI's billing, ES384 agent tokens against a live AWS account, and buffered inspection of Gemini and Responses streams.
 - Identity federation against a real identity provider through `aiplex dev`: its three issuers are loopback stand-ins. Console screens against a live deployment. ClientPlex plans against installed clients (the Claude Code token helper and the Gemini CLI profile included). Agent invocation against a real cloud agent runtime (the local one is a mock), tool-call size and duration against a real tool server, and usage for Nova, Titan Text and Llama 3 bodies against live AWS. SkillsPlex and deployed agent instances cannot be exercised under `aiplex dev`, which has no cluster. `aiplex a2a invoke` against a connected cloud agent, and `aiplex tool-auth register` against a live authorization server.
 - OpenTelemetry export to a real collector, Jaeger, Cloud Trace or Cloud Monitoring. The telemetry overhead has not been measured.
