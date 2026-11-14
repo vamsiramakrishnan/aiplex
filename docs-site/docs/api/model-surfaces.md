@@ -91,7 +91,7 @@ Set on provider surfaces only. Provider surfaces select their upstream credentia
 | `anthropic_betas` | array of string | Omitted when empty. Allowlist of caller `anthropic-beta` values. |
 | `stream_usage` | string | Omitted when empty. Usage reporting for streamed Chat Completions. |
 | `limit_header_passthrough` | boolean | Omitted unless `true`. Forwards the provider's rate-limit headers to the caller. Off by default because the headers describe the shared upstream credential. |
-| `usage_semantics` | string | Omitted when empty. `openai` declares OpenAI usage semantics on an OpenAI-compatible server. Only then may token usage settle a compatible chat operation. |
+| `usage_semantics` | string | Omitted when empty. `openai` declares OpenAI usage semantics on an OpenAI-compatible server; `deepseek` declares DeepSeek's, which adds its cache-hit and cache-miss fields. Only with one of them may token usage settle a compatible chat operation. Any other value is refused. |
 
 ### WebSocket block
 

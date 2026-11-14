@@ -90,12 +90,25 @@ type Provider struct {
 	// includes cached_tokens (prompt_tokens_details) and cache writes,
 	// completion_tokens includes reasoning, total = prompt + completion. Only
 	// then may a token profile settle compat.chat-completions; without it the
-	// operation is request-count.
+	// operation is request-count. "deepseek" asserts the same semantics plus
+	// DeepSeek's context-cache fields (see deepseekCacheCounters).
 	UsageSemantics string `json:"usage_semantics,omitempty"`
 }
 
 // UsageSemanticsOpenAI declares OpenAI usage semantics on a compatible server.
 const UsageSemanticsOpenAI = "openai"
+
+// UsageSemanticsDeepSeek declares DeepSeek's Chat Completions usage on a
+// compatible server: OpenAI semantics, with prompt_tokens equal to
+// prompt_cache_hit_tokens + prompt_cache_miss_tokens and no separately counted
+// cache writes (https://api-docs.deepseek.com/api/create-chat-completion).
+const UsageSemanticsDeepSeek = "deepseek"
+
+// TokenUsageSemantics reports whether a declared usage contract lets a token
+// profile settle compat.chat-completions.
+func TokenUsageSemantics(semantics string) bool {
+	return semantics == UsageSemanticsOpenAI || semantics == UsageSemanticsDeepSeek
+}
 
 // ProviderDescriptor is the extension point for one provider: protocols,
 // operation catalog, credential schemes and native usage format per operation.
@@ -306,8 +319,8 @@ func (s Surface) validateProvider() error {
 	if !validSegment(s.ID) {
 		return fmt.Errorf("surface requires a valid id")
 	}
-	if p.UsageSemantics != "" && (p.ID != ProviderOpenAICompatible || p.UsageSemantics != UsageSemanticsOpenAI) {
-		return fmt.Errorf("usage_semantics applies only to the openai-compatible provider and must be %q", UsageSemanticsOpenAI)
+	if p.UsageSemantics != "" && (p.ID != ProviderOpenAICompatible || !TokenUsageSemantics(p.UsageSemantics)) {
+		return fmt.Errorf("usage_semantics applies only to the openai-compatible provider and must be %q or %q", UsageSemanticsOpenAI, UsageSemanticsDeepSeek)
 	}
 	protocolOK := false
 	for _, protocol := range d.Protocols {

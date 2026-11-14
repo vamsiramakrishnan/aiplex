@@ -308,6 +308,9 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 	if result.gemini && geminiGeneration(op) && g.surface.Provider != nil && g.surface.Provider.ID == ProviderGeminiDeveloper {
 		geminiProto3Defaults(counters)
 	}
+	if op.ID == "compat.chat-completions" && g.surface.Provider != nil && g.surface.Provider.UsageSemantics == UsageSemanticsDeepSeek {
+		deepseekCacheCounters(usage, counters)
+	}
 	if len(counters) == 0 {
 		return result, nil
 	}
@@ -319,6 +322,41 @@ func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, da
 		result.usage.Dimensions = map[string]string{DimensionServiceTier: tier}
 	}
 	return result, nil
+}
+
+// deepseekCacheCounters settles the cache split of a usage object on a surface
+// that declares DeepSeek usage semantics. DeepSeek documents
+// (https://api-docs.deepseek.com/api/create-chat-completion, read 2026-11-14)
+// prompt_tokens as "prompt_cache_hit_tokens + prompt_cache_miss_tokens" and
+// prompt_tokens_details.cached_tokens as "Same as prompt_cache_hit_tokens";
+// input is billed as cache hit or cache miss only, so no tokens are written to
+// the cache apart from them. With hit, miss and prompt all present as
+// non-negative integers, hit + miss = prompt, cached_tokens (when reported)
+// equal to hit and no positive cache_write_tokens, the hit is cached input and
+// cache writes are zero. Otherwise the split is unknown: cached and
+// cache-write tokens are removed, never guessed, and the openai-text profile
+// refuses the exchange as it does any usage without a cached-input breakdown.
+// Input and output tokens are kept as reported.
+func deepseekCacheCounters(usage map[string]json.RawMessage, counters map[string]int64) {
+	read := func(field string) (int64, bool) {
+		raw := usage[field]
+		var n int64
+		if raw == nil || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &n) != nil || n < 0 {
+			return 0, false
+		}
+		return n, true
+	}
+	hit, hitOK := read("prompt_cache_hit_tokens")
+	miss, missOK := read("prompt_cache_miss_tokens")
+	prompt, promptOK := read("prompt_tokens")
+	cached, cachedOK := counters["cached_tokens"]
+	if hitOK && missOK && promptOK && hit <= prompt && miss == prompt-hit && (!cachedOK || cached == hit) && counters["cache_write_tokens"] == 0 {
+		counters["cached_tokens"] = hit
+		counters["cache_write_tokens"] = 0
+		return
+	}
+	delete(counters, "cached_tokens")
+	delete(counters, "cache_write_tokens")
 }
 
 // geminiProto3Defaults applies the rule strict settlement uses

@@ -90,6 +90,39 @@ func TestBuildEntryClassifiesWhatIsLeftOut(t *testing.T) {
 	}
 }
 
+// input_cost_per_token_cache_hit is the DeepSeek name for the cache-read rate:
+// DeepSeek reports cache hits as prompt_tokens_details.cached_tokens, which the
+// ledger records as cache_read_tokens. It is imported as the cache-read rate
+// when it agrees with cache_read_input_token_cost or stands alone; two
+// different rates for the same tokens block the import rather than pick one.
+func TestCacheHitRateIsTheCacheReadRate(t *testing.T) {
+	doc := `{
+ "deepseek/agree": {"litellm_provider":"deepseek","mode":"chat","input_cost_per_token":2.8e-07,"output_cost_per_token":4.2e-07,"cache_read_input_token_cost":2.8e-08,"input_cost_per_token_cache_hit":2.8e-08},
+ "deepseek/alone": {"litellm_provider":"deepseek","mode":"chat","input_cost_per_token":2.8e-07,"output_cost_per_token":4.2e-07,"input_cost_per_token_cache_hit":2.8e-08},
+ "deepseek/differ": {"litellm_provider":"deepseek","mode":"chat","input_cost_per_token":2.8e-07,"output_cost_per_token":4.2e-07,"cache_read_input_token_cost":2.8e-08,"input_cost_per_token_cache_hit":1.4e-08},
+ "deepseek/invalid": {"litellm_provider":"deepseek","mode":"chat","input_cost_per_token":2.8e-07,"output_cost_per_token":4.2e-07,"cache_read_input_token_cost":2.8e-08,"input_cost_per_token_cache_hit":"cheap"}
+}`
+	snap, err := build([]byte(doc), pricecatalog.Meta{Catalog: "litellm"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]pricecatalog.Entry{}
+	for _, e := range snap.Entries {
+		by[e.ID()] = e
+	}
+	for _, id := range []string{"deepseek/agree", "deepseek/alone"} {
+		if e := by[id]; e.Rates.CacheRead != "0.028" || len(e.Blocking) != 0 || len(e.LeftOut) != 0 {
+			t.Errorf("%s: %+v", id, e)
+		}
+	}
+	if e := by["deepseek/differ"]; strings.Join(e.Blocking, ",") != "input_cost_per_token_cache_hit" || e.Rates.CacheRead != "0.028" {
+		t.Errorf("conflicting cache-hit rate: %+v", e)
+	}
+	if e := by["deepseek/invalid"]; strings.Join(e.Blocking, ",") != "invalid:input_cost_per_token_cache_hit" {
+		t.Errorf("invalid cache-hit rate: %+v", e)
+	}
+}
+
 func TestBadRatesOnlyEntryIsDropped(t *testing.T) {
 	doc := `{"bad": {"litellm_provider":"openai","mode":"chat","input_cost_per_token":"cheap","output_cost_per_token":-1}}`
 	snap, err := build([]byte(doc), pricecatalog.Meta{})

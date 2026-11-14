@@ -93,6 +93,17 @@ var scalarFields = map[string]func(*pricecatalog.Rates, string){
 	"output_cost_per_image_token":               func(r *pricecatalog.Rates, v string) { r.OutputImage = v },
 }
 
+// cacheHitField is the cache-hit rate litellm states for DeepSeek beside
+// cache_read_input_token_cost. DeepSeek reports its context-cache hits as
+// prompt_tokens_details.cached_tokens ("Same as prompt_cache_hit_tokens",
+// https://api-docs.deepseek.com/api/create-chat-completion), which the ledger
+// records as cache_read_tokens, so the cache-hit rate is the cache-read rate.
+// It is read only for the providers in cacheHitProviders; elsewhere it stays a
+// blocking field.
+const cacheHitField = "input_cost_per_token_cache_hit"
+
+var cacheHitProviders = map[string]bool{"deepseek": true}
+
 // modalityFields are the scalar fields that price a token modality; they are
 // imported only for providers whose responses report that modality split.
 var modalityFields = map[string]bool{
@@ -150,6 +161,13 @@ func classify(field string) (blocking bool) {
 		}
 	}
 	return false
+}
+
+// sameDecimal compares two exact decimal rates by value.
+func sameDecimal(a, b string) bool {
+	x, okX := new(big.Rat).SetString(a)
+	y, okY := new(big.Rat).SetString(b)
+	return okX && okY && x.Cmp(y) == 0
 }
 
 func costLike(field string) bool {
@@ -217,11 +235,34 @@ func buildEntry(provider, model, key string, raw map[string]any) (pricecatalog.E
 	sort.Strings(fieldNames)
 	var unconsumed []string // cost-like fields not read into a rate
 	consumed := map[string]string{}
+	type cacheHitRate struct {
+		field, variant, dec string
+		above               int64
+	}
+	var cacheHits []cacheHitRate
 	for _, field := range fieldNames {
 		if !costLike(field) {
 			continue
 		}
 		base, variant, above := parseField(field)
+		if base == cacheHitField && cacheHitProviders[provider] {
+			v, present := raw[field]
+			if !present || v == nil {
+				continue
+			}
+			n, ok := isNumber(v)
+			if !ok {
+				blocking["invalid:"+field] = true
+				continue
+			}
+			dec, err := pricecatalog.MtokDecimal(n.String())
+			if err != nil {
+				blocking["invalid:"+field] = true
+				continue
+			}
+			cacheHits = append(cacheHits, cacheHitRate{field, variant, dec, above})
+			continue
+		}
 		setter, scalar := scalarFields[base]
 		if !scalar || (modalityFields[base] && !pricecatalog.ModalityProviders[provider]) {
 			unconsumed = append(unconsumed, field)
@@ -253,6 +294,26 @@ func buildEntry(provider, model, key string, raw map[string]any) (pricecatalog.E
 			setter(t, dec)
 		}
 		consumed[field] = variant
+	}
+	// A cache-hit rate is the cache-read rate: it fills an unstated one and
+	// must agree with a stated one. Two different rates for the same tokens
+	// block the import instead of choosing one.
+	for _, hit := range cacheHits {
+		vr := get(hit.variant)
+		rates := &vr.base
+		if hit.above != 0 {
+			if vr.tiers[hit.above] == nil {
+				vr.tiers[hit.above] = &pricecatalog.Rates{}
+			}
+			rates = vr.tiers[hit.above]
+		}
+		if rates.CacheRead == "" {
+			rates.CacheRead = hit.dec
+		} else if !sameDecimal(rates.CacheRead, hit.dec) {
+			blocking[hit.field] = true
+			continue
+		}
+		consumed[hit.field] = hit.variant
 	}
 	std := variants[vStandard]
 	if std == nil || (std.base.Input == "" && std.base.Output == "") {

@@ -311,6 +311,8 @@ var (
 	callCompatS = with(callCompat, func(c *fixtureCall) {
 		c.body = `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}`
 	})
+	callDeepSeek    = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAICompatible, UsageSemantics: UsageSemanticsDeepSeek}, ProtocolOpenAIChat, []string{"fixture-model-a"}, "compat.chat-completions"), path: "/v1/chat/completions", body: callCompat.body}
+	callDeepSeekS   = with(callDeepSeek, func(c *fixtureCall) { c.body = callCompatS.body })
 	callLive        = &fixtureCall{surface: googleSurfaceFor("google", "live.connect"), path: "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent", body: `{"setup":{"model":"model-a"}}`, ws: "live"}
 	callRealtime    = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIRealtime, []string{"fixture-model-c"}, "openai.v1.realtime"), path: "/v1/realtime?model=fixture-model-c", ws: "realtime"}
 	callResponsesWS = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIResponses, []string{"fixture-model-b"}, "openai.v1.responses-websocket"), path: "/v1/responses", ws: "responses"}
@@ -375,6 +377,11 @@ func usageRoutes() []fixtureRoute {
 		exact("openai-compatible", "chat.final-usage.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai-compatible", "chat.no-done.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai-compatible", "chat.nousage.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		// DeepSeek (usage_semantics: "deepseek"), documented, not recorded live.
+		exact("openai-compatible", "deepseek-chat.json", "deepseek-chat-completions", "json", callDeepSeek, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai-compatible", "deepseek-chat-cache-hit.json", "deepseek-chat-completions", "json", callDeepSeek, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai-compatible", "deepseek-chat-cache-hit.sse", "deepseek-chat-completions", "sse", callDeepSeekS, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai-compatible", "deepseek-chat-inconsistent.json", "deepseek-chat-completions", "json", callDeepSeek, convOpenAI, natOpenAI, true, strictRefuses, "prompt_cache_hit_tokens + prompt_cache_miss_tokens differs from prompt_tokens: the cache split is unknown and openai-text requires it (fail closed)"),
 
 		// ---------------- Anthropic ----------------
 		exact("anthropic", "messages.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
@@ -1074,8 +1081,9 @@ total - prompt - candidates. Cache writes are a separate meter (scalar or per-TT
 OpenAI-format strict settlement treats an absent ` + "`cache_write_tokens`" + ` as 0 (documented
 default; models without separately billed writes keep them in ordinary input).
 Strict lease rows also cover Azure OpenAI (` + "`azure-openai/`" + `) and generic compatible
-servers that declare ` + "`usage_semantics: \"openai\"`" + ` (` + "`openai-compatible/`" + `), both in the
-OpenAI convention. Non-token units the ledger holds (audio/voice/video milliseconds,
+servers that declare ` + "`usage_semantics: \"openai\"`" + ` or ` + "`\"deepseek\"`" + ` (` + "`openai-compatible/`" + `), both in the
+OpenAI convention. The DeepSeek rows are built from DeepSeek's documented response and were
+not recorded from the live service. Non-token units the ledger holds (audio/voice/video milliseconds,
 generated images, per-modality token splits) are compared by the media and batch
 checks; batch results files are aggregated with the gateway's own batch parser
 and must settle only when complete.

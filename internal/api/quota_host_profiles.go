@@ -162,8 +162,10 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 			return true
 		case "compat.chat-completions":
 			// Generic compatible servers carry no provider usage contract;
-			// the surface must declare OpenAI usage semantics (checked when
-			// the invocation is prepared).
+			// the surface must declare OpenAI or DeepSeek usage semantics
+			// (checked when the invocation is prepared). Both settle as
+			// uncached and cached input; DeepSeek's cache hit is the cached
+			// part.
 			return true
 		}
 		return false

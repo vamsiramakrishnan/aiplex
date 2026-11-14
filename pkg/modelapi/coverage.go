@@ -28,8 +28,9 @@ func Coverage(op Operation) ExecutionCoverage {
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}
 	case "compat.chat-completions":
 		// No provider usage contract: request-count unless the surface
-		// declares OpenAI usage semantics (Provider.UsageSemantics), which
-		// the quota host checks per invocation.
+		// declares OpenAI or DeepSeek usage semantics
+		// (Provider.UsageSemantics), which the quota host checks per
+		// invocation.
 		return ExecutionCoverage{RequestCount: true}
 	case "anthropic.messages", "models.rawPredict", "models.streamRawPredict":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}

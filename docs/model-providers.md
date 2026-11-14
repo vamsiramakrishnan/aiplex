@@ -49,7 +49,7 @@ profile is request-count metered for quota.
 | `openai` | `openai.v1.batches-create` | `POST /v1/batches` | `openai-batch` | HTTP | Request count, or `batch-usage` binding | exact (batch object is a cross-check only) |
 | `openai` | `openai.v1.batches-get`, `openai.v1.batches-cancel` | `GET /v1/batches/{id}`, `POST /v1/batches/{id}/cancel` | `openai-batch` | HTTP | Request count (asynchronous) | exact (batch object is a cross-check only) |
 | `openai` | `openai.v1.batches-list` | `GET /v1/batches` | `openai-batch` | HTTP | Request count (asynchronous) | see matrix |
-| `openai-compatible` | `compat.chat-completions` | `POST {base}/chat/completions`, `base` defaults to `/v1` | `openai-chat` | SSE | Request count. `openai-text` only with `provider.usage_semantics: "openai"`. | exact in the matrix. Token settlement needs `usage_semantics`. |
+| `openai-compatible` | `compat.chat-completions` | `POST {base}/chat/completions`, `base` defaults to `/v1` | `openai-chat` | SSE | Request count. `openai-text` only with `provider.usage_semantics: "openai"` or `"deepseek"`. | exact in the matrix (DeepSeek rows from its documentation, not recorded live). Token settlement needs `usage_semantics`. |
 
 ### Azure OpenAI
 
@@ -373,8 +373,25 @@ Chat Completions streams report usage only when the request asks for it. The
 A generic compatible server has no known usage contract. `usage_semantics: "openai"` is
 the operator's declaration that the server follows OpenAI Chat Completions semantics:
 `prompt_tokens` includes cached tokens and cache writes, `completion_tokens` includes
-reasoning, and `total_tokens` equals prompt plus completion. It is accepted only on
-`openai-compatible` surfaces, and no other value is accepted.
+reasoning, and `total_tokens` equals prompt plus completion. `usage_semantics: "deepseek"`
+declares DeepSeek's Chat Completions usage: the same, plus its context-cache fields. Both are
+accepted only on `openai-compatible` surfaces, and no other value is accepted.
+
+With `"deepseek"`, the gateway reads `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`
+as documented in DeepSeek's API reference
+(<https://api-docs.deepseek.com/api/create-chat-completion>, read 2026-11-14): `prompt_tokens`
+equals hit plus miss, and `prompt_tokens_details.cached_tokens` is "Same as
+prompt_cache_hit_tokens". When hit, miss and `prompt_tokens` are all present as non-negative
+integers, add up, agree with `cached_tokens` (when reported) and no positive cache write is
+reported, the hit is recorded as cached input (`cache_read_tokens` in the ledger, `cached_tokens`
+in the profile), the miss is the uncached input, and cache writes are recorded as 0, because
+DeepSeek bills input only as cache hit or cache miss. Anything else (a field missing, null,
+negative or not an integer, or a sum that does not match) leaves the cache split unknown: the
+cached and cache-write counts are not recorded, input and output stay as reported, an
+`openai-text` binding refuses to settle the exchange, and a price that rates cached input leaves
+the cost `unknown`. JSON responses and streams are both read; in a stream the usage arrives on
+the last content chunk, beside `finish_reason`. This follows DeepSeek's documentation and the
+fixtures built from it; it has not been validated against the live DeepSeek service.
 
 - With the declaration, `compat.chat-completions` can carry an `openai-text` token profile.
 - Without it, a token-profile binding on `compat.chat-completions` is refused with

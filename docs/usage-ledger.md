@@ -484,10 +484,25 @@ What to know before relying on it:
   `--accept-partial`; the output then names the fields left out and says the import goes ahead because
   the flag was given. Entries with only per-unit pricing (image, audio, video, rerank, OCR) are not in
   the snapshot.
-- **What still needs `--accept-partial`.** 148 of the 780 litellm entries, down from 212:
+- **DeepSeek context-cache hits.** litellm states a DeepSeek cache-hit rate
+  (`input_cost_per_token_cache_hit`) beside its cache-read rate; on the pinned commit the two are
+  equal in every DeepSeek entry, so the generator imports it as the `cache_read_tokens` rate, and
+  would block the entry if they ever differed. That rate prices records from a surface that declares
+  `usage_semantics: "deepseek"` ([model providers](model-providers.md#usage-semantics-for-openai-compatible-servers)),
+  which records the hits as `cache_read_tokens` and cache writes as 0. Without that declaration a
+  record's cache split is whatever the server reported as `prompt_tokens_details.cached_tokens`, and
+  `cache_write_tokens` stays unknown, so a DeepSeek price that states `cache_write_tokens` (as `0`)
+  leaves its cost `unknown`. DeepSeek's off-peak discount is not imported: the litellm rates are the
+  peak rates, and the models.dev snapshot (which states the off-peak ones) names the multiplier as
+  left out. Import a DeepSeek model with `--source litellm` or `--source models.dev`; the two disagree.
+  `deepseek-chat` is not in the litellm snapshot: its two upstream rows (`deepseek-chat` and
+  `deepseek/deepseek-chat`) disagree about cache writes, and the generator drops a model whose rows
+  conflict instead of choosing one. A record for that model has no imported litellm price, so its cost
+  stays `unknown` until you set a price yourself.
+- **What still needs `--accept-partial`.** 140 of the 781 litellm entries, down from 212:
   129 have context tiers for a provider whose rule is not confirmed (Azure OpenAI 25, Bedrock 42, xAI
   43, Gemini 16, Vertex Claude 2, plus one OpenAI entry whose tier set does not match its base
-  rates), 8 (DeepSeek) state a context-cache hit rate the ledger does not capture, 7 (Gemini) state a
+  rates), 7 (Gemini) state a
   video output token rate (the ledger holds no output video tokens), and 4 Bedrock entries state audio
   and image token rates Bedrock usage does not report. In the models.dev snapshot, 124 of 537 do, mostly
   because it states audio, image and video rates this import does not carry.

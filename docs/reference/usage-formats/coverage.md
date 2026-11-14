@@ -43,8 +43,9 @@ total - prompt - candidates. Cache writes are a separate meter (scalar or per-TT
 OpenAI-format strict settlement treats an absent `cache_write_tokens` as 0 (documented
 default; models without separately billed writes keep them in ordinary input).
 Strict lease rows also cover Azure OpenAI (`azure-openai/`) and generic compatible
-servers that declare `usage_semantics: "openai"` (`openai-compatible/`), both in the
-OpenAI convention. Non-token units the ledger holds (audio/voice/video milliseconds,
+servers that declare `usage_semantics: "openai"` or `"deepseek"` (`openai-compatible/`), both in the
+OpenAI convention. The DeepSeek rows are built from DeepSeek's documented response and were
+not recorded from the live service. Non-token units the ledger holds (audio/voice/video milliseconds,
 generated images, per-modality token splits) are compared by the media and batch
 checks; batch results files are aggregated with the gateway's own batch parser
 and must settle only when complete.
@@ -67,7 +68,7 @@ interrupted session leaves its open lease unsettled.
 | azure-openai | 5 | 0 | 0 |
 | google | 18 | 4 | 2 |
 | openai | 13 | 4 | 0 |
-| openai-compatible | 2 | 0 | 0 |
+| openai-compatible | 4 | 0 | 0 |
 
 ## Matrix
 
@@ -134,3 +135,5 @@ interrupted session leaves its open lease unsettled.
 | openai | responses-retrieve | json | advisory | `responses.background.queued.json` | GET /v1/responses/{id}: request-count, owner-only; never read for usage, so a retrieved background response is not settled a second time |
 | openai-compatible | chat-completions | json | exact | `chat.json` | observation exact; strict settlement fails closed for this fixture: server reports no prompt_tokens_details; openai-text requires the cached-input breakdown (fail closed) |
 | openai-compatible | chat-completions | sse | exact | `chat.final-usage.sse`<br>`chat.no-done.sse`<br>`chat.nousage.sse` |  |
+| openai-compatible | deepseek-chat-completions | json | exact | `deepseek-chat-cache-hit.json`<br>`deepseek-chat-inconsistent.json`<br>`deepseek-chat.json` | observation exact; strict settlement fails closed for this fixture: prompt_cache_hit_tokens + prompt_cache_miss_tokens differs from prompt_tokens: the cache split is unknown and openai-text requires it (fail closed) |
+| openai-compatible | deepseek-chat-completions | sse | exact | `deepseek-chat-cache-hit.sse` |  |

@@ -25,7 +25,9 @@ import (
 // Model names select test behaviour: a name containing "ratelimit" answers
 // the provider's own 429 shape with Retry-After, "hang" never answers until
 // the client goes away, and "slow" streams one chunk every 50ms for 2s.
-// A name containing "fault" injects failures (see MockFault).
+// A name containing "fault" injects failures (see MockFault). A Chat
+// Completions model whose name contains "deepseek" adds DeepSeek's
+// context-cache usage fields, with half the prompt as cache hits.
 // Replies are deterministic and include token usage computed from the input.
 type MockModels struct {
 	mu       sync.Mutex
@@ -331,6 +333,12 @@ func (m *MockModels) openAIChat(w http.ResponseWriter, r *http.Request, body []b
 	reply := m.reply(lastLine(prompt.String()))
 	in, out := countTokens(prompt.String()), countTokens(reply)
 	usage := map[string]any{"prompt_tokens": in, "completion_tokens": out, "total_tokens": in + out}
+	if strings.Contains(req.Model, "deepseek") {
+		// DeepSeek's context-cache fields: half the prompt hits the cache.
+		hit := in / 2
+		usage["prompt_tokens_details"] = map[string]any{"cached_tokens": hit}
+		usage["prompt_cache_hit_tokens"], usage["prompt_cache_miss_tokens"] = hit, in-hit
+	}
 	id := fmt.Sprintf("chatcmpl-mock-%d", time.Now().UnixNano())
 	created := time.Now().Unix()
 	if !req.Stream {
