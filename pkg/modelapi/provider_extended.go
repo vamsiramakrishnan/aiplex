@@ -220,6 +220,11 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 		}
 		images, err = g.validateExtendedJSON(r.Context(), owner, op, spec, &metadata, body)
 	case kindMediaMultipart, kindFileUpload:
+		// Exactly one Content-Type: the one validated is the one forwarded.
+		if len(r.Header.Values("Content-Type")) != 1 {
+			err = badRequest("a multipart request needs exactly one Content-Type header")
+			break
+		}
 		upload, err = spoolMultipart(r.Body, r.Header.Get("Content-Type"), g.maxUploadBytes())
 		if err == nil {
 			images, err = g.validateExtendedForm(op, spec, &metadata, upload)

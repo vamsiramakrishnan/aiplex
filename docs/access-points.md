@@ -263,13 +263,67 @@ access point can rewrite it. Each wire rewrites the name in one place:
 | Bedrock Converse and InvokeModel | Yes | The path segment. |
 | OpenAI Realtime | Yes | The `model` query parameter. |
 | OpenAI Chat Completions, OpenAI Responses, OpenAI Embeddings, Anthropic Messages (JSON bodies) | Yes, when the surface protocol is one of: OpenAI Chat, OpenAI Responses, Anthropic Messages, OpenAI Embeddings, GenAI, Bedrock Converse, Bedrock InvokeModel, OpenAI Realtime | The body's `model` value only. Other body fields are not changed. |
-| OpenAI Images and Audio (JSON bodies) | Only when the surface protocol is one of the list above. Images, audio and moderations surfaces are not on that list. | The body's `model` value. |
-| Multipart bodies (image edits, audio transcriptions and translations, when sent as `multipart/form-data`) | No | Not rewritten. |
+| OpenAI Images and Audio (JSON bodies) | Yes, when the surface protocol is one of the list above, or an OpenAI Images or OpenAI Audio surface. Moderations surfaces are not. | The body's `model` value. |
+| OpenAI Images and Audio (`multipart/form-data` bodies: image edits, audio transcriptions and translations) | Yes, on the same surfaces as the JSON bodies | The `model` form field only; see below. |
 | Gemini Live (WebSocket) | No | Not rewritten. The request returns `503 MODEL_ALIAS_UNSUPPORTED`. |
 | OpenAI Moderations | No | Not rewritten. |
 
 The response keeps the provider's native model name in every case. The client sees its own name
 only in the request.
+
+Multipart rewriting. The access point has already read the whole request (at most 8 MiB, else
+`413 REQUEST_TOO_LARGE`, whichever name is used) before it routes, and the rewrite is one forward
+pass over that body that copies every byte through unchanged except the value of the `model`
+field: file contents, file names, part content types, other fields, their order, the boundary,
+the preamble and the epilogue. The rewriter keeps no part and no file; beyond the rewritten copy
+of the request (about the size of the request, so the 8 MiB bound is the ceiling) it holds a
+64 KiB read buffer, one part's header block (at most 16 KiB) and the model value (at most
+1 KiB). It does not matter where the `model` field sits: a field that follows a file part is
+rewritten the same way and nothing is re-read or held back to find it. The rewritten request has
+the same `Content-Type` (so the same boundary) and a `Content-Length` equal to the new body.
+The delegated request carries the native model, so grants, quota bindings, pricing, metering and
+the ledger see the same request whether the client used the alias or the native name.
+
+Strict multipart subset. Every `multipart/form-data` request on the image and audio routes, with
+an alias or with the native name, is checked by the same parser before anything is forwarded (the
+gateway runs it again on every upload it spools, so a surface called directly gets the same
+answer). Providers parse the forwarded bytes with their own libraries, and libraries disagree
+about the corners of the format; admission, grants and metering use the model this parser reads,
+so only bodies that Go's `mime/multipart` and `python-multipart` (FastAPI, vLLM) read identically
+are accepted. The `Content-Type` must be `multipart/form-data` with exactly one plain `boundary`
+parameter and no other (no `boundary*`, no `charset`). The body must begin with the opening
+delimiter (no preamble) and end with the closing delimiter, optionally followed by one CRLF (no
+epilogue). Every part needs exactly one `Content-Disposition: form-data` with a plain `name` and,
+for a file, a non-empty plain `filename`. Refused on every part, not only the model part: `name*`,
+`filename*` without a plain `filename` beside it, continuations (`name*0`), duplicate or unknown
+parameters, backslash escapes inside quoted values, folded headers, and a
+`Content-Transfer-Encoding`. File names with non-ASCII characters are accepted when sent as raw
+UTF-8 inside `filename="..."`, which is what Node's undici, `requests` with urllib3 2.x, curl and
+Go's `mime/multipart` send (checked here for undici, requests 2.34 with urllib3 2.8, and curl
+8.5; httpx, which the OpenAI Python SDK uses, was not installed to check). A client that sends
+only the RFC 2231 form (`filename*=UTF-8''...` and no plain `filename`, as older urllib3 1.x did)
+is refused with `400`: `filename*` is accepted only beside a plain `filename`, and `name*` never. A backslash anywhere in
+a quoted parameter is refused, because accepting escapes is exactly where parsers disagree: a file
+name that contains a backslash or a double quote (httpx writes `back\slash.wav` as
+`filename="back\\slash.wav"`, Go writes a quote as `\"`) is refused with `400`; rename the file.
+A request with more than one `Content-Type` header is refused, and exactly the validated
+`Content-Type` is forwarded; the gateway sets `Content-Length` itself from the spooled body and
+copies neither `Content-Length` nor `Transfer-Encoding` from the caller.
+
+A multipart request is refused with `400 INVALID_REQUEST` and nothing is forwarded when: the
+`Content-Type` has no boundary or a boundary over 70 characters; the body is truncated or has no
+closing delimiter; a part header block is larger than 16 KiB, is not CRLF-terminated or lacks a
+single `Content-Disposition: form-data` with a name; there is no `model` field or more than one
+(even with the same value); the `model` part has a filename, a transfer encoding, a content type
+other than `text/plain` (UTF-8), is empty, is longer than 1 KiB or spans more than one line; or the
+standard multipart parser, which the upstream hop uses, does not read the same field. Other
+spellings of the field (`Model`) are not the model field and are refused downstream. Line breaks
+other than CRLF are not accepted.
+
+Not covered: uploads over 8 MiB through an access point (they are refused, as before, though the
+gateway itself accepts larger uploads on a surface called directly), and Bedrock and Realtime,
+which rewrite the path or query. Rewriting was verified against local recording upstreams (unit, handler and end-to-end tests);
+no live OpenAI or compatible service was called.
 
 Two checks run when the access point is saved. An alias (a `name` that differs from
 `native_model`) is refused with `400` on `models/{n}/name` unless the surface protocol allows

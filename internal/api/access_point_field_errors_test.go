@@ -12,11 +12,11 @@ import (
 // the message stays the human-readable sentence it always was.
 func TestAccessPointSaveErrorsCarryFieldPath(t *testing.T) {
 	f := newAPFixture(t)
-	mediaOps, err := modelapi.SelectProviderOperations(modelapi.ProviderOpenAI, "openai.v1.images-generations")
+	mediaOps, err := modelapi.SelectProviderOperations(modelapi.ProviderOpenAI, "openai.v1.moderations")
 	if err != nil {
 		t.Fatal(err)
 	}
-	media := modelapi.Surface{ID: "media", Protocol: modelapi.ProtocolOpenAIImages, Origin: f.upstream.URL, Models: []string{"img-model"}, Operations: mediaOps, Provider: &modelapi.Provider{ID: modelapi.ProviderOpenAI}}
+	media := modelapi.Surface{ID: "media", Protocol: modelapi.ProtocolOpenAIModerations, Origin: f.upstream.URL, Models: []string{"img-model"}, Operations: mediaOps, Provider: &modelapi.Provider{ID: modelapi.ProviderOpenAI}}
 	f.put("model-surface", media.ID, ModelConnection{Surface: media, IdentityRef: "host"})
 	cases := []struct {
 		name    string

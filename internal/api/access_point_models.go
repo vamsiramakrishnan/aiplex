@@ -436,8 +436,7 @@ func rewriteBodyModel(data []byte, model string) ([]byte, error) {
 // accessPointBodyModelWire reports whether a wire carries the model as a
 // top-level JSON string field of the request body that can be rewritten in
 // place. Multipart image and audio uploads carry it as a form field next to
-// file parts; rewriting that would re-encode the upload, so aliases stay
-// unsupported there.
+// file parts and are rewritten by rewriteMultipartAlias instead.
 func accessPointBodyModelWire(protocol, contentType string) bool {
 	switch protocol {
 	case WireOpenAIChat, WireOpenAIResponses, WireAnthropic, WireOpenAIEmbeddings:
@@ -447,6 +446,55 @@ func accessPointBodyModelWire(protocol, contentType string) bool {
 		return media != "multipart/form-data"
 	}
 	return false
+}
+
+// accessPointMultipartModelWire reports whether the request is an image or
+// audio upload whose model is the "model" field of a multipart form.
+func accessPointMultipartModelWire(protocol, contentType string) bool {
+	if protocol != WireOpenAIImages && protocol != WireOpenAIAudio {
+		return false
+	}
+	media, _, _ := mime.ParseMediaType(contentType)
+	return media == "multipart/form-data"
+}
+
+// accessPointMultipartName reads the model of a multipart upload for every
+// request, whether the client used an alias or a native name. The strict
+// parser (the one the rewriter and the gateway use) decides, and the standard
+// library must read the same model; a body the two read differently, or that
+// is outside the strict subset, is refused before anything is forwarded.
+func accessPointMultipartName(data []byte, contentType string) (string, error) {
+	name, err := modelapi.MultipartModel(bytes.NewReader(data), contentType)
+	if err != nil {
+		return "", err
+	}
+	if std, form, err := multipartModel(data, contentType); err != nil || !form || std != name {
+		return "", fmt.Errorf("invalid multipart body")
+	}
+	return name, nil
+}
+
+// rewriteMultipartAlias returns the upload with the client-facing model name
+// replaced by the native one and every other byte as sent. The body is
+// already bounded (the access point reads at most 8 MiB before it routes), so
+// the rewritten copy is bounded too; the rewriter itself holds neither a
+// part nor the file, wherever the model field sits. The result is checked
+// against the standard multipart parser, which the upstream hop uses: the
+// field it finds must be the native name, and the length must differ by
+// exactly the difference of the two names.
+func rewriteMultipartAlias(data []byte, contentType, alias, native string) ([]byte, error) {
+	out := bytes.NewBuffer(make([]byte, 0, len(data)+len(native)))
+	original, err := modelapi.RewriteMultipartModel(out, bytes.NewReader(data), contentType, native)
+	if err != nil {
+		return nil, err
+	}
+	if original != alias || out.Len() != len(data)+len(native)-len(alias) {
+		return nil, fmt.Errorf("invalid multipart body")
+	}
+	if model, form, err := multipartModel(out.Bytes(), contentType); err != nil || !form || model != native {
+		return nil, fmt.Errorf("invalid multipart body")
+	}
+	return out.Bytes(), nil
 }
 
 // AccessPointModel serves one client wire protocol. The model name selects
@@ -508,8 +556,13 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 			}
 			name = query.Get("model")
 		case protocol == WireOpenAIImages || protocol == WireOpenAIAudio:
-			var form bool
-			if name, form, err = multipartModel(data, r.Header.Get("Content-Type")); !form {
+			if accessPointMultipartModelWire(protocol, r.Header.Get("Content-Type")) {
+				if len(r.Header.Values("Content-Type")) != 1 {
+					err = fmt.Errorf("a multipart request needs exactly one Content-Type header")
+				} else {
+					name, err = accessPointMultipartName(data, r.Header.Get("Content-Type"))
+				}
+			} else {
 				name, err = bodyModel(data)
 			}
 		case deployment != "":
@@ -633,6 +686,12 @@ func (h *ConnectedHandler) accessPointBackendRequest(r *http.Request, tenant str
 			// Only the request's model value changes; the response keeps
 			// the provider's native model name.
 			if body, err = rewriteBodyModel(data, backend.NativeModel); err != nil {
+				return nil, &backendFailure{http.StatusBadRequest, "INVALID_REQUEST", err.Error()}
+			}
+		case accessPointMultipartModelWire(protocol, r.Header.Get("Content-Type")) && accessPointAliasRewritable(connection.Surface):
+			// The upload is copied through unchanged except for the one
+			// "model" form field; Content-Length follows the new body.
+			if body, err = rewriteMultipartAlias(data, r.Header.Get("Content-Type"), in.name, backend.NativeModel); err != nil {
 				return nil, &backendFailure{http.StatusBadRequest, "INVALID_REQUEST", err.Error()}
 			}
 		default:
