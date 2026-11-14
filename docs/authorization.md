@@ -125,6 +125,17 @@ and pool (`pool_id`). All of `/api/v1/iam/role-bindings` and `POST /api/v1/iam/v
 | `POST /api/v1/iam/validate-principal` | `aiplex iam validate-principal <principal>` | `ValidatePrincipal` |
 | `POST /api/v1/identity/user-providers/{id}/membership/invalidate` | `aiplex identity user-providers invalidate-membership <id> --subject <s>` | `InvalidateUserMembership` |
 
+The Console reaches the same routes from the Permissions page, Role bindings tab (admins only; other
+roles see no write controls and the tab makes no request). Edits and deletes send the revision the page
+read and a conflict is reported with a reload, never overwritten. An edit always sends the scopes the
+form shows, so it cannot widen or clear them by omission. Changing the role in the edit form resets the
+selection to the new role's default scopes (shown, with a notice, and adjustable before saving); changing
+it back restores nothing but that role's defaults; if the roles list could not be loaded no defaults are
+guessed and scopes must be stated before Save. A binding whose stored scopes read back as
+unknown cannot be saved until scopes are stated (the form offers "Grant no scopes" for none). On create, scopes are the role's defaults unless the
+form is told to choose them (an empty choice grants none). The tab is covered by unit tests with the API
+mocked; it has not been exercised against a running server.
+
 ```yaml
 id: platform-admins        # optional on create; the server derives one from provider, pool, group and role
 group: platform-eng
