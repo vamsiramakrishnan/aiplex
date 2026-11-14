@@ -15,7 +15,7 @@ import Permissions from './pages/Permissions'
 import Login from './pages/Login'
 import InstanceDetail from './pages/InstanceDetail'
 import Runs from './pages/Runs'
-import { QuotaUsage } from './pages/QuotaTabs'
+import { QuotaBudgets, QuotaUsage } from './pages/QuotaTabs'
 import Usage from './pages/Usage'
 import { RequireRole } from './components/Forbidden'
 import CommandPalette from './components/CommandPalette'
@@ -62,6 +62,7 @@ function AppRoutes() {
           {consoleModules.map(({ name, path, component: Component }) => (
             <Route key={name} path={path} element={<RequireRole need="operator" what="This screen"><RequireModule name={name}><Component /></RequireModule></RequireRole>} />
           ))}
+          <Route path="/quotaplex/budgets" element={<RequireRole need="operator" what="QuotaPlex"><RequireModule name="quotaplex"><QuotaBudgets /></RequireModule></RequireRole>} />
           <Route path="/quotaplex/usage" element={<RequireRole need="operator" what="QuotaPlex"><RequireModule name="quotaplex"><QuotaUsage /></RequireModule></RequireRole>} />
           <Route path="/usage" element={<Usage />} />
           <Route path="/agents" element={<RequireRole need="operator" what="Agents"><Agents /></RequireRole>} />
