@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/vamsiramakrishnan/aiplex/internal/connections"
 	"github.com/vamsiramakrishnan/aiplex/pkg/endpointpolicy"
@@ -141,5 +142,54 @@ func TestAccessPointRealtimeSessionRoutesAndRecordsSessionUsage(t *testing.T) {
 	r := onlyRecord(t, records())
 	if r.AccessPointID != "prov" || r.Operation != "openai.v1.realtime" || r.Status != usageledger.StatusOK || r.UsageBound != "" || r.Usage == nil || *r.Usage.InputTokens != 9 || *r.Usage.CacheReadTokens != 4 || *r.Usage.OutputTokens != 3 || !r.Streaming {
 		t.Fatalf("session record: %+v usage=%+v", r, r.Usage)
+	}
+}
+
+// The 101 of a WebSocket upgrade carries the request ids, and the id is the
+// ledger record's request_id. The router has no request id override (the
+// fixture's own router replaces the id with "request-1").
+func TestWebSocketUpgradeCarriesTheRequestIDs(t *testing.T) {
+	f := newAPFixture(t)
+	addProviderAccessPointSurfaces(t, f)
+	records := attachLedger(t, f.h)
+	router := chi.NewRouter()
+	router.Use(RequestID)
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := context.WithValue(r.Context(), keyWIFIdentity, f.identity)
+			ctx = context.WithValue(ctx, keyWIFAccess, f.access)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	})
+	f.h.MountAccessPointEndpoints(router)
+	done := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		router.ServeHTTP(w, r)
+		close(done)
+	}))
+	defer server.Close()
+	base := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, response, err := websocket.DefaultDialer.Dial(base+"/ap/prov/v1/realtime?model=voice", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	id := response.Header.Get("X-Aiplex-Request-Id")
+	if response.StatusCode != http.StatusSwitchingProtocols || id == "" || !strings.HasPrefix(id, "req-") || response.Header.Get("X-Request-Id") != id {
+		t.Fatalf("101 headers: %d %v", response.StatusCode, response.Header)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for {
+		if _, _, err = conn.ReadMessage(); err != nil {
+			break
+		}
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("session handler did not return")
+	}
+	if r := onlyRecord(t, records()); r.RequestID != id {
+		t.Fatalf("ledger request_id %q, 101 X-Aiplex-Request-Id %q", r.RequestID, id)
 	}
 }

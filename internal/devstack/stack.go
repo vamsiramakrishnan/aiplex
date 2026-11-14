@@ -269,6 +269,8 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 		// built-in developer and role bindings above are unchanged.
 		"AIPLEX_USER_FEDERATION=enabled",
 		"AIPLEX_AGENT_FEDERATION=enabled",
+		// The tag keys a Branchyard model gateway sets with X-AIPlex-Tags.
+		"AIPLEX_TAG_KEYS_ALLOWED=by_branch,by_turn,by_harness",
 		// The keyed tool connection's credential, under its secret reference.
 		keyedSecretEnv()+"="+s.KeyedMCP.APIKeyValue,
 		// The mock agent's bearer token, read through the bearer-env identity

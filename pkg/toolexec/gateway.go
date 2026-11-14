@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
@@ -148,19 +149,19 @@ func (g *Gateway) Connection() Connection {
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		errorcode.Refuse(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "POST required")
 		return
 	}
 	if r.Header.Get("MCP-Session-Id") != "" || r.Header.Get("Last-Event-ID") != "" {
-		http.Error(w, "session and replay transports are unsupported by this connection", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "session and replay transports are unsupported by this connection")
 		return
 	}
 	if v := r.Header.Get("MCP-Protocol-Version"); v != "" && v != g.connection.ProtocolVersion {
-		http.Error(w, "MCP protocol version does not match the connection", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "MCP protocol version does not match the connection")
 		return
 	}
 	if media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || media != "application/json" {
-		http.Error(w, "JSON content type required", http.StatusUnsupportedMediaType)
+		errorcode.Refuse(w, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "JSON content type required")
 		return
 	}
 	bounded, cancel := context.WithTimeout(r.Context(), g.options.MaxDuration)
@@ -168,16 +169,16 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(bounded)
 	trusted, err := g.options.Context(r)
 	if err != nil || trusted.Validate() != nil {
-		http.Error(w, "verified request context required", http.StatusUnauthorized)
+		errorcode.Refuse(w, http.StatusUnauthorized, "UNAUTHENTICATED", "verified request context required")
 		return
 	}
 	if trusted.ResourceID != g.connection.ID {
-		http.Error(w, "request context connection mismatch", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "FORBIDDEN", "request context connection mismatch")
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, g.options.MaxBodyBytes+1))
 	if err != nil || int64(len(body)) > g.options.MaxBodyBytes {
-		http.Error(w, "invalid or oversized tool request", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid or oversized tool request")
 		return
 	}
 	if g.options.List != nil && isListRequest(body) {
@@ -186,7 +187,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	request, err := ParseRequest(body, g.connection.AllowedTools)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
 	if err = g.options.Authorize(r.Context(), copyContext(trusted), g.Connection(), copyRequest(request)); err != nil {
@@ -253,13 +254,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// again.
 	upstreamBody, err := withTraceMeta(r.Context(), request.Body)
 	if err != nil {
-		http.Error(w, "invalid or oversized tool request", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid or oversized tool request")
 		return
 	}
 	// The credential is checked before the dispatch claim; send acquires it
 	// again for each try.
 	if _, _, err = g.upstreamRequest(r.Context(), upstreamBody); err != nil {
-		http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
+		errorcode.Refuse(w, http.StatusServiceUnavailable, "CREDENTIAL_UNAVAILABLE", "operator tool credential unavailable")
 		return
 	}
 	if g.options.BeforeDispatch != nil {
@@ -299,10 +300,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			finishEarly(execution.Result{NotSent: true, Err: err})
 		}
 		if _, ok := err.(errCredential); ok {
-			http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
+			errorcode.Refuse(w, http.StatusServiceUnavailable, "CREDENTIAL_UNAVAILABLE", "operator tool credential unavailable")
 			return
 		}
-		http.Error(w, "tool upstream unavailable", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_UNAVAILABLE", "tool upstream unavailable")
 		return
 	}
 	defer response.Body.Close()
@@ -321,7 +322,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if metered && complete && execution.RejectedBeforeProcessing(response.StatusCode) {
 			finishEarly(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Rejected: true, Err: errors.New("tool request refused before processing")})
 		}
-		http.Error(w, "tool response did not establish terminal usage", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_INVALID", "tool response did not establish terminal usage")
 		return
 	}
 	usage := map[string]int64{"requests": 1, "tool_calls": 1, CounterToolResponseBytes: int64(len(responseBody)), CounterToolDurationMilliseconds: durationMilliseconds(elapsed, g.options.MaxDuration)}
@@ -391,8 +392,9 @@ func executionError(w http.ResponseWriter, err error, fallback string) {
 			}
 			w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
 		}
+		errorcode.Set(w.Header(), status.Code)
 		http.Error(w, status.Message, status.Status)
 		return
 	}
-	http.Error(w, fallback, http.StatusServiceUnavailable)
+	errorcode.Refuse(w, http.StatusServiceUnavailable, "EXECUTION_UNAVAILABLE", fallback)
 }

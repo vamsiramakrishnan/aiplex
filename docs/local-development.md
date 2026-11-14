@@ -436,6 +436,7 @@ The command starts the API with these variables. They are set by `internal/devst
 | `LOG_LEVEL` | `info` |
 | `CONSOLE_ORIGINS` | The Console's loopback origins, when the Console is served |
 | `AIPLEX_USER_FEDERATION`, `AIPLEX_AGENT_FEDERATION` | `enabled`. See [identity federation](#identity-federation). |
+| `AIPLEX_TAG_KEYS_ALLOWED` | `by_branch,by_turn,by_harness`: the three tag keys a Branchyard model gateway sends in `X-AIPlex-Tags`, so the integration can be tried locally. `aiplex dev` sets it itself, over a value in your shell (as it does for `LOG_LEVEL`), and has no flag to change it. A program that starts the stack with `devstack.Options.Env` replaces it with its own value. |
 | `AIPLEX_DEV_AGENT_TOKEN` | The mock agent's random bearer token, read through the `dev-agent-identity` profile in the connections file. |
 | `AIPLEX_TOOL_SECRET_DEV_TOOL_KEY` | The keyed tool connection's random key. `AIPLEX_TOOL_SECRET_DEV_MOCK_KEY` is a placeholder for the mock surfaces. |
 

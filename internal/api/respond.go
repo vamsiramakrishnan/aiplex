@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 )
 
@@ -17,6 +18,9 @@ func JSON(w http.ResponseWriter, status int, v any) {
 
 // Error writes a structured API error response.
 func Error(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	if accessPointRequest(r) {
+		errorcode.Set(w.Header(), code)
+	}
 	JSON(w, status, models.APIError{
 		Code:      code,
 		Message:   message,

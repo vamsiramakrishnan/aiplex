@@ -153,7 +153,7 @@ func spoolMultipart(body io.Reader, contentType string, limit int64) (*spooledUp
 		if err != nil {
 			upload.Close()
 			if counter.exceeded {
-				return nil, &providerRequestError{status: 413, message: "upload exceeds the configured bound"}
+				return nil, &providerRequestError{status: 413, code: "REQUEST_TOO_LARGE", message: "upload exceeds the configured bound"}
 			}
 			return nil, badRequest("invalid multipart body")
 		}
@@ -172,7 +172,7 @@ func spoolMultipart(body io.Reader, contentType string, limit int64) (*spooledUp
 			if _, err := io.Copy(io.Discard, part); err != nil {
 				upload.Close()
 				if counter.exceeded {
-					return nil, &providerRequestError{status: 413, message: "upload exceeds the configured bound"}
+					return nil, &providerRequestError{status: 413, code: "REQUEST_TOO_LARGE", message: "upload exceeds the configured bound"}
 				}
 				return nil, badRequest("invalid multipart file part")
 			}
@@ -187,7 +187,7 @@ func spoolMultipart(body io.Reader, contentType string, limit int64) (*spooledUp
 		if err != nil || len(value) > maxMultipartFieldBytes {
 			upload.Close()
 			if counter.exceeded {
-				return nil, &providerRequestError{status: 413, message: "upload exceeds the configured bound"}
+				return nil, &providerRequestError{status: 413, code: "REQUEST_TOO_LARGE", message: "upload exceeds the configured bound"}
 			}
 			return nil, badRequest("oversized or invalid form field")
 		}
@@ -197,7 +197,7 @@ func spoolMultipart(body io.Reader, contentType string, limit int64) (*spooledUp
 	if _, err := io.Copy(io.Discard, io.TeeReader(body, counter)); err != nil {
 		upload.Close()
 		if counter.exceeded {
-			return nil, &providerRequestError{status: 413, message: "upload exceeds the configured bound"}
+			return nil, &providerRequestError{status: 413, code: "REQUEST_TOO_LARGE", message: "upload exceeds the configured bound"}
 		}
 		return nil, badRequest("invalid multipart body")
 	}
@@ -213,7 +213,7 @@ func spoolMultipart(body io.Reader, contentType string, limit int64) (*spooledUp
 		for _, reserved := range []string{"model", "stream", "purpose", "n"} {
 			if strings.EqualFold(key, reserved) && key != reserved {
 				upload.Close()
-				return nil, &providerRequestError{status: 403, message: "ambiguous security field spelling"}
+				return nil, &providerRequestError{status: 403, code: "FORBIDDEN", message: "ambiguous security field spelling"}
 			}
 		}
 	}

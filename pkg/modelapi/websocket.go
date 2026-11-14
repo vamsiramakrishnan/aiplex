@@ -48,6 +48,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 )
@@ -310,13 +311,13 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 		if key != "model" {
 			// call_id (SIP sideband) and any other selector are not
 			// ownership-scoped by this surface.
-			http.Error(w, "query parameter "+key+" is not supported by this surface", http.StatusBadRequest)
+			errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "query parameter "+key+" is not supported by this surface")
 			return
 		}
 	}
 	if op.ID == "openai.v1.realtime" || op.ID == openAILiveOperation {
 		if len(query["model"]) != 1 || !g.allowedModel(query.Get("model")) {
-			http.Error(w, "model is not allowed", http.StatusForbidden)
+			errorcode.Refuse(w, http.StatusForbidden, "MODEL_NOT_ALLOWED", "model is not allowed")
 			return
 		}
 		metadata.Model = query.Get("model")
@@ -324,7 +325,7 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 			upstreamQuery.Set("model", metadata.Model)
 		}
 	} else if len(query["model"]) > 0 {
-		http.Error(w, "the model is selected per response.create event", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "the model is selected per response.create event")
 		return
 	}
 	headers, e := g.providerRequestHeaders(r.Header)
@@ -334,7 +335,7 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 	}
 	headers.Del("Content-Type")
 	if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
-		http.Error(w, "operation denied", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "ACTION_DENIED", "operation denied")
 		return
 	}
 	if !g.sessionHooks(w, r, op, metadata) {
@@ -375,11 +376,11 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 	}
 	signing, e := http.NewRequestWithContext(r.Context(), http.MethodGet, httpsURL, nil)
 	if e != nil {
-		http.Error(w, "invalid upstream request", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid upstream request")
 		return
 	}
 	signing.Header = headers
-	connection, e := (&websocket.Upgrader{HandshakeTimeout: 10 * time.Second}).Upgrade(w, r, nil)
+	connection, e := (&websocket.Upgrader{HandshakeTimeout: 10 * time.Second, Error: handshakeRefusal}).Upgrade(w, r, upgradeResponseHeader(w))
 	if e != nil {
 		return
 	}
@@ -760,4 +761,25 @@ func (a *responsesSocketAdapter) end(clean bool) (*UsageObservation, string) {
 		totals = map[string]int64{}
 	}
 	return &UsageObservation{Source: "upstream", SurfaceID: a.gateway.surface.ID, Counters: cloneCounters(totals), Cumulative: true}, ""
+}
+
+// handshakeRefusal answers a failed WebSocket handshake as the upgrader does
+// by default (its status text, Sec-Websocket-Version: 13), and marks it as
+// AIPlex's own refusal.
+func handshakeRefusal(w http.ResponseWriter, _ *http.Request, status int, _ error) {
+	w.Header().Set("Sec-Websocket-Version", "13")
+	errorcode.Refuse(w, status, "WEBSOCKET_HANDSHAKE_REFUSED", http.StatusText(status))
+}
+
+// upgradeResponseHeader holds the request ids already set on w. The upgrader
+// writes the 101 itself, so headers set on w before it are not sent unless they
+// are passed to Upgrade.
+func upgradeResponseHeader(w http.ResponseWriter) http.Header {
+	out := http.Header{}
+	for _, name := range []string{"X-Request-Id", "X-Aiplex-Request-Id"} {
+		if v := w.Header().Get(name); v != "" {
+			out.Set(name, v)
+		}
+	}
+	return out
 }

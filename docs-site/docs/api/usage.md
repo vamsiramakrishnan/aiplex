@@ -54,6 +54,9 @@ All filters are exact matches. Each parameter may appear at most once. Unknown p
 | `status` | string | No | `ok`, `error`, `denied` or `unknown` |
 | `source` | string | No | `managed` (exchanges through AIPlex) or `reported` (mirrored from a legacy usage report, or read from a harness's own telemetry sent to [`/otlp`](./otlp.md)) |
 | `cost_basis` | string | No | `settled`, `estimated`, `reported`, `cached` or `unknown` |
+| `request_id` | string | No | AIPlex's request id: the `X-Aiplex-Request-Id` response header of an access point call. Exact match. 1 to 128 characters of `A-Z a-z 0-9 . _ : -`. |
+| `client_request_id` | string | No | The `X-Client-Request-Id` the caller sent. Exact match, same characters and length. |
+| `trace_id` | string | No | W3C trace id, 32 lower-case hexadecimal characters. Exact match, not all zero. A malformed or empty value is `400 INVALID_QUERY`; a non-admin caller still sees only their own records. |
 | `harness` | string | No | Reported records from one harness, for example `claude-code` |
 | `tag.<key>` | string | No | Records carrying that tag, for example `tag.experiment=arm-a`. Several `tag.*` parameters must all match. |
 | `since` | RFC 3339 timestamp | No | Inclusive lower bound on `started_at` |
