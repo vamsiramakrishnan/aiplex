@@ -16,7 +16,10 @@ Snippets read the token from $AIPLEX_TOKEN; no token or secret is printed.
 With --write, the configuration is merged into the client's own config file
 instead of only being printed. Supported for claude-code (settings.json and the
 MCP server list), codex (config.toml), gemini-cli (settings.json) and antigravity
-(its MCP server list only: ~/.gemini/config/mcp_config.json). Each file
+(its MCP server list only: ~/.gemini/config/mcp_config.json) and branchyard
+(the [models] tables of ./branchyard.toml, or the file named with --file, that
+make the access point a Branchyard backend; without --write the tables are
+printed). Each file
 is shown as a diff and needs confirmation (--yes without a terminal). A copy of
 the original goes to ~/.aiplex/connect-backups first, existing keys are never
 replaced wholesale, and a file that is not valid JSON or TOML is refused rather
@@ -38,12 +41,15 @@ Examples:
   aiplex connect local --client claude-code --write
   aiplex connect local --client codex --write --dry-run
   aiplex connect local --client gemini-cli --write --with-telemetry http://localhost:4318
+  aiplex connect ide --client branchyard
+  aiplex connect ide --client branchyard --write --dry-run
   aiplex connect --undo --client claude-code
   aiplex connect ide -o json
 
 Flags:
-      --client string           Client profile ID, gemini-cli, or generic (default "generic")
+      --client string           Client profile ID, gemini-cli, branchyard, or generic (default "generic")
       --dry-run                 With --write or --undo: show the diff and write nothing
+      --file string             With --write and --client branchyard: the branchyard.toml to edit, created when missing (default: ./branchyard.toml, which must exist)
   -h, --help                    help for connect
       --model string            With --write: model to select, instead of the first one the access point offers on the client's API
       --scope string            With --write: user (home directory files) or project (this directory's files; claude-code and gemini-cli) (default "user")

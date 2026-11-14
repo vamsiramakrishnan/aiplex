@@ -624,7 +624,7 @@ access point admits.
 
 A reverse proxy in front of an access point reads two response headers. Branchyard is one such
 proxy: a separate product that runs coding agents on git branches and can use an access point as its
-model backend (see `docs/branchyard.md`, which another change adds). Both headers are added to the
+model backend (see [Branchyard](branchyard.md)). Both headers are added to the
 response; no status, body or other header changes.
 
 | Header | On | Value |
