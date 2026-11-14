@@ -516,6 +516,10 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 		if !ok {
 			return
 		}
+		// The call travels with the request from here on, so every ledger record
+		// of it (a refusal before a backend is chosen included) takes its access
+		// point, caller kind and tags from the call, in beginUsage.
+		r = r.WithContext(withAccessPointCall(r.Context(), call))
 		if !h.moduleEnabled("llmplex") {
 			fail(w, r, http.StatusNotFound, "MODULE_DISABLED", "model endpoints are disabled")
 			return

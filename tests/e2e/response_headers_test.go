@@ -108,11 +108,14 @@ func TestResponseHeadersFindTheLedgerRecordOfACall(t *testing.T) {
 	}
 
 	// A call refused before any model is called has its own record and id.
-	r = e.post("/ap/local/v1/chat/completions", `{"model":"no-such-model","messages":[]}`)
+	r = e.post("/ap/local/v1/chat/completions", `{"model":"no-such-model","messages":[]}`, "X-Client-Request-Id", "by-test-404", "X-AIPlex-Tags", "by_branch=repo/feat-x,by_turn=turn-2,by_harness=claude-code")
 	if r.Status != 404 || r.Header.Get("X-Aiplex-Error-Code") != "MODEL_NOT_FOUND" || r.Header.Get("X-Aiplex-Request-Id") == "" {
 		t.Fatalf("unknown model: %d %v %s", r.Status, r.Header, r.Body)
 	}
-	findRecords(t, e, 1, "--request-id", r.Header.Get("X-Aiplex-Request-Id"))
+	refused := findRecords(t, e, 1, "--request-id", r.Header.Get("X-Aiplex-Request-Id"))
+	if refused[0].ClientRequestID != "by-test-404" || refused[0].Tags["by_branch"] != "repo/feat-x" || refused[0].Tags["by_turn"] != "turn-2" || refused[0].Tags["by_harness"] != "claude-code" {
+		t.Fatalf("the refused call's record lacks its client request id or tags: %+v", refused[0])
+	}
 
 	// A refusal of the gate has the code, and no record.
 	r = e.do("POST", "/ap/local/v1/chat/completions", chat)

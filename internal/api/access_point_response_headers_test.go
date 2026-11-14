@@ -231,11 +231,16 @@ func TestNoBackendAvailableIsAIPlexsDecisionAndAProviderErrorIsNot(t *testing.T)
 	if first.Code != 503 || errCodeOf(first) != "" {
 		t.Fatalf("the provider's 503 is relayed without a code: %d %q", first.Code, errCodeOf(first))
 	}
-	second := f.chat(hello)
+	tags, _ := NewTagPolicy([]string{"by_branch"}, 0)
+	f.h.Tags = tags
+	second := f.chat(hello, "X-AIPlex-Tags", "by_branch=smoke", "X-Client-Request-Id", "by-nb-1")
 	if second.Code != 503 || errCodeOf(second) != "NO_BACKEND_AVAILABLE" || second.Header().Get("Retry-After") != "1" {
 		t.Fatalf("breaker open, no backend: %d %q %v", second.Code, errCodeOf(second), second.Header())
 	}
 	recs := f.records()
+	if len(recs) == 2 && (recs[1].Tags["by_branch"] != "smoke" || recs[1].ClientRequestID != "by-nb-1" || recs[1].AccessPointID != "r" || recs[1].CallerKind != CallerUser) {
+		t.Fatalf("the no-backend record lacks the call's fields: %+v", recs[1])
+	}
 	if len(recs) != 2 || second.Header().Get("X-Aiplex-Request-Id") != recs[1].RequestID {
 		t.Fatalf("a refusal that never reached a backend still has its ledger record: %d records", len(recs))
 	}

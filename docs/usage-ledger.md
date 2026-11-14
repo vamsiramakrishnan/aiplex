@@ -710,6 +710,10 @@ most 8 tags a record. Header values per key and tenant are capped at `AIPLEX_TAG
 (default 50); beyond it a value is stored as `(other)` and counted with reason `overflow`.
 The cap is kept in process memory, so each replica applies it to its own view and a restart
 begins afresh. Filter with `tag.<key>=<value>`; group with `tag:<key>`.
+The record of a refused call carries the call's tags, `client_request_id`, `access_point_id` and
+`caller_kind` as a successful call's record does (a model not found, a missing grant, quota, capacity and
+hook refusals, a routed model with no backend, and a managed tool call). A refusal that writes no record
+(see [response headers](access-points.md#response-headers)) has nothing to carry them.
 
 ## Feedback
 
