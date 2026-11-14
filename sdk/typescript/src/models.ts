@@ -705,6 +705,10 @@ export interface UsageCounters {
   cacheWrite12hTokens: number | null;
   /** Gemini tool-use prompt tokens; not part of inputTokens. */
   toolUsePromptTokens: number | null;
+  /** A managed tool call's response body size in bytes; known only for a complete response. */
+  toolResponseBytes: number | null;
+  /** A managed tool call's gateway-measured duration in milliseconds; known only for a complete response. */
+  toolDurationMilliseconds: number | null;
   raw: Record<string, unknown>;
 }
 
@@ -725,6 +729,8 @@ export function parseUsageCounters(value: unknown): UsageCounters {
     cacheWrite30mTokens: optInt(obj, "cache_write_30m_tokens", "UsageCounters"),
     cacheWrite12hTokens: optInt(obj, "cache_write_12h_tokens", "UsageCounters"),
     toolUsePromptTokens: optInt(obj, "tool_use_prompt_tokens", "UsageCounters"),
+    toolResponseBytes: optInt(obj, "tool_response_bytes", "UsageCounters"),
+    toolDurationMilliseconds: optInt(obj, "tool_duration_milliseconds", "UsageCounters"),
     raw: obj,
   };
 }

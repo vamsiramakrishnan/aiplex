@@ -89,3 +89,21 @@ def test_price_tiers_and_service_tier_round_trip_exactly() -> None:
 def test_usage_filter_cost_basis_query() -> None:
     assert UsageFilter(cost_basis="reported").to_query() == {"cost_basis": "reported"}
     assert "cost_basis" not in UsageFilter().to_query()
+
+
+def test_tool_call_size_and_duration_counters() -> None:
+    present = UsageCounters.from_wire({"tool_response_bytes": 2048, "tool_duration_milliseconds": 350})
+    assert (present.tool_response_bytes, present.tool_duration_milliseconds) == (2048, 350)
+    # A real zero is a reported zero, not unknown.
+    zero = UsageCounters.from_wire({"tool_response_bytes": 0, "tool_duration_milliseconds": 0})
+    assert (zero.tool_response_bytes, zero.tool_duration_milliseconds) == (0, 0)
+    # Absent and null are both unknown: None, never 0.
+    absent = UsageCounters.from_wire({"input_tokens": 1})
+    assert absent.tool_response_bytes is None and absent.tool_duration_milliseconds is None
+    nulled = UsageCounters.from_wire({"tool_response_bytes": None, "tool_duration_milliseconds": None})
+    assert nulled.tool_response_bytes is None and nulled.tool_duration_milliseconds is None
+    # Read from a usage record; the wire value also stays in raw.
+    rec = UsageRecord.from_wire({"id": "ul_3", "usage": {"tool_response_bytes": 7, "tool_duration_milliseconds": 0}})
+    assert rec.usage is not None
+    assert (rec.usage.tool_response_bytes, rec.usage.tool_duration_milliseconds) == (7, 0)
+    assert rec.usage.raw["tool_response_bytes"] == 7

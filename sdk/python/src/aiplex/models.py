@@ -656,6 +656,10 @@ class UsageCounters:
     cache_write_12h_tokens: int | None = None
     #: Gemini tool-use prompt tokens; not part of input_tokens.
     tool_use_prompt_tokens: int | None = None
+    #: A managed tool call's response body size in bytes and its gateway-measured
+    #: duration in milliseconds; known only for a complete response.
+    tool_response_bytes: int | None = None
+    tool_duration_milliseconds: int | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -673,6 +677,8 @@ class UsageCounters:
             cache_write_30m_tokens=_opt_int(d, "cache_write_30m_tokens"),
             cache_write_12h_tokens=_opt_int(d, "cache_write_12h_tokens"),
             tool_use_prompt_tokens=_opt_int(d, "tool_use_prompt_tokens"),
+            tool_response_bytes=_opt_int(d, "tool_response_bytes"),
+            tool_duration_milliseconds=_opt_int(d, "tool_duration_milliseconds"),
             raw=dict(d),
         )
 
@@ -2253,6 +2259,10 @@ class ToolExecution(_WireModel):
     mode: str | None = None
     #: A date such as ``2025-06-18``.
     protocol_version: str | None = None
+    #: Bound on a tool response body in bytes; the response-size meter needs it.
+    max_response_bytes: int | None = None
+    #: Bound on a tool call's duration in seconds; the duration meter needs it.
+    max_duration_seconds: int | None = None
     raw: dict[str, Any] = _raw_field()
     _FIELDS = {
         "id": ("id", "str"),
@@ -2262,6 +2272,8 @@ class ToolExecution(_WireModel):
         "allowed_tools": ("allowed_tools", "strs"),
         "mode": ("mode", "str"),
         "protocol_version": ("protocol_version", "str"),
+        "max_response_bytes": ("max_response_bytes", "int"),
+        "max_duration_seconds": ("max_duration_seconds", "int"),
     }
 
 

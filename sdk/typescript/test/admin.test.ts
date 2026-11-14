@@ -299,6 +299,28 @@ describe("admin operations", () => {
       expect(last().headers["if-match"]).toBe("5");
       await expect(client.deleteToolConnection("github", 0)).rejects.toThrow(TypeError);
     });
+
+    it("keeps execution max_response_bytes and max_duration_seconds through a read-modify-write", async () => {
+      const bounded: ToolConnectionSpec = {
+        ...TOOL,
+        execution: {
+          id: "github",
+          endpoint: "https://mcp.example.com/mcp",
+          credential_mode: "connection-auth",
+          allowed_tools: ["read_*"],
+          max_response_bytes: 4096,
+          max_duration_seconds: 10,
+        },
+      };
+      const record = { ...TOOL_RECORD, spec: bounded };
+      api.route("GET", "/api/v1/mcp/connections/github", { json: record });
+      api.route("PUT", "/api/v1/mcp/connections/github", { json: record });
+      const current = await client.getToolConnection("github");
+      const spec = { ...(current.raw["spec"] as ToolConnectionSpec), tools: { allow: ["write_*"], read_only: false } };
+      await client.putToolConnection("github", spec, current.revision);
+      // The execution block is passed through as stored: both bounds survive and nothing is added.
+      expect((last().body as { execution?: unknown }).execution).toEqual(bounded.execution);
+    });
   });
 
   describe("hook policies", () => {

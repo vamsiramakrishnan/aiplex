@@ -641,3 +641,47 @@ def test_access_point_skill_typed() -> None:
     assert AccessPointSkill.from_wire({}).instance_ref is None
     rec = AccessPointRecord.from_wire({"id": "ap", "revision": 1, "spec": {"id": "ap", "skills": [{"instance_ref": "s1"}]}})
     assert rec.spec.skills[0].instance_ref == "s1"
+
+
+def test_tool_execution_bounds_are_typed_and_round_trip() -> None:
+    wire = {
+        "id": "gh",
+        "execution": {
+            "endpoint": "https://tools.example/mcp",
+            "credential_mode": "connection-auth",
+            "max_response_bytes": 1048576,
+            "max_duration_seconds": 30,
+        },
+    }
+    spec = ToolConnectionSpec.from_wire(wire)
+    assert spec.execution is not None
+    assert (spec.execution.max_response_bytes, spec.execution.max_duration_seconds) == (1048576, 30)
+    assert spec.to_wire() == wire
+    # A bound the record does not carry is None, and is not written back.
+    unset = ToolConnectionSpec.from_wire({"id": "gh", "execution": {"endpoint": "https://tools.example/mcp"}})
+    assert unset.execution is not None
+    assert unset.execution.max_response_bytes is None and unset.execution.max_duration_seconds is None
+    assert "max_response_bytes" not in unset.to_wire()["execution"]
+    nulled = ToolExecution.from_wire({"max_response_bytes": None, "max_duration_seconds": None})
+    assert nulled.max_response_bytes is None and nulled.max_duration_seconds is None
+    zero = ToolExecution.from_wire({"max_response_bytes": 0, "max_duration_seconds": 0})
+    assert (zero.max_response_bytes, zero.max_duration_seconds) == (0, 0)
+
+
+def test_tool_connection_read_modify_write_keeps_execution_bounds(fake_api: FakeAPI, client: Client) -> None:
+    record = tool_record(3)
+    record["spec"] = {
+        **TOOL_SPEC,
+        "execution": {**TOOL_SPEC["execution"], "max_response_bytes": 4096, "max_duration_seconds": 10},
+    }
+    fake_api.route("GET", "/api/v1/mcp/connections/gh", json=record)
+    fake_api.route("PUT", "/api/v1/mcp/connections/gh", json=record)
+    current = client.get_tool_connection("gh")
+    assert current.spec is not None
+    wire = current.spec.to_wire()
+    wire["tools"] = {"allow": ["write_*"], "read_only": False}
+    client.put_tool_connection("gh", ToolConnectionSpec.from_wire(wire), revision=current.revision)
+    body = fake_api.requests[-1].body
+    assert body["execution"]["max_response_bytes"] == 4096
+    assert body["execution"]["max_duration_seconds"] == 10
+    assert body["execution"]["other"] == 1
