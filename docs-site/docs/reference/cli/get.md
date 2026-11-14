@@ -47,16 +47,21 @@ Exit codes:
 ### `aiplex get instance`
 
 ```text
-Get instance details
+Get one instance's details. With --history, show its deploy history
+(deploy, undeploy and config changes) instead. The API returns at most 50
+history events for an instance.
 
 Usage:
   aiplex get instance <id> [flags]
 
 Examples:
-  aiplex get instance github-abc
+  aiplex get instance i-1
+  aiplex get instance i-1 --history
+  aiplex get instance i-1 --history -o json
 
 Flags:
-  -h, --help   help for instance
+  -h, --help      help for instance
+      --history   Show the instance's deploy history instead of its details
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

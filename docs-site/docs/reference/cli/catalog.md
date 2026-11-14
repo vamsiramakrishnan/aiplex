@@ -46,18 +46,23 @@ Exit codes:
 ### `aiplex catalog list`
 
 ```text
-List catalog templates
+List catalog templates one page at a time. --page is zero-based and
+--page-size is 1 to 100 (default 20). When another page exists the command
+prints the exact command for the next one.
 
 Usage:
   aiplex catalog list [flags]
 
 Examples:
   aiplex catalog list
-  aiplex catalog list --plane llmplex
+  aiplex catalog list --plane llmplex --page-size 50
+  aiplex catalog list --page 2 -o json
 
 Flags:
-  -h, --help           help for list
-  -p, --plane string   Filter by plane: mcplex, a2aplex, llmplex
+  -h, --help            help for list
+      --page int        Page to show, zero-based
+      --page-size int   Templates per page (1 to 100) (default 20)
+  -p, --plane string    Filter by plane: mcplex, a2aplex, llmplex
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

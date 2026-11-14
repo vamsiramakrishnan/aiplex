@@ -23,6 +23,7 @@ Available Commands:
   policy-validate Validate a policy export without activating it
   preview         Simulate admission without reserving or dispatching
   inventory       Read a bounded quota administration page (kinds: budgets, loans, attempts, reconciliations, audit, terminal-work)
+  unknown         Summarize attempts in the unknown state: count, oldest age and the exposure they hold
   balance         Read a tenant-authorized budget balance
   loan            Inspect a quota allocation loan
   loan-grant      Grant a policy-authorized allocation loan
@@ -195,11 +196,47 @@ Usage:
 
 Examples:
   aiplex quota inventory budgets --limit 50
+  aiplex quota inventory attempts --older-than 1h
 
 Flags:
-      --after string   Continue strictly after this record ID
-  -h, --help           help for inventory
-      --limit int      Page size, 1 to 64 (default 20)
+      --after string          Continue strictly after this record ID
+  -h, --help                  help for inventory
+      --limit int             Page size, 1 to 64 (default 20)
+      --older-than duration   attempts only: list attempts in the unknown state dispatched at least this long ago (0s lists all of them)
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex quota unknown`
+
+```text
+Summarize attempts in the unknown state: count, oldest age and the exposure they hold
+
+Usage:
+  aiplex quota unknown [flags]
+
+Examples:
+  aiplex quota unknown
+  aiplex quota unknown --older-than 1h -o json
+
+Flags:
+  -h, --help                  help for unknown
+      --older-than duration   Only attempts dispatched at least this long ago, for example 1h (0s counts all of them)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

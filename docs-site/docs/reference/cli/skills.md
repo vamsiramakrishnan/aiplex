@@ -117,17 +117,20 @@ Exit codes:
 ### `aiplex skills invocations`
 
 ```text
-List recent skill invocations
+List recent skill invocations. --limit caps how many are returned (1 to 1000, default 100).
 
 Usage:
   aiplex skills invocations [flags]
 
 Examples:
-  aiplex skills invocations --skill summarize
+  aiplex skills invocations
+  aiplex skills invocations --agent tutor-agent --limit 20
+  aiplex skills invocations -o json
 
 Flags:
       --agent string   Filter by agent ID
   -h, --help           help for invocations
+      --limit int      Most invocations to return (1 to 1000) (default 100)
   -s, --skill string   Filter by skill name
 
 Global Flags:
