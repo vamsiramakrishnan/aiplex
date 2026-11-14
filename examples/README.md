@@ -1,12 +1,20 @@
 # Examples
 
-Three small examples run against `aiplex dev` in a few minutes each. They need Go (to build the binaries), `curl` and a terminal. No Docker, cloud account or API key.
+These examples run against `aiplex dev` in a few minutes each. They need Go (to build the binaries), `curl` and a terminal. No Docker, cloud account or API key.
+
+Every example below is run by `make examples-test` (see [test.sh](test.sh)).
 
 | Example | What it shows | Needs |
 | --- | --- | --- |
 | [openai-sdk](openai-sdk/README.md) | Point an OpenAI SDK (Python, Node) or plain `curl` at an access point | `curl`; optionally the `openai` Python or Node package |
 | [mcp-tools](mcp-tools/README.md) | Give an IDE or MCP client a governed tool endpoint; the configuration `aiplex connect` prints | `curl` |
 | [usage-report](usage-report/README.md) | See who used what: usage by user, model, plane and tool after a few requests | `curl` |
+| [hooks](hooks/README.md) | Mask an email address and refuse a private key before they reach a model (request hooks) | `curl` |
+| [budgets](budgets/README.md) | Team and project request budgets: a refusal that names the budget, and the status and ledger for it | `curl`; needs `aiplex dev --quota` (`make examples-test` starts it) |
+| [sdk-python](sdk-python/README.md) | The Python SDK (`sdk/python`): access point, usage records and config, and one hook policy round trip | Python 3.10+; installed from the repository (skipped unless `EXAMPLES_INSTALL_SDKS=1`) |
+| [sdk-typescript](sdk-typescript/README.md) | The TypeScript SDK (`sdk/typescript`): the same calls as the Python example | Node 20+ and npm; built from the repository (skipped unless `EXAMPLES_INSTALL_SDKS=1`) |
+
+The SDK examples do not wrap model calls: the SDKs cover the control-plane API, and a chat request goes to the access point with an OpenAI or Anthropic SDK, as in [openai-sdk](openai-sdk/README.md).
 
 Start the local stack once and keep it running:
 
@@ -23,7 +31,7 @@ eval "$(aiplex dev env)"            # terminal 2, from the repository root
 make examples-test
 ```
 
-This builds the binaries if needed, starts its own `aiplex dev` on port 18081 with an isolated home directory, runs every example and checks the output. Set `EXAMPLES_INSTALL_SDKS=1` to install the OpenAI Python and Node packages into a temporary directory and run the SDK examples too (CI does this); `EXAMPLES_REQUIRE_SDKS=1` turns a skipped SDK example into a failure. See [test.sh](test.sh).
+This builds the binaries if needed, starts its own `aiplex dev` on port 18081 with an isolated home directory, runs every example and checks the output. Set `EXAMPLES_INSTALL_SDKS=1` to install the OpenAI Python and Node packages, the `aiplex` Python SDK and the `@aiplex/sdk` TypeScript SDK (built from this checkout) into temporary directories and run the SDK examples too (CI does this); `EXAMPLES_REQUIRE_SDKS=1` turns a skipped SDK example into a failure. See [test.sh](test.sh).
 
 ## Other files in this directory
 
