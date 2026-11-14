@@ -148,7 +148,7 @@ func (c *Client) InvokeAgent(ctx context.Context, connectionID string, req Invok
 	if c.token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.token)
 	}
-	hc := http.Client{}
+	hc := http.Client{CheckRedirect: NoFollowRedirects, Transport: redirectGuard{}}
 	if c.HTTPClient != nil {
 		hc = *c.HTTPClient
 	}
@@ -156,6 +156,10 @@ func (c *Client) InvokeAgent(ctx context.Context, connectionID string, req Invok
 	resp, err := hc.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("aiplex: request failed: %w", err)
+	}
+	if isRedirectStatus(resp.StatusCode) {
+		defer resp.Body.Close()
+		return nil, redirectRefused(httpReq.URL, resp)
 	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		defer resp.Body.Close()

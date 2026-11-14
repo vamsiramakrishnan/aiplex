@@ -36,6 +36,8 @@ console.log(summary.recordsScanned, summary.truncated);
 
 Errors throw `AiplexError` with `statusCode`, `code`, `message`, `details`, `requestId` and `traceId`. The token is never included in an error message, `String(client)` or `JSON.stringify(client)`.
 
+The client does not follow redirects: every request is sent with `redirect: "manual"`. Node's `fetch` follows redirects by default; Node 22 drops `Authorization` when the target is another origin (another host or port) but still sends the request there (a 307 or 308 repeats the method and body), and other runtimes differ. The API never redirects, so a 301, 302, 303, 307 or 308 answer (or a browser's opaque redirect) is a wrong `AIPLEX_URL` or a proxy that rewrites requests; it throws `AiplexError` with code `redirect_refused`, the status (`null` for an opaque redirect), and only the scheme and host of the `Location` (never its path or query). A 304 is not a redirect and throws the usual `unknown` error. A `fetch` you pass in is called as given, with `redirect: "manual"` in its init; if it ignores that and follows redirects, its redirect policy is yours, and the SDK cannot tell.
+
 ## Covered operations
 
 - `whoami()`

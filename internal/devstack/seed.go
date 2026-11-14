@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 // Names of the resources Seed creates.
@@ -233,7 +234,8 @@ func (a API) Do(ctx context.Context, method, path string, headers map[string]str
 	}
 	client := a.HTTP
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		// The request carries the developer token: never follow a redirect.
+		client = &http.Client{Timeout: 30 * time.Second, CheckRedirect: aiplex.NoFollowRedirects}
 	}
 	resp, err := client.Do(req)
 	if err != nil {

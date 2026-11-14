@@ -7,7 +7,7 @@ import os
 import re
 from collections.abc import Iterator, Sequence
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
 
@@ -78,6 +78,58 @@ _TAG_GROUP = re.compile(r"^tag:[a-z][a-z0-9_.-]{0,31}$")
 _VALID_BUCKETS = frozenset({"hour", "day"})
 
 
+_MAX_HOST_LENGTH = 253  # the longest DNS name; a longer host is not shown
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+
+def _redirect_refused(response: httpx.Response, requested_url: str) -> AiplexError:
+    """The error for a redirect answer.
+
+    It names only the scheme and host of the Location, never its path or query,
+    which can carry a token. A 304 is not a redirect to follow and is not handled here.
+    """
+    status = response.status_code
+    message = (
+        f"the API answered {status} with a redirect and the client does not follow "
+        "redirects, because it would send the credentials to the redirect target"
+    )
+    location = response.headers.get("location")
+    target = ""
+    if location:
+        try:
+            parts = urlsplit(urljoin(requested_url, location))
+            if (
+                parts.scheme
+                and parts.hostname
+                and len(parts.netloc.rpartition("@")[2]) <= _MAX_HOST_LENGTH
+            ):
+                host = parts.hostname
+                if ":" in host:
+                    host = f"[{host}]"
+                if parts.port is not None:
+                    host = f"{host}:{parts.port}"
+                target = f"{parts.scheme}://{host}"
+        except ValueError:
+            target = ""
+    if target:
+        message += f" to {target}"
+    else:
+        message += " (the answer has no usable Location)"
+    message += (
+        ". The likely cause is a wrong AIPLEX_URL or a proxy that rewrites requests; "
+        "point the client at the API's own address"
+    )
+    return AiplexError(message, code="redirect_refused", status_code=status)
+
+
+def _refuse_redirect_hook(response: httpx.Response) -> None:
+    if response.status_code in _REDIRECT_STATUSES:
+        raise _redirect_refused(response, str(response.request.url))
+
+
+_OWNED_HOOKS = {"response": [_refuse_redirect_hook]}
+
+
 def _quote_segment(value: str, name: str = "id") -> str:
     if not isinstance(value, str) or not value:
         raise ValueError(f"{name} must be a non-empty string")
@@ -144,7 +196,15 @@ class Client:
             self._client: httpx.Client = http_client
             self._owns_client: bool = False
         else:
-            self._client = httpx.Client(timeout=timeout)
+            # Never follow a redirect: it would carry the bearer token to
+            # whatever the redirect names. The API does not redirect.
+            # The response hook runs before httpx builds the redirect request,
+            # which raises on a Location it cannot parse and would hide the status.
+            self._client = httpx.Client(
+                timeout=timeout,
+                follow_redirects=False,
+                event_hooks=_OWNED_HOOKS,
+            )
             self._owns_client = True
 
     def close(self) -> None:
@@ -200,6 +260,8 @@ class Client:
                 headers=req_headers,
                 timeout=self._timeout,
             )
+        except AiplexError:
+            raise
         except Exception as exc:
             cls_name = type(exc).__name__
             raise AiplexError(
@@ -209,6 +271,8 @@ class Client:
             ) from None
 
         status = response.status_code
+        if status in _REDIRECT_STATUSES:
+            raise _redirect_refused(response, url)
         if status < 200 or status >= 300:
             raise self._parse_error(response)
 

@@ -166,6 +166,13 @@ func explain(cmd *cobra.Command, args []string, err error) *cliError {
 		}
 		return m
 	}
+	if apiErr.Code == aiplex.RedirectRefusedCode {
+		return &cliError{msg: what(apiErr.Message), code: exitError, err: err, hints: []string{
+			"The API is at " + t.URL + " (from " + t.URLSource + "). Check it with: aiplex config show",
+			"If a proxy or load balancer sits in front of the API, make it forward requests instead of redirecting them.",
+			"Nothing was sent to the redirect target.",
+		}}
+	}
 	switch apiErr.StatusCode {
 	case 401:
 		return explainUnauthenticated(t, local, apiErr, what)

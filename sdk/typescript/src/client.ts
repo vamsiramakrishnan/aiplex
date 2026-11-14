@@ -62,6 +62,45 @@ import {
 } from "./admin.js";
 
 const USER_AGENT = "aiplex-sdk-ts/0.1.0";
+
+/** The longest DNS name; a longer host is not shown. */
+const MAX_HOST_LENGTH = 253;
+
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * The error for a redirect answer. It names only the scheme and host of the
+ * Location, never its path or query, which can carry a token. A 304 is not a
+ * redirect to follow and is not handled here. An opaque redirect (a browser
+ * fetch with redirect "manual") has status 0 and no readable Location.
+ */
+function redirectRefused(response: Response, requestedUrl: string): AiplexError {
+  const status = response.status === 0 ? null : response.status;
+  let message =
+    `the API answered ${status === null ? "" : `${status} `}with a redirect and the client ` +
+    "does not follow redirects, because it would send the credentials to the redirect target";
+  let target = "";
+  const location = response.headers.get("location");
+  if (location) {
+    try {
+      const u = new URL(location, requestedUrl);
+      if (u.host !== "" && u.host.length <= MAX_HOST_LENGTH && u.protocol.endsWith(":") && u.protocol !== ":") {
+        target = `${u.protocol}//${u.host}`;
+      }
+    } catch {
+      target = "";
+    }
+  }
+  if (target !== "") {
+    message += ` to ${target}`;
+  } else {
+    message += " (the answer has no usable Location)";
+  }
+  message +=
+    ". The likely cause is a wrong AIPLEX_URL or a proxy that rewrites requests; " +
+    "point the client at the API's own address";
+  return new AiplexError({ statusCode: status, code: "redirect_refused", message });
+}
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 const VALID_SUBJECT_KINDS = new Set<string>(["agent", "user", "client"]);
@@ -329,6 +368,10 @@ export class AiplexClient {
         method,
         headers,
         body: bodyString,
+        // Never follow a redirect: it would carry the request, and with a
+        // 307 or 308 its body, to whatever the redirect names. The API does
+        // not redirect. A fetch the caller supplies must honour this too.
+        redirect: "manual",
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch (err: unknown) {
@@ -344,6 +387,14 @@ export class AiplexClient {
         code: "transport_error",
         message: `request failed: ${errName}`,
       });
+    }
+
+    if (
+      response.type === "opaqueredirect" ||
+      REDIRECT_STATUSES.has(response.status)
+    ) {
+      void response.body?.cancel().catch(() => undefined);
+      throw redirectRefused(response, url);
     }
 
     if (response.status < 200 || response.status >= 300) {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
 	"github.com/vamsiramakrishnan/aiplex/internal/devstack"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 func devTokenCmd() *cobra.Command {
@@ -137,11 +138,14 @@ func mintDevToken(ctx context.Context, issuerURL, bearer string, body devstack.D
 	}
 	req.Header.Set("Authorization", "Bearer "+bearer)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	resp, err := authHTTPClient(10 * time.Second).Do(req)
 	if err != nil {
 		return out, fmt.Errorf("the local token issuer at %s is not answering; is aiplex dev still running? (%w)", issuerURL, err)
 	}
 	defer resp.Body.Close()
+	if err := aiplex.RefusedRedirect(req.URL, resp); err != nil {
+		return out, err
+	}
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		var e struct {

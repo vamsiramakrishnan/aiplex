@@ -6,6 +6,14 @@
 //	c.SetToken("eyJhbGci...")
 //
 //	instances, err := c.ListInstances(ctx, &aiplex.ListInstancesOpts{Plane: "mcplex"})
+//
+// The default client does not follow redirects, because a followed redirect
+// could carry the token to the redirect target. The API never redirects, so a
+// 301, 302, 303, 307 or 308 answer is a wrong URL or a proxy that rewrites
+// requests, and returns an *Error with code "redirect_refused" (RedirectRefusedCode),
+// the status, and only the scheme and host of the Location. A 304 is not a
+// redirect and returns the usual error. If you replace Client.HTTPClient, its
+// redirect policy (CheckRedirect) is yours: the SDK does not change it.
 package aiplex
 
 import (
@@ -35,10 +43,94 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:       30 * time.Second,
+			CheckRedirect: NoFollowRedirects,
+			Transport:     redirectGuard{},
 		},
 		userAgent: "aiplex-sdk-go/0.1.0",
 	}
+}
+
+// NoFollowRedirects is the CheckRedirect function of the default client. It
+// returns the redirect answer itself instead of following it: Go keeps the
+// Authorization header when a redirect goes to another port or subdomain of
+// the same host, and the API never redirects, so a redirect means the client
+// is aimed at the wrong place. The CLI's health probes use it too.
+func NoFollowRedirects(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
+// redirectGuard drops a Location header that does not parse. net/http would
+// otherwise fail the request with an error quoting the whole Location, query
+// included, before CheckRedirect is consulted.
+type redirectGuard struct{ base http.RoundTripper }
+
+func (g redirectGuard) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := g.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	resp, err := base.RoundTrip(req)
+	if err == nil && isRedirectStatus(resp.StatusCode) {
+		if loc := resp.Header.Get("Location"); loc != "" {
+			if _, perr := url.Parse(loc); perr != nil {
+				resp.Header.Del("Location")
+			}
+		}
+	}
+	return resp, err
+}
+
+// RedirectRefusedCode is the Error.Code of a redirect the client refused. The
+// Python and TypeScript SDKs use the same string.
+const RedirectRefusedCode = "redirect_refused"
+
+func isRedirectStatus(code int) bool {
+	switch code {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return true
+	}
+	return false
+}
+
+// maxHostLength is the longest DNS name; a longer "host" is not shown.
+const maxHostLength = 253
+
+// RefusedRedirect returns the error for a redirect answer (301, 302, 303, 307
+// or 308), or nil when resp is not one. A 304 or other 3xx is not a redirect
+// to follow. The error names only the scheme and host of the Location, never
+// its path or query, which can carry a token; a missing, unparseable or
+// host-less Location, or a host longer than a DNS name, is reported as "no
+// usable Location". requested resolves a relative Location and may be nil.
+func RefusedRedirect(requested *url.URL, resp *http.Response) error {
+	if !isRedirectStatus(resp.StatusCode) {
+		return nil
+	}
+	return redirectRefused(requested, resp)
+}
+
+// redirectRefused builds the error for a redirect answer.
+func redirectRefused(requested *url.URL, resp *http.Response) error {
+	msg := fmt.Sprintf("the API answered %d with a redirect and the client does not follow redirects, because it would send the credentials to the redirect target", resp.StatusCode)
+	target := ""
+	if loc := resp.Header.Get("Location"); loc != "" {
+		if u, err := url.Parse(loc); err == nil {
+			if requested != nil {
+				u = requested.ResolveReference(u)
+			}
+			if u.Scheme != "" && u.Host != "" && len(u.Host) <= maxHostLength {
+				target = u.Scheme + "://" + u.Host
+			}
+		}
+	}
+	if target != "" {
+		msg += " to " + target
+	} else {
+		msg += " (the answer has no usable Location)"
+	}
+	msg += ". The likely cause is a wrong AIPLEX_URL or a proxy that rewrites requests; point the client at the API's own address"
+	return &Error{Code: RedirectRefusedCode, Message: msg, StatusCode: resp.StatusCode}
 }
 
 // SetToken sets the bearer token for authentication.
@@ -113,6 +205,9 @@ func (c *Client) doWithHeaders(ctx context.Context, method, path string, body, o
 	}
 	defer resp.Body.Close()
 
+	if isRedirectStatus(resp.StatusCode) {
+		return redirectRefused(req.URL, resp)
+	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		var apiErr Error
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

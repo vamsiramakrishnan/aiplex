@@ -33,6 +33,8 @@ with Client("http://127.0.0.1:19190", "<token>") as client:
 
 Errors raise `aiplex.AiplexError` with `status_code`, `code`, `message`, `details`, `request_id` and `trace_id`. The token is never included in an error message, `repr()` or `str()`.
 
+The client does not follow redirects, because a followed redirect would carry the token to the redirect target. The API never redirects, so a 301, 302, 303, 307 or 308 answer is a wrong `AIPLEX_URL` or a proxy that rewrites requests; it raises `AiplexError` with code `redirect_refused`, the status, and only the scheme and host of the `Location` (never its path or query). A 304 is not a redirect and raises the usual `unknown` error. If you pass your own `httpx.Client`, its redirect policy (`follow_redirects`) is yours: the SDK does not change it, and a client you configure to follow redirects will send the token wherever they lead.
+
 ## Covered operations
 
 - `whoami()`

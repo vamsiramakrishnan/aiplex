@@ -217,8 +217,9 @@ func withoutRedirects(c *aiplex.Client) *aiplex.Client {
 	return c
 }
 
-func noFollowRedirects(*http.Request, []*http.Request) error {
-	return http.ErrUseLastResponse
+// noFollowRedirects is the SDK's own function: one implementation.
+func noFollowRedirects(req *http.Request, via []*http.Request) error {
+	return aiplex.NoFollowRedirects(req, via)
 }
 
 // runHealthCheck GETs target once. The bearer is sent only when signedIn is

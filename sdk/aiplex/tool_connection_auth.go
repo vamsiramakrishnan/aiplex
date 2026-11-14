@@ -459,6 +459,9 @@ func (c *Client) CallConnectionTool(ctx context.Context, id, tool string, argume
 		return nil, fmt.Errorf("aiplex: request failed: %w", err)
 	}
 	defer resp.Body.Close()
+	if err := RefusedRedirect(req.URL, resp); err != nil {
+		return nil, err
+	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20+1))
 	if err != nil {
 		return nil, fmt.Errorf("aiplex: read response: %w", err)

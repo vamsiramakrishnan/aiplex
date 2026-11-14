@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 func loginCmd() *cobra.Command {
@@ -104,6 +105,13 @@ Examples:
 	return cmd
 }
 
+// authHTTPClient is the client for the sign-in requests, which carry a device
+// code or a refresh token. It does not follow redirects: a 307 or 308 would
+// replay the request body at the redirect target.
+func authHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, CheckRedirect: noFollowRedirects}
+}
+
 type deviceCodeResponse struct {
 	DeviceCode              string `json:"device_code"`
 	UserCode                string `json:"user_code"`
@@ -122,7 +130,7 @@ type tokenResponse struct {
 }
 
 func requestDeviceCode(baseURL string) (*deviceCodeResponse, error) {
-	resp, err := http.PostForm(baseURL+"/oauth2/device/auth", url.Values{
+	resp, err := authHTTPClient(10*time.Second).PostForm(baseURL+"/oauth2/device/auth", url.Values{
 		"client_id": {"aiplex-cli"},
 		"scope":     {"openid offline_access"},
 	})
@@ -130,6 +138,9 @@ func requestDeviceCode(baseURL string) (*deviceCodeResponse, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if err := aiplex.RefusedRedirect(resp.Request.URL, resp); err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("device auth returned %d", resp.StatusCode)
 	}
@@ -144,7 +155,7 @@ func pollForToken(baseURL, deviceCode string, interval int) (*tokenResponse, err
 	if interval < 1 {
 		interval = 5
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := authHTTPClient(10 * time.Second)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -163,6 +174,11 @@ func pollForToken(baseURL, deviceCode string, interval int) (*tokenResponse, err
 		})
 		if err != nil {
 			continue
+		}
+		// A redirect would replay the device code at its target: stop.
+		if rerr := aiplex.RefusedRedirect(resp.Request.URL, resp); rerr != nil {
+			resp.Body.Close()
+			return nil, rerr
 		}
 
 		var tr tokenResponse
@@ -253,11 +269,14 @@ func refreshToken(baseURL, refreshTok string) (*tokenResponse, error) {
 		"client_id":     {"aiplex-cli"},
 	}
 
-	resp, err := http.PostForm(baseURL+"/oauth2/token", data)
+	resp, err := authHTTPClient(10*time.Second).PostForm(baseURL+"/oauth2/token", data)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if err := aiplex.RefusedRedirect(resp.Request.URL, resp); err != nil {
+		return nil, err
+	}
 
 	var tr tokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
