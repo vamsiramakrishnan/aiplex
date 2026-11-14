@@ -58,7 +58,7 @@ export interface ProviderBlock {
   usage_semantics?: string
   [unknown: string]: unknown
 }
-export interface WebSocketBlock { metering?: 'session' | 'token'; max_session_seconds?: number; token_allowance?: number; [unknown: string]: unknown }
+export interface WebSocketBlock { metering?: 'session' | 'token' | 'seconds'; max_session_seconds?: number; token_allowance?: number; [unknown: string]: unknown }
 export interface CapacityPolicyBlock {
   cooldown_enabled?: boolean
   max_cooldown_seconds?: number
@@ -217,7 +217,7 @@ export interface SurfaceDraft {
   authMode: AuthMode
   secretRef: string
   identityRef: string
-  wsMetering: '' | 'session' | 'token'
+  wsMetering: '' | 'session' | 'token' | 'seconds'
   wsMaxSessionSeconds: string
   wsTokenAllowance: string
   capacityEnabled: boolean
@@ -265,6 +265,8 @@ export const websocketOperations = (descriptor: ProviderDescriptor | undefined, 
 export const hasWebSocketOperation = (descriptor: ProviderDescriptor | undefined, ids: readonly string[]) => websocketOperations(descriptor, ids).length > 0
 /** Token metering is rejected by the server for Live voice. Other cases are left to the server's validation error. */
 export const tokenMeteringBlocked = (ids: readonly string[]) => ids.includes(LIVE_VOICE_OPERATION)
+/** Seconds metering reserves and settles a Live voice session's length; the server accepts it only on a surface with that operation. */
+export const secondsMeteringAvailable = (ids: readonly string[]) => ids.includes(LIVE_VOICE_OPERATION)
 export const azureDeploymentSelected = (ids: readonly string[]) => ids.some(id => id.startsWith('azure.deployments.'))
 
 const whole = (v: string) => /^\d+$/.test(v.trim()) && Number.isSafeInteger(Number(v))
@@ -293,7 +295,9 @@ export function specFromDraft(d: SurfaceDraft, descriptor: ProviderDescriptor, b
 
   const ws = hasWebSocketOperation(descriptor, d.operationIds)
   if (ws) {
-    if (d.wsMetering === 'token' && tokenMeteringBlocked(d.operationIds)) errors.push('Token metering is not available for Live voice sessions (billed by session seconds); use session metering.')
+    if (d.wsMetering === 'token' && tokenMeteringBlocked(d.operationIds)) errors.push('Token metering is not available for Live voice sessions (billed by session seconds); use session or seconds metering.')
+    if (d.wsMetering === 'seconds' && !secondsMeteringAvailable(d.operationIds)) errors.push('Seconds metering is for Live voice sessions only: select the Live voice operation or choose another metering.')
+    if (d.wsMetering === 'seconds' && !d.wsMaxSessionSeconds.trim()) errors.push('Seconds metering needs a maximum session length: it is what each session reserves when it starts.')
     if (d.wsMaxSessionSeconds.trim() && !inRange(d.wsMaxSessionSeconds, WS_LIMITS.sessionSeconds)) errors.push(`Maximum session length must be ${WS_LIMITS.sessionSeconds[0]} to ${WS_LIMITS.sessionSeconds[1]} seconds.`)
     if (d.wsTokenAllowance.trim() && d.wsMetering !== 'token') errors.push('A token allowance requires token metering.')
     if (d.wsTokenAllowance.trim() && !inRange(d.wsTokenAllowance, WS_LIMITS.tokenAllowance)) errors.push(`Token allowance must be ${WS_LIMITS.tokenAllowance[0]} to ${WS_LIMITS.tokenAllowance[1]}.`)

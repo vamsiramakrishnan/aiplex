@@ -11,7 +11,9 @@ package modelapi
 //     known and before credentials or the upstream dial. Only the
 //     request-count profile is accepted: a token-metered lease is aborted and
 //     the session refused, because no session protocol here has a proven
-//     exact, final usage report. One session is one admitted request.
+//     exact, final usage report. One session is one admitted request. The
+//     one exception is OpenAI Live voice on a surface with websocket.metering
+//     "seconds", which also accepts a voice-seconds lease (live_voice.go).
 //   - Observation: usage server events are forwarded to the lease and the
 //     legacy observer as non-terminal advisory observations while the session
 //     runs (cumulative snapshots for Live, per-response deltas for Realtime and
@@ -39,9 +41,11 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -84,22 +88,33 @@ func closeWebSocketForExecution(conn *websocket.Conn, err error) {
 	closeWebSocket(conn, code, reason)
 }
 
-// prepareSession admits one WebSocket session. Only request-count leases are
-// accepted; any other lease is aborted before dispatch.
+// prepareSession admits one WebSocket session. Request-count leases are
+// accepted, except for OpenAI Live voice on a surface that meters sessions by
+// seconds, which accepts only a voice-seconds lease (live_voice.go); any
+// other lease is aborted before credentials and the dial.
 func (g *Gateway) prepareSession(r *http.Request, trusted contracts.RequestContext, op Operation, metadata Metadata, body []byte) (*executionRun, error) {
 	lease, err := g.prepareExecution(r, trusted, op, metadata, body)
 	if err != nil || lease == nil {
 		return nil, err
 	}
 	run := &executionRun{lease: lease, ctx: r.Context()}
-	if !requestCountRun(run) {
+	refuse := func(message string) (*executionRun, error) {
 		cleanup, cancel := executionContext(r.Context())
 		defer cancel()
 		run.closed = true
-		if err = lease.Abort(cleanup); err != nil {
+		if err := lease.Abort(cleanup); err != nil {
 			return nil, err
 		}
-		return nil, &execution.StatusError{Status: http.StatusNotImplemented, Code: "UNSUPPORTED_EXECUTION_TRANSPORT", Message: "WebSocket sessions are metered by request count; token-metered profiles are not supported"}
+		return nil, &execution.StatusError{Status: http.StatusNotImplemented, Code: "UNSUPPORTED_EXECUTION_TRANSPORT", Message: message}
+	}
+	if g.secondsSession(op) {
+		if !g.secondsRun(run, op) {
+			return refuse("seconds-metered sessions require a voice-seconds profile binding")
+		}
+		return run, nil
+	}
+	if !requestCountRun(run) {
+		return refuse("WebSocket sessions are metered by request count; token-metered profiles are not supported")
 	}
 	return run, nil
 }
@@ -381,7 +396,15 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 		closeWebSocket(connection, websocket.CloseTryAgainLater, "upstream identity unavailable")
 		return
 	}
-	upstream, response, e := g.options.LiveDialer.DialContext(r.Context(), websocketEndpoint(g.surface.Origin, r.URL.EscapedPath(), upstreamQuery.Encode()), signing.Header)
+	dialContext := r.Context()
+	seconds := g.secondsRun(run, op)
+	var connected atomic.Bool
+	if seconds {
+		// As for an HTTP exchange (dispatch.go do): a connection obtained
+		// means the handshake may have been sent.
+		dialContext = httptrace.WithClientTrace(dialContext, &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { connected.Store(true) }})
+	}
+	upstream, response, e := g.options.LiveDialer.DialContext(dialContext, websocketEndpoint(g.surface.Origin, r.URL.EscapedPath(), upstreamQuery.Encode()), signing.Header)
 	if response != nil {
 		if g.options.ObserveLimits != nil {
 			g.options.ObserveLimits(r.Context(), owner, providerlimits.Parse(g.surface.Provider.ID, response.StatusCode, response.Header, time.Now()))
@@ -391,7 +414,11 @@ func (g *Gateway) serveProviderWebSocket(w http.ResponseWriter, r *http.Request,
 		}
 	}
 	if e != nil {
-		_ = run.finish(execution.Result{Err: e})
+		result := execution.Result{Err: e}
+		if seconds {
+			result = g.secondsDialResult(e, connected.Load(), response)
+		}
+		_ = run.finish(result)
 		closeWebSocket(connection, websocket.CloseTryAgainLater, "upstream unavailable")
 		return
 	}

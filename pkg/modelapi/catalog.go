@@ -73,6 +73,9 @@ func (s Surface) Validate() error {
 	if e := s.WebSocket.validate(); e != nil {
 		return e
 	}
+	if e := s.validateSecondsMetering(); e != nil {
+		return e
+	}
 	if s.WebSocket.tokenMetering() {
 		for _, o := range s.Operations {
 			if o.ID == openAILiveOperation {

@@ -53,14 +53,14 @@ surface with the `websocket` block of the saved surface spec:
 
 | Field | Values | Default | Meaning |
 | --- | --- | --- | --- |
-| `websocket.metering` | `session`, `token` | `session` | How sessions are admitted (below). |
-| `websocket.max_session_seconds` | 60..86400 | the gateway's maximum stream duration (1800) | Hard session duration; both sockets close when it elapses. |
+| `websocket.metering` | `session`, `token`, `seconds` | `session` | How sessions are admitted (below). `seconds` applies to OpenAI Live voice only. |
+| `websocket.max_session_seconds` | 60..86400 | the gateway's maximum stream duration (1800); **required** with `seconds` | Hard session duration; both sockets close when it elapses. |
 | `websocket.token_allowance` | 1024..4194304 (`token` only) | 32768 | Gemini Live allowance window, held per mapped meter. |
 
 `metering: "token"` is refused at save time for a surface that includes the
 OpenAI Live voice operation (`openai.v1.live`): it is billed by session
-seconds, which no token path observes, so it keeps session metering. The
-provider-capacity hook (`Options.Admit`) runs once per session, at session
+seconds, which no token path observes; it keeps session metering or opts in
+to `seconds` metering (below). The provider-capacity hook (`Options.Admit`) runs once per session, at session
 admission (Live: the first allowance window; Realtime/Responses: before the
 upgrade), never per `response.create` or allowance renewal.
 
@@ -121,6 +121,113 @@ dropped), and after a denied renewal the usage generated between that snapshot
 and the close has no hold and reaches the ledger only as `lower_bound`
 telemetry. The `gemini-live-allowance` profile uses the surface allowance as
 its exposure bound; no provider bound authority is involved.
+
+**Seconds metering, OpenAI Live voice** (`voice-seconds`). A surface with the
+`openai.v1.live` operation may set `websocket.metering: "seconds"`; it must
+also set `websocket.max_session_seconds` (saving it without one is refused,
+and the surface must include `openai.v1.live`). Other WebSocket operations on
+the surface keep session metering. A quota binding of profile `voice-seconds`
+for `openai.v1.live` maps `requests` and `voice_session_seconds` (a meter of
+unit `seconds`); nothing else.
+
+The surface and the binding are configured separately: the surface is a saved
+tenant resource, the binding comes from the operator's quota deployment file
+loaded at API start. Each mismatch is refused at the earliest point that can
+see it:
+
+* Saving a surface with `metering: "seconds"` while a loaded binding meters
+  its `openai.v1.live` with another profile (for example `request-count`) is
+  refused at save time.
+* If the mismatch arises later (the quota file changes and the API restarts),
+  the session is refused at admission: a seconds-metered surface accepts only
+  a `voice-seconds` lease. Any other lease is released and the session is
+  refused with `501 UNSUPPORTED_EXECUTION_TRANSPORT` ("seconds-metered sessions
+  require a voice-seconds profile binding") before credentials and the dial.
+  This mirrors token mode, which refuses a request-count lease the same way.
+* A `voice-seconds` binding on a surface that does not meter by seconds (no
+  configured maximum) is refused at admission with `503
+  QUOTA_BOUNDS_UNAVAILABLE`.
+
+* **Admission** (one per session, before credentials and the dial) reserves
+  one request and the configured maximum session length in seconds. A budget
+  that cannot cover the maximum (seconds, or their price for a cost budget)
+  refuses with the usual quota error, and no upstream connection is made.
+  **The deadline clock** starts when the gateway receives the session request,
+  before admission, credentials and the upstream dial: the gateway closes both
+  sockets `max_session_seconds` after that, so the upstream session is always
+  shorter than the maximum and the reservation is the session's exposure.
+* **Settlement** uses `session.closed`'s `usage.seconds` only, after a clean
+  close. The JSON number is read exactly, from its decimal text (no floating
+  point), as `voice_session_milliseconds` = seconds × 1000 rounded up. For
+  example, 1.0000000001 s is 1001 ms, and a positive length below a
+  millisecond is 1 ms. The quota host settles `voice_session_seconds` =
+  milliseconds ÷ 1000 **rounded up**: 100 ms is 1 second and 45.8 s is 46
+  seconds. A positive length is never 0, and a `session.closed` that reports
+  exactly 0 seconds settles at 0, the provider's confirmed length. The meter
+  unit is the whole second. Rounding cannot push a session closed before its
+  deadline above its hold: N seconds or less of confirmed length settles at
+  most N whole seconds.
+* **Usage above the hold.** If the provider confirms more seconds than were
+  reserved, the full confirmed length is settled, never capped. The binding
+  generation is then quarantined, as for any usage above its hold: its next
+  sessions are refused with `503 QUOTA_CONFIGURATION_INACTIVE` ("quota
+  binding is inactive or quarantined"). The overrun attempt shows
+  `overrun: true` (reason `settled_overrun`) in `aiplex quota attempt <id>`
+  (`GET /api/v1/quota/attempts/{id}`). There is no route that lists or clears
+  quarantines. A quarantine is cleared only by deploying a new binding or
+  policy generation: change the quota deployment file (for example, bump the
+  policy `revision`) and restart the API. Correcting one attempt does not
+  clear it.
+* **A session that never started** follows the rule the HTTP exchange path
+  already applies:
+  * A dial that failed before any connection was obtained wrote no handshake
+    byte. It is "not sent" and settles at zero, with no request and no
+    seconds.
+  * A handshake answered with a documented not-processed rejection status
+    (400, 401, 403, 404, 429; for OpenAI also 413 and 422) settles one request
+    and zero seconds, releasing the reservation.
+  * A handshake that was written and got no answer, or got another status (a
+    5xx), stays unknown and holds the maximum. So does a connection that was
+    opened and then failed before the handshake was answered, a TLS failure
+    included: once a connection exists the gateway does not claim that
+    nothing was sent. Repeated upstream outages of
+    that kind can therefore hold a budget's capacity until those attempts are
+    reconciled.
+  Request-count session metering is unchanged.
+* **No confirmed length** (no `session.closed`, an upstream drop, a caller
+  disconnect, a `session.usage.updated` snapshot without the close, or the
+  session cut at `max_session_seconds`): the attempt is not settled. It is
+  marked unknown and keeps its whole reservation (the maximum), exactly as an
+  incomplete HTTP stream does. It is never settled at the last snapshot (a
+  lower bound) or at zero. It appears in QuotaPlex's unknown-attempt report
+  (`aiplex quota unknown`) with its held seconds (`unit: "seconds"`) and, if
+  priced, its held cost. A session cut at the maximum is not settled at the
+  maximum either: the gateway measured its own connection, not the
+  provider's billed length.
+* **Reconciliation.** A stuck session is settled by a reviewed reconciliation
+  once the provider confirms its length. It runs in two steps:
+  1. `aiplex quota reconcile-plan <proposal.json> --idempotency-key <key>`
+     (`POST /api/v1/quota/reconciliations`).
+  2. An independent reviewer runs `aiplex quota reconcile-apply <plan-id>
+     --digest <digest> --idempotency-key <key>`
+     (`POST /api/v1/quota/reconciliations/{id}/apply`).
+
+  The proposal's `usage` lists the raw meters only, for example
+  `{"requests": 1, "voice_seconds": 46}`. Computed meters such as the money
+  meter (`usd`) are refused; the cost is priced at the attempt's pinned
+  prices. The settled seconds are consumed and the rest of the hold is
+  released. See [quota administration](quotaplex-administration.md).
+* **Cost budgets** draw the priced seconds like any priced meter (the price
+  book prices the `seconds` meter into a money meter). With no price,
+  `on_unknown_cost` applies: `deny` refuses before the dial, `allow_and_flag`
+  admits and counts the session as unknown cost.
+* **Usage ledger**: unchanged. The record carries
+  `voice_session_milliseconds` as observed; whole seconds exist only in the
+  quota settlement.
+
+Session (request-count) metering and the refusal of token metering for
+`openai.v1.live` are unchanged. Gemini Live audio has no duration usage to
+observe and is not covered by `seconds` metering.
 
 ## Strict text request contracts
 
@@ -335,7 +442,7 @@ counters. See [usage ledger units](usage-ledger.md#units-and-modality-splits).
 | `openai.v1.audio-transcriptions`, `openai.v1.audio-translations` | `POST /v1/audio/{transcriptions,translations}` (multipart; JSON or SSE) | `usage.type: "tokens"`: input/output/total plus `input_token_details` audio/text splits; `usage.type: "duration"`: `seconds` as `audio_input_milliseconds` (rounded up). SSE usage only on `transcript.text.done`. Translations document no usage: unknown unless reported in the same shape. | `media-units` (`audio_input_milliseconds` bounded by the trusted bounds authority) or `request-count` |
 | `openai.v1.audio-speech` | `POST /v1/audio/speech` | Raw audio relayed without buffering; SSE relayed. No usage is documented for either (SSE event names unconfirmed in OpenAI's reference). | `request-count` |
 | `openai.v1.images-generations`, `openai.v1.images-edits` | `POST /v1/images/{generations,edits}` (JSON; edits multipart; SSE with partial images) | `generated_images` = images returned (JSON `data[]`, or `*.completed` events in a stream); GPT image models' token usage and image/text splits; `size`/`quality` as `image_size`/`image_quality`. With more than one completed stream event, tokens stay unknown (per-image vs cumulative unconfirmed). | `media-units` (`generated_images` bounded by the request's `n`, default 1, at most 10) or `request-count` |
-| `openai.v1.live` | `GET /v1/live/sessions?model=` (WebSocket) | `voice_session_milliseconds` from cumulative `session.usage.updated` snapshots (replaced, never summed), final only with `session.closed`; nested `response.event`/`decision.event` token usage counted once per response. | `request-count` only (existing session admission, unchanged) |
+| `openai.v1.live` | `GET /v1/live/sessions?model=` (WebSocket) | `voice_session_milliseconds` from cumulative `session.usage.updated` snapshots (replaced, never summed), final only with `session.closed`; nested `response.event`/`decision.event` token usage counted once per response. | `request-count`, or `voice-seconds` on a surface with `websocket.metering: "seconds"` ([above](#websocket-sessions)) |
 | `gemini.models.predictLongRunning`, `gemini.operations.get` | `POST /v1beta/models/{model}:predictLongRunning`, `GET /v1beta/models/{model}/operations/{id}` | Nothing: the done result reports neither usage nor duration, so `video_output_milliseconds` stays unknown. Operation names are bound to the caller. | `request-count` (asynchronous) |
 | Gemini `generateContent`, Live | existing | `promptTokensDetails`, `candidatesTokensDetails`, `responseTokensDetails` modality entries as modality splits (subsets). | unchanged |
 

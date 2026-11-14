@@ -156,6 +156,6 @@ func (h *ConnectedHandler) ModelExecutionPreparer(r *http.Request, record resour
 		if connection.Surface.Provider != nil {
 			semantics = connection.Surface.Provider.UsageSemantics
 		}
-		return h.Quota.Prepare(ctx, r, QuotaInvocation{Context: input.Context, Plane: "llmplex", ResourceID: record.ID, OperationID: input.Operation.ID, Model: model, Target: target, Body: append([]byte(nil), input.Body...), Method: input.Method, Path: input.Path, RawQuery: input.RawQuery, Headers: input.Headers, Configuration: invocationConfiguration, Reauthorize: reauthorize, SessionAllowance: connection.Surface.SessionAllowance(), UsageSemantics: semantics})
+		return h.Quota.Prepare(ctx, r, QuotaInvocation{Context: input.Context, Plane: "llmplex", ResourceID: record.ID, OperationID: input.Operation.ID, Model: model, Target: target, Body: append([]byte(nil), input.Body...), Method: input.Method, Path: input.Path, RawQuery: input.RawQuery, Headers: input.Headers, Configuration: invocationConfiguration, Reauthorize: reauthorize, SessionAllowance: connection.Surface.SessionAllowance(), SessionMaxSeconds: connection.Surface.SessionMaxSeconds(), UsageSemantics: semantics})
 	})
 }

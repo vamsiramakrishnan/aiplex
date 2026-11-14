@@ -93,9 +93,9 @@ func (w *WebSocketSessions) validate() error {
 		return nil
 	}
 	switch w.Metering {
-	case "", SessionMeteringSession, SessionMeteringToken:
+	case "", SessionMeteringSession, SessionMeteringToken, SessionMeteringSeconds:
 	default:
-		return fmt.Errorf("websocket.metering must be %q or %q", SessionMeteringSession, SessionMeteringToken)
+		return fmt.Errorf("websocket.metering must be %q, %q or %q", SessionMeteringSession, SessionMeteringToken, SessionMeteringSeconds)
 	}
 	if w.MaxSessionSeconds != 0 && (w.MaxSessionSeconds < MinMaxSessionSeconds || w.MaxSessionSeconds > MaxMaxSessionSeconds) {
 		return fmt.Errorf("websocket.max_session_seconds must be between %d and %d", MinMaxSessionSeconds, MaxMaxSessionSeconds)

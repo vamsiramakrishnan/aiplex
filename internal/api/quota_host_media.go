@@ -25,10 +25,59 @@ import (
 // open (state unknown, reason batch_results_pending) so its exposure is held
 // and visible in aging/unknown reporting. It is settled exactly once from the
 // per-item usage of a complete results fetch (SettleBatch).
+//
+// voice-seconds: an OpenAI Live voice session metered by its length. Admission
+// reserves the surface's configured maximum session length
+// (websocket.max_session_seconds with websocket.metering "seconds"); with no
+// configured maximum the session is refused before the dial. It settles once
+// from session.closed's usage.seconds, observed as voice_session_milliseconds
+// and rounded up to whole seconds (quotaVoiceSecondsNative). A session that
+// ends without session.closed has no terminal evidence and keeps its hold
+// (state unknown).
 const (
-	quotaProfileMedia = "media-units"
-	quotaProfileBatch = "batch-usage"
+	quotaProfileMedia        = "media-units"
+	quotaProfileBatch        = "batch-usage"
+	quotaProfileVoiceSeconds = modelapi.MeteringProfileVoiceSeconds
 )
+
+// quotaVoiceSecondsCounter is the native counter a voice-seconds binding maps
+// to a meter of unit "seconds". It is derived by the quota host from the
+// observed voice_session_milliseconds; the usage ledger keeps milliseconds.
+const quotaVoiceSecondsCounter = "voice_session_seconds"
+
+// checkSecondsSurface refuses saving a surface that meters OpenAI Live voice
+// by seconds while a loaded quota binding meters that operation on the same
+// surface with another profile. Bindings come from the operator's quota
+// deployment file, loaded at API start, so a later file change is caught at
+// session admission instead (the gateway refuses the lease before the dial).
+func (h *QuotaHost) checkSecondsSurface(tenant string, surface modelapi.Surface) error {
+	if h == nil || surface.SessionMaxSeconds() <= 0 {
+		return nil
+	}
+	for _, binding := range h.bindings {
+		if binding.TenantID == tenant && binding.Plane == "llmplex" && binding.ResourceID == surface.ID && modelapi.VoiceSecondsOperation(binding.OperationID) && binding.Profile != quotaProfileVoiceSeconds {
+			return fmt.Errorf("websocket.metering %q needs a %s quota binding for %s; binding %q uses %s", modelapi.SessionMeteringSeconds, quotaProfileVoiceSeconds, binding.OperationID, binding.ID, binding.Profile)
+		}
+	}
+	return nil
+}
+
+// quotaVoiceSecondsNative adds the whole-second session length to a terminal
+// observation: milliseconds rounded up, so any positive length is at least
+// one second. A missing length stays missing (never 0).
+func quotaVoiceSecondsNative(native map[string]int64) map[string]int64 {
+	out := make(map[string]int64, len(native)+1)
+	for key, value := range native {
+		out[key] = value
+	}
+	if ms, present := native[modelapi.CounterVoiceSessionMilliseconds]; present && ms >= 0 {
+		out[quotaVoiceSecondsCounter] = ms / 1000
+		if ms%1000 != 0 {
+			out[quotaVoiceSecondsCounter]++
+		}
+	}
+	return out
+}
 
 // Native counters a unit/batch binding may map, with their meter unit.
 var (
@@ -39,6 +88,10 @@ var (
 		modelapi.CounterVideoOutputMilliseconds: "milliseconds",
 		"input_tokens":                          "tokens",
 		"output_tokens":                         "tokens",
+	}
+	quotaVoiceMeterUnits = map[string]string{
+		"requests":               "requests",
+		quotaVoiceSecondsCounter: "seconds",
 	}
 	quotaBatchMeterUnits = map[string]string{
 		"requests":           "requests",
@@ -51,7 +104,7 @@ var (
 )
 
 func quotaExtendedProfile(profile string) bool {
-	return profile == quotaProfileMedia || profile == quotaProfileBatch
+	return profile == quotaProfileMedia || profile == quotaProfileBatch || profile == quotaProfileVoiceSeconds
 }
 
 // quotaExtendedMeterUnit returns the meter unit a native counter must map to
@@ -62,6 +115,8 @@ func quotaExtendedMeterUnit(binding QuotaBinding, native string) string {
 		return quotaMediaMeterUnits[native]
 	case quotaProfileBatch:
 		return quotaBatchMeterUnits[native]
+	case quotaProfileVoiceSeconds:
+		return quotaVoiceMeterUnits[native]
 	}
 	return ""
 }
@@ -74,6 +129,8 @@ func quotaExtendedOperation(binding QuotaBinding) bool {
 		return modelapi.MediaQuotaOperation(binding.OperationID)
 	case quotaProfileBatch:
 		return modelapi.BatchCreateOperation(binding.OperationID)
+	case quotaProfileVoiceSeconds:
+		return modelapi.VoiceSecondsOperation(binding.OperationID)
 	}
 	return false
 }
@@ -94,6 +151,9 @@ func validateExtendedBinding(binding QuotaBinding, policy quotaplex.Policy) erro
 			return fmt.Errorf("quota binding has incompatible or overlapping meter mappings")
 		}
 		seen[meterID] = true
+	}
+	if binding.Profile == quotaProfileVoiceSeconds && binding.Meters[quotaVoiceSecondsCounter] == "" {
+		return fmt.Errorf("voice-seconds quota binding requires a seconds meter for %s", quotaVoiceSecondsCounter)
 	}
 	return nil
 }
@@ -142,6 +202,15 @@ func quotaBatchItemCount(body []byte) (int64, error) {
 func (h *QuotaHost) extendedBounds(ctx context.Context, binding QuotaBinding, target quotaplex.Target, in QuotaInvocation, now time.Time) (map[string]int64, *QuotaBoundsProof, error) {
 	if in.Plane != "llmplex" || in.Model != binding.Model || !quotaExtendedOperation(binding) {
 		return nil, nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "operation has no supported exposure contract")
+	}
+	if binding.Profile == quotaProfileVoiceSeconds {
+		// The session's length is bounded by the gateway, which closes it
+		// at the surface's configured maximum: that maximum is the exposure.
+		// No configured maximum, no bound: refused before the dial.
+		if in.SessionMaxSeconds <= 0 {
+			return nil, nil, quotaStatus(503, "QUOTA_BOUNDS_UNAVAILABLE", "the surface does not configure a maximum session length (websocket.metering \"seconds\" with websocket.max_session_seconds)")
+		}
+		return map[string]int64{"requests": 1, quotaVoiceSecondsCounter: in.SessionMaxSeconds}, nil, nil
 	}
 	counts := map[string]int64{"requests": 1}
 	derived := map[string]bool{"requests": true}

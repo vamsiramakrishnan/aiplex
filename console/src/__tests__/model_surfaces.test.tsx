@@ -110,6 +110,15 @@ describe('specFromDraft', () => {
     expect(api.specFromDraft({ ...d, operationIds: ['openai.v1.chat-completions'] }, descriptors.openai).spec!.surface.websocket).toBeUndefined()
   })
 
+  it('offers seconds metering for Live voice only, and requires a maximum session length', () => {
+    const d = fill('openai', { operationIds: ['openai.v1.live'], wsMetering: 'seconds', wsMaxSessionSeconds: '600' })
+    expect(api.specFromDraft(d, descriptors.openai).spec!.surface.websocket).toEqual({ metering: 'seconds', max_session_seconds: 600 })
+    expect(api.specFromDraft({ ...d, wsMaxSessionSeconds: '' }, descriptors.openai).errors.join()).toMatch(/needs a maximum session length/)
+    expect(api.specFromDraft({ ...d, operationIds: ['openai.v1.realtime'] }, descriptors.openai).errors.join()).toMatch(/Live voice sessions only/)
+    expect(api.secondsMeteringAvailable(['openai.v1.realtime'])).toBe(false)
+    expect(api.secondsMeteringAvailable(['openai.v1.realtime', 'openai.v1.live'])).toBe(true)
+  })
+
   it('validates the capacity policy like the server and omits unset members', () => {
     const base = fill('openai', { operationIds: ['openai.v1.chat-completions'], capacityEnabled: true })
     expect(api.specFromDraft(base, descriptors.openai).errors.join()).toMatch(/cooldown or set a headroom/)

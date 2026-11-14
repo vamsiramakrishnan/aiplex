@@ -176,6 +176,9 @@ func (l *quotaHostLease) Observe(ctx context.Context, observation execution.Obse
 	if l.binding.Profile == quotaProfileRequests {
 		return l.terminalLocked(bounded, map[string]int64{"requests": 1, "tool_calls": 1})
 	}
+	if l.binding.Profile == quotaProfileVoiceSeconds {
+		return l.terminalLocked(bounded, quotaVoiceSecondsNative(observation.Counters))
+	}
 	return l.terminalLocked(bounded, observation.Counters)
 }
 

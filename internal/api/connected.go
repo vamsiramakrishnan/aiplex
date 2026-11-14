@@ -277,6 +277,9 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 		if e := c.Surface.Validate(); e != nil {
 			return e
 		}
+		if e := h.Quota.checkSecondsSurface(tenant, c.Surface); e != nil {
+			return e
+		}
 		if e := validateCapacityPolicy(c); e != nil {
 			return e
 		}

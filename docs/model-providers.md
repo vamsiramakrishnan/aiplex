@@ -157,7 +157,7 @@ Five session operations are implemented as WebSocket relays:
 | --- | --- | --- | --- | --- | --- |
 | `openai.v1.realtime` | `GET /v1/realtime?model=…` | `openai` | `openai-realtime` | One request-count admission per session | One `openai-realtime` admission per `response.create` |
 | `openai.v1.responses-websocket` | `GET /v1/responses` | `openai` | `openai-responses` | One request-count admission per session | One `openai-text` admission per `response.create` |
-| `openai.v1.live` | `GET /v1/live/sessions?model=…` | `openai` | `openai-live` | One request-count admission per session | Not available. Refused at save time. |
+| `openai.v1.live` | `GET /v1/live/sessions?model=…` | `openai` | `openai-live` | One request-count admission per session | Not available. Refused at save time. Seconds metering (`seconds`) instead: one `voice-seconds` admission per session, see below. |
 | `live.connect` | `GET /ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent` | Google Cloud (Vertex Live) | `google-genai` | One request-count admission per session | `gemini-live-allowance` windows |
 | `gemini.live.connect` | `GET /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` | `gemini-developer` | `google-genai` | One request-count admission per session | Not available. Refused at save time. |
 
@@ -173,15 +173,40 @@ The block is part of the `surface` object of the model-surface spec.
 
 | Field | Values | Default | Meaning |
 | --- | --- | --- | --- |
-| `surface.websocket.metering` | `session`, `token` | `session` | How sessions are admitted. See below. |
-| `surface.websocket.max_session_seconds` | 60 to 86400 | the gateway's `MaxStreamDuration`, 30 minutes unless configured | Duration bound. Both sockets close when it elapses. Applies to every WebSocket session on the surface. |
+| `surface.websocket.metering` | `session`, `token`, `seconds` | `session` | How sessions are admitted. See below. `seconds` is for `openai.v1.live` only. |
+| `surface.websocket.max_session_seconds` | 60 to 86400 | the gateway's `MaxStreamDuration`, 30 minutes unless configured; no default with `seconds` (required) | Duration bound. Both sockets close when it elapses. Applies to every WebSocket session on the surface. |
 | `surface.websocket.token_allowance` | 1024 to 4194304, with `token` only | 32768 | Gemini Live allowance window, held per mapped meter. |
 
 `metering: "token"` is refused at save time for a surface that includes `openai.v1.live`
 or `gemini.live.connect`. Live voice is billed by session seconds, which no token path
 observes. Developer API Live usage snapshots are not documented as session-cumulative, and
 allowance windows settle on snapshot deltas, which needs them to be. Both keep session
-metering.
+metering; OpenAI Live voice may instead opt in to seconds metering.
+
+### Seconds metering (`seconds`, OpenAI Live voice)
+
+`metering: "seconds"` needs `max_session_seconds` and a surface that includes
+`openai.v1.live`; saving it otherwise is refused. The other WebSocket operations of the
+surface keep session metering. With a quota binding of profile `voice-seconds` (meters
+`requests` and `voice_session_seconds`, unit `seconds`):
+
+- **Admission** reserves one request and `max_session_seconds` seconds, before credentials
+  and the dial. Without a configured maximum, or when a budget cannot cover the maximum,
+  the session is refused and no upstream connection is made.
+- **Settlement** uses `session.closed`'s `usage.seconds` after a clean close, rounded up
+  to whole seconds (100 ms is 1 second; a positive length is never 0).
+- **No confirmed length** (no `session.closed`, a drop, a disconnect, the session cut at
+  its maximum): the attempt stays unknown and keeps the whole reservation; it is never
+  settled at the last snapshot or at zero.
+- **Only a `voice-seconds` binding** admits these sessions. A surface saved with
+  `seconds` over a binding of another profile is refused at save; if the binding changes
+  later, each session is refused before the dial (`501 UNSUPPORTED_EXECUTION_TRANSPORT`).
+- **A session that never started**: a dial that failed before connecting settles at zero;
+  a handshake answered 400, 401, 403, 404 or 429 (OpenAI also 413, 422) settles one
+  request and zero seconds; any other failure after the handshake was sent stays unknown.
+- The usage ledger still records `voice_session_milliseconds` as observed.
+
+See [seconds metering](model-metering-profiles.md#websocket-sessions) for the full rules.
 
 ### Session metering (default)
 
@@ -642,6 +667,8 @@ Limits of this gate:
   surface id in the error details; other callers do not. This also covers the Gemini Developer API's
   `400` with reason `API_KEY_INVALID`. The quota hold is released as for any rejection before processing.
 - WebSocket sessions on the default `session` metering are bounded by time, not by tokens.
+  OpenAI Live voice with `seconds` metering reserves and settles the session's length;
+  Gemini Live audio has no observable duration and is not metered by seconds.
   A session can run until `max_session_seconds` even when quota has no token headroom left.
   Token metering bounds each admitted response or allowance window instead.
 - Provider credentials are references. Values are resolved at dispatch and are not
