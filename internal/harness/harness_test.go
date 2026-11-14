@@ -1078,3 +1078,120 @@ func TestBranchyardKeepsARouteThatIncludesOurBackend(t *testing.T) {
 		t.Errorf("routes %v, notes %v", rs, p.Notes)
 	}
 }
+
+// ---- branchyard, amendment 1.1: a plain backend that no route names ----
+
+func byNotes(t *testing.T, file string) string {
+	t.Helper()
+	home, _ := byPlanFile(t, file)
+	p, err := PlanBranchyard(connectFixture(), byOpts(home))
+	if err != nil {
+		t.Fatalf("must be merged: %v", err)
+	}
+	return strings.Join(p.Notes, "\n")
+}
+
+func TestBranchyardNoteStatesTheNewRuleForUnroutedCalls(t *testing.T) {
+	p, err := BranchyardFragment(connectFixture(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := strings.Join(p.Notes, "\n")
+	for _, old := range []string{"offered to the plain backends", "only when it has none"} {
+		if strings.Contains(notes, old) {
+			t.Errorf("the note still states the old rule (%q):\n%s", old, notes)
+		}
+	}
+	for _, want := range []string{"AIPlex backends of its API", "Branchyard refuses it", "a plain backend in your file is sent only the models its own routes name"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("the note lacks %q:\n%s", want, notes)
+		}
+	}
+}
+
+func TestBranchyardNotesAPlainBackendNoRouteNames(t *testing.T) {
+	notes := byNotes(t, "[models.backends.direct]\napi = \"anthropic\"\n")
+	for _, want := range []string{"[models.backends.direct]", "plain backend", "only the model list", `model = "*"`, `backends = ["direct"]`, "does not write that route"} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("note lacks %q:\n%s", want, notes)
+		}
+	}
+	if strings.Count(notes, "no [[models.routes]] names") != 1 {
+		t.Errorf("one note per backend:\n%s", notes)
+	}
+}
+
+func TestBranchyardNotesEachUnnamedPlainBackendInFileOrder(t *testing.T) {
+	notes := byNotes(t, "[models.backends.zeta]\napi = \"openai\"\n\n[models.backends.alpha]\napi = \"anthropic\"\n")
+	z, a := strings.Index(notes, "[models.backends.zeta]"), strings.Index(notes, "[models.backends.alpha]")
+	if z < 0 || a < 0 || z > a {
+		t.Errorf("want zeta then alpha (file order):\n%s", notes)
+	}
+	if strings.Count(notes, "no [[models.routes]] names") != 2 {
+		t.Errorf("two notes expected:\n%s", notes)
+	}
+}
+
+func TestBranchyardNoNoteWhenARouteNamesThePlainBackend(t *testing.T) {
+	for name, file := range map[string]string{
+		"backends":  "[models.backends.direct]\napi = \"anthropic\"\n\n[[models.routes]]\nmodel = \"other\"\nbackends = [\"direct\"]\n",
+		"fallbacks": "[models.backends.direct]\napi = \"anthropic\"\n\n[[models.routes]]\nmodel = \"other\"\nbackends = [\"somewhere\"]\nfallbacks = [\"direct\"]\n\n[models.backends.somewhere]\napi = \"anthropic\"\n",
+	} {
+		if n := byNotes(t, file); strings.Contains(n, "[models.backends.direct]") {
+			t.Errorf("%s: no note about direct expected:\n%s", name, n)
+		}
+	}
+}
+
+func TestBranchyardNoNoteWithoutAPlainBackend(t *testing.T) {
+	for name, file := range map[string]string{
+		"empty file":     "",
+		"only AIPlex":    byTwoAIPlex[:strings.Index(byTwoAIPlex, "[models.backends.plain]")],
+		"only our names": "[models.backends.aiplex-local-anthropic]\napi = \"anthropic\"\nurl = \"old\"\n",
+	} {
+		if n := byNotes(t, file); strings.Contains(n, "plain backend that no") {
+			t.Errorf("%s: unexpected note:\n%s", name, n)
+		}
+	}
+}
+
+func TestBranchyardNotesAGenericBackendOnItsOwn(t *testing.T) {
+	notes := byNotes(t, "[models.backends.gen]\napi = \"generic\"\n\n[[models.routes]]\nmodel = \"x\"\nbackends = [\"gen\"]\n")
+	if !strings.Contains(notes, "[models.backends.gen]") || !strings.Contains(notes, `api = "generic"`) || !strings.Contains(notes, "pass-through") {
+		t.Errorf("generic note missing:\n%s", notes)
+	}
+	if strings.Contains(notes, `backends = ["gen"]`) {
+		t.Errorf("a generic backend gets no route advice:\n%s", notes)
+	}
+}
+
+// A route the merge replaces names only AIPlex backends (a route that also
+// names a plain one is refused), so replacing it never takes a plain backend's
+// route away: the plain backend stays unnamed and is noted.
+func TestBranchyardNoteForABackendOnlyAReplacedRouteWouldHaveNamed(t *testing.T) {
+	file := byTwoAIPlex + "[[models.routes]]\nmodel = \"mock-claude\"\nbackends = [\"elsewhere\"]\n"
+	notes := byNotes(t, file)
+	if !strings.Contains(notes, "replaced your models.routes") || !strings.Contains(notes, "[models.backends.plain]") {
+		t.Errorf("the replaced route does not name plain, so plain is noted:\n%s", notes)
+	}
+	// And the mixed route that would have named it is refused, not merged.
+	home, _ := byPlanFile(t, byTwoAIPlex+"[[models.routes]]\nmodel = \"mock-claude\"\nbackends = [\"elsewhere\", \"plain\"]\n")
+	if _, err := PlanBranchyard(connectFixture(), byOpts(home)); err == nil {
+		t.Error("a mixed route must still be refused")
+	}
+}
+
+func TestBranchyardPlainBackendDefinedByDottedKeysIsNoted(t *testing.T) {
+	notes := byNotes(t, "models.backends.dotted.api = \"anthropic\"\n\n[models.backends.direct]\napi = \"anthropic\"\n")
+	d, e := strings.Index(notes, "[models.backends.direct]"), strings.Index(notes, "[models.backends.dotted]")
+	if d < 0 || e < 0 || d > e {
+		t.Errorf("table backends first, then dotted-key ones:\n%s", notes)
+	}
+}
+
+func TestBranchyardNotesNeverCarrySecretValues(t *testing.T) {
+	file := "[secrets]\naiplex = \"AIPLEX_TOKEN\"\nother = \"sk-live-abc123SECRET\"\n\n[models.backends.direct]\napi = \"anthropic\"\nkey = \"other\"\n"
+	if n := byNotes(t, file); strings.Contains(n, "sk-live-abc123SECRET") {
+		t.Errorf("a secret value reached a note:\n%s", n)
+	}
+}

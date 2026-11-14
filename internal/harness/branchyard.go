@@ -195,7 +195,7 @@ func branchyardNotes(t *byTables) []string {
 	notes := append([]string{}, t.notWritten...)
 	notes = append(notes,
 		"`control_plane` is read only by a Branchyard that knows the AIPlex integration; an older one refuses this file when it reads it. Check with `by config validate`",
-		"every model the access point lists gets a route here. A call for any other model is offered to the plain backends of its API when your file has any, and to AIPlex backends only when it has none (Branchyard's rule for calls no route matches)")
+		"every model the access point lists gets a route here. A call for any other model goes to the AIPlex backends of its API, or Branchyard refuses it; a plain backend in your file is sent only the models its own routes name (Branchyard's rule for calls no route matches)")
 	return notes
 }
 
@@ -419,6 +419,60 @@ func quoteList(l []string) string {
 		q[i] = tomlString(s)
 	}
 	return "[" + strings.Join(q, ", ") + "]"
+}
+
+// plainBackendNotes says what the AIPlex backends this command writes do to
+// each plain backend (one without control_plane = "aiplex") of the user's file:
+// Branchyard sends a plain backend only the model list unless a route names it,
+// and cannot reach a generic one at all. The names come from the parsed file,
+// the same parse the merge uses: backends written as [models.backends.NAME]
+// tables come first in the file's order, then any other the parse knows (dotted
+// keys, an inline table), sorted by name, since the text gives them no single
+// place. A route names a backend in backends or fallbacks.
+func plainBackendNotes(userBackends map[string]any, hs []header, userRoutes []any, isAIPlex func(string) bool) []string {
+	var order []string
+	seen := map[string]bool{}
+	for _, h := range hs {
+		if h.array || len(h.path) != 3 || h.path[0] != "models" || h.path[1] != "backends" {
+			continue
+		}
+		if _, ok := userBackends[h.path[2]]; ok && !seen[h.path[2]] {
+			seen[h.path[2]] = true
+			order = append(order, h.path[2])
+		}
+	}
+	var other []string
+	for n := range userBackends {
+		if !seen[n] {
+			other = append(other, n)
+		}
+	}
+	sort.Strings(other)
+	order = append(order, other...)
+	named := map[string]bool{}
+	for _, ur := range userRoutes {
+		r := asMap(ur)
+		for _, n := range append(strs(r["backends"]), strs(r["fallbacks"])...) {
+			named[n] = true
+		}
+	}
+	var notes []string
+	for _, n := range order {
+		b := asMap(userBackends[n])
+		if b == nil || isAIPlex(n) {
+			continue
+		}
+		table := "[models.backends." + tomlKey(n) + "]"
+		if api, _ := b["api"].(string); api == "generic" {
+			notes = append(notes, fmt.Sprintf("your %s has api = \"generic\", which Branchyard cannot reach beside the AIPlex backends this command writes: its pass-through path is closed, and a route cannot name a generic backend for a model call", table))
+			continue
+		}
+		if named[n] {
+			continue
+		}
+		notes = append(notes, fmt.Sprintf("your %s is a plain backend that no [[models.routes]] names. Before, it took every call no route named; with an AIPlex backend in the file, Branchyard sends it only the model list. To keep it serving models, add a route that names it: a last [[models.routes]] with model = \"*\" and backends = [%s] sends it everything no earlier route names. This command does not write that route, because which models go to a provider directly is yours to decide", table, tomlString(n)))
+	}
+	return notes
 }
 
 // mergeBranchyard edits the file's text. What it can and cannot edit:
@@ -731,6 +785,8 @@ func mergeBranchyard(before string, t *byTables) (*merged, error) {
 		return nil, fmt.Errorf("refusing to write: the merge would change settings other than the AIPlex tables (the file probably has a layout this command cannot edit safely); add the tables by hand. Nothing was changed")
 	}
 	sort.Strings(res.notes)
+	// After the sort: these are in the file's order, not alphabetical.
+	res.notes = append(res.notes, plainBackendNotes(userBackends, hs, userRoutes, isAIPlex)...)
 	res.text = after
 	return res, nil
 }
