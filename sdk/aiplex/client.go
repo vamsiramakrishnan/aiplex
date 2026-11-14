@@ -41,13 +41,9 @@ type Client struct {
 // NewClient creates a new AIPlex SDK client.
 func NewClient(baseURL string) *Client {
 	return &Client{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		HTTPClient: &http.Client{
-			Timeout:       30 * time.Second,
-			CheckRedirect: NoFollowRedirects,
-			Transport:     redirectGuard{},
-		},
-		userAgent: "aiplex-sdk-go/0.1.0",
+		BaseURL:    strings.TrimRight(baseURL, "/"),
+		HTTPClient: NewNoRedirectHTTPClient(30 * time.Second),
+		userAgent:  "aiplex-sdk-go/0.1.0",
 	}
 }
 
@@ -58,6 +54,15 @@ func NewClient(baseURL string) *Client {
 // is aimed at the wrong place. The CLI's health probes use it too.
 func NoFollowRedirects(*http.Request, []*http.Request) error {
 	return http.ErrUseLastResponse
+}
+
+// NewNoRedirectHTTPClient returns an HTTP client for requests that carry a
+// credential: it never follows a redirect, and it never fails with an error
+// that quotes an unparseable Location. The SDK's default client and the CLI's
+// sign-in, token and health requests all use it, so there is one
+// implementation of the rule.
+func NewNoRedirectHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, CheckRedirect: NoFollowRedirects, Transport: redirectGuard{}}
 }
 
 // redirectGuard drops a Location header that does not parse. net/http would

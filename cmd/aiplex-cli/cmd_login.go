@@ -107,9 +107,10 @@ Examples:
 
 // authHTTPClient is the client for the sign-in requests, which carry a device
 // code or a refresh token. It does not follow redirects: a 307 or 308 would
-// replay the request body at the redirect target.
+// replay the request body at the redirect target. It is the SDK's client, so a
+// Location that does not parse is dropped instead of being quoted in an error.
 func authHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout, CheckRedirect: noFollowRedirects}
+	return aiplex.NewNoRedirectHTTPClient(timeout)
 }
 
 type deviceCodeResponse struct {

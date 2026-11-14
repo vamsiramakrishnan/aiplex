@@ -74,3 +74,38 @@ func TestPollForTokenStopsOnARedirect(t *testing.T) {
 		wantRefused(t, "pollForToken", err, hits)
 	}
 }
+
+// A Location that does not parse must not be quoted. net/http fails such a
+// redirect with an error that carries the whole Location, query included,
+// before the redirect policy is asked; the shared client drops the header so
+// the refusal is the same clear error, and the sign-in poll stops.
+func TestCredentialRequestsDoNotQuoteAnUnparseableLocation(t *testing.T) {
+	var hits atomic.Int32
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Location", "http://[::1/leak?token=SECRET")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(api.Close)
+	check := func(what string, err error) {
+		t.Helper()
+		if err == nil || !strings.Contains(err.Error(), "redirect_refused") {
+			t.Fatalf("%s: error %v", what, err)
+		}
+		if strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "leak") {
+			t.Fatalf("%s: error quotes the Location: %v", what, err)
+		}
+	}
+	_, err := mintDevToken(t.Context(), api.URL, "dev-bearer", devstack.DevTokenRequest{User: "u"})
+	check("mintDevToken", err)
+	_, err = requestDeviceCode(api.URL)
+	check("requestDeviceCode", err)
+	_, err = refreshToken(api.URL, "refresh-secret")
+	check("refreshToken", err)
+	before := hits.Load()
+	_, err = pollForToken(api.URL, "device-code-secret", 1)
+	check("pollForToken", err)
+	if got := hits.Load() - before; got != 1 {
+		t.Fatalf("pollForToken sent the device code %d times after a redirect, want 1", got)
+	}
+}

@@ -205,7 +205,7 @@ type healthResult struct {
 // port or to an https-to-http downgrade on the same host, so a followed
 // redirect could hand the token to a host the caller never configured.
 func newHealthHTTPClient() *http.Client {
-	return &http.Client{Timeout: 5 * time.Second, CheckRedirect: noFollowRedirects}
+	return aiplex.NewNoRedirectHTTPClient(5 * time.Second)
 }
 
 // withoutRedirects stops an SDK client from following redirects, for the same

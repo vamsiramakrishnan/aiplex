@@ -235,7 +235,7 @@ func (a API) Do(ctx context.Context, method, path string, headers map[string]str
 	client := a.HTTP
 	if client == nil {
 		// The request carries the developer token: never follow a redirect.
-		client = &http.Client{Timeout: 30 * time.Second, CheckRedirect: aiplex.NoFollowRedirects}
+		client = aiplex.NewNoRedirectHTTPClient(30 * time.Second)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

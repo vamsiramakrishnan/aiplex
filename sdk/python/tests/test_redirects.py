@@ -144,6 +144,24 @@ def test_caller_supplied_client_is_left_alone(sink: _Server) -> None:
         api.close()
 
 
+def test_caller_supplied_client_that_does_not_follow_gets_the_typed_error(sink: _Server) -> None:
+    api = _api_redirecting_to(sink.url, 307)
+    try:
+        custom = httpx.Client(follow_redirects=False)
+        with Client(api.url, TOKEN, http_client=custom) as client:
+            try:
+                client.get_budget_status("b")
+            except AiplexError as err:
+                assert err.code == "redirect_refused"
+                assert TOKEN not in str(err)
+            else:
+                raise AssertionError("a redirect was not refused")
+        assert sink.hits == 0
+        custom.close()
+    finally:
+        api.close()
+
+
 def test_default_client_does_not_follow_redirects() -> None:
     client = Client("http://127.0.0.1:1", TOKEN)
     try:
