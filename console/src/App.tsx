@@ -8,6 +8,7 @@ import { ModuleProvider, RequireModule } from './hooks/useModules'
 import Agents from './pages/Agents'
 import Overview from './pages/Overview'
 import AccessPoints from './pages/AccessPoints'
+import Hooks from './pages/Hooks'
 import UserIdentity from './pages/UserIdentity'
 import Deploy from './pages/Deploy'
 import Permissions from './pages/Permissions'
@@ -65,6 +66,7 @@ function AppRoutes() {
           <Route path="/usage" element={<Usage />} />
           <Route path="/agents" element={<RequireRole need="operator" what="Agents"><Agents /></RequireRole>} />
           <Route path="/access-points/*" element={<AccessPoints />} />
+          <Route path="/hooks" element={<RequireRole need="operator" what="Hooks"><Hooks /></RequireRole>} />
           <Route path="/identity" element={<Navigate to="/identity/users" replace />} />
           <Route path="/identity/users" element={<RequireRole need="operator" what="User identity"><UserIdentity /></RequireRole>} />
           <Route path="/runs" element={<RequireRole need="operator" what="Runs"><Runs /></RequireRole>} />

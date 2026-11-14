@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useModules } from '../hooks/useModules'
+import { useNavigation } from './navigation'
 
 interface Command {
   id: string
@@ -15,14 +15,13 @@ export default function CommandPalette() {
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
-  const { enabled } = useModules()
+  // The same list, role filter and module filter as the side navigation. An entry the
+  // navigation shows as unavailable (admin only, for an operator) is not offered here.
+  const { openable, access } = useNavigation()
 
   const commands: Command[] = [
-    { id: 'nav-dashboard', label: 'Go to Dashboard', section: 'Navigation', action: () => navigate('/dashboard') },
-    ...enabled.map((module) => ({ id: `nav-${module.name}`, label: `Go to ${module.label}`, section: 'Navigation', action: () => navigate(module.path) })),
-    { id: 'nav-agents', label: 'Go to Agents', section: 'Navigation', action: () => navigate('/agents') },
-    { id: 'nav-permissions', label: 'Go to Permissions', section: 'Navigation', action: () => navigate('/permissions') },
-    { id: 'action-deploy', label: 'Deploy new instance', section: 'Actions', action: () => navigate('/deploy') },
+    ...openable.map((item) => ({ id: `nav-${item.to}`, label: `Go to ${item.label}`, section: 'Navigation', action: () => navigate(item.to) })),
+    ...(access.isOperator ? [{ id: 'action-deploy', label: 'Deploy new instance', section: 'Actions', action: () => navigate('/deploy') }] : []),
   ]
 
   const filtered = query

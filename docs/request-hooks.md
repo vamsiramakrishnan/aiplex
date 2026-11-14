@@ -467,6 +467,14 @@ aiplex hooks policies delete pii-guard --yes
 aiplex usage records --hook-decision deny -o wide
 ```
 
+The Console has a **Hooks** screen (operators only, like the routes): it lists
+policies with scope, hooks and revision, creates, replaces and deletes them at the
+revision it read (a conflict is shown, never overwritten), and dry-runs a sample
+against a chosen policy. The editor takes the JSON document the API returns; a YAML
+file is applied with the CLI (`aiplex hooks policies set -f FILE`). The server's
+validation message is shown verbatim beside the editor. The sample is sent only to the test route and is kept in
+memory only; it is cleared when you leave the screen or choose another policy.
+
 The Go SDK has `ListHookPolicies`, `GetHookPolicy`, `PutHookPolicy`,
 `DeleteHookPolicy` and `TestHookPolicy`. `aiplex dev` starts with no hook
 policy. See `examples/hooks/`.
