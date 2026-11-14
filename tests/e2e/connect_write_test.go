@@ -9,9 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/pelletier/go-toml/v2"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/devstack"
 )
@@ -205,5 +208,131 @@ func TestMCPServeStdio(t *testing.T) {
 	conf := ask(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_connect_config","arguments":{"access_point":"local","client":"codex"}}}`)
 	if conf["result"].(map[string]any)["isError"] != false {
 		t.Fatalf("get_connect_config: %v", conf)
+	}
+}
+
+func TestConnectWriteBranchyard(t *testing.T) {
+	e := seeded(t)
+
+	// Without --write the tables are printed, with no token in them.
+	r := e.mustCLI("connect", "local", "--client", "branchyard")
+	contains(t, r.Out, "[models.backends.aiplex-local-anthropic]", "printed backend")
+	contains(t, r.Out, `control_plane = "aiplex"`, "printed marker")
+	contains(t, r.Out, "aiplex auth print-token", "token step")
+	if strings.Contains(r.Out, e.stack.Token) {
+		t.Fatal("the printed tables hold the token")
+	}
+
+	// The default file is ./branchyard.toml of the working directory (the
+	// package directory here); it does not exist, so nothing is created.
+	r = e.mustCLI("connect", "local", "--client", "branchyard", "--write", "--yes")
+	contains(t, r.Out, "nothing was written", "missing default file")
+	if _, err := os.Stat("branchyard.toml"); !os.IsNotExist(err) {
+		os.Remove("branchyard.toml")
+		t.Fatal("the default file was created in a directory that is not a Branchyard project")
+	}
+
+	yard := filepath.Join(e.home, "yard", "branchyard.toml")
+	os.MkdirAll(filepath.Dir(yard), 0o755)
+	orig := "# my yard\n[defaults]\nharness = \"claude-code\"   # keep\n\n[models]\nallow = [\"*\"]\n\n[models.backends.anthropic]\napi = \"anthropic\"\n\n# my route\n[[models.routes]]\nmodel = \"claude-*\"\nbackends = [\"anthropic\"]\n"
+	os.WriteFile(yard, []byte(orig), 0o600)
+
+	r = e.mustCLI("connect", "local", "--client", "branchyard", "--write", "--dry-run", "--file", yard)
+	contains(t, r.Out, "Dry run: nothing was written.", "dry-run message")
+	if fileText(t, yard) != orig {
+		t.Fatal("dry run changed the file")
+	}
+	r = e.mustCLI("connect", "local", "--client", "branchyard", "--write", "--yes", "--file", yard)
+	contains(t, r.Out, "Wrote 1 file(s)", "write summary")
+	contains(t, r.Out, "AIPLEX_TOKEN", "remaining step")
+	got := fileText(t, yard)
+	if !strings.HasPrefix(strings.Replace(got, "aiplex = \"AIPLEX_TOKEN\"\n", "", 1), orig) && !strings.HasPrefix(got, orig) {
+		t.Errorf("the person's text was not kept:\n%s", got)
+	}
+	type parsed struct {
+		Secrets map[string]string `toml:"secrets"`
+		Models  struct {
+			Backends map[string]map[string]any `toml:"backends"`
+			Routes   []map[string]any          `toml:"routes"`
+		} `toml:"models"`
+	}
+	var cfg, was parsed
+	if err := toml.Unmarshal([]byte(got), &cfg); err != nil {
+		t.Fatalf("the written file is not TOML: %v\n%s", err, got)
+	}
+	if err := toml.Unmarshal([]byte(orig), &was); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Secrets["aiplex"] != "AIPLEX_TOKEN" {
+		t.Errorf("secrets: %v", cfg.Secrets)
+	}
+	// The AIPlex backends are exactly the two expected, with exactly these keys.
+	aiplexBackends := map[string]bool{}
+	for name, b := range cfg.Models.Backends {
+		if b["control_plane"] == "aiplex" {
+			aiplexBackends[name] = true
+		}
+	}
+	wantBackends := map[string]string{"aiplex-local-anthropic": "anthropic", "aiplex-local-openai": "openai"}
+	if len(aiplexBackends) != len(wantBackends) {
+		t.Errorf("AIPlex backends: %v", aiplexBackends)
+	}
+	for name, api := range wantBackends {
+		b := cfg.Models.Backends[name]
+		if !aiplexBackends[name] || len(b) != 4 || b["api"] != api || b["url"] != e.stack.APIURL+"/ap/local" || b["key"] != "aiplex" {
+			t.Errorf("backend %s: %v", name, b)
+		}
+	}
+	// The routes that name them are exactly the expected (model, backend) pairs.
+	gotPairs := map[string]string{}
+	for _, r := range cfg.Models.Routes {
+		for _, b := range r["backends"].([]any) {
+			if aiplexBackends[b.(string)] {
+				if len(r) != 2 || len(r["backends"].([]any)) != 1 {
+					t.Errorf("AIPlex route has more than a model and one backend: %v", r)
+				}
+				gotPairs[r["model"].(string)] = b.(string)
+			}
+		}
+	}
+	wantPairs := map[string]string{"mock-claude": "aiplex-local-anthropic", "mock-gpt": "aiplex-local-openai", "mock-responses": "aiplex-local-openai"}
+	if len(gotPairs) != len(wantPairs) {
+		t.Errorf("AIPlex routes: %v", gotPairs)
+	}
+	for m, b := range wantPairs {
+		if gotPairs[m] != b {
+			t.Errorf("route %s -> %q, want %q", m, gotPairs[m], b)
+		}
+	}
+	// Everything that was in the file before is still there, equal.
+	for name, b := range was.Models.Backends {
+		if !reflect.DeepEqual(cfg.Models.Backends[name], b) {
+			t.Errorf("backend %s changed: %v -> %v", name, b, cfg.Models.Backends[name])
+		}
+	}
+	for i, r := range was.Models.Routes {
+		if i >= len(cfg.Models.Routes) || !reflect.DeepEqual(cfg.Models.Routes[i], r) {
+			t.Errorf("route %d changed", i)
+		}
+	}
+	assertNoTokenAnywhere(t, e)
+
+	r = e.mustCLI("connect", "local", "--client", "branchyard", "--write", "--yes", "--file", yard)
+	contains(t, r.Out, "Nothing to change.", "second run")
+	if fileText(t, yard) != got {
+		t.Error("second run changed the file")
+	}
+
+	e.mustCLI("connect", "--undo", "--client", "branchyard", "--yes")
+	if fileText(t, yard) != orig {
+		t.Errorf("branchyard.toml not restored:\n%s", fileText(t, yard))
+	}
+
+	// A route that mixes in a plain backend is refused and named.
+	mixed := orig + "\n[[models.routes]]\nmodel = \"mock-*\"\nbackends = [\"anthropic\"]\n"
+	os.WriteFile(yard, []byte(mixed), 0o600)
+	r = e.cli("connect", "local", "--client", "branchyard", "--write", "--yes", "--file", yard)
+	if r.Code == 0 || !strings.Contains(r.Err+r.Out, "models.routes[1]") || fileText(t, yard) != mixed {
+		t.Errorf("a mixed route must be refused by name and the file kept:\n%s", r)
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
@@ -385,6 +386,8 @@ func (w *routeWriter) replay() {
 			delete(w.header, k)
 		}
 		w.header.Set("Content-Type", "text/plain; charset=utf-8")
+		// AIPlex writes this body, so it is AIPlex's refusal.
+		errorcode.Set(w.header, "UPSTREAM_RESPONSE_TOO_LARGE")
 		body = []byte("upstream error response exceeds the retained bound")
 	}
 	w.commit()
@@ -722,7 +725,7 @@ func (h *ConnectedHandler) routeUnavailable(w http.ResponseWriter, r *http.Reque
 	h.routeLedgerWithoutAttempt(w, r, x, http.StatusServiceUnavailable)
 	x.decorate(w.Header())
 	w.Header().Set("Retry-After", "1")
-	writeNativeError(w, x.in.protocol, http.StatusServiceUnavailable, "NO_BACKEND_AVAILABLE", fmt.Sprintf("model %q has no backend available right now; retry later", x.entry.Name))
+	refuseNative(w, x.in.protocol, http.StatusServiceUnavailable, "NO_BACKEND_AVAILABLE", fmt.Sprintf("model %q has no backend available right now; retry later", x.entry.Name))
 }
 
 // routeLedgerWithoutAttempt records an exchange that never reached a

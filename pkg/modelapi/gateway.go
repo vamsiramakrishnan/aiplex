@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 )
@@ -237,35 +238,35 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	op, params, ok := g.match(r.Method, r.URL.Path)
 	if !ok {
-		http.Error(w, "operation is not allowed by this surface", http.StatusNotFound)
+		errorcode.Refuse(w, http.StatusNotFound, "UNSUPPORTED_OPERATION", "operation is not allowed by this surface")
 		return
 	}
 	trusted, e := g.options.Context(r)
 	if e != nil || trusted.Validate() != nil {
-		http.Error(w, "verified request context required", http.StatusUnauthorized)
+		errorcode.Refuse(w, http.StatusUnauthorized, "UNAUTHENTICATED", "verified request context required")
 		return
 	}
 	if trusted.ResourceID != g.surface.ID {
-		http.Error(w, "request context surface mismatch", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "FORBIDDEN", "request context surface mismatch")
 		return
 	}
 	owner := Owner{trusted.TenantID, trusted.PrincipalID, g.surface.ID}
 	metadata := Metadata{Model: params["model"], Resource: Resource{op.ResourceKind, params["id"]}, Transport: op.Transport}
 	if metadata.Model != "" && !g.allowedModel(metadata.Model) {
-		http.Error(w, "model is not allowed", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "MODEL_NOT_ALLOWED", "model is not allowed")
 		return
 	}
 	if metadata.Resource.ID != "" && !validSegment(metadata.Resource.ID) {
-		http.Error(w, "invalid resource identifier", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid resource identifier")
 		return
 	}
 	if op.Action == List && (g.options.AllowShared == nil || !g.options.AllowShared(r.Context(), trusted, g.Surface(), op)) {
-		http.Error(w, "shared listing requires explicit authorization", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "ACTION_DENIED", "shared listing requires explicit authorization")
 		return
 	}
 	if op.Stateful && metadata.Resource.ID != "" {
 		if e = g.options.Ownership.Check(r.Context(), owner, metadata.Resource); e != nil {
-			http.Error(w, "resource ownership denied", http.StatusForbidden)
+			errorcode.Refuse(w, http.StatusForbidden, "RESOURCE_FORBIDDEN", "resource ownership denied")
 			return
 		}
 	}
@@ -273,7 +274,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Operation-level authorization before the upgrade; the model-level
 		// decision and request-count admission follow the bounded setup.
 		if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
-			http.Error(w, "operation denied", http.StatusForbidden)
+			errorcode.Refuse(w, http.StatusForbidden, "ACTION_DENIED", "operation denied")
 			return
 		}
 		if !g.sessionHooks(w, r, op, metadata) {
@@ -284,7 +285,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	body, e := io.ReadAll(io.LimitReader(r.Body, g.options.MaxBodyBytes+1))
 	if e != nil || int64(len(body)) > g.options.MaxBodyBytes {
-		http.Error(w, "invalid or oversized request body", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid or oversized request body")
 		return
 	}
 	opaque := (strings.HasSuffix(op.ID, "rawPredict") || strings.HasSuffix(op.ID, "streamRawPredict")) && !strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "json")
@@ -292,11 +293,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e = g.validateBody(r.Context(), owner, op, &metadata, body)
 	}
 	if e != nil {
-		http.Error(w, "request resource or model denied", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "FORBIDDEN", "request resource or model denied")
 		return
 	}
 	if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
-		http.Error(w, "operation denied", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "ACTION_DENIED", "operation denied")
 		return
 	}
 	body, inspect, lease, e := g.prepareDispatch(r, trusted, op, metadata, body)
@@ -326,12 +327,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	token, e := g.options.TokenSource.Token(r.Context())
 	if e != nil || strings.TrimSpace(token) == "" {
-		http.Error(w, "upstream identity unavailable", http.StatusServiceUnavailable)
+		errorcode.Refuse(w, http.StatusServiceUnavailable, "CREDENTIAL_UNAVAILABLE", "upstream identity unavailable")
 		return
 	}
 	upstream, e := url.Parse(strings.TrimSuffix(g.surface.Origin, "/") + r.URL.EscapedPath())
 	if e != nil {
-		http.Error(w, "invalid upstream request", 400)
+		errorcode.Refuse(w, 400, "INVALID_REQUEST", "invalid upstream request")
 		return
 	}
 	query := r.URL.Query()
@@ -341,7 +342,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	upstream.RawQuery = query.Encode()
 	request, e := http.NewRequestWithContext(r.Context(), r.Method, upstream.String(), bytes.NewReader(body))
 	if e != nil {
-		http.Error(w, "invalid upstream request", 400)
+		errorcode.Refuse(w, 400, "INVALID_REQUEST", "invalid upstream request")
 		return
 	}
 	request.Header = forwardRequestHeaders(r.Header)
@@ -357,7 +358,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeExecutionError(w, err)
 			return
 		}
-		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_UNAVAILABLE", "upstream unavailable")
 		return
 	}
 	defer response.Body.Close()
@@ -369,7 +370,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeExecutionError(w, err)
 			return
 		}
-		http.Error(w, "upstream redirects are not supported", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_REDIRECT_REFUSED", "upstream redirects are not supported")
 		return
 	}
 	success := response.StatusCode >= 200 && response.StatusCode < 300
@@ -396,7 +397,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				err = errors.New("response observation bound exceeded")
 			}
 			_ = run.finish(execution.Result{StatusCode: response.StatusCode, Err: err})
-			http.Error(w, "upstream response exceeds observation bound", http.StatusBadGateway)
+			errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 			return
 		}
 		terminal := false
@@ -404,7 +405,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			terminal, err = g.observeControlledJSON(owner, op, data, run)
 			if err != nil {
 				_ = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Err: err})
-				http.Error(w, "upstream response could not be acknowledged", http.StatusBadGateway)
+				errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_UNACKNOWLEDGED", "upstream response could not be acknowledged")
 				return
 			}
 		}
@@ -425,11 +426,11 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if success && (op.Action == Create || jsonResponse) {
 		data, e := io.ReadAll(io.LimitReader(response.Body, g.options.MaxBodyBytes+1))
 		if e != nil || int64(len(data)) > g.options.MaxBodyBytes {
-			http.Error(w, "upstream response exceeds observation bound", 502)
+			errorcode.Refuse(w, 502, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 			return
 		}
 		if e = g.observeJSON(r.Context(), owner, op, data, true); e != nil {
-			http.Error(w, "resource ownership could not be persisted", 502)
+			errorcode.Refuse(w, 502, "OWNERSHIP_UNAVAILABLE", "resource ownership could not be persisted")
 			return
 		}
 		if store != nil && jsonResponse {

@@ -71,33 +71,37 @@ Examples:
   aiplex usage records --agent tutor-agent --status error --limit 50
   aiplex usage records --access-point ide-team --caller-kind agent --since 24h
   aiplex usage records --since 7d --all -o json
+  aiplex usage records --client-request-id by-123   # exit 0 means the answer is complete; exit 1 means the scan stopped early
 
 Flags:
-      --access-point string     Access point ID (access_point_id)
-      --agent string            Agent / actor ID (actor_id)
-      --all                     Follow every page
-      --batch string[="true"]   Provider batch records only (true) or excluding them (false)
-      --bound string            Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
-      --budget string           Tenant budget ID: exchanges that drew from that budget
-      --caller-kind string      Caller kind: agent, user or client (caller_kind)
-      --client string           Client ID (client_id)
-      --cost-basis string       Cost basis: settled, estimated, reported, cached or unknown (cost_basis)
-      --cursor string           Continue from a next_cursor value
-      --error-class string      Error class (error_class)
-      --harness string          Reported records from one harness: claude-code, codex or gemini-cli
-  -h, --help                    help for records
-      --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
-      --limit int               Page size, 1 to 1000 (default 100)
-      --model string            Model ID (model_id)
-      --plane string            Plane: llmplex, mcplex or a2aplex
-      --provider string         Provider
-      --since string            Start of window: duration like 24h, 7d, or an RFC3339 time
-      --source string           Source: managed or reported
-      --status string           Status: ok, error, denied or unknown
-      --tag stringArray         Records carrying a tag, key=value (repeatable)
-      --tool string             Tool name (tool_name)
-      --until string            End of window (exclusive): duration ago like 1h, or an RFC3339 time
-      --user string             User / principal ID (principal_id)
+      --access-point string        Access point ID (access_point_id)
+      --agent string               Agent / actor ID (actor_id)
+      --all                        Follow every page
+      --batch string[="true"]      Provider batch records only (true) or excluding them (false)
+      --bound string               Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
+      --budget string              Tenant budget ID: exchanges that drew from that budget
+      --caller-kind string         Caller kind: agent, user or client (caller_kind)
+      --client string              Client ID (client_id)
+      --client-request-id string   The record of one call, by the caller's X-Client-Request-Id
+      --cost-basis string          Cost basis: settled, estimated, reported, cached or unknown (cost_basis)
+      --cursor string              Continue from a next_cursor value
+      --error-class string         Error class (error_class)
+      --harness string             Reported records from one harness: claude-code, codex or gemini-cli
+  -h, --help                       help for records
+      --hook-decision string       Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
+      --limit int                  Page size, 1 to 1000 (default 100)
+      --model string               Model ID (model_id)
+      --plane string               Plane: llmplex, mcplex or a2aplex
+      --provider string            Provider
+      --request-id string          The record of one call, by AIPlex's request id (the X-Aiplex-Request-Id response header)
+      --since string               Start of window: duration like 24h, 7d, or an RFC3339 time
+      --source string              Source: managed or reported
+      --status string              Status: ok, error, denied or unknown
+      --tag stringArray            Records carrying a tag, key=value (repeatable)
+      --tool string                Tool name (tool_name)
+      --trace-id string            Records of one trace, by W3C trace id (32 hexadecimal characters)
+      --until string               End of window (exclusive): duration ago like 1h, or an RFC3339 time
+      --user string                User / principal ID (principal_id)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
@@ -183,31 +187,34 @@ Examples:
   aiplex usage summary --source reported --by harness,model --since 7d
 
 Flags:
-      --access-point string     Access point ID (access_point_id)
-      --agent string            Agent / actor ID (actor_id)
-      --batch string[="true"]   Provider batch records only (true) or excluding them (false)
-      --bound string            Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
-      --bucket string           Time bucket: hour or day
-      --budget string           Tenant budget ID: exchanges that drew from that budget
-      --by strings              Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,budget,status,source,error-class,bound,batch,harness,tag:<key>
-      --caller-kind string      Caller kind: agent, user or client (caller_kind)
-      --client string           Client ID (client_id)
-      --cost-basis string       Cost basis: settled, estimated, reported, cached or unknown (cost_basis)
-      --error-class string      Error class (error_class)
-      --harness string          Reported records from one harness: claude-code, codex or gemini-cli
-  -h, --help                    help for summary
-      --hook-decision string    Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
-      --merge-sources           Add managed and reported records together (may count a request twice)
-      --model string            Model ID (model_id)
-      --plane string            Plane: llmplex, mcplex or a2aplex
-      --provider string         Provider
-      --since string            Start of window: duration like 24h, 7d, or an RFC3339 time
-      --source string           Source: managed or reported
-      --status string           Status: ok, error, denied or unknown
-      --tag stringArray         Records carrying a tag, key=value (repeatable)
-      --tool string             Tool name (tool_name)
-      --until string            End of window (exclusive): duration ago like 1h, or an RFC3339 time
-      --user string             User / principal ID (principal_id)
+      --access-point string        Access point ID (access_point_id)
+      --agent string               Agent / actor ID (actor_id)
+      --batch string[="true"]      Provider batch records only (true) or excluding them (false)
+      --bound string               Usage bound: lower_bound, ambiguous, partial or none (usage_bound)
+      --bucket string              Time bucket: hour or day
+      --budget string              Tenant budget ID: exchanges that drew from that budget
+      --by strings                 Group by (comma separated): plane,provider,model,tool,agent,user,client,access-point,caller-kind,budget,status,source,error-class,bound,batch,harness,tag:<key>
+      --caller-kind string         Caller kind: agent, user or client (caller_kind)
+      --client string              Client ID (client_id)
+      --client-request-id string   The record of one call, by the caller's X-Client-Request-Id
+      --cost-basis string          Cost basis: settled, estimated, reported, cached or unknown (cost_basis)
+      --error-class string         Error class (error_class)
+      --harness string             Reported records from one harness: claude-code, codex or gemini-cli
+  -h, --help                       help for summary
+      --hook-decision string       Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)
+      --merge-sources              Add managed and reported records together (may count a request twice)
+      --model string               Model ID (model_id)
+      --plane string               Plane: llmplex, mcplex or a2aplex
+      --provider string            Provider
+      --request-id string          The record of one call, by AIPlex's request id (the X-Aiplex-Request-Id response header)
+      --since string               Start of window: duration like 24h, 7d, or an RFC3339 time
+      --source string              Source: managed or reported
+      --status string              Status: ok, error, denied or unknown
+      --tag stringArray            Records carrying a tag, key=value (repeatable)
+      --tool string                Tool name (tool_name)
+      --trace-id string            Records of one trace, by W3C trace id (32 hexadecimal characters)
+      --until string               End of window (exclusive): duration ago like 1h, or an RFC3339 time
+      --user string                User / principal ID (principal_id)
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

@@ -154,20 +154,20 @@ func (x *extendedExchange) serveMedia() {
 	}
 	data, err := x.readBounded()
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
+		x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 		return
 	}
 	usage, err := mediaJSONUsage(x.spec.format, data)
 	if err != nil {
 		if x.run != nil {
-			x.fail(err, http.StatusBadGateway, "upstream response could not be acknowledged")
+			x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_UNACKNOWLEDGED", "upstream response could not be acknowledged")
 			return
 		}
 		usage = mediaUsage{}
 	}
 	if usage.terminal {
 		if err = x.emit(UsageObservation{Counters: usage.counters, Dimensions: usage.dimensions, Terminal: true, Cumulative: true}); err != nil {
-			x.fail(err, http.StatusBadGateway, "upstream response could not be acknowledged")
+			x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_UNACKNOWLEDGED", "upstream response could not be acknowledged")
 			return
 		}
 	}
@@ -317,7 +317,7 @@ func objectID(data []byte) (string, map[string]json.RawMessage, error) {
 func (x *extendedExchange) serveFileUpload() {
 	data, err := x.readBounded()
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
+		x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 		return
 	}
 	id, _, err := objectID(data)
@@ -325,7 +325,7 @@ func (x *extendedExchange) serveFileUpload() {
 		err = x.g.options.Ownership.Bind(x.r.Context(), x.owner, Resource{openAIBatchFileResource, id})
 	}
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "resource ownership could not be persisted")
+		x.fail(err, http.StatusBadGateway, "OWNERSHIP_UNAVAILABLE", "resource ownership could not be persisted")
 		return
 	}
 	if err = x.batchMarker(); err == nil {
@@ -354,7 +354,7 @@ func anthropicBatchItems(body []byte) int64 {
 func (x *extendedExchange) serveBatchCreate() {
 	data, err := x.readBounded()
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
+		x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 		return
 	}
 	id, object, err := batchObjectID(x.spec.provider, data)
@@ -380,7 +380,7 @@ func (x *extendedExchange) serveBatchCreate() {
 		cancel()
 	}
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "batch could not be durably tracked")
+		x.fail(err, http.StatusBadGateway, "BATCH_UNAVAILABLE", "batch could not be durably tracked")
 		return
 	}
 	if err = x.batchMarker(); err == nil {
@@ -453,7 +453,7 @@ func applyBatchObject(provider string, object map[string]json.RawMessage, record
 func (x *extendedExchange) servePrediction() {
 	data, err := x.readBounded()
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
+		x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 		return
 	}
 	id, err := operationID(data, x.metadata.Model)
@@ -464,7 +464,7 @@ func (x *extendedExchange) servePrediction() {
 		err = x.run.resource(Resource{x.op.ResourceKind, id})
 	}
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "resource ownership could not be persisted")
+		x.fail(err, http.StatusBadGateway, "OWNERSHIP_UNAVAILABLE", "resource ownership could not be persisted")
 		return
 	}
 	if err = x.run.finish(execution.Result{StatusCode: x.response.StatusCode, ResponseComplete: true}); err != nil {
@@ -480,12 +480,12 @@ func (x *extendedExchange) servePrediction() {
 func (x *extendedExchange) serveBatchRead() {
 	data, err := x.readBounded()
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
+		x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 		return
 	}
 	id, object, err := batchObjectID(x.spec.provider, data)
 	if err != nil || id != x.metadata.Resource.ID {
-		x.fail(fmt.Errorf("batch object identity mismatch"), http.StatusBadGateway, "upstream batch object is invalid")
+		x.fail(fmt.Errorf("batch object identity mismatch"), http.StatusBadGateway, "UPSTREAM_RESPONSE_INVALID", "upstream batch object is invalid")
 		return
 	}
 	var files []Resource
@@ -512,7 +512,7 @@ func (x *extendedExchange) serveBatchRead() {
 		}
 	}
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "batch state could not be acknowledged")
+		x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_UNACKNOWLEDGED", "batch state could not be acknowledged")
 		return
 	}
 	if err = x.batchMarker(); err == nil {

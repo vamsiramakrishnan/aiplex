@@ -91,6 +91,12 @@ def test_usage_filter_cost_basis_query() -> None:
     assert "cost_basis" not in UsageFilter().to_query()
 
 
+def test_usage_filter_finds_the_record_of_a_call() -> None:
+    query = UsageFilter(request_id="req-1", client_request_id="by-1", trace_id="0af7651916cd43dd8448eb211c80319c").to_query()
+    assert query == {"request_id": "req-1", "client_request_id": "by-1", "trace_id": "0af7651916cd43dd8448eb211c80319c"}
+    assert UsageFilter().to_query() == {}
+
+
 def test_tool_call_size_and_duration_counters() -> None:
     present = UsageCounters.from_wire({"tool_response_bytes": 2048, "tool_duration_milliseconds": 350})
     assert (present.tool_response_bytes, present.tool_duration_milliseconds) == (2048, 350)

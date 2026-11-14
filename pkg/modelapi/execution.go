@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
@@ -92,10 +93,11 @@ func writeExecutionError(w http.ResponseWriter, err error) {
 			}
 			w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
 		}
+		errorcode.Set(w.Header(), status.Code)
 		http.Error(w, status.Code+": "+status.Message, status.Status)
 		return
 	}
-	http.Error(w, "execution control unavailable", http.StatusServiceUnavailable)
+	errorcode.Refuse(w, http.StatusServiceUnavailable, "EXECUTION_UNAVAILABLE", "execution control unavailable")
 }
 
 type executionRun struct {

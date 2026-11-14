@@ -29,6 +29,14 @@ type Filter struct {
 	// AccessPointID and CallerKind select access-point exchanges.
 	AccessPointID string
 	CallerKind    string
+	// RequestID, ClientRequestID and TraceID each select the records that carry
+	// exactly that value: AIPlex's own request id (the X-Aiplex-Request-Id of a
+	// call), the caller's X-Client-Request-Id, and the W3C trace id. They find
+	// the record of one call; they are exact matches, never prefixes, and the
+	// visibility rule applies on top of them.
+	RequestID       string
+	ClientRequestID string
+	TraceID         string
 	// BudgetID selects records that drew from that tenant budget.
 	BudgetID string
 	Status   string
@@ -59,7 +67,7 @@ type Filter struct {
 
 // Matches applies every filter field, including visibility and the window.
 func (f Filter) Matches(r Record) bool {
-	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.Status, r.Status}, {f.Source, r.Source}, {f.ErrorClass, r.ErrorClass}, {f.Harness, r.Harness}, {f.CostBasis, r.Cost.Basis}} {
+	for _, c := range [][2]string{{f.Plane, r.Plane}, {f.Provider, r.Provider}, {f.ModelID, r.ModelID}, {f.ToolName, r.ToolName}, {f.ActorID, r.ActorID}, {f.PrincipalID, r.PrincipalID}, {f.ClientID, r.ClientID}, {f.AccessPointID, r.AccessPointID}, {f.CallerKind, r.CallerKind}, {f.RequestID, r.RequestID}, {f.ClientRequestID, r.ClientRequestID}, {f.TraceID, r.TraceID}, {f.Status, r.Status}, {f.Source, r.Source}, {f.ErrorClass, r.ErrorClass}, {f.Harness, r.Harness}, {f.CostBasis, r.Cost.Basis}} {
 		if c[0] != "" && c[0] != c[1] {
 			return false
 		}

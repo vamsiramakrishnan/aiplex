@@ -62,7 +62,7 @@ func websocketEndpoint(origin, path, rawQuery string) string {
 // exchange, observed usage is advisory, and token-metered leases are refused
 // before credentials are acquired.
 func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted contracts.RequestContext, owner Owner, op Operation) {
-	connection, e := (&websocket.Upgrader{HandshakeTimeout: 10 * time.Second}).Upgrade(w, r, nil)
+	connection, e := (&websocket.Upgrader{HandshakeTimeout: 10 * time.Second, Error: handshakeRefusal}).Upgrade(w, r, upgradeResponseHeader(w))
 	if e != nil {
 		return
 	}

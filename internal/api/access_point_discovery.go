@@ -5,12 +5,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 )
 
 // MountAccessPointEndpoints mounts the client-facing access-point URLs at the
 // server root: /ap/{id}/… and the RFC 9728 well-known metadata.
 func (h *ConnectedHandler) MountAccessPointEndpoints(r chi.Router) {
 	r.Route("/ap/{apid}", func(r chi.Router) {
+		r.Use(markUnservedRoutes(r))
 		r.Post("/v1/chat/completions", h.AccessPointModel(WireOpenAIChat))
 		r.Post("/v1/responses", h.AccessPointModel(WireOpenAIResponses))
 		r.Post("/v1/messages", h.AccessPointModel(WireAnthropic))
@@ -44,6 +46,10 @@ func (h *ConnectedHandler) MountAccessPointEndpoints(r chi.Router) {
 func (h *ConnectedHandler) AccessPointProtectedResource(w http.ResponseWriter, r *http.Request) {
 	apID, connection := chi.URLParam(r, "apid"), chi.URLParam(r, "connection")
 	if !accessPointIDPattern.MatchString(apID) || (connection != "" && !accessPointConnectionPattern.MatchString(connection)) {
+		if accessPointRequest(r) {
+			// The well-known aliases outside /ap/ carry no code.
+			errorcode.Set(w.Header(), "NOT_FOUND")
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -140,4 +146,29 @@ func (h *ConnectedHandler) AccessPointSkills(w http.ResponseWriter, r *http.Requ
 		manifests = append(manifests, skillsManifest(instance, template, visible))
 	}
 	JSON(w, http.StatusOK, map[string]any{"access_point_id": ap.ID, "servers": manifests, "unavailable": unavailable})
+}
+
+// markUnservedRoutes marks the router's own 404 and 405 below /ap/{id} as
+// AIPlex's refusals (X-Aiplex-Error-Code NOT_FOUND or METHOD_NOT_ALLOWED).
+// chi writes those answers itself, so the status, body and Allow header stay
+// exactly chi's; the middleware only adds the header, before the router
+// answers, when no route of this access point serves the method and path.
+func markUnservedRoutes(routes chi.Routes) func(http.Handler) http.Handler {
+	methods := []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead, http.MethodOptions}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rctx := chi.RouteContext(r.Context())
+			if rctx != nil && rctx.RoutePath != "" && !routes.Match(chi.NewRouteContext(), r.Method, rctx.RoutePath) {
+				code := "NOT_FOUND"
+				for _, method := range methods {
+					if routes.Match(chi.NewRouteContext(), method, rctx.RoutePath) {
+						code = "METHOD_NOT_ALLOWED"
+						break
+					}
+				}
+				errorcode.Set(w.Header(), code)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

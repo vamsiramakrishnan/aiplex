@@ -14,7 +14,7 @@ import (
 // and returns its payload claims with numbers as json.Number. problem is
 // non-empty, and safe to show, when the token is not acceptable.
 func ParseCompactJWT(token string) (claims map[string]any, alg, problem string) {
-	parsed, problem := parseToken(token)
+	parsed, problem := parseToken(token, supportedAlgorithms)
 	return parsed.claims, parsed.alg, problem
 }
 
@@ -41,6 +41,9 @@ func ValidHTTPSURL(raw, label string, issuer bool) error { return validHTTPSURL(
 
 // ValidClaimName reports whether name is an acceptable, non-reserved claim name.
 func ValidClaimName(name string) bool { return claimName.MatchString(name) && !reservedClaims[name] }
+
+// ValidBranchyardTenant reports whether the branchyard preset accepts tenant.
+func ValidBranchyardTenant(tenant string) bool { return branchyardTenant.MatchString(tenant) }
 
 // ShellQuote single-quotes a value for POSIX shells.
 func ShellQuote(s string) string { return shellQuote(s) }

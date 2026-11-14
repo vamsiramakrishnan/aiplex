@@ -160,6 +160,14 @@ export interface UsageFilter {
   hookDecision?: string;
   /** settled, estimated, reported, cached or unknown. */
   costBasis?: string;
+  /**
+   * The record of one call, by exact match: AIPlex's request id (the
+   * X-Aiplex-Request-Id response header), the caller's X-Client-Request-Id and
+   * the W3C trace id (32 lower-case hexadecimal characters).
+   */
+  requestId?: string;
+  clientRequestId?: string;
+  traceId?: string;
   /** Records carrying every tag pair, sent as tag.<key>=<value>. */
   tags?: Record<string, string>;
   since?: string;
@@ -247,9 +255,22 @@ function applyUsageFilter(
     ["harness", filter.harness],
     ["hook_decision", filter.hookDecision],
     ["cost_basis", filter.costBasis],
+    ["request_id", filter.requestId],
+    ["client_request_id", filter.clientRequestId],
+    ["trace_id", filter.traceId],
     ["since", filter.since],
     ["until", filter.until],
   ];
+  for (const [key, val] of [
+    ["request_id", filter.requestId],
+    ["client_request_id", filter.clientRequestId],
+    ["trace_id", filter.traceId],
+  ] as Array<[string, string | undefined]>) {
+    if (val === "") {
+      // An empty id would read as "no filter" and match every record.
+      throw new Error(`${key} must not be empty; leave it undefined to not filter`);
+    }
+  }
   for (const [key, val] of stringPairs) {
     if (val !== undefined && val !== null && val !== "") {
       params.set(key, val);

@@ -148,7 +148,41 @@ type parsedToken struct {
 	claims   map[string]any
 }
 
-func parseToken(token string) (parsedToken, string) {
+// presetLifetimeProblem applies a preset's maximum lifetime, read from the
+// preset now (nothing is stored with the binding): iat must be present and
+// numeric, and exp - iat at most the limit. Both values are the token's, so
+// no clock skew applies. Presets without a limit return "".
+func presetLifetimeProblem(presetID string, claims map[string]any, exp int64) string {
+	preset, ok := Lookup(presetID)
+	if !ok || preset.maxLifetime <= 0 {
+		return ""
+	}
+	limit := int64(preset.maxLifetime / time.Second)
+	iat, ok := numeric(claims["iat"])
+	if _, present := claims["iat"]; !present || !ok {
+		return fmt.Sprintf("token has no numeric iat claim; preset %s requires one and allows a lifetime (exp - iat) of at most %d seconds", presetID, limit)
+	}
+	// Compared as iat < exp - limit: exp has passed the expiry check, so this
+	// cannot overflow, where exp - iat could for a very negative iat.
+	if iat < exp-limit {
+		return fmt.Sprintf("token lifetime (exp - iat) is more than %d seconds; preset %s allows at most %d seconds", limit, presetID, limit)
+	}
+	return ""
+}
+
+// unsupportedAlgorithm is the token shape problem for an alg outside
+// algorithms, naming the ones that would be accepted.
+func unsupportedAlgorithm(alg string, algorithms []string) string {
+	if len(alg) > 16 {
+		alg = alg[:16]
+	}
+	return fmt.Sprintf("JWT algorithm %q is not supported; request an %s token", alg, AlgorithmList(algorithms))
+}
+
+// parseToken checks the compact JWS shape and that its alg is one of
+// algorithms (compared exactly). With algorithms nil the alg is not checked
+// here: the caller checks it once it knows which binding the token is for.
+func parseToken(token string, algorithms []string) (parsedToken, string) {
 	if token == "" {
 		return parsedToken{}, "no token was supplied"
 	}
@@ -177,12 +211,8 @@ func parseToken(token string) (parsedToken, string) {
 	if json.Unmarshal(rawHeader, &header) != nil {
 		return parsedToken{}, "JWT header is not a JSON object"
 	}
-	if !slices.Contains(supportedAlgorithms, header.Alg) {
-		alg := header.Alg
-		if len(alg) > 16 {
-			alg = alg[:16]
-		}
-		return parsedToken{}, fmt.Sprintf("JWT algorithm %q is not supported; request an RS256, ES256 or ES384 token", alg)
+	if algorithms != nil && !slices.Contains(algorithms, header.Alg) {
+		return parsedToken{}, unsupportedAlgorithm(header.Alg, algorithms)
 	}
 	if header.Kid == "" {
 		return parsedToken{}, "JWT header has no key ID (kid)"
@@ -272,13 +302,14 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 	}
 
 	// 1. Token shape.
-	parsed, problem := parseToken(in.Token)
+	// The alg is checked below, once the binding is known, so that the hint
+	// names the algorithms that binding's preset accepts.
+	parsed, problem := parseToken(in.Token, nil)
 	if problem != "" {
 		add(CheckTokenShape, StatusFail, problem)
 		skipRest(1, "token could not be parsed")
 		return res
 	}
-	add(CheckTokenShape, StatusPass, "compact "+parsed.alg+" JWS with a key ID")
 	claims := parsed.claims
 	issuer := stringClaim(claims, "iss")
 	res.Issuer, res.Audience = clip(issuer), audiences(claims["aud"])
@@ -321,6 +352,23 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 			reference = &same[0]
 		}
 	}
+	// 1 (continued). An alg no preset accepts fails the token shape check. The
+	// hint names what the binding's preset accepts; with no binding, the
+	// list every preset but branchyard accepts, so no binding that cannot
+	// use EdDSA is told to request it.
+	if !slices.Contains(tokenAlgorithms, parsed.alg) {
+		accepted := supportedAlgorithms
+		if reference != nil {
+			if algorithms, ok := PresetAlgorithms(reference.Preset); ok {
+				accepted = algorithms
+			}
+		}
+		add(CheckTokenShape, StatusFail, unsupportedAlgorithm(parsed.alg, accepted))
+		skipRest(1, "token could not be parsed")
+		res.Issuer, res.Audience = "", nil
+		return res
+	}
+	add(CheckTokenShape, StatusPass, "compact "+parsed.alg+" JWS with a key ID")
 	if candidate != nil {
 		res.Binding = &BindingRef{ClientID: candidate.ClientID, ID: candidate.ID, Preset: candidate.Preset}
 	}
@@ -351,7 +399,16 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 	// 3. Signature.
 	unverified := ""
 	verifiedClaims := map[string]any(nil)
-	if e.Keys == nil {
+	algorithms, knownPreset := PresetAlgorithms(reference.Preset)
+	if !knownPreset {
+		add(CheckSignature, StatusFail, fmt.Sprintf("binding preset %q is unknown, so no algorithm is accepted", clip(reference.Preset)))
+		unverified = " (claims not verified: signature check failed)"
+	} else if !slices.Contains(algorithms, parsed.alg) {
+		// The preset's algorithms are also the verifier's allow-list (the
+		// key resolver builds it from the same preset); this says so first.
+		add(CheckSignature, StatusFail, fmt.Sprintf("token is signed %s; preset %s accepts %s only", parsed.alg, reference.Preset, AlgorithmList(algorithms)))
+		unverified = " (claims not verified: signature check failed)"
+	} else if e.Keys == nil {
 		add(CheckSignature, StatusFail, "signing key resolution is not configured")
 		unverified = " (claims not verified: signature check failed)"
 	} else if verifier, err := e.Keys.ForBinding(ctx, *reference); err != nil {
@@ -385,6 +442,9 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 
 	// 5. Lifetime.
 	lifetimeProblem, exp := LifetimeProblem(claims, now, skew)
+	if lifetimeProblem == "" {
+		lifetimeProblem = presetLifetimeProblem(reference.Preset, claims, exp)
+	}
 	if lifetimeProblem != "" {
 		add(CheckLifetime, StatusFail, lifetimeProblem+unverified)
 	} else {

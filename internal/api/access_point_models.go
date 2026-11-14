@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/vamsiramakrishnan/aiplex/pkg/clientplex"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
 	"github.com/vamsiramakrishnan/aiplex/pkg/routing"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
@@ -210,6 +211,10 @@ func nativeErrorBody(protocol string, status int, code, message string) []byte {
 // hookCode reports a request-hook refusal code (HOOK_DENIED and friends).
 func hookCode(code string) bool { return strings.HasPrefix(strings.ToUpper(code), "HOOK_") }
 
+// writeNativeError renders one refusal in a wire protocol's own shape. It
+// writes the body and status only; the producer of the refusal marks it with
+// X-Aiplex-Error-Code (refuseNative), because only the producer knows the
+// refusal is AIPlex's own and not a provider's error.
 func writeNativeError(w http.ResponseWriter, protocol string, status int, code, message string) {
 	w.Header().Del("Content-Length")
 	w.Header().Set("Content-Type", "application/json")
@@ -220,16 +225,20 @@ func writeNativeError(w http.ResponseWriter, protocol string, status int, code, 
 	if protocol == WireBedrockConverse || protocol == WireBedrockInvoke {
 		w.Header().Set("X-Amzn-ErrorType", bedrockErrorType(status))
 	}
-	if hookCode(code) {
-		w.Header().Set("X-Aiplex-Error-Code", strings.ToLower(code))
-	}
 	w.WriteHeader(status)
 	_, _ = w.Write(nativeErrorBody(protocol, status, code, message))
 }
 
+// refuseNative is writeNativeError for a refusal AIPlex produces itself: it
+// also marks the response with the refusal's code (pkg/errorcode).
+func refuseNative(w http.ResponseWriter, protocol string, status int, code, message string) {
+	errorcode.Set(w.Header(), code)
+	writeNativeError(w, protocol, status, code, message)
+}
+
 func modelErrorWriter(protocol string) accessPointErrorWriter {
 	return func(w http.ResponseWriter, _ *http.Request, status int, code, message string) {
-		writeNativeError(w, protocol, status, code, message)
+		refuseNative(w, protocol, status, code, message)
 	}
 }
 
@@ -507,6 +516,10 @@ func (h *ConnectedHandler) AccessPointModel(protocol string) http.HandlerFunc {
 		if !ok {
 			return
 		}
+		// The call travels with the request from here on, so every ledger record
+		// of it (a refusal before a backend is chosen included) takes its access
+		// point, caller kind and tags from the call, in beginUsage.
+		r = r.WithContext(withAccessPointCall(r.Context(), call))
 		if !h.moduleEnabled("llmplex") {
 			fail(w, r, http.StatusNotFound, "MODULE_DISABLED", "model endpoints are disabled")
 			return
@@ -748,7 +761,7 @@ func (h *ConnectedHandler) AccessPointListModels(w http.ResponseWriter, r *http.
 		return
 	}
 	if !h.moduleEnabled("llmplex") {
-		writeNativeError(w, protocol, http.StatusNotFound, "MODULE_DISABLED", "model endpoints are disabled")
+		refuseNative(w, protocol, http.StatusNotFound, "MODULE_DISABLED", "model endpoints are disabled")
 		return
 	}
 	listed := h.listedModels(r, tenant, ap)
@@ -784,7 +797,7 @@ func (h *ConnectedHandler) AccessPointListGenAIModels(w http.ResponseWriter, r *
 		return
 	}
 	if !h.moduleEnabled("llmplex") {
-		writeNativeError(w, WireGenAI, http.StatusNotFound, "MODULE_DISABLED", "model endpoints are disabled")
+		refuseNative(w, WireGenAI, http.StatusNotFound, "MODULE_DISABLED", "model endpoints are disabled")
 		return
 	}
 	models := []map[string]any{}

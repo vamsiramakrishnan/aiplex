@@ -306,3 +306,19 @@ func TestModelPriceLifecycleAndRevisionConflict(t *testing.T) {
 		t.Fatal("invalid price sent to server")
 	}
 }
+
+func TestSummarizeUsageSendsTheCorrelationFilters(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if r.URL.Path != "/api/v1/usage/summary" || q.Get("client_request_id") != "by-1" || q.Get("request_id") != "req-1" || q.Get("trace_id") != "0af7651916cd43dd8448eb211c80319c" {
+			t.Errorf("unexpected request %s", r.URL)
+		}
+		w.Write([]byte(`{"groups":[],"records_scanned":0}`))
+	}))
+	defer server.Close()
+	_, err := aiplex.NewClient(server.URL).SummarizeUsage(context.Background(), aiplex.UsageSummaryQuery{
+		UsageFilter: aiplex.UsageFilter{ClientRequestID: "by-1", RequestID: "req-1", TraceID: "0af7651916cd43dd8448eb211c80319c"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

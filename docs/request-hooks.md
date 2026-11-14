@@ -415,7 +415,7 @@ Through an access point the refusal uses the caller's protocol:
 | Bedrock | `{"message", "code": "hook_denied"}` with `X-Amzn-ErrorType: AccessDeniedException` |
 | MCP `tools/call` | JSON-RPC error `-32001` with `data.reason: "hook_denied"` (or `hook_unavailable`) and the request's `id` |
 
-Every refusal also carries `X-Aiplex-Error-Code`. On the managed native routes
+Every refusal also carries `X-Aiplex-Error-Code` with the upper-case code (`HOOK_DENIED`, `HOOK_UNAVAILABLE`, `HOOK_POLICY_UNAVAILABLE`); the lower-case `code` in the bodies above is unchanged. On the managed native routes
 (`/api/v1/llm/native/...`) the body is AIPlex's `{"code": "HOOK_DENIED",
 "message": ...}`. The message is the hook's `message` or a fixed default; it
 never contains the matched text or any part of the request.

@@ -25,6 +25,19 @@ describe("metering fields", () => {
     expect(api.requests[0]!.query["cost_basis"]).toBe("reported");
   });
 
+  it("sends the filters that find the record of one call", async () => {
+    const client = new AiplexClient({ baseUrl: api.url, token: "t" });
+    api.route("GET", "/api/v1/usage/records", { json: { records: [] } });
+    await client.listUsageRecords({
+      requestId: "req-1",
+      clientRequestId: "by-1",
+      traceId: "0af7651916cd43dd8448eb211c80319c",
+    });
+    expect(api.requests[0]!.query["request_id"]).toBe("req-1");
+    expect(api.requests[0]!.query["client_request_id"]).toBe("by-1");
+    expect(api.requests[0]!.query["trace_id"]).toBe("0af7651916cd43dd8448eb211c80319c");
+  });
+
   it("keeps cost exact, price id and backfill time as strings, and unknown as null", () => {
     const c = parseCost({
       basis: "estimated",
@@ -104,5 +117,33 @@ describe("metering fields", () => {
     const rec = parseUsageRecord({ id: "ul_3", usage: { tool_response_bytes: 7, tool_duration_milliseconds: 0 } });
     expect([rec.usage?.toolResponseBytes, rec.usage?.toolDurationMilliseconds]).toEqual([7, 0]);
     expect(rec.usage?.raw["tool_response_bytes"]).toBe(7);
+  });
+});
+
+describe("correlation filters", () => {
+  let api: FakeApi;
+  beforeEach(async () => {
+    api = await startFakeApi();
+  });
+  afterEach(async () => {
+    await api.close();
+  });
+
+  it("sends them on the summary", async () => {
+    const client = new AiplexClient({ baseUrl: api.url, token: "t" });
+    api.route("GET", "/api/v1/usage/summary", { json: { groups: [] } });
+    await client.usageSummary({ requestId: "req-1", clientRequestId: "by-1", traceId: "0af7651916cd43dd8448eb211c80319c" });
+    const q = api.requests[0]!.query;
+    expect(q["request_id"]).toBe("req-1");
+    expect(q["client_request_id"]).toBe("by-1");
+    expect(q["trace_id"]).toBe("0af7651916cd43dd8448eb211c80319c");
+  });
+
+  it("refuses an empty id instead of sending no filter", async () => {
+    const client = new AiplexClient({ baseUrl: api.url, token: "t" });
+    for (const filter of [{ requestId: "" }, { clientRequestId: "" }, { traceId: "" }]) {
+      await expect(client.listUsageRecords(filter)).rejects.toThrow(/empty/);
+    }
+    expect(api.requests.length).toBe(0);
   });
 });

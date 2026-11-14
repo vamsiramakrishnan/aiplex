@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 )
 
 // Provider-native caller credentials.
@@ -116,6 +118,15 @@ func nativeKeyRoute(r *http.Request) (model bool, kind nativeKeyKind, errWire st
 	return false, nativeKeyNone, ""
 }
 
+// refuseNativeKey answers 401 in the wire's own shape. On an access point
+// route the response also carries X-Aiplex-Error-Code: the refusal is AIPlex's.
+func refuseNativeKey(w http.ResponseWriter, r *http.Request, wire, code, message string) {
+	if accessPointRequest(r) {
+		errorcode.Set(w.Header(), code)
+	}
+	writeNativeError(w, wire, http.StatusUnauthorized, code, message)
+}
+
 // NativeKeyHeaders must be installed before the identity middleware.
 func NativeKeyHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +143,7 @@ func NativeKeyHeaders(next http.Handler) http.Handler {
 					if h := nativeKeyHeaderOf[kind]; h != "" {
 						hint = "the " + h + " header or Authorization: Bearer"
 					}
-					writeNativeError(w, wire, http.StatusUnauthorized, "UNAUTHENTICATED", "credentials in the URL query are not accepted; send the AIPlex token in "+hint)
+					refuseNativeKey(w, r, wire, "UNAUTHENTICATED", "credentials in the URL query are not accepted; send the AIPlex token in "+hint)
 					return
 				}
 			}
@@ -157,7 +168,7 @@ func NativeKeyHeaders(next http.Handler) http.Handler {
 		}
 		value, ok := nativeKeyValue(native)
 		if !ok {
-			writeNativeError(w, wire, http.StatusUnauthorized, "UNAUTHENTICATED", "conflicting credentials: the "+nativeKeyHeaderOf[kind]+" header was repeated with different values; send the AIPlex token once")
+			refuseNativeKey(w, r, wire, "UNAUTHENTICATED", "conflicting credentials: the "+nativeKeyHeaderOf[kind]+" header was repeated with different values; send the AIPlex token once")
 			return
 		}
 		if value == "" {
@@ -165,13 +176,13 @@ func NativeKeyHeaders(next http.Handler) http.Handler {
 			return
 		}
 		if r.Header.Get("X-Goog-Iap-Jwt-Assertion") != "" {
-			writeNativeError(w, wire, http.StatusUnauthorized, "UNAUTHENTICATED", "conflicting credentials: send one credential")
+			refuseNativeKey(w, r, wire, "UNAUTHENTICATED", "conflicting credentials: send one credential")
 			return
 		}
 		if existing := r.Header.Values("Authorization"); len(existing) > 0 {
 			token, bearer := strings.CutPrefix(strings.Join(existing, ","), "Bearer ")
 			if len(existing) != 1 || !bearer || subtle.ConstantTimeCompare([]byte(token), []byte(value)) != 1 {
-				writeNativeError(w, wire, http.StatusUnauthorized, "UNAUTHENTICATED", nativeKeyConflictMessage(nativeKeyHeaderOf[kind]))
+				refuseNativeKey(w, r, wire, "UNAUTHENTICATED", nativeKeyConflictMessage(nativeKeyHeaderOf[kind]))
 				return
 			}
 		}

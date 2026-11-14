@@ -111,7 +111,9 @@ func readJSON(t *testing.T, path string, into any) {
 
 func TestInstructionCommandsExist(t *testing.T) {
 	root := repoRoot(t)
-	files := []string{filepath.Join(root, "AGENTS.md")}
+	// docs/branchyard.md tells the operators of another product which commands
+	// to run, so it is held to the same check as the integration instructions.
+	files := []string{filepath.Join(root, "AGENTS.md"), filepath.Join(root, "docs", "branchyard.md")}
 	_ = filepath.WalkDir(filepath.Join(root, "integrations"), func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".md") {
 			files = append(files, p)
@@ -180,7 +182,8 @@ func commandLines(md string) []commandLine {
 				if i := strings.IndexAny(rest, "|;&)`#"); i >= 0 {
 					rest = rest[:i]
 				}
-				if toks := shellFields(rest); len(toks) > 1 {
+				// `aiplex = "AIPLEX_TOKEN"` in a TOML example is a key, not an invocation.
+				if toks := shellFields(rest); len(toks) > 1 && toks[1] != "=" {
 					out = append(out, commandLine{text: strings.TrimSpace(rest), tokens: toks})
 				}
 				next := aiplexAt.FindStringIndex(seg[start+6:])

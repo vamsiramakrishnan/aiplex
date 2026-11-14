@@ -18,9 +18,9 @@ import (
 )
 
 func devTokenCmd() *cobra.Command {
-	var user, role, groups, issuer string
+	var user, role, groups, issuer, tenant string
 	cmd := &cobra.Command{
-		Use:   "token --user <name> [--role none|deployer|admin] [--groups a,b]",
+		Use:   "token --user <name> [--role none|deployer|admin] [--groups a,b] | --issuer branchyard --tenant <name>",
 		Short: "Mint a local token for another caller, to see role-based behaviour",
 		Long: `Prints a token for a second local caller, so you can see what a caller with no
 role, a deployer or another admin gets, and try identity federation.
@@ -41,6 +41,14 @@ accepts the request only with your own developer token.
                          "aiplex agents identity bind" (printed on stderr)
   --issuer unconfigured  an issuer nobody configured; its tokens are refused
                          (401), which is its use
+  --issuer branchyard    a stand-in Branchyard server (Branchyard is a separate
+                         product that runs coding agents on git branches; its
+                         server signs a short-lived token for each turn): an
+                         EdDSA (Ed25519) turn token for the Branchyard tenant
+                         --tenant <name> (subject branchyard:<name>,
+                         by_purpose aiplex). Takes --tenant instead of
+                         --user. The API refuses it until an agent is bound
+                         with the branchyard preset (printed on stderr)
 
   --role none      (default) no role: the caller sees only the access points
                    that admit it. Admission is not a grant: to call a model
@@ -63,10 +71,15 @@ admits it.`,
   aiplex dev token --user dana --role deployer
   aiplex dev token --user carol --groups eng,research
   aiplex dev token --user alice --issuer idp      # needs a user identity provider for the local idp
-  aiplex dev token --user ci-1 --issuer workload  # needs an agent identity binding`,
+  aiplex dev token --user ci-1 --issuer workload  # needs an agent identity binding
+  aiplex dev token --issuer branchyard --tenant acme  # needs a branchyard binding`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.TrimSpace(user) == "" {
+			if issuer == devstack.IssuerBranchyard {
+				if strings.TrimSpace(tenant) == "" {
+					return usageError("--tenant is required with --issuer branchyard", "For example: aiplex dev token --issuer branchyard --tenant acme")
+				}
+			} else if strings.TrimSpace(user) == "" {
 				return usageError("--user is required", "For example: aiplex dev token --user bob")
 			}
 			st, _, err := readDevState()
@@ -87,7 +100,7 @@ admits it.`,
 			if entry == nil || entry.AccessToken == "" {
 				return fmt.Errorf("no developer token stored for context %q; restart: aiplex dev", st.Context)
 			}
-			body := devstack.DevTokenRequest{User: user, Role: role, Issuer: issuer}
+			body := devstack.DevTokenRequest{User: user, Role: role, Issuer: issuer, Tenant: tenant}
 			for _, g := range strings.Split(groups, ",") {
 				if g = strings.TrimSpace(g); g != "" {
 					body.Groups = append(body.Groups, g)
@@ -123,6 +136,7 @@ admits it.`,
 	cmd.Flags().StringVar(&role, "role", "none", "Role: none, deployer or admin")
 	cmd.Flags().StringVar(&issuer, "issuer", devstack.IssuerLocal, "Who signs the token: "+strings.Join(devstack.IssuerNames, ", "))
 	cmd.Flags().StringVar(&groups, "groups", "", "Extra groups for the token, comma separated")
+	cmd.Flags().StringVar(&tenant, "tenant", "", "Branchyard tenant of a --issuer branchyard token (its subject is branchyard:<tenant>)")
 	return cmd
 }
 
@@ -201,6 +215,12 @@ func printFederatedTokenHelp(w io.Writer, out devstack.DevTokenResponse) {
 		fmt.Fprintf(w, "  aiplex agents register tutor --name Tutor --scopes 'llm:model:mock-gpt,llm:surface:local-models:*'\n")
 		fmt.Fprintf(w, "  aiplex agents identity bind tutor ci --preset oidc --input issuer=%s --input jwks_url=%s --input audience=%s --input subject=%s\n", out.IssuerURL, out.JWKSURL, out.Audience, out.Subject)
 		fmt.Fprintf(w, "Use it:  AIPLEX_TOKEN=$(aiplex dev token --user %s --issuer workload) aiplex whoami\n", out.Subject)
+		fmt.Fprintf(w, "The binding grants nothing by itself. To call a model the agent needs a grant:\n  aiplex agents user-scopes set %s --scopes 'llm:model:mock-gpt,llm:surface:local-models:*'\n", out.PrincipalID)
+	case devstack.IssuerBranchyard:
+		fmt.Fprintf(w, "The API refuses this issuer until an agent is bound to it (once):\n")
+		fmt.Fprintf(w, "  aiplex agents register branchyard-agent --name 'Branchyard %s' --scopes 'llm:model:mock-gpt,llm:surface:local-models:*'\n", out.Tenant)
+		fmt.Fprintf(w, "  aiplex agents identity bind branchyard-agent branchyard --preset branchyard --input server=%s --input tenant=%s --input audience=%s\n", out.IssuerURL, out.Tenant, out.Audience)
+		fmt.Fprintf(w, "Use it:  AIPLEX_TOKEN=$(aiplex dev token --issuer branchyard --tenant %s) aiplex whoami\n", out.Tenant)
 		fmt.Fprintf(w, "The binding grants nothing by itself. To call a model the agent needs a grant:\n  aiplex agents user-scopes set %s --scopes 'llm:model:mock-gpt,llm:surface:local-models:*'\n", out.PrincipalID)
 	default:
 		fmt.Fprintln(w, "Nothing configures this issuer, so the API refuses the token (401). That is its use.")

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
@@ -60,6 +61,7 @@ func writeHookRefusal(w http.ResponseWriter, err error) {
 	w.Header().Del("Content-Length")
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	errorcode.Set(w.Header(), refusal.Code)
 	w.WriteHeader(refusal.Status)
 	_, _ = w.Write(body)
 }
@@ -146,7 +148,7 @@ func (g *Gateway) serveInspected(w http.ResponseWriter, r *http.Request, respons
 			g.copySSE(buffer, r, response.Body, owner, op)
 		}
 		if buffer.overflow {
-			http.Error(w, "upstream response exceeds the inspection bound", http.StatusBadGateway)
+			errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds the inspection bound")
 			return
 		}
 		data = buffer.buf.Bytes()
@@ -157,7 +159,7 @@ func (g *Gateway) serveInspected(w http.ResponseWriter, r *http.Request, respons
 				err = errors.New("response observation bound exceeded")
 			}
 			_ = run.finish(execution.Result{StatusCode: response.StatusCode, Err: err})
-			http.Error(w, "upstream response exceeds the inspection bound", http.StatusBadGateway)
+			errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds the inspection bound")
 			return
 		}
 		data = read
@@ -166,7 +168,7 @@ func (g *Gateway) serveInspected(w http.ResponseWriter, r *http.Request, respons
 			if op.Action == Create || jsonResponse {
 				if terminal, err = g.observeControlledJSON(owner, op, data, run); err != nil {
 					_ = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Err: err})
-					http.Error(w, "upstream response could not be acknowledged", http.StatusBadGateway)
+					errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_UNACKNOWLEDGED", "upstream response could not be acknowledged")
 					return
 				}
 			}
@@ -176,7 +178,7 @@ func (g *Gateway) serveInspected(w http.ResponseWriter, r *http.Request, respons
 			}
 		} else if op.Action == Create || jsonResponse {
 			if err = g.observeJSON(r.Context(), owner, op, data, true); err != nil {
-				http.Error(w, "resource ownership could not be persisted", http.StatusBadGateway)
+				errorcode.Refuse(w, http.StatusBadGateway, "OWNERSHIP_UNAVAILABLE", "resource ownership could not be persisted")
 				return
 			}
 		}
