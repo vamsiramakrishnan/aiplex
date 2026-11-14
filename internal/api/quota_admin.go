@@ -186,7 +186,21 @@ func (h *ConnectedHandler) quotaInventory(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	out, err := e.Inventory(r.Context(), tenant, r.URL.Query().Get("kind"), r.URL.Query().Get("after"), limit)
+	query := r.URL.Query()
+	var out quotaplex.AdministrationPage
+	var err error
+	if values, filtered := query["older_than"]; filtered {
+		// Only attempts can be filtered by age; a malformed, negative or
+		// repeated duration is refused like a malformed limit.
+		olderThan, parseErr := time.ParseDuration(strings.TrimSpace(query.Get("older_than")))
+		if len(values) != 1 || parseErr != nil || olderThan < 0 || query.Get("kind") != "attempts" {
+			quotaAdminError(w, r, fmt.Errorf("older_than requires kind=attempts and one nonnegative duration"))
+			return
+		}
+		out, err = e.InventoryUnknown(r.Context(), tenant, olderThan, query.Get("after"), limit)
+	} else {
+		out, err = e.Inventory(r.Context(), tenant, query.Get("kind"), query.Get("after"), limit)
+	}
 	if err != nil {
 		quotaAdminError(w, r, err)
 		return

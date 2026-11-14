@@ -108,6 +108,10 @@ type AdministrationPage struct {
 	NextAfterID string    `json:"next_after_id,omitempty"`
 	Done        bool      `json:"done"`
 	AsOf        time.Time `json:"as_of"`
+	// OlderThan and Unknown are set only by InventoryUnknown. Unknown
+	// summarizes the records of this page, not the whole tenant.
+	OlderThan string           `json:"older_than,omitempty"`
+	Unknown   *UnknownExposure `json:"unknown,omitempty"`
 }
 
 // Inventory exposes only explicitly selected administration kinds. Its caller
@@ -131,6 +135,58 @@ func (e *Engine) Inventory(ctx context.Context, tenant, kind, after string, limi
 		out.Done = len(records) < limit
 		if len(records) > 0 {
 			out.NextAfterID = records[len(records)-1].ID
+		}
+		return nil
+	})
+	return out, err
+}
+
+// InventoryUnknown pages through attempts and returns those in the unknown
+// state that were dispatched at least olderThan before now (0 selects all of
+// them), with a summary of their count, oldest dispatch time and exposure.
+// An unknown attempt without a valid dispatch time is always included, since
+// its age cannot be shown to be younger. A record that cannot be decoded is
+// returned and counted as unreadable rather than skipped. Paging is over
+// scanned records, so a page may hold no matches and still not be done.
+func (e *Engine) InventoryUnknown(ctx context.Context, tenant string, olderThan time.Duration, after string, limit int) (AdministrationPage, error) {
+	if err := e.checkTenant(tenant); err != nil {
+		return AdministrationPage{}, err
+	}
+	if olderThan < 0 || limit < 1 || limit > 64 {
+		return AdministrationPage{}, fmt.Errorf("nonnegative older_than and limit in [1,64] required")
+	}
+	now := e.clock().UTC()
+	if !validAccountingTime(now) {
+		return AdministrationPage{}, fmt.Errorf("valid quota clock required")
+	}
+	cutoff := now.Add(-olderThan)
+	out := AdministrationPage{Kind: "attempts", AsOf: now, Records: []Record{}, OlderThan: olderThan.String()}
+	err := e.store.View(ctx, tenant, func(tx Tx) error {
+		out.Records, out.Unknown = []Record{}, newUnknownExposure(now)
+		records, err := tx.Scan(attemptKind, after, limit)
+		if err != nil {
+			return err
+		}
+		out.Done = len(records) < limit
+		out.NextAfterID = ""
+		if len(records) > 0 {
+			out.NextAfterID = records[len(records)-1].ID
+		}
+		for _, record := range records {
+			var attempt attemptRecord
+			if err := DecodeStoreValue(record.Value, &attempt); err != nil || attempt.Demand.AttemptID != record.ID || attempt.Decision.TenantID != tenant {
+				out.Unknown.Unreadable++
+				out.Records = append(out.Records, record)
+				continue
+			}
+			if attempt.Decision.State != "unknown" {
+				continue
+			}
+			if validAccountingTime(attempt.DispatchAt) && attempt.DispatchAt.After(cutoff) {
+				continue
+			}
+			out.Unknown.addAttempt(attempt)
+			out.Records = append(out.Records, record)
 		}
 		return nil
 	})

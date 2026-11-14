@@ -469,3 +469,55 @@ record's `trace_id` is the request's trace (the caller's, when it sent a valid
 `traceparent`) and its `caller_span_id` is the caller's span, as for any managed
 record, so a harness's reported records correlate with a routed record exactly as
 with an unrouted one.
+
+## QuotaPlex unknown attempts
+
+When the [QuotaPlex](quotaplex-administration.md#attempts-in-the-unknown-state)
+runtime is on, the API exports gauges about attempts in the `unknown` state:
+dispatched, outcome never learned, still holding budget. Values come from the
+last complete recovery scan of each tenant this process serves and are summed
+across those tenants. Like every other metric, no tenant, principal or attempt
+identifier is a label.
+
+| Metric | Type | Unit | What |
+| --- | --- | --- | --- |
+| `aiplex.quota.unknown.attempts` | gauge | `{attempt}` | Attempts in the `unknown` state. |
+| `aiplex.quota.unknown.oldest_age` | gauge | s | Age since dispatch of the oldest one, at its tenant's last complete scan. Not reported when there is none, or when an undated attempt makes it unknown. |
+| `aiplex.quota.unknown.undated` | gauge | `{attempt}` | Unknown attempts without a valid dispatch time. |
+| `aiplex.quota.unknown.unreadable` | gauge | `{attempt}` | Attempt records the scan could not read. While nonzero, the other gauges may be understated. |
+| `aiplex.quota.unknown.exposure` | gauge | `{quantity}` | Admitted bound held, in the meter's own unit (money in minor units at `aiplex.quota.scale`). With `aiplex.quota.exposure.complete="false"` the value is only the known part. |
+| `aiplex.quota.unknown.exposure_uncomputed` | gauge | `{attempt}` | Attempts whose exposure on that meter could not be computed and is missing from `aiplex.quota.unknown.exposure`. |
+| `aiplex.quota.unknown.scan_age` | gauge | s | Time since the last complete scan the other gauges come from (the stalest tenant). It grows while scans keep failing, so fresh figures can be told from kept ones. |
+
+Exposure attributes: `aiplex.quota.meter` (the policy's meter identifier, or
+`unknown` when the plan did not name one), `aiplex.quota.unit` (`tokens`,
+`requests`, `calls`, `milliseconds`, `bytes`, `rows`, `money`, `unknown` or
+`other`), `aiplex.quota.currency` and `aiplex.quota.scale` for money, and
+`aiplex.quota.exposure.complete` on the exposure gauge.
+
+Cardinality: the meter identifier is operator configuration, treated like
+`aiplex.access_point.id` and `gen_ai.request.model`: it is used as written and
+not folded into `other`. A policy declares at most 64 meters, so a process
+serving N tenant policies emits at most 64 × N meter values (plus `unknown`)
+per exposure gauge, each with at most a few unit, currency and scale
+combinations. Entries that map to the same label set (for example two
+non-standard units, both `other`) are summed into one observation; the result
+is incomplete if any of them is.
+
+Unknown is not reported as zero. Nothing is observed until every tenant the
+process serves has completed one scan. An amount that cannot be computed is
+counted in `exposure_uncomputed` and marks the exposure series incomplete; it
+is not added as 0. A meter on which no attempt has a known amount has no
+`aiplex.quota.unknown.exposure` series at all, only its
+`exposure_uncomputed` count. Each replica scans the same shared store, so replicas
+report the same figures: take one replica's value, or the maximum, and do not
+sum across replicas.
+
+A full scan takes about (attempt records ÷ 32) recovery intervals, so the
+gauges lag by that much. The API also logs one warning per tenant and per
+completed scan when the oldest unknown attempt is older than
+`unknown_warn_after` (default `1h`); see the
+[administration guide](quotaplex-administration.md#attempts-in-the-unknown-state).
+These gauges and the warning report; they do not alert anyone. Alerting rules
+are the collector's or the monitoring system's job. They have not been run
+against a real collector.

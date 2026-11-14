@@ -40,6 +40,10 @@ It contains no token or monetary enforcement claim.
 JSON `time.Duration` fields use integer **nanoseconds**: `1000000000` is one
 second; `300000000000` is five minutes. `recovery_interval` instead uses a Go
 duration string and must be between `1s` and `1h`; its default is `5s`.
+`unknown_warn_after` is also a Go duration string, between `1m` and `720h`
+(default `1h`): the age of the oldest attempt in the `unknown` state at which
+the recovery worker logs a warning (see
+[quota administration](quotaplex-administration.md#attempts-in-the-unknown-state)).
 
 Each tenant supplies `host.tenants[].policy`, `activate` and, for an upgrade,
 `expected_digest`. First activation uses revision 1 and no previous digest.

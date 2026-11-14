@@ -97,3 +97,44 @@ func TestQuotaAdministrationSDKScopesTenantAtServerAndCarriesReviewDigest(t *tes
 		t.Fatal("invalid requests reached server")
 	}
 }
+
+func TestQuotaUnknownAttemptsSDKSendsTheFilterAndKeepsUnknownNull(t *testing.T) {
+	var requests int
+	answer := `{"kind":"attempts","records":[],"done":true,"older_than":"1h30m0s","unknown":{"as_of":"2026-11-09T14:00:00Z","attempts":2,"oldest_dispatch_at":"2026-11-09T12:00:00Z","exposure":[{"meter_id":"usd","unit":"money","currency":"USD","scale":6,"quantity":null,"known_part":150,"uncomputed_attempts":1,"attempts":2}]}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		q := r.URL.Query()
+		if r.URL.Path != "/api/v1/quota/inventory" || q.Get("kind") != "attempts" || q.Get("older_than") != "1h30m0s" || q.Get("limit") != "64" || q.Get("after") != "cursor" {
+			t.Error("unexpected request", r.URL.String())
+		}
+		_, _ = w.Write([]byte(answer))
+	}))
+	defer server.Close()
+	c := aiplex.NewClient(server.URL)
+	page, err := c.GetQuotaUnknownAttempts(context.Background(), 90*time.Minute, "cursor", 64)
+	if err != nil || page.Unknown == nil || page.Unknown.Attempts != 2 {
+		t.Fatal(page, err)
+	}
+	usd := page.Unknown.Exposure[0]
+	if usd.Quantity != nil || usd.KnownPart != 150 || usd.UncomputedAttempts != 1 {
+		t.Fatalf("an unknown amount must stay unknown: %+v", usd)
+	}
+	if age, ok := page.Unknown.OldestAge(); !ok || age != 2*time.Hour {
+		t.Fatal(age, ok)
+	}
+	before := requests
+	if _, err = c.GetQuotaUnknownAttempts(context.Background(), -time.Second, "", 20); err == nil {
+		t.Fatal("negative age accepted")
+	}
+	if _, err = c.GetQuotaUnknownAttempts(context.Background(), time.Hour, "", 65); err == nil {
+		t.Fatal("unbounded page accepted")
+	}
+	if requests != before {
+		t.Fatal("invalid requests reached the server")
+	}
+	// A server that ignores the filter must not read as "no unknown attempts".
+	answer = `{"kind":"attempts","records":[],"done":true}`
+	if _, err = c.GetQuotaUnknownAttempts(context.Background(), 90*time.Minute, "cursor", 64); err == nil {
+		t.Fatal("a missing summary was accepted as none")
+	}
+}
