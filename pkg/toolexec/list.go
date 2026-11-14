@@ -9,8 +9,10 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strings"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 )
 
 // ListedTool is the authorization-relevant view of one upstream tools/list
@@ -146,6 +148,9 @@ func rpcDenied(w http.ResponseWriter, id json.RawMessage, err error) {
 	}{"2.0", id, rpcError{code, message, data}})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	// The denial's reason is the producer's own token (hook_denied, scope,
+	// tool_policy_denied...); its upper-case form is the refusal's code.
+	errorcode.Set(w.Header(), strings.ToUpper(reason))
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
 }
@@ -153,12 +158,12 @@ func rpcDenied(w http.ResponseWriter, id json.RawMessage, err error) {
 func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted contracts.RequestContext, body []byte) {
 	id, err := parseListRequest(body)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
 	list := g.options.List
 	if list.Authorize == nil || list.Visible == nil {
-		http.Error(w, "tool listing is unavailable", http.StatusServiceUnavailable)
+		errorcode.Refuse(w, http.StatusServiceUnavailable, "TOOL_LISTING_UNAVAILABLE", "tool listing is unavailable")
 		return
 	}
 	if err = list.Authorize(r.Context(), copyContext(trusted), g.Connection()); err != nil {
@@ -169,10 +174,10 @@ func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted cont
 	credential, response, err := g.send(r.Context(), body, true)
 	if err != nil {
 		if _, ok := err.(errCredential); ok {
-			http.Error(w, "operator tool credential unavailable", http.StatusServiceUnavailable)
+			errorcode.Refuse(w, http.StatusServiceUnavailable, "CREDENTIAL_UNAVAILABLE", "operator tool credential unavailable")
 			return
 		}
-		http.Error(w, "tool upstream unavailable", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_UNAVAILABLE", "tool upstream unavailable")
 		return
 	}
 	defer response.Body.Close()
@@ -188,7 +193,7 @@ func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted cont
 		message, _ = streamTerminal(raw, id)
 	}
 	if message == nil {
-		http.Error(w, "tool list response was invalid", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_INVALID", "tool list response was invalid")
 		return
 	}
 	var envelope struct {
@@ -196,7 +201,7 @@ func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted cont
 		Error  json.RawMessage `json:"error"`
 	}
 	if json.Unmarshal(message, &envelope) != nil {
-		http.Error(w, "tool list response was invalid", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_INVALID", "tool list response was invalid")
 		return
 	}
 	if len(envelope.Error) > 0 {
@@ -206,7 +211,7 @@ func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted cont
 	var result map[string]json.RawMessage
 	var entries []json.RawMessage
 	if json.Unmarshal(envelope.Result, &result) != nil || json.Unmarshal(result["tools"], &entries) != nil || len(entries) > 4096 {
-		http.Error(w, "tool list response was invalid", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_INVALID", "tool list response was invalid")
 		return
 	}
 	observed := make([]ListedTool, 0, len(entries))
@@ -240,7 +245,7 @@ func (g *Gateway) serveList(w http.ResponseWriter, r *http.Request, trusted cont
 	result["tools"], _ = json.Marshal(visible)
 	encoded, err := json.Marshal(result)
 	if err != nil {
-		http.Error(w, "tool list response was invalid", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_INVALID", "tool list response was invalid")
 		return
 	}
 	writeRPC(w, id, "result", encoded)

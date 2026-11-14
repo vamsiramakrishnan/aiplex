@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -29,7 +30,9 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 type contextKey string
@@ -42,17 +45,56 @@ const (
 	keyDevelopment contextKey = "development"
 )
 
-// RequestID injects a request ID from the X-Request-Id header (or generates one).
+// processRequestToken is read once when the process starts: 8 random bytes as
+// hex. Generated request ids carry it, so two processes (replicas, or one
+// process before and after a restart) writing to one ledger never answer with
+// the same id.
+var processRequestToken = func() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("request id token: " + err.Error())
+	}
+	return hex.EncodeToString(b[:])
+}()
+
+// RequestID injects a request ID from the X-Request-Id header (or generates one
+// as req-<token>-<n>).
 func RequestID(next http.Handler) http.Handler {
-	var counter atomic.Uint64
+	return requestIDHandler(next, processRequestToken, &processRequestCounter)
+}
+
+// processRequestCounter is shared by every RequestID in the process.
+var processRequestCounter atomic.Uint64
+
+func requestIDMiddleware(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		var counter atomic.Uint64
+		return requestIDHandler(next, token, &counter)
+	}
+}
+
+func requestIDHandler(next http.Handler, token string, counter *atomic.Uint64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid := r.Header.Get("X-Request-Id")
-		if !requestIDPattern.MatchString(rid) {
+		// An id of the generated form is never taken from a caller: it would pass
+		// as server-generated, which the ledger never uses as a correlation key.
+		if !requestIDPattern.MatchString(rid) || usageledger.IsServerRequestID(rid) {
 			// Client ids reach logs and responses: accept only short tokens.
-			rid = "req-" + formatUint(counter.Add(1))
+			rid = "req-" + token + "-" + formatUint(counter.Add(1))
 		}
 		ctx := context.WithValue(r.Context(), keyRequestID, rid)
 		w.Header().Set("X-Request-Id", rid)
+		if strings.HasPrefix(r.URL.Path, accessPointPathPrefix) {
+			// The one place the access point response id is set. It is the
+			// request_id of the ledger record, and a provider cannot replace
+			// it the way it replaces X-Request-Id (access_point_headers.go).
+			w.Header().Set(AccessPointRequestIDHeader, rid)
+			if r.URL.Path == accessPointPathPrefix && r.Method != http.MethodOptions {
+				// The prefix itself serves nothing, for any method: the router's
+				// own 404 is AIPlex's answer, and is marked as such.
+				errorcode.Set(w.Header(), "NOT_FOUND")
+			}
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -81,6 +123,9 @@ func Recover(next http.Handler) http.Handler {
 		defer func() {
 			if err := recover(); err != nil {
 				zerolog.Ctx(r.Context()).Error().Interface("panic", err).Msg("recovered from panic")
+				if accessPointRequest(r) {
+					errorcode.Set(w.Header(), "INTERNAL")
+				}
 				http.Error(w, `{"code":"INTERNAL","message":"internal server error"}`, http.StatusInternalServerError)
 			}
 		}()

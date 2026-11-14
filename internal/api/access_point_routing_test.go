@@ -490,7 +490,7 @@ func TestRoutedModelRefusalsKeepTheCallersProtocol(t *testing.T) {
 	putHookPolicy(t, f.store, hookPolicySpec)
 	f.model(AccessPointModel{Name: "m", Backends: backends("a/m", "b/m-b")})
 	w := f.chat(`{"model":"m","messages":[{"role":"user","content":"-----BEGIN PRIVATE KEY-----"}]}`)
-	if w.Code != 403 || !strings.Contains(w.Body.String(), `"code":"hook_denied"`) || w.Header().Get("X-Aiplex-Error-Code") != "hook_denied" || len(f.a.Requests())+len(f.b.Requests()) != 0 {
+	if w.Code != 403 || !strings.Contains(w.Body.String(), `"code":"hook_denied"`) || w.Header().Get("X-Aiplex-Error-Code") != "HOOK_DENIED" || len(f.a.Requests())+len(f.b.Requests()) != 0 {
 		t.Fatalf("a hook denial is final and protocol-native: %d %s", w.Code, w.Body)
 	}
 	if got := outcomes(f.records()[0]); got != "a:refused" {

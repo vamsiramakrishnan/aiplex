@@ -365,8 +365,8 @@ func TestHookRefusalsRenderInEachProtocol(t *testing.T) {
 		WireBedrockConverse: `"code":"hook_denied"`,
 	} {
 		w := httptest.NewRecorder()
-		writeNativeError(w, protocol, http.StatusForbidden, hooks.CodeDenied, hooks.MessageDenied)
-		if w.Code != 403 || !strings.Contains(w.Body.String(), want) || w.Header().Get("X-Aiplex-Error-Code") != "hook_denied" {
+		refuseNative(w, protocol, http.StatusForbidden, hooks.CodeDenied, hooks.MessageDenied)
+		if w.Code != 403 || !strings.Contains(w.Body.String(), want) || w.Header().Get("X-Aiplex-Error-Code") != "HOOK_DENIED" {
 			t.Errorf("%s: %d %s %v", protocol, w.Code, w.Body.String(), w.Header())
 		}
 	}

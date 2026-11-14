@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
@@ -151,6 +152,7 @@ func (g *Gateway) writeUpstreamAuthError(w http.ResponseWriter, operator bool) {
 	}
 	raw, _ := json.Marshal(body)
 	w.Header().Set("Content-Type", "application/json")
+	errorcode.Set(w.Header(), strings.ToUpper(UpstreamCredentialRejectedCode))
 	w.WriteHeader(http.StatusBadGateway)
 	_, _ = w.Write(raw)
 }

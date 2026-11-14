@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/harness"
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
@@ -402,7 +403,10 @@ Snippets read the token from $AIPLEX_TOKEN; no token or secret is printed.
 With --write, the configuration is merged into the client's own config file
 instead of only being printed. Supported for claude-code (settings.json and the
 MCP server list), codex (config.toml), gemini-cli (settings.json) and antigravity
-(its MCP server list only: ~/.gemini/config/mcp_config.json). Each file
+(its MCP server list only: ~/.gemini/config/mcp_config.json) and branchyard
+(the [models] tables of ./branchyard.toml, or the file named with --file, that
+make the access point a Branchyard backend; without --write the tables are
+printed). Each file
 is shown as a diff and needs confirmation (--yes without a terminal). A copy of
 the original goes to ~/.aiplex/connect-backups first, existing keys are never
 replaced wholesale, and a file that is not valid JSON or TOML is refused rather
@@ -419,6 +423,8 @@ antigravity's model and gateway settings, and antigravity-acp, stay print-only.
   aiplex connect local --client claude-code --write
   aiplex connect local --client codex --write --dry-run
   aiplex connect local --client gemini-cli --write --with-telemetry http://localhost:4318
+  aiplex connect ide --client branchyard
+  aiplex connect ide --client branchyard --write --dry-run
   aiplex connect --undo --client claude-code
   aiplex connect ide -o json`,
 		Args: cobra.MaximumNArgs(1),
@@ -436,7 +442,7 @@ antigravity's model and gateway settings, and antigravity-acp, stay print-only.
 				return err
 			}
 			apiClient := client
-			if client == "gemini-cli" {
+			if client == "gemini-cli" || client == "branchyard" {
 				apiClient = "generic"
 			}
 			c, err := newClient().ConnectAccessPoint(cmd.Context(), args[0], apiClient)
@@ -445,6 +451,25 @@ antigravity's model and gateway settings, and antigravity-acp, stay print-only.
 			}
 			c.Client = client
 			if spStructured(cmd, c) {
+				return nil
+			}
+			if client == "branchyard" {
+				plan, err := harness.BranchyardFragment(c, harness.Options{})
+				if err != nil {
+					return newCLIError(exitError, "connect: "+err.Error())
+				}
+				out := cmd.OutOrStdout()
+				fmt.Fprintf(out, "Add these tables to branchyard.toml:\n\n%s\n", plan.Print)
+				for _, n := range plan.Notes {
+					fmt.Fprintf(out, "Note: %s\n", n)
+				}
+				fmt.Fprintln(out, "\nStill to do by hand:")
+				for _, r := range plan.Remaining {
+					fmt.Fprintf(out, "  - %s\n", r)
+				}
+				if hint := connectWriteHint(args[0], client); hint != "" {
+					fmt.Fprintln(out, "\n"+hint)
+				}
 				return nil
 			}
 			spRenderConnect(cmd.OutOrStdout(), c)
@@ -457,7 +482,7 @@ antigravity's model and gateway settings, and antigravity-acp, stay print-only.
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&client, "client", "generic", "Client profile ID, gemini-cli, or generic")
+	cmd.Flags().StringVar(&client, "client", "generic", "Client profile ID, gemini-cli, branchyard, or generic")
 	wf.bind(cmd)
 	return cmd
 }

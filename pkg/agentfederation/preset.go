@@ -1,6 +1,6 @@
 // Package agentfederation binds external workload identities (AWS, Azure, GCP,
-// GitHub Actions, Kubernetes, SPIFFE or any OIDC issuer) to registered AIPlex
-// agents. A preset turns a few operator inputs into an exact trust tuple
+// GitHub Actions, Kubernetes, SPIFFE, a Branchyard server or any OIDC issuer)
+// to registered AIPlex agents. A preset turns a few operator inputs into an exact trust tuple
 // (issuer, JWKS location, audience, subject and required claims); a binding
 // persists that tuple tenant-scoped; the verification engine explains, check
 // by check, whether a presented token satisfies a binding.
@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/agentidentity"
 )
@@ -31,7 +32,12 @@ const (
 	PresetGitHubActions     = "github-actions"
 	PresetSPIFFEOIDC        = "spiffe-oidc"
 	PresetOIDC              = "oidc"
+	PresetBranchyard        = "branchyard"
 )
+
+// AlgorithmEdDSA is the JWS algorithm of an Ed25519 signature. Only a preset
+// that lists it accepts it; today that is the branchyard preset alone.
+const AlgorithmEdDSA = "EdDSA"
 
 // Field describes one operator input for a preset form.
 type Field struct {
@@ -62,6 +68,15 @@ type Preset struct {
 	// Notes are caveats an operator should read before binding.
 	Notes  []string `json:"notes,omitempty"`
 	derive func(in map[string]string, aud string) (Trust, error)
+	// loopbackIssuer lets the derived issuer be plain http on a loopback
+	// address, only when the JWKS is served from that same origin. Loopback
+	// is then reachable only where the outbound endpoint policy allows it,
+	// which the API permits in development mode only.
+	loopbackIssuer bool
+	// maxLifetime, when set, bounds exp - iat of a token for this preset's
+	// bindings, and requires a numeric iat. It is read from the preset at
+	// verification time and never stored with a binding.
+	maxLifetime time.Duration
 }
 
 // Trust is the derived, exact trust tuple a binding pins.
@@ -74,14 +89,38 @@ type Trust struct {
 	RequiredClaims map[string]string `json:"required_claims,omitempty"`
 }
 
-// supportedAlgorithms are the JWS algorithms the shared JWKS verifier accepts.
-// Each is bound to one key type there: RS256 to RSA, ES256 to P-256 and ES384
-// to P-384.
+// supportedAlgorithms are the JWS algorithms every preset except branchyard
+// accepts. Each is bound to one key type in the shared JWKS verifier: RS256 to
+// RSA, ES256 to P-256 and ES384 to P-384.
 var supportedAlgorithms = []string{"RS256", "ES256", "ES384"}
+
+// tokenAlgorithms are the algorithms a token may name and still reach the
+// signature check, where its binding's preset decides: supportedAlgorithms
+// and EdDSA (bound to Ed25519 keys in the shared JWKS verifier).
+var tokenAlgorithms = append(append([]string(nil), supportedAlgorithms...), AlgorithmEdDSA)
 
 // SupportedAlgorithms returns the JWS algorithms ParseCompactJWT accepts, so
 // user identity presets report exactly the same list.
 func SupportedAlgorithms() []string { return append([]string(nil), supportedAlgorithms...) }
+
+// PresetAlgorithms returns the JWS algorithms a preset's bindings accept, and
+// false for an unknown preset, whose bindings verify nothing.
+func PresetAlgorithms(id string) ([]string, bool) {
+	p, ok := Lookup(id)
+	if !ok || len(p.Algorithms) == 0 {
+		return nil, false
+	}
+	return p.Algorithms, true
+}
+
+// AlgorithmList names algorithms as messages and guides do: "EdDSA",
+// "RS256 or EdDSA", "RS256, ES256 or ES384".
+func AlgorithmList(algorithms []string) string {
+	if len(algorithms) < 2 {
+		return strings.Join(algorithms, "")
+	}
+	return strings.Join(algorithms[:len(algorithms)-1], ", ") + " or " + algorithms[len(algorithms)-1]
+}
 
 const audienceDescription = "Exact audience (aud) the workload requests for AIPlex. Defaults to the AIPlex federation audience when the server has one configured; the stored binding always records it explicitly."
 
@@ -176,7 +215,7 @@ func Derive(presetID string, inputs map[string]string, extraClaims map[string]st
 		}
 		trust.RequiredClaims[name] = value
 	}
-	if err := trust.Validate(); err != nil {
+	if err := trust.validate(preset.loopbackIssuer); err != nil {
 		return Trust{}, err
 	}
 	return trust, nil
@@ -195,12 +234,24 @@ var (
 	k8sNamespace    = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 	githubOwnerRepo = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$`)
 	githubRef       = regexp.MustCompile(`^refs/(heads|tags)/[^\s*?\[\]~^:\\]{1,255}$`)
+	// branchyardTenant is a Branchyard tenant name AIPlex can pin in the
+	// subject branchyard:<tenant>. Branchyard allows 1 to 128 bytes without
+	// '/' or control characters (check_tenant_name); AIPlex accepts the ASCII
+	// subset below, so no whitespace, colon, wildcard, look-alike Unicode or
+	// invisible character can make two tenants' subjects read alike.
+	branchyardTenant = regexp.MustCompile(`^[A-Za-z0-9._@+-]{1,128}$`)
 )
 
 // Validate checks a derived trust tuple: https only, exact issuer, explicit
 // audience, a concrete subject and no wildcards anywhere.
-func (t Trust) Validate() error {
-	if err := validHTTPSURL(t.Issuer, "issuer", true); err != nil {
+func (t Trust) Validate() error { return t.validate(false) }
+
+// validate is Validate, except that with loopbackIssuer an issuer may be plain
+// http on a loopback address when the JWKS URL is on that same origin (a
+// development Branchyard server): the outbound endpoint policy refuses that
+// origin unless development mode allows loopback.
+func (t Trust) validate(loopbackIssuer bool) error {
+	if err := validHTTPSURL(t.Issuer, "issuer", true); err != nil && !(loopbackIssuer && loopbackHTTPOrigin(t.Issuer) && strings.HasPrefix(t.JWKSURL, t.Issuer+"/")) {
 		return err
 	}
 	if err := validHTTPSURL(t.JWKSURL, "JWKS URL", false); err != nil {
@@ -259,6 +310,29 @@ func validHTTPSURL(raw, label string, issuer bool) error {
 	}
 	if issuer && strings.Contains(u.Path, "//") {
 		return fmt.Errorf("issuer path is malformed")
+	}
+	return nil
+}
+
+// loopbackHTTPOrigin reports an exact http://{loopback host}[:port] origin.
+func loopbackHTTPOrigin(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "http" && loopbackHost(u.Hostname()) && u.Scheme+"://"+u.Host == raw
+}
+
+// branchyardServer checks the issuer of a Branchyard server: exactly
+// scheme://host[:port] with nothing after it, because the issuer is compared
+// byte for byte with iss and the key set is read from issuer +
+// /.well-known/jwks.json. https is required; http only on a loopback address
+// (a Branchyard server without TLS on loopback uses http://127.0.0.1:8421),
+// which the outbound endpoint policy reaches in development mode only.
+func branchyardServer(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.Hostname() == "" || u.User != nil || u.Opaque != "" || u.Path != "" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.HasSuffix(u.Host, ":") || strings.ContainsAny(raw, "?#@*\\ %") || u.Scheme+"://"+u.Host != raw {
+		return fmt.Errorf("server must be the Branchyard issuer exactly as its tokens carry it: https://host or https://host:port, with no path, trailing slash, query, fragment or user information")
+	}
+	if u.Scheme != "https" && !loopbackHTTPOrigin(raw) {
+		return fmt.Errorf("server must use https (plain http only on a loopback address, for a development server)")
 	}
 	return nil
 }
@@ -527,9 +601,44 @@ func presetList() []Preset {
 				return Trust{Issuer: in["issuer"], JWKSURL: in["jwks_url"], SubjectClaim: "sub", Subject: in["subject"]}, nil
 			},
 		},
+		{
+			ID: PresetBranchyard, DisplayName: "Branchyard server", Cloud: "branchyard",
+			Description:  "Token a Branchyard server's model gateway signs for one turn when a model backend that is an AIPlex access point has auth = \"turn-token\". It is EdDSA-signed with the server's Ed25519 key; the caller is the agent this binding names, for one Branchyard tenant.",
+			IssuerShape:  "the Branchyard server's issuer URL (operator input)",
+			SubjectShape: "branchyard:{tenant} (sub)",
+			Inputs: []Field{
+				{Name: "server", Label: "Branchyard server", Description: "Exact issuer of the Branchyard server, as its tokens carry it in iss: its public https URL with no path or trailing slash. Its keys are read from this URL + /.well-known/jwks.json. Plain http is accepted only on a loopback address, for a development server, and the API reaches loopback only in development mode.", Required: true, Example: "https://branchyard.example.com"},
+				{Name: "tenant", Label: "Branchyard tenant", Description: "The Branchyard tenant whose turns authenticate as this agent (the token's by_tenant; its subject is branchyard:<tenant>). 1 to 128 of A-Z a-z 0-9 . _ @ + -.", Required: true, Example: "acme"},
+				audienceField(true, ""),
+			},
+			Algorithms: []string{AlgorithmEdDSA},
+			Notes: []string{
+				"Branchyard is a separate product that runs coding agents on git branches. Its server's model gateway mints a token for each turn (one agent step): a compact JWS (alg EdDSA, an Ed25519 key published as kty OKP) with iss the server, aud the backend's audience, sub branchyard:<Branchyard tenant>, by_purpose aiplex, and by_tenant, by_branch and by_turn naming the turn.",
+				"A token must carry a numeric iat, and exp may be at most one hour (3600 seconds) after it, as the contract says Branchyard mints them; a longer-lived token is refused at the lifetime check.",
+				"Set the Branchyard backend's audience to this binding's audience. AIPlex checks iss, aud, sub, iat, exp and by_purpose exactly; by_branch and by_turn are not checked.",
+				"The gateway authorizer aiplex-authz verifies RS256 only, so this token works on the managed access point path (/ap/{id}/...) and not on the gateway path.",
+				"A Branchyard that runs on one machine without a server (issuer branchyard:local:<id>, keys in a file) cannot be federated; give its backend an AIPlex token instead.",
+				"Run against a real Branchyard server on 14 November 2026, on loopback over plain http (docs/branchyard.md has the record); not validated with an https issuer, a Cloud KMS signing key or a deployed AIPlex.",
+			},
+			loopbackIssuer: true,
+			// Contract section 7: exp is at most one hour after iat.
+			maxLifetime: time.Hour,
+			derive: func(in map[string]string, _ string) (Trust, error) {
+				server, tenant := in["server"], in["tenant"]
+				if err := branchyardServer(server); err != nil {
+					return Trust{}, err
+				}
+				if !ValidBranchyardTenant(tenant) {
+					return Trust{}, fmt.Errorf("tenant must be 1 to 128 of A-Z a-z 0-9 . _ @ + -")
+				}
+				return Trust{Issuer: server, JWKSURL: server + "/.well-known/jwks.json", SubjectClaim: "sub", Subject: "branchyard:" + tenant, RequiredClaims: map[string]string{"by_purpose": "aiplex"}}, nil
+			},
+		},
 	}
 	for i := range presets {
-		presets[i].Algorithms = append([]string(nil), supportedAlgorithms...)
+		if presets[i].Algorithms == nil {
+			presets[i].Algorithms = append([]string(nil), supportedAlgorithms...)
+		}
 	}
 	return presets
 }

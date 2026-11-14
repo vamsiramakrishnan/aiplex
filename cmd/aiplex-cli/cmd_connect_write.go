@@ -19,7 +19,7 @@ import (
 // client configuration.
 type connectWriteFlags struct {
 	write, dryRun, yes, undo, tokenHelper bool
-	scope, model, telemetry               string
+	scope, model, telemetry, file         string
 }
 
 func (f *connectWriteFlags) bind(cmd *cobra.Command) {
@@ -29,6 +29,7 @@ func (f *connectWriteFlags) bind(cmd *cobra.Command) {
 	fl.BoolVarP(&f.yes, "yes", "y", false, "Do not ask for confirmation (required without a terminal)")
 	fl.BoolVar(&f.undo, "undo", false, "Restore the most recent backup made by --write (for --client, or the latest of any)")
 	fl.StringVar(&f.scope, "scope", "user", "With --write: user (home directory files) or project (this directory's files; claude-code and gemini-cli)")
+	fl.StringVar(&f.file, "file", "", "With --write and --client branchyard: the branchyard.toml to edit, created when missing (default: ./branchyard.toml, which must exist)")
 	fl.StringVar(&f.model, "model", "", "With --write: model to select, instead of the first one the access point offers on the client's API")
 	fl.BoolVar(&f.tokenHelper, "token-helper", false, "With --write: let the client fetch its token from \"aiplex --context NAME auth print-token\" for the context in effect (needs a stored token; claude-code, codex)")
 	fl.StringVar(&f.telemetry, "with-telemetry", "", "With --write: also point the client's own OpenTelemetry export at this OTLP endpoint, or 'aiplex' for this deployment's own receiver, which records the client's usage events as reported records (prompts stay redacted; the token is never written)")
@@ -36,7 +37,7 @@ func (f *connectWriteFlags) bind(cmd *cobra.Command) {
 
 // rejectWriteOnly refuses write-only flags used without --write.
 func (f *connectWriteFlags) rejectWriteOnly(cmd *cobra.Command) error {
-	for _, name := range []string{"scope", "model", "token-helper", "with-telemetry", "yes"} {
+	for _, name := range []string{"scope", "model", "token-helper", "with-telemetry", "yes", "file"} {
 		if cmd.Flags().Changed(name) {
 			return usageError("--"+name+" only applies with --write or --undo", "Add --write, or drop the flag")
 		}
@@ -47,6 +48,9 @@ func (f *connectWriteFlags) rejectWriteOnly(cmd *cobra.Command) error {
 func connectWriteHint(ap, client string) string {
 	if client != "generic" && !slices.Contains(harness.Writable, client) {
 		return ""
+	}
+	if client == "branchyard" {
+		return "To merge these tables into branchyard.toml (diff first, backup, undo with --undo; ./branchyard.toml must exist, or name a file with --file): aiplex connect " + ap + " --client branchyard --write"
 	}
 	if client == "generic" {
 		client = "claude-code"
@@ -98,15 +102,31 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 		return err
 	}
 	cwd, _ := os.Getwd()
+	if f.file != "" && client != "branchyard" {
+		return usageError("--file only applies to --client branchyard")
+	}
+	if client == "branchyard" && cmd.Flags().Changed("scope") && f.scope != "project" {
+		return usageError("--scope user does not apply to branchyard", "Branchyard's project file is ./branchyard.toml; name another file with --file")
+	}
+	if client == "branchyard" {
+		for _, name := range []string{"model", "token-helper", "with-telemetry"} {
+			if cmd.Flags().Changed(name) {
+				return usageError("--"+name+" does not apply to --client branchyard", "Its routes name every model the access point offers, the token is only named (AIPLEX_TOKEN), and Branchyard exports no telemetry to AIPlex; drop the flag")
+			}
+		}
+	}
 	apiClient := client
-	if client == "gemini-cli" || client == "antigravity" {
+	if client == "gemini-cli" || client == "antigravity" || client == "branchyard" {
 		apiClient = "generic"
 	}
 	c, err := newClient().ConnectAccessPoint(cmd.Context(), ap, apiClient)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	opts := harness.Options{Home: home, Cwd: cwd, Scope: f.scope, Model: f.model, TokenHelper: f.tokenHelper, Telemetry: f.telemetry}
+	opts := harness.Options{Home: home, Cwd: cwd, Scope: f.scope, Model: f.model, TokenHelper: f.tokenHelper, Telemetry: f.telemetry, File: f.file}
+	if client == "branchyard" {
+		opts.Scope = "project"
+	}
 	if strings.EqualFold(strings.TrimSpace(f.telemetry), "aiplex") {
 		opts.Telemetry, opts.TelemetryAIPlex = aiplexOTLPURL(c), true
 	}
@@ -127,12 +147,20 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 		plan, err = harness.PlanGeminiCLI(c, opts)
 	case "antigravity":
 		plan, err = harness.PlanAntigravity(c, opts)
+	case "branchyard":
+		plan, err = harness.PlanBranchyard(c, opts)
 	}
 	if err != nil {
 		return newCLIError(exitError, "connect --write: "+err.Error())
 	}
 	out := cmd.OutOrStdout()
+	for _, n := range plan.Preamble {
+		fmt.Fprintf(out, "Note: %s\n", n)
+	}
 	changed := printChanges(out, plan.Changes)
+	if plan.Print != "" {
+		fmt.Fprintf(out, "%s\n", plan.Print)
+	}
 	if changed > 0 {
 		if f.dryRun {
 			fmt.Fprintln(out, "Dry run: nothing was written.")
@@ -147,7 +175,7 @@ func runConnectWrite(cmd *cobra.Command, ap, client string, f *connectWriteFlags
 			}
 			fmt.Fprintf(out, "Wrote %d file(s). Backup and manifest: %s\nUndo: aiplex connect --undo --client %s\n", changed, dir, client)
 		}
-	} else {
+	} else if plan.Print == "" {
 		fmt.Fprintln(out, "Nothing to change.")
 	}
 	for _, n := range plan.Notes {

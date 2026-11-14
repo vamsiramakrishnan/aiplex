@@ -620,6 +620,122 @@ access point admits.
 `aiplex access-points` also has `list`, `get`, `create` (see [Create one with the CLI](#create-one-with-the-cli)),
 `apply -f <file>` (JSON or YAML), and `delete <id>`. `apply` creates or replaces the access point from the full specification.
 
+## Response headers
+
+A reverse proxy in front of an access point reads two response headers. Branchyard is one such
+proxy: a separate product that runs coding agents on git branches and can use an access point as its
+model backend (see [Branchyard](branchyard.md)). Both headers are added to the
+response; no status, body or other header changes.
+
+| Header | On | Value |
+| --- | --- | --- |
+| `X-Aiplex-Request-Id` | Every response from a route under `/ap/{id}/`: success or refusal, JSON or streamed, model routes, the model lists, the MCP routes and discovery, and the `101` of a WebSocket upgrade. | AIPlex's own request id. For a call that has a [usage ledger](usage-ledger.md) record it is that record's `request_id` (see below for which calls have one). `X-Request-Id` still carries the same id, except that on a model response the provider's own `X-Request-Id` replaces it, which is why this header exists. |
+| `X-Aiplex-Error-Code` | A refusal that AIPlex itself produced, and never an error relayed from a provider. | AIPlex's code for the refusal, upper case: 1 to 64 characters of `A-Z 0-9 _`. |
+
+Find the ledger record of a call with `aiplex usage records --request-id <X-Aiplex-Request-Id>`, or,
+when the caller sent `X-Client-Request-Id`, with `--client-request-id` (see
+[find the record of a call](usage-ledger.md#find-the-record-of-a-call)).
+
+**Which responses have a ledger record.** A record is written once a managed handler has the call, under
+the caller's verified tenant. Checked by a test (`TestWhichRefusalsHaveALedgerRecord`): these have one, a
+success, `MODEL_NOT_FOUND`, a missing grant (`ACTION_DENIED`), a routed model's `PROTOCOL_MISMATCH` and `NO_BACKEND_AVAILABLE` (`TestNoBackendAvailableIsAIPlexsDecisionAndAProviderErrorIsNot`);
+these have none, `UNAUTHENTICATED`, an unknown access point's `NOT_FOUND`, `CALLER_NOT_ALLOWED`, an
+invalid body (`INVALID_REQUEST`), `REQUEST_TOO_LARGE`, the router's `NOT_FOUND` for a path it does not
+serve, and `PROTOCOL_MISMATCH` for a model that is not routed. Read from the code, not tested: a provider error
+relayed from the provider, a refusal by quota, capacity or a hook, and an MCP `tools/call` that reaches the managed
+tool path have one; these have none: `TENANT_REQUIRED`, `ACCESS_POINT_UNAVAILABLE`,
+`CALLER_UNAVAILABLE`, a refusal by a middleware (`RATE_LIMITED`, route policy, provider-key headers,
+`IDENTITY_UNAVAILABLE`, `INTERNAL`), the router's `METHOD_NOT_ALLOWED`, `INVALID_PATH`, `MODULE_DISABLED`,
+`UNSUPPORTED_OPERATION`, `QUOTA_UNAVAILABLE` for an access point with QoS and no quota, and the MCP
+protocol errors. Searching the ledger for the request id of one of these finds nothing.
+
+`X-Aiplex-Request-Id` is the id the caller chose with `X-Request-Id` when that is a valid id
+(1 to 128 characters of `A-Z a-z 0-9 . _ : -`) and not of the generated form, otherwise
+`req-<token>-<number>`: `<token>` is 16 random hexadecimal characters read once when the API process
+starts and `<number>` counts requests in that process. Generated ids are therefore unique across
+restarts and replicas. An id of the generated form sent by a caller is ignored and replaced, so a caller
+cannot pass its own id off as one the server generated. A request id the caller chose can still match
+several records if the caller reuses it; `X-Client-Request-Id` is the join key a caller controls.
+
+**Reading `X-Aiplex-Error-Code`.** A response that carries it is AIPlex's decision (not
+authenticated, not admitted, no grant, model not found, quota, no backend available, AIPlex's own
+provider credential refused, and the other rows below). A response without it is the provider's answer
+relayed unchanged, or a response that AIPlex did not mark. The body keeps the provider's error shape. The
+code is set by the code that produces the refusal, which passes it along as a value; nothing reads it back
+out of a message. A code that did not fit the header would be sent as `UNSPECIFIED` and logged as an
+error, so a refusal AIPlex produced never goes without the header.
+
+AIPlex does its own routing and retries across its backends, so its own `502` and `503` answers (for
+example `UPSTREAM_UNAVAILABLE` when the provider could not be reached) carry the code and are final: a
+proxy that treats the header as final does not try another backend for them.
+
+In an OpenAI-shaped body the `code` is the header's value in lower case for AIPlex's JSON refusals (the
+gate, model lookup, router, hook refusals). It differs for refusals the managed model path writes as
+plain text (missing grants, quota, capacity, upstream failures): there the body's `code` is derived from
+the status (for example `permission_denied`, `resource_exhausted`) and the header is the only carrier of
+AIPlex's code. `UPSTREAM_CREDENTIAL_REJECTED` has the body code `upstream_credential_rejected`. Anthropic,
+Gemini and Bedrock bodies carry no `code` of their own, except for hook refusals (see
+[request hooks](request-hooks.md#refusals)). Hook refusals send the header upper case (`HOOK_DENIED`,
+`HOOK_UNAVAILABLE`, `HOOK_POLICY_UNAVAILABLE`); their bodies keep their codes.
+
+Not covered. After a stream has started the code header cannot be added: the status and headers are
+already sent. The stream then just ends; AIPlex writes no error event of its own, and an error event the
+provider itself sends in the stream is relayed unchanged. A WebSocket session after its upgrade carries no
+header either, and a WebSocket handshake that AIPlex refuses does (`WEBSOCKET_HANDSHAKE_REFUSED`). Outside
+the promise: `/ap` with no trailing part, a path with a doubled slash (`/ap//x`) and CORS preflight
+answers, which the router or the CORS middleware answers without either header being added for the
+refusal. `/ap/` itself (any method except preflight) is answered `NOT_FOUND` with both headers. The
+well-known protected-resource aliases outside `/ap/` (`/.well-known/oauth-protected-resource/ap/...`)
+carry neither header, on any answer; the same document under `/ap/{id}/.well-known/...` carries both. The
+managed routes (`/api/v1/llm/native/...`, `/api/v1/llm/gateway/...` and `/api/v1/mcp/connections/...`) do
+not set `X-Aiplex-Request-Id`; their refusals written by the managed model and tool paths (the plain-text,
+hook, quota and upstream rows) carry `X-Aiplex-Error-Code` there too, while the JSON API errors of those
+routes do not.
+
+Not tested. Against a deployment with several replicas (the uniqueness of generated ids is by
+construction and by a test of two middleware instances, not observed on two processes). Whether the
+request id header is on a WebSocket upgrade through a real proxy (it is on the `101` of a direct
+connection: `TestWebSocketUpgradeCarriesTheRequestIDs`).
+
+### Refusals that carry `X-Aiplex-Error-Code`
+
+| Where | Situation | Status | Header value |
+| --- | --- | --- | --- |
+| Server | A panic | 500 | `INTERNAL` |
+| Provider-key headers | A credential in the URL query, or conflicting credentials (wire-shaped body) | 401 | `UNAUTHENTICATED` |
+| Identity | Identity policy unavailable | 503 | `IDENTITY_UNAVAILABLE` |
+| Development mode | A proxied request with no identity | 403 | `PROXIED_DEVELOPMENT_REQUEST` |
+| Rate limit | Over the per-caller limit | 429 | `RATE_LIMITED` |
+| Route policy | No verified identity | 401 | `UNAUTHENTICATED` |
+| Router | No route of the access point serves the path, or not the method | 404, 405 | `NOT_FOUND`, `METHOD_NOT_ALLOWED` |
+| Gate (every route) | No verified identity; no tenant binding; access point missing; configuration or references unavailable; caller resolution unavailable; caller kind or identity not admitted | 401, 403, 404, 503 | `UNAUTHENTICATED`, `TENANT_REQUIRED`, `NOT_FOUND`, `ACCESS_POINT_UNAVAILABLE`, `CALLER_UNAVAILABLE`, `CALLER_NOT_ALLOWED` |
+| Model routes | Module disabled; bad path; body over 8 MiB (also 1 MiB on model-less operations); body or model name invalid; unsupported operation | 404, 400, 413 | `MODULE_DISABLED`, `INVALID_PATH`, `REQUEST_TOO_LARGE`, `INVALID_REQUEST`, `UNSUPPORTED_OPERATION` |
+| Model routes | Model not found (a ledger record is written) | 404 | `MODEL_NOT_FOUND` |
+| Model routes | Wrong wire for the model's surface | 400 | `PROTOCOL_MISMATCH` |
+| Model routes | Surface unavailable, unsupported or alias unsupported; QoS without quota | 503 | `SURFACE_UNAVAILABLE`, `SURFACE_UNSUPPORTED`, `MODEL_ALIAS_UNSUPPORTED`, `QUOTA_UNAVAILABLE` |
+| Model routes | Model-less operation: ambiguous or unowned | 400, 404, 409 | `AMBIGUOUS_SURFACE`, `NOT_FOUND`, `AMBIGUOUS_RESOURCE` |
+| Routed models | No backend could be asked (breakers open, deadline) | 503 | `NO_BACKEND_AVAILABLE` |
+| Managed model path | Missing grant: operation, shared listing (body code `permission_denied` with the missing grants named) | 403 | `ACTION_DENIED` |
+| Managed model path | Model not on the surface's list; resource ownership; other denied resource or model; context mismatch | 403 | `MODEL_NOT_ALLOWED`, `RESOURCE_FORBIDDEN`, `FORBIDDEN` |
+| Managed model path | Verified context missing; unsupported operation; invalid body, identifier or upstream request | 401, 404, 400 | `UNAUTHENTICATED`, `UNSUPPORTED_OPERATION`, `INVALID_REQUEST` |
+| Managed model path | Request hook refused, could not decide, policies unavailable; backend body mismatch (body code in lower case) | 403, 503 | `HOOK_DENIED`, `HOOK_UNAVAILABLE`, `HOOK_POLICY_UNAVAILABLE`, `ROUTE_BODY_MISMATCH` |
+| Managed model path | Quota admission refused or unavailable (budget, rate, concurrency, funding, coverage) | 429, 403, 409, 503 | `QUOTA_` plus the engine's reason, for example `QUOTA_BUDGET_EXHAUSTED`, `QUOTA_UNAVAILABLE`, `QUOTA_COVERAGE_UNAVAILABLE` |
+| Managed model path | Provider capacity cooldown or shed | 429 | `CAPACITY_COOLDOWN`, `CAPACITY_SHED` |
+| Managed model path | AIPlex's own provider credential was refused by the provider (body code `upstream_credential_rejected`) | 502 | `UPSTREAM_CREDENTIAL_REJECTED` |
+| Managed model path | Credential, network, live or execution control unavailable | 503 | `CREDENTIAL_UNAVAILABLE`, `NETWORK_PROFILE_UNAVAILABLE`, `CREDENTIAL_DESTINATION_DENIED`, `NETWORK_UNAVAILABLE`, `LIVE_UNAVAILABLE`, `EXECUTION_UNAVAILABLE`, `UPLOAD_UNAVAILABLE` |
+| Managed model path | Provider unreachable, redirected, or its answer too large, invalid or not acknowledged; ownership or batch not recorded. A routed model whose held provider error is over the 1 MiB retained bound is also `UPSTREAM_RESPONSE_TOO_LARGE`, with the provider's status | 502 | `UPSTREAM_UNAVAILABLE`, `UPSTREAM_REDIRECT_REFUSED`, `UPSTREAM_RESPONSE_TOO_LARGE`, `UPSTREAM_RESPONSE_INVALID`, `UPSTREAM_RESPONSE_UNACKNOWLEDGED`, `OWNERSHIP_UNAVAILABLE`, `BATCH_UNAVAILABLE` |
+| WebSocket | Handshake refused | 4xx | `WEBSOCKET_HANDSHAKE_REFUSED` |
+| MCP | Not POST; origin; content type; body too large; invalid JSON-RPC, id or version; module disabled; connection not exposed | 405, 403, 415, 413, 400, 404 | `METHOD_NOT_ALLOWED`, `ORIGIN_NOT_ALLOWED`, `UNSUPPORTED_MEDIA_TYPE`, `REQUEST_TOO_LARGE`, `INVALID_REQUEST`, `UNSUPPORTED_PROTOCOL_VERSION`, `MODULE_DISABLED`, `NOT_FOUND` |
+| MCP (HTTP 200 JSON-RPC errors) | Unknown method; invalid params; QoS without quota; listing unavailable | 200 | `METHOD_NOT_FOUND`, `INVALID_PARAMS`, `QUOTA_UNAVAILABLE`, `TOOL_LISTING_UNAVAILABLE` |
+| MCP tools | A governed denial: grant, connection policy, tool policy, hook (the reason in upper case, for example `SCOPE`, `HOOK_DENIED`, `TOOL_POLICY_DENIED`) | 200, 403 | the denial's reason |
+| MCP tools | Tool quota, configuration, upstream unavailable or invalid, credential unavailable, bad request (an answer of the managed tool path that has no code of its own is `TOOL_CALL_FAILED`) | 200 | `QUOTA_*`, `TOOL_CONFIGURATION_UNAVAILABLE`, `UPSTREAM_UNAVAILABLE`, `UPSTREAM_RESPONSE_INVALID`, `CREDENTIAL_UNAVAILABLE`, `INVALID_REQUEST`, `TOOL_CALL_FAILED` |
+| Discovery | `/v0.1/servers` and `/skills` use the gate rows above, plus `MODULE_DISABLED`; protected-resource metadata under `/ap/{id}/.well-known/...` with a bad id or no configuration | 404 | `NOT_FOUND`, `NOT_CONFIGURED` |
+
+The provider's own errors (the provider answered `400`, `429`, `500` and so on) are relayed as they
+are and carry no code, including a plain-text provider error that AIPlex renders in the caller's
+error shape. A routed model that held a failure back and fell over to another backend sends only the
+answer that is finally delivered, with that answer's header or none.
+
 ## Limits
 
 - No cross-protocol translation. A model is reachable only through the wire protocols

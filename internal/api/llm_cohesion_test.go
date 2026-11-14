@@ -272,8 +272,14 @@ func TestLLMCohesionTwoHostsUseDistinctBackendIDsForAmbiguousLegacyTuples(t *tes
 	go func() {
 		results <- result{"/routes/foo-bar", "baz", llmCohesionRequest(second, "PUT", "/routes/foo-bar", llmCohesionBody("baz"))}
 	}()
-	for range 2 {
-		result := <-results
+	// Collect both answers before retrying. A PUT writes the store twice (the
+	// desired route, then its activation), so a retry sent while the other
+	// host's request is still running can conflict again with that second write.
+	var answers [2]result
+	for i := range answers {
+		answers[i] = <-results
+	}
+	for _, result := range answers {
 		w := result.response
 		if w.Code == 412 {
 			w = llmCohesionRequest(first, "PUT", result.path, llmCohesionBody(result.provider))

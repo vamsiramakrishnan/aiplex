@@ -238,6 +238,14 @@ accepts the request only with your own developer token.
                          "aiplex agents identity bind" (printed on stderr)
   --issuer unconfigured  an issuer nobody configured; its tokens are refused
                          (401), which is its use
+  --issuer branchyard    a stand-in Branchyard server (Branchyard is a separate
+                         product that runs coding agents on git branches; its
+                         server signs a short-lived token for each turn): an
+                         EdDSA (Ed25519) turn token for the Branchyard tenant
+                         --tenant <name> (subject branchyard:<name>,
+                         by_purpose aiplex). Takes --tenant instead of
+                         --user. The API refuses it until an agent is bound
+                         with the branchyard preset (printed on stderr)
 
   --role none      (default) no role: the caller sees only the access points
                    that admit it. Admission is not a grant: to call a model
@@ -258,7 +266,7 @@ With the local issuer the caller's email is <name>@localhost, and its subject is
 admits it.
 
 Usage:
-  aiplex dev token --user <name> [--role none|deployer|admin] [--groups a,b] [flags]
+  aiplex dev token --user <name> [--role none|deployer|admin] [--groups a,b] | --issuer branchyard --tenant <name> [flags]
 
 Examples:
   aiplex dev token --user bob
@@ -266,12 +274,14 @@ Examples:
   aiplex dev token --user carol --groups eng,research
   aiplex dev token --user alice --issuer idp      # needs a user identity provider for the local idp
   aiplex dev token --user ci-1 --issuer workload  # needs an agent identity binding
+  aiplex dev token --issuer branchyard --tenant acme  # needs a branchyard binding
 
 Flags:
       --groups string   Extra groups for the token, comma separated
   -h, --help            help for token
-      --issuer string   Who signs the token: local, idp, workload, unconfigured (default "local")
+      --issuer string   Who signs the token: local, idp, workload, unconfigured, branchyard (default "local")
       --role string     Role: none, deployer or admin (default "none")
+      --tenant string   Branchyard tenant of a --issuer branchyard token (its subject is branchyard:<tenant>)
       --user string     Name of the caller to mint a token for (its email is <name>@localhost; <name>@idp.localhost with --issuer idp)
 
 Global Flags:

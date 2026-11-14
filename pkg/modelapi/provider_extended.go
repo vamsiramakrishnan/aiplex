@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 )
@@ -186,24 +187,24 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 	metadata := Metadata{Transport: op.Transport}
 	if model := params["model"]; model != "" {
 		if !g.allowedModel(model) {
-			http.Error(w, "model is not allowed", http.StatusForbidden)
+			errorcode.Refuse(w, http.StatusForbidden, "MODEL_NOT_ALLOWED", "model is not allowed")
 			return true
 		}
 		metadata.Model = model
 	}
 	if id := params["id"]; id != "" {
 		if !validSegment(id) {
-			http.Error(w, "invalid resource identifier", http.StatusBadRequest)
+			errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid resource identifier")
 			return true
 		}
 		metadata.Resource = Resource{op.ResourceKind, id}
 		if g.options.Ownership == nil || g.options.Ownership.Check(r.Context(), owner, metadata.Resource) != nil {
-			http.Error(w, "resource ownership denied", http.StatusForbidden)
+			errorcode.Refuse(w, http.StatusForbidden, "RESOURCE_FORBIDDEN", "resource ownership denied")
 			return true
 		}
 	}
 	if spec.kind == kindBatchList && (g.options.AllowShared == nil || !g.options.AllowShared(r.Context(), trusted, g.Surface(), op)) {
-		http.Error(w, "shared listing requires explicit authorization", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "ACTION_DENIED", "shared listing requires explicit authorization")
 		return true
 	}
 	var body []byte
@@ -215,7 +216,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 	case kindMediaJSON, kindSpeech, kindBatchCreate, kindPredictLongRunning:
 		body, err = io.ReadAll(io.LimitReader(r.Body, g.options.MaxBodyBytes+1))
 		if err != nil || int64(len(body)) > g.options.MaxBodyBytes {
-			http.Error(w, "invalid or oversized request body", http.StatusBadRequest)
+			errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid or oversized request body")
 			return true
 		}
 		images, err = g.validateExtendedJSON(r.Context(), owner, op, spec, &metadata, body)
@@ -246,7 +247,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 		return true
 	}
 	if err = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); err != nil {
-		http.Error(w, "operation denied", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "ACTION_DENIED", "operation denied")
 		return true
 	}
 	// Extended operations (images, audio, files, batches) have no response
@@ -268,7 +269,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 	}
 	upstream, err := url.Parse(g.upstreamOrigin() + r.URL.EscapedPath())
 	if err != nil {
-		http.Error(w, "invalid upstream request", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid upstream request")
 		return true
 	}
 	upstream.RawQuery = ""
@@ -287,7 +288,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 	switch {
 	case upload != nil:
 		if reader, err = upload.reader(); err != nil {
-			http.Error(w, "upload spool unavailable", http.StatusServiceUnavailable)
+			errorcode.Refuse(w, http.StatusServiceUnavailable, "UPLOAD_UNAVAILABLE", "upload spool unavailable")
 			return true
 		}
 		length = upload.size
@@ -296,13 +297,13 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 	}
 	request, err := http.NewRequestWithContext(r.Context(), r.Method, upstream.String(), reader)
 	if err != nil {
-		http.Error(w, "invalid upstream request", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid upstream request")
 		return true
 	}
 	request.ContentLength = length
 	request.Header = headers
 	if err = g.options.Credential.Authenticate(r.Context(), request); err != nil {
-		http.Error(w, "upstream identity unavailable", http.StatusServiceUnavailable)
+		errorcode.Refuse(w, http.StatusServiceUnavailable, "CREDENTIAL_UNAVAILABLE", "upstream identity unavailable")
 		return true
 	}
 	if err = run.beforeDispatch(r.Context()); err != nil {
@@ -317,7 +318,7 @@ func (g *Gateway) serveProviderExtended(w http.ResponseWriter, r *http.Request, 
 			writeExecutionError(w, finishErr)
 			return true
 		}
-		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_UNAVAILABLE", "upstream unavailable")
 		return true
 	}
 	defer response.Body.Close()
@@ -542,14 +543,14 @@ func (x *extendedExchange) readBounded() ([]byte, error) {
 	return data, err
 }
 
-func (x *extendedExchange) fail(err error, status int, message string) {
+func (x *extendedExchange) fail(err error, status int, code, message string) {
 	_ = x.run.finish(execution.Result{StatusCode: x.response.StatusCode, Err: err})
-	http.Error(x.w, message, status)
+	errorcode.Refuse(x.w, status, code, message)
 }
 
 func (x *extendedExchange) serve() {
 	if x.response.StatusCode >= 300 && x.response.StatusCode < 400 {
-		x.fail(errors.New("upstream redirect refused"), http.StatusBadGateway, "upstream redirects are not supported")
+		x.fail(errors.New("upstream redirect refused"), http.StatusBadGateway, "UPSTREAM_REDIRECT_REFUSED", "upstream redirects are not supported")
 		return
 	}
 	switch x.spec.kind {
@@ -559,14 +560,14 @@ func (x *extendedExchange) serve() {
 		}
 		// Every batch exchange is labelled batch on the ledger, whatever its outcome.
 		if err := x.batchMarker(); err != nil {
-			x.fail(err, http.StatusBadGateway, "upstream response could not be acknowledged")
+			x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_UNACKNOWLEDGED", "upstream response could not be acknowledged")
 			return
 		}
 	}
 	if !x.success() {
 		data, err := x.readBounded()
 		if err != nil {
-			x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
+			x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 			return
 		}
 		// The same not-processed rule as the text paths (rejections.go).
@@ -604,7 +605,7 @@ func (x *extendedExchange) serve() {
 func (x *extendedExchange) serveJSONPassthrough() {
 	data, err := x.readBounded()
 	if err != nil {
-		x.fail(err, http.StatusBadGateway, "upstream response exceeds observation bound")
+		x.fail(err, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 		return
 	}
 	if err = x.run.finish(execution.Result{StatusCode: x.response.StatusCode, ResponseComplete: true}); err != nil {

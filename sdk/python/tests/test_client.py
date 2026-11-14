@@ -671,3 +671,20 @@ def test_decode_error_on_wrong_wire_type(fake_api: FakeAPI, client: Client) -> N
         client.get_usage_record("ul_bad")
     assert exc_info.value.code == "decode_error"
     assert exc_info.value.status_code is None
+
+
+def test_usage_summary_sends_the_correlation_filters(fake_api: FakeAPI, client: Client) -> None:
+    fake_api.route("GET", "/api/v1/usage/summary", json={"groups": [], "records_scanned": 0})
+    client.usage_summary(UsageFilter(client_request_id="by-1", request_id="req-1", trace_id="0af7651916cd43dd8448eb211c80319c"))
+    q = fake_api.requests[-1].query
+    assert q["client_request_id"] == "by-1" and q["request_id"] == "req-1"
+    assert q["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
+
+
+def test_usage_filter_empty_correlation_id_is_refused(fake_api: FakeAPI, client: Client) -> None:
+    for field in ("request_id", "client_request_id", "trace_id"):
+        with pytest.raises(ValueError):
+            UsageFilter(**{field: ""}).to_query()
+        with pytest.raises(ValueError):
+            client.list_usage_records(UsageFilter(**{field: ""}))
+    assert len(fake_api.requests) == 0

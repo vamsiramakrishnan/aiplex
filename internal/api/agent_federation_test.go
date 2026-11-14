@@ -123,7 +123,7 @@ func TestAgentIdentityPresetsCatalog(t *testing.T) {
 		Presets         []agentfederation.Preset `json:"presets"`
 		DefaultAudience string                   `json:"default_audience"`
 	}
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil || len(body.Presets) != 9 || body.DefaultAudience != "https://aiplex.test" {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil || len(body.Presets) != 10 || body.DefaultAudience != "https://aiplex.test" {
 		t.Fatalf("presets: %d %s", w.Code, w.Body)
 	}
 }

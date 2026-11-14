@@ -18,6 +18,17 @@ An access point is one stable URL, `/ap/{id}/…`, in front of a tenant's models
 
 All routes are under `/api/v1`, which requires a verified identity. Outside development mode, the `admin` or `deployer` role is required for non-GET methods, and the access-point writes narrow that to `admin`. A caller without the role receives `403 FORBIDDEN`.
 
+## Response headers on `/ap/{id}/…`
+
+Every response from a route under `/ap/{id}/` carries `X-Aiplex-Request-Id`, AIPlex's request id. For a call
+that has a usage record it is the record's `request_id` (`GET /api/v1/usage/records?request_id=...`). A call
+refused before admission (no credential, a caller the access point does not admit, an unknown access point),
+by a middleware (rate limit, route policy) or before the model is chosen (invalid body or path, body too
+large) has no record. The full list is in the guide. A generated id is `req-<token>-<number>`, unique across
+restarts and replicas. A refusal that AIPlex itself produced also carries `X-Aiplex-Error-Code`, an upper-case code of 1 to 64 characters of `A-Z 0-9 _`;
+a provider's error that AIPlex relays does not. The body and status are unchanged. The full table of
+refusals and codes is in [access points](/docs/library/access-points#response-headers).
+
 ## Access point specification
 
 The resource `id` must equal the `id` field. The body is decoded strictly, so unknown fields are rejected. Maximum body size is 1 MiB, the same as other resource writes.

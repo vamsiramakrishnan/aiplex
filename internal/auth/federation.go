@@ -62,14 +62,27 @@ func NewJWKSKeyResolver(network endpointpolicy.Config) *JWKSKeyResolver {
 	return &JWKSKeyResolver{network: network, cache: map[string]*JWKSVerifier{}}
 }
 
+// ForBinding resolves the verifier for an agent binding. It accepts only the
+// algorithms of the binding's preset (EdDSA for branchyard; RS256, ES256 and
+// ES384 for the others), and nothing for a binding whose preset is unknown.
 func (k *JWKSKeyResolver) ForBinding(_ context.Context, b agentfederation.Binding) (agentfederation.SignatureVerifier, error) {
-	return k.ForTrust(b.Issuer, b.Audience, b.JWKSURL)
+	algorithms, ok := agentfederation.PresetAlgorithms(b.Preset)
+	if !ok {
+		return nil, fmt.Errorf("unknown identity preset")
+	}
+	return k.forTrust(b.Issuer, b.Audience, b.JWKSURL, algorithms)
 }
 
 // ForTrust resolves the signature verifier for one issuer, audience and JWKS
-// URL. Agent bindings and user identity providers share it.
+// URL, accepting RS256, ES256 and ES384. User identity providers use it.
 func (k *JWKSKeyResolver) ForTrust(issuer, audience, jwksURL string) (agentfederation.SignatureVerifier, error) {
-	cacheKey := issuer + "\x00" + audience + "\x00" + jwksURL
+	return k.forTrust(issuer, audience, jwksURL, nil)
+}
+
+// forTrust caches one verifier per issuer, audience, JWKS URL and algorithm
+// list, so a binding never shares a verifier with one that accepts more.
+func (k *JWKSKeyResolver) forTrust(issuer, audience, jwksURL string, algorithms []string) (agentfederation.SignatureVerifier, error) {
+	cacheKey := issuer + "\x00" + audience + "\x00" + jwksURL + "\x00" + strings.Join(algorithms, ",")
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if v := k.cache[cacheKey]; v != nil {
@@ -85,7 +98,7 @@ func (k *JWKSKeyResolver) ForTrust(issuer, audience, jwksURL string) (agentfeder
 	if err != nil {
 		return nil, fmt.Errorf("JWKS origin rejected by endpoint policy: %w", err)
 	}
-	verifier, err := NewJWKSVerifier(JWKSConfig{Issuer: issuer, Audience: audience, JWKSURL: jwksURL, HTTPClient: client})
+	verifier, err := NewJWKSVerifier(JWKSConfig{Issuer: issuer, Audience: audience, JWKSURL: jwksURL, HTTPClient: client, Algorithms: algorithms})
 	if err != nil {
 		return nil, err
 	}

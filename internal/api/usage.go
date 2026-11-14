@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -38,8 +40,12 @@ func NewUsageHandler(ledger usageledger.Store, tenant TenantResolver, developmen
 	return &UsageHandler{Ledger: ledger, Tenant: tenant, Development: development}
 }
 
+// traceIDPattern is a W3C trace id: 32 lower-case hexadecimal characters that
+// are not all zero.
+var traceIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
 var (
-	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "budget_id", "status", "source", "error_class", "usage_bound", "batch", "harness", "hook_decision", "cost_basis", "since", "until"}
+	usageFilterParams  = []string{"plane", "provider", "model_id", "tool_name", "actor_id", "principal_id", "client_id", "access_point_id", "caller_kind", "budget_id", "status", "source", "error_class", "usage_bound", "batch", "harness", "hook_decision", "cost_basis", "request_id", "client_request_id", "trace_id", "since", "until"}
 	usageListParams    = append(append([]string{}, usageFilterParams...), "limit", "cursor")
 	usageSummaryParams = append(append([]string{}, usageFilterParams...), "group_by", "bucket", "merge_sources", "feedback")
 )
@@ -84,7 +90,19 @@ func usageQueryError(w http.ResponseWriter, r *http.Request, message string) {
 // parseUsageFilter validates query parameters; unknown or repeated
 // parameters and unknown enumeration values are rejected.
 func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, error) {
-	values := r.URL.Query()
+	values, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		// r.URL.Query() would drop an unparsable pair silently, and an exact
+		// match filter that is dropped matches every record.
+		return usageledger.Filter{}, errors.New("the query string is malformed")
+	}
+	for _, name := range []string{"request_id", "client_request_id", "trace_id"} {
+		// Present but empty must not read as "no filter": it would return an
+		// unrelated record as the record of one call.
+		if v, present := values[name]; present && len(v) == 1 && v[0] == "" {
+			return usageledger.Filter{}, errors.New("query parameter " + strconv.Quote(name) + " must not be empty")
+		}
+	}
 	known := map[string]bool{}
 	for _, name := range allowed {
 		known[name] = true
@@ -108,7 +126,7 @@ func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, er
 			return usageledger.Filter{}, errors.New("query parameter " + strconv.Quote(name) + " is too long")
 		}
 	}
-	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), AccessPointID: values.Get("access_point_id"), CallerKind: values.Get("caller_kind"), BudgetID: values.Get("budget_id"), Status: values.Get("status"), Source: values.Get("source"), ErrorClass: values.Get("error_class"), UsageBound: values.Get("usage_bound"), Harness: values.Get("harness"), HookDecision: values.Get("hook_decision"), CostBasis: values.Get("cost_basis")}
+	f := usageledger.Filter{Plane: values.Get("plane"), Provider: values.Get("provider"), ModelID: values.Get("model_id"), ToolName: values.Get("tool_name"), ActorID: values.Get("actor_id"), PrincipalID: values.Get("principal_id"), ClientID: values.Get("client_id"), AccessPointID: values.Get("access_point_id"), CallerKind: values.Get("caller_kind"), BudgetID: values.Get("budget_id"), Status: values.Get("status"), Source: values.Get("source"), ErrorClass: values.Get("error_class"), UsageBound: values.Get("usage_bound"), Harness: values.Get("harness"), HookDecision: values.Get("hook_decision"), CostBasis: values.Get("cost_basis"), RequestID: values.Get("request_id"), ClientRequestID: values.Get("client_request_id"), TraceID: values.Get("trace_id")}
 	if len(tags) > 0 {
 		f.Tags = tags
 	}
@@ -136,6 +154,18 @@ func parseUsageFilter(r *http.Request, allowed []string) (usageledger.Filter, er
 	case "", usageledger.BasisSettled, usageledger.BasisEstimated, usageledger.BasisReported, usageledger.BasisCached, usageledger.BasisUnknown:
 	default:
 		return f, errors.New("cost_basis must be settled, estimated, reported, cached or unknown")
+	}
+	// The correlation ids are validated like the values the ledger stores: the
+	// request id middleware's pattern, the client request id pattern of
+	// X-Client-Request-Id, and a W3C trace id.
+	if f.RequestID != "" && !requestIDPattern.MatchString(f.RequestID) {
+		return f, errors.New("request_id must be 1 to 128 characters of A-Z a-z 0-9 . _ : -")
+	}
+	if f.ClientRequestID != "" && clientRequestID(f.ClientRequestID) == "" {
+		return f, errors.New("client_request_id must be 1 to 128 characters of A-Z a-z 0-9 . _ : -")
+	}
+	if f.TraceID != "" && (!traceIDPattern.MatchString(f.TraceID) || f.TraceID == strings.Repeat("0", 32)) {
+		return f, errors.New("trace_id must be 32 lower-case hexadecimal characters, not all zero")
 	}
 	if f.HookDecision != "" && !usageledger.ValidHookDecision(f.HookDecision) {
 		return f, errors.New("hook_decision must be allow, deny, transform, error, skipped or none")

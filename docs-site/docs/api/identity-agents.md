@@ -32,7 +32,7 @@ Errors use this shape:
 
 ## GET /api/v1/agents/identity-presets
 
-Returns the nine presets, the default audience, and whether live authentication through bindings is enabled.
+Returns the ten presets, the default audience, and whether live authentication through bindings is enabled.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -52,10 +52,10 @@ Each preset has:
 | `subject_shape` | string | Describes the subject the binding pins |
 | `issuer_shape` | string | Describes the issuer the binding pins |
 | `allows_required_claims` | boolean | Whether extra exact-match claims may be added |
-| `algorithms` | array of string | Signature algorithms the verifier accepts for this preset |
+| `algorithms` | array of string | Signature algorithms the verifier accepts for this preset: `["EdDSA"]` for `branchyard`, `["RS256", "ES256", "ES384"]` for every other preset |
 | `notes` | array of string | Omitted when empty. Caveats to read before binding. |
 
-The preset identifiers are `gcp-service-account`, `gcp-agent-identity`, `aws-sts-web-identity`, `aws-eks-irsa`, `kubernetes`, `azure-managed-identity`, `github-actions`, `spiffe-oidc` and `oidc`.
+The preset identifiers are `gcp-service-account`, `gcp-agent-identity`, `aws-sts-web-identity`, `aws-eks-irsa`, `kubernetes`, `azure-managed-identity`, `github-actions`, `spiffe-oidc`, `oidc` and `branchyard` (a Branchyard server's EdDSA turn tokens; see the agent identity federation guide).
 
 ### Status codes and errors
 

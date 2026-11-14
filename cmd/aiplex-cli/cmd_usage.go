@@ -31,9 +31,21 @@ type usageFilterFlags struct {
 	harness                                                           string
 	tags                                                              []string
 	hookDecision, costBasis                                           string
+	requestID, clientRequestID, traceID                               string
+	cmd                                                               *cobra.Command
+}
+
+// usageExactScanPages bounds how many pages `aiplex usage records` follows when
+// the person asked for one call by request id, client request id or trace id.
+const usageExactScanPages = 50
+
+// exact reports whether one of the three exact correlation filters is set.
+func (f *usageFilterFlags) exact() bool {
+	return f.requestID != "" || f.clientRequestID != "" || f.traceID != ""
 }
 
 func (f *usageFilterFlags) bind(cmd *cobra.Command) {
+	f.cmd = cmd
 	fl := cmd.Flags()
 	fl.StringVar(&f.plane, "plane", "", "Plane: llmplex, mcplex or a2aplex")
 	fl.StringVar(&f.provider, "provider", "", "Provider")
@@ -53,6 +65,9 @@ func (f *usageFilterFlags) bind(cmd *cobra.Command) {
 	fl.StringVar(&f.bound, "bound", "", "Usage bound: lower_bound, ambiguous, partial or none (usage_bound)")
 	fl.StringVar(&f.hookDecision, "hook-decision", "", "Request-hook decision: allow, deny, transform, error, skipped or none (hook_decision)")
 	fl.StringVar(&f.costBasis, "cost-basis", "", "Cost basis: settled, estimated, reported, cached or unknown (cost_basis)")
+	fl.StringVar(&f.requestID, "request-id", "", "The record of one call, by AIPlex's request id (the X-Aiplex-Request-Id response header)")
+	fl.StringVar(&f.clientRequestID, "client-request-id", "", "The record of one call, by the caller's X-Client-Request-Id")
+	fl.StringVar(&f.traceID, "trace-id", "", "Records of one trace, by W3C trace id (32 hexadecimal characters)")
 	fl.StringVar(&f.batch, "batch", "", "Provider batch records only (true) or excluding them (false)")
 	fl.Lookup("batch").NoOptDefVal = "true"
 	fl.StringVar(&f.since, "since", "", "Start of window: duration like 24h, 7d, or an RFC3339 time")
@@ -68,6 +83,14 @@ func (f *usageFilterFlags) filter(now time.Time) (aiplex.UsageFilter, error) {
 		return out, fmt.Errorf("--cost-basis must be settled, estimated, reported, cached or unknown")
 	}
 	out.Harness = f.harness
+	out.RequestID, out.ClientRequestID, out.TraceID = f.requestID, f.clientRequestID, f.traceID
+	if f.cmd != nil {
+		for flag, value := range map[string]string{"request-id": f.requestID, "client-request-id": f.clientRequestID, "trace-id": f.traceID} {
+			if f.cmd.Flags().Changed(flag) && value == "" {
+				return out, usageError("--"+flag+" is empty", "An empty id would match no call in particular; nothing was sent. Check the variable that holds it.")
+			}
+		}
+	}
 	for _, pair := range f.tags {
 		key, value, ok := strings.Cut(pair, "=")
 		if !ok || !usageledger.ValidTagKey(key) || !usageledger.ValidTagValue(value) {
@@ -240,7 +263,8 @@ func usageRecordsCmd() *cobra.Command {
 		Example: `  aiplex usage records --since 24h --model gemini-2.5-flash
   aiplex usage records --agent tutor-agent --status error --limit 50
   aiplex usage records --access-point ide-team --caller-kind agent --since 24h
-  aiplex usage records --since 7d --all -o json`,
+  aiplex usage records --since 7d --all -o json
+  aiplex usage records --client-request-id by-123   # exit 0 means the answer is complete; exit 1 means the scan stopped early`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			filter, err := flags.filter(time.Now())
@@ -255,6 +279,7 @@ func usageRecordsCmd() *cobra.Command {
 			var records []usageledger.Record
 			next := ""
 			capped := false
+			var stopErr error
 			if all {
 				if query.Limit == 0 {
 					query.Limit = aiplex.UsageMaxPageSize
@@ -269,6 +294,23 @@ func usageRecordsCmd() *cobra.Command {
 					return fmt.Errorf("list usage records: %w", err)
 				}
 				records, next = page.Records, page.NextCursor
+				// One call was asked for: an empty page that has a cursor is the
+				// scan stopping early, not "no match". Follow it, within a bound.
+				for pages := 1; flags.exact() && len(records) == 0 && next != "" && pages < usageExactScanPages; pages++ {
+					query.Cursor = next
+					if page, err = client.QueryUsageRecords(cmd.Context(), query); err != nil {
+						return fmt.Errorf("list usage records: %w", err)
+					}
+					records, next = page.Records, page.NextCursor
+				}
+				if flags.exact() && len(records) == 0 && next != "" {
+					// The question was not answered: exit 1, after the output below.
+					hints := []string{"Continue with --cursor " + next + ", or narrow the search with --since."}
+					if p, derr := usageledger.DecodeCursor(next); derr == nil {
+						hints = append([]string{"The oldest time scanned is " + p.StartedAt.UTC().Format(time.RFC3339) + "."}, hints...)
+					}
+					stopErr = newCLIError(exitError, fmt.Sprintf("Scan stopped after %d pages without finding the record; this is not a no-match.", usageExactScanPages), hints...)
+				}
 			}
 			if records == nil {
 				records = []usageledger.Record{}
@@ -280,7 +322,9 @@ func usageRecordsCmd() *cobra.Command {
 					usagePrint(usageledger.Page{Records: records, NextCursor: next})
 				}
 			} else {
-				if len(records) == 0 {
+				if len(records) == 0 && next != "" {
+					fmt.Println("No records in the part of the ledger scanned so far; the scan stopped early, it did not reach the end.")
+				} else if len(records) == 0 {
 					fmt.Println("No usage records match.")
 				} else {
 					usageRecordTable(records).render(os.Stdout)
@@ -302,7 +346,7 @@ func usageRecordsCmd() *cobra.Command {
 			if capped {
 				fmt.Fprintf(os.Stderr, "WARNING: stopped after %d records; narrow the window with --since/--until\n", usageAllRecordsCap)
 			}
-			return nil
+			return stopErr
 		},
 	}
 	flags.bind(cmd)

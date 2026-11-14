@@ -326,7 +326,8 @@ gateway routes, and `POST /api/v1/iam/native/bindings/{id}/read`.
 - `OPTIONS` requests get `204 No Content` before authorization runs.
 
 **Request IDs.** A client's `X-Request-Id` is kept only when it matches `^[A-Za-z0-9._:-]{1,128}$`.
-Otherwise the server generates `req-<n>`. The ID is echoed in the `X-Request-Id` response header and in
+Otherwise the server generates `req-<token>-<n>` (a random 16-hex token read when the process starts,
+so ids differ across restarts and replicas); a caller's id of that form is ignored. The ID is echoed in the `X-Request-Id` response header and in
 error bodies as `request_id`.
 
 **Caching.** Every response on a route that is not `public` or `internal` carries `Cache-Control: no-store`,

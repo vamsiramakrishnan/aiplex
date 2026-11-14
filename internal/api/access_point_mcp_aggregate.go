@@ -61,7 +61,7 @@ func (h *ConnectedHandler) aggregateTools(r *http.Request, call *accessPointCall
 		reason := ""
 		failed := false
 		for page := 0; ; page++ {
-			listed, _, err := h.managedList(r, call, tool.ConnectionRef, json.RawMessage(`"aiplex-aggregate"`), cursor)
+			listed, _, _, err := h.managedList(r, call, tool.ConnectionRef, json.RawMessage(`"aiplex-aggregate"`), cursor)
 			if err != nil {
 				if ctx.Err() != nil {
 					reason = "time_limit"

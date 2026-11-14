@@ -49,6 +49,12 @@ type UsageFilter struct {
 	// BudgetID selects exchanges that drew from that tenant budget.
 	BudgetID       string
 	Status, Source string
+	// RequestID, ClientRequestID and TraceID each find the records of one call
+	// by an exact match: AIPlex's request id (the X-Aiplex-Request-Id response
+	// header), the caller's X-Client-Request-Id, and the W3C trace id. As for
+	// every field of this struct, the zero value ("") means no filter; the server
+	// refuses a filter that is present but empty, and this client never sends one.
+	RequestID, ClientRequestID, TraceID string
 	// ErrorClass selects an exact error_class. UsageBound selects
 	// lower_bound, ambiguous, partial or "none" (final or unknown usage).
 	ErrorClass, UsageBound string
@@ -68,7 +74,7 @@ type UsageFilter struct {
 
 func (f UsageFilter) values() url.Values {
 	q := url.Values{}
-	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "budget_id": f.BudgetID, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "harness": f.Harness, "hook_decision": f.HookDecision, "cost_basis": f.CostBasis} {
+	for name, value := range map[string]string{"plane": f.Plane, "provider": f.Provider, "model_id": f.ModelID, "tool_name": f.ToolName, "actor_id": f.ActorID, "principal_id": f.PrincipalID, "client_id": f.ClientID, "access_point_id": f.AccessPointID, "caller_kind": f.CallerKind, "budget_id": f.BudgetID, "status": f.Status, "source": f.Source, "error_class": f.ErrorClass, "usage_bound": f.UsageBound, "harness": f.Harness, "hook_decision": f.HookDecision, "cost_basis": f.CostBasis, "request_id": f.RequestID, "client_request_id": f.ClientRequestID, "trace_id": f.TraceID} {
 		if value != "" {
 			q.Set(name, value)
 		}

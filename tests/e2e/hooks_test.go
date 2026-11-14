@@ -122,7 +122,7 @@ auth: {type: bearer, secret_ref: openai-key}
 		}
 		for _, c := range cases {
 			r := e.post(c.path, c.body, c.headers...)
-			if r.Status != 403 || !c.check(r.JSON(t)) || r.Header.Get("X-Aiplex-Error-Code") != "hook_denied" {
+			if r.Status != 403 || !c.check(r.JSON(t)) || r.Header.Get("X-Aiplex-Error-Code") != "HOOK_DENIED" {
 				t.Errorf("%s: %d %s", c.name, r.Status, r.Body)
 			}
 			notContains(t, r.Body, e2eMarker, c.name+" error body")

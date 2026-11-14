@@ -12,7 +12,7 @@ import (
 )
 
 // Writable lists the client profiles whose configuration can be written.
-var Writable = []string{"claude-code", "codex", "gemini-cli", "antigravity"}
+var Writable = []string{"claude-code", "codex", "gemini-cli", "antigravity", "branchyard"}
 
 // TokenEnv is the environment variable every written file refers to.
 const TokenEnv = "AIPLEX_TOKEN"
@@ -43,6 +43,9 @@ type Options struct {
 	// AIPlex token, so the export header references the token and no file ever
 	// holds it: see telemetryAuth.
 	TelemetryAIPlex bool
+	// File is the Branchyard configuration file to edit (--file). Without it
+	// the target edits ./branchyard.toml and only when that file exists.
+	File string
 }
 
 // Plan is the result of planning: file changes plus what must still be done
@@ -52,6 +55,10 @@ type Plan struct {
 	Changes   []Change
 	Remaining []string
 	Notes     []string
+	Preamble  []string
+	// Print is text to show the person as it is (the Branchyard tables when no
+	// file is written).
+	Print string
 }
 
 func (o Options) scope() string {

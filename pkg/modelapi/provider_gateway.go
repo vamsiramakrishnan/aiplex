@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/errorcode"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 	"github.com/vamsiramakrishnan/aiplex/pkg/providerlimits"
 )
@@ -21,25 +22,26 @@ import (
 // credential acquisition or upstream I/O.
 type providerRequestError struct {
 	status  int
+	code    string // AIPlex's own code, sent as X-Aiplex-Error-Code
 	message string
 }
 
 func (e *providerRequestError) Error() string { return e.message }
 
 func badRequest(format string, args ...any) error {
-	return &providerRequestError{status: http.StatusBadRequest, message: fmt.Sprintf(format, args...)}
+	return &providerRequestError{status: http.StatusBadRequest, code: "INVALID_REQUEST", message: fmt.Sprintf(format, args...)}
 }
 func forbidden(message string) error {
-	return &providerRequestError{status: http.StatusForbidden, message: message}
+	return &providerRequestError{status: http.StatusForbidden, code: "FORBIDDEN", message: message}
 }
 
 func writeProviderRequestError(w http.ResponseWriter, err error) {
 	var typed *providerRequestError
 	if errors.As(err, &typed) {
-		http.Error(w, typed.message, typed.status)
+		errorcode.Refuse(w, typed.status, typed.code, typed.message)
 		return
 	}
-	http.Error(w, "request denied", http.StatusForbidden)
+	errorcode.Refuse(w, http.StatusForbidden, "FORBIDDEN", "request denied")
 }
 
 // serveProvider is the provider-surface request path. It shares operation
@@ -48,16 +50,16 @@ func writeProviderRequestError(w http.ResponseWriter, err error) {
 func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	op, params, ok := g.match(r.Method, r.URL.Path)
 	if !ok {
-		http.Error(w, "operation is not allowed by this surface", http.StatusNotFound)
+		errorcode.Refuse(w, http.StatusNotFound, "UNSUPPORTED_OPERATION", "operation is not allowed by this surface")
 		return
 	}
 	trusted, e := g.options.Context(r)
 	if e != nil || trusted.Validate() != nil {
-		http.Error(w, "verified request context required", http.StatusUnauthorized)
+		errorcode.Refuse(w, http.StatusUnauthorized, "UNAUTHENTICATED", "verified request context required")
 		return
 	}
 	if trusted.ResourceID != g.surface.ID {
-		http.Error(w, "request context surface mismatch", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "FORBIDDEN", "request context surface mismatch")
 		return
 	}
 	owner := Owner{trusted.TenantID, trusted.PrincipalID, g.surface.ID}
@@ -78,7 +80,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
-			http.Error(w, "operation denied", http.StatusForbidden)
+			errorcode.Refuse(w, http.StatusForbidden, "ACTION_DENIED", "operation denied")
 			return
 		}
 		if !g.sessionHooks(w, r, op, metadata) {
@@ -93,7 +95,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	metadata := Metadata{Model: params["model"], Transport: op.Transport}
 	if metadata.Model != "" && !g.allowedModel(metadata.Model) {
-		http.Error(w, "model is not allowed", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "MODEL_NOT_ALLOWED", "model is not allowed")
 		return
 	}
 	if e = g.preflightUtility(r.Context(), trusted, owner, op, params, &metadata); e != nil {
@@ -102,7 +104,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	body, e := io.ReadAll(io.LimitReader(r.Body, g.options.MaxBodyBytes+1))
 	if e != nil || int64(len(body)) > g.options.MaxBodyBytes {
-		http.Error(w, "invalid or oversized request body", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid or oversized request body")
 		return
 	}
 	if body, e = g.validateProviderBody(r.Context(), owner, op, &metadata, body); e != nil {
@@ -115,7 +117,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
-		http.Error(w, "operation denied", http.StatusForbidden)
+		errorcode.Refuse(w, http.StatusForbidden, "ACTION_DENIED", "operation denied")
 		return
 	}
 	body, inspect, lease, e := g.prepareDispatch(r, trusted, op, metadata, body)
@@ -144,7 +146,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	upstream, e := url.Parse(g.upstreamOrigin() + r.URL.EscapedPath())
 	if e != nil {
-		http.Error(w, "invalid upstream request", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid upstream request")
 		return
 	}
 	// Caller query parameters never cross: only operator-pinned values do.
@@ -154,13 +156,13 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	request, e := http.NewRequestWithContext(r.Context(), r.Method, upstream.String(), bytes.NewReader(body))
 	if e != nil {
-		http.Error(w, "invalid upstream request", http.StatusBadRequest)
+		errorcode.Refuse(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid upstream request")
 		return
 	}
 	request.Header = headers
 	// The credential is applied last so request signing covers final headers.
 	if e = g.options.Credential.Authenticate(r.Context(), request); e != nil {
-		http.Error(w, "upstream identity unavailable", http.StatusServiceUnavailable)
+		errorcode.Refuse(w, http.StatusServiceUnavailable, "CREDENTIAL_UNAVAILABLE", "upstream identity unavailable")
 		return
 	}
 	if e = run.beforeDispatch(r.Context()); e != nil {
@@ -173,7 +175,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 			writeExecutionError(w, err)
 			return
 		}
-		http.Error(w, "upstream unavailable", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_UNAVAILABLE", "upstream unavailable")
 		return
 	}
 	defer response.Body.Close()
@@ -189,7 +191,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 			writeExecutionError(w, err)
 			return
 		}
-		http.Error(w, "upstream redirects are not supported", http.StatusBadGateway)
+		errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_REDIRECT_REFUSED", "upstream redirects are not supported")
 		return
 	}
 	success := response.StatusCode >= 200 && response.StatusCode < 300
@@ -222,7 +224,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 				err = errors.New("response observation bound exceeded")
 			}
 			_ = run.finish(execution.Result{StatusCode: response.StatusCode, Err: err})
-			http.Error(w, "upstream response exceeds observation bound", http.StatusBadGateway)
+			errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 			return
 		}
 		terminal := false
@@ -230,7 +232,7 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 			terminal, err = g.observeControlledJSON(owner, op, data, run)
 			if err != nil {
 				_ = run.finish(execution.Result{StatusCode: response.StatusCode, ResponseComplete: true, Err: err})
-				http.Error(w, "upstream response could not be acknowledged", http.StatusBadGateway)
+				errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_UNACKNOWLEDGED", "upstream response could not be acknowledged")
 				return
 			}
 		}
@@ -249,11 +251,11 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	if success && (op.Action == Create || jsonResponse) {
 		data, e := io.ReadAll(io.LimitReader(response.Body, g.options.MaxBodyBytes+1))
 		if e != nil || int64(len(data)) > g.options.MaxBodyBytes {
-			http.Error(w, "upstream response exceeds observation bound", http.StatusBadGateway)
+			errorcode.Refuse(w, http.StatusBadGateway, "UPSTREAM_RESPONSE_TOO_LARGE", "upstream response exceeds observation bound")
 			return
 		}
 		if e = g.observeJSON(r.Context(), owner, op, data, true); e != nil {
-			http.Error(w, "resource ownership could not be persisted", http.StatusBadGateway)
+			errorcode.Refuse(w, http.StatusBadGateway, "OWNERSHIP_UNAVAILABLE", "resource ownership could not be persisted")
 			return
 		}
 		if store != nil && jsonResponse {

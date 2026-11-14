@@ -98,3 +98,18 @@ func TestUsageFilterBatchErrorClassAndBound(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
+
+func TestUsageFilterCorrelationIDs(t *testing.T) {
+	var calls []seenCall
+	c := recordingServer(t, &calls, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"records":[],"next_cursor":""}`))
+	})
+	filter := UsageFilter{ClientRequestID: "by-123", RequestID: "req-9", TraceID: "0af7651916cd43dd8448eb211c80319c"}
+	if _, err := c.QueryUsageRecords(context.Background(), UsageRecordsQuery{UsageFilter: filter}); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := url.ParseQuery(calls[0].query)
+	if q.Get("client_request_id") != "by-123" || q.Get("request_id") != "req-9" || q.Get("trace_id") != "0af7651916cd43dd8448eb211c80319c" {
+		t.Fatalf("%v", calls[0].query)
+	}
+}

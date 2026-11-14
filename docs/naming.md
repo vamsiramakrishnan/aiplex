@@ -72,6 +72,19 @@ Things to know about the pattern:
 | **Admission** | The decision to let a request proceed: caller kind and identity at the access point, then quota when QuotaPlex is enabled. |
 | **Scope** | A permission string in the caller's token, such as `llm:model:{model_id}` or `mcp:tools:{tool_name}`. |
 
+### Words from Branchyard
+
+[Branchyard](branchyard.md) is a separate product that can use an access point as its model backend. Its words appear in that guide, in the `branchyard` federation preset and in usage tags. They keep Branchyard's meaning, and are written so they cannot be taken for AIPlex's.
+
+| Term | Meaning |
+| --- | --- |
+| **Branchyard** | A separate product that runs several coding agents at once, each on its own git branch. It is not a plex and not part of AIPlex. |
+| **Branch**, **turn** | In Branchyard, one coding agent's working copy and git branch, and one round of work on it. AIPlex sees them only as the tags `by_branch` and `by_turn` and as claims in a Branchyard token. |
+| **Model gateway** (Branchyard's) | The loopback proxy Branchyard runs for each turn, which the harness calls instead of the provider. Written "Branchyard's gateway" or "the model gateway"; "the gateway" alone still means Envoy. |
+| **Backend** (Branchyard's) | A named upstream of that model gateway in `branchyard.toml`. An access point is used as one. Unrelated to the backends of an LLMPlex route. |
+| **Branchyard tenant** | The tenant inside a Branchyard server: its `by_tenant` claim and the `tenant` input of the `branchyard` preset. Not AIPlex's tenant, which comes from the verified identity. |
+| **Turn token** | A short-lived token a Branchyard server signs for one turn. The one it presents to AIPlex carries `by_purpose = "aiplex"`. |
+
 ## Names that are easy to confuse
 
 | These look alike | The difference |
@@ -80,5 +93,6 @@ Things to know about the pattern:
 | `aiplex tools` and `aiplex tool-auth` | `tools` is for operators: a tool connection's credential type and which tools it allows. `tool-auth` is for a user: sign yourself in to a downstream tool. |
 | `aiplex health`, `aiplex doctor`, `aiplex status` | `health` asks whether the API and its components answer. `doctor` checks your local setup and says what to fix. `status` summarises a deployed platform. |
 | `aiplex connect` and "connection" | `connect` prints or writes client configuration for an access point. A connection is an upstream tool server or agent. |
+| `aiplex connect --client branchyard` and a client | The flag's other values are developer clients (ClientPlex registrations). Branchyard is not one: its model gateway calls the access point with a token, and no client registration is involved. |
 | `aiplex identity` and `aiplex agents identity` | The first configures how people sign in. The second binds an agent to its cloud workload identity. |
 | `aiplex init` and `aiplex quickstart` | Both set up a cloud deployment: `init` is guided, `quickstart` runs end to end. Neither is the local path; that is `aiplex dev`. |

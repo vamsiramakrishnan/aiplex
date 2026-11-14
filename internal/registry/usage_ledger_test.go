@@ -227,12 +227,18 @@ func exerciseUsageLedgerStore(t *testing.T, store usageledger.Store, now time.Ti
 	for i := 0; i < 7; i++ {
 		id := fmt.Sprintf("r%d", i)
 		// Pairs share a timestamp to exercise the (started_at, id) cursor.
-		if err := store.Append(ctx, ledgerRecord("tenant-a", id, now.Add(-time.Duration(10-i/2)*time.Minute))); err != nil {
+		rec := ledgerRecord("tenant-a", id, now.Add(-time.Duration(10-i/2)*time.Minute))
+		if i == 3 {
+			rec.RequestID, rec.ClientRequestID, rec.TraceID = "req-3", "by-3", "0af7651916cd43dd8448eb211c80319c"
+		}
+		if err := store.Append(ctx, rec); err != nil {
 			t.Fatal(err)
 		}
 		ids = append(ids, id)
 	}
-	if err := store.Append(ctx, ledgerRecord("tenant-b", "foreign", now.Add(-time.Minute))); err != nil {
+	foreign := ledgerRecord("tenant-b", "foreign", now.Add(-time.Minute))
+	foreign.RequestID, foreign.ClientRequestID, foreign.TraceID = "req-3", "by-3", "0af7651916cd43dd8448eb211c80319c"
+	if err := store.Append(ctx, foreign); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Append(ctx, ledgerRecord("tenant-a", "r0", now)); !errors.Is(err, usageledger.ErrConflict) {
@@ -276,6 +282,25 @@ func exerciseUsageLedgerStore(t *testing.T, store usageledger.Store, now time.Ti
 	page, _ = store.List(ctx, "tenant-a", usageledger.Query{Filter: usageledger.Filter{Visibility: []string{"mallory"}}})
 	if len(page.Records) != 0 {
 		t.Fatal("visibility ignored")
+	}
+	// The correlation filters find one call, in this tenant only, and are
+	// narrowed by visibility like every other filter.
+	for name, f := range map[string]usageledger.Filter{
+		"client_request_id": {ClientRequestID: "by-3"},
+		"request_id":        {RequestID: "req-3"},
+		"trace_id":          {TraceID: "0af7651916cd43dd8448eb211c80319c"},
+	} {
+		page, err = store.List(ctx, "tenant-a", usageledger.Query{Filter: f})
+		if err != nil || len(page.Records) != 1 || page.Records[0].ID != "r3" || page.Records[0].TenantID != "tenant-a" {
+			t.Fatalf("%s filter: %+v %v", name, page.Records, err)
+		}
+		f.Visibility = []string{"mallory"}
+		if page, _ = store.List(ctx, "tenant-a", usageledger.Query{Filter: f}); len(page.Records) != 0 {
+			t.Fatalf("%s filter ignored visibility", name)
+		}
+	}
+	if page, _ = store.List(ctx, "tenant-a", usageledger.Query{Filter: usageledger.Filter{ClientRequestID: "by"}}); len(page.Records) != 0 {
+		t.Fatal("client_request_id matched a prefix")
 	}
 }
 

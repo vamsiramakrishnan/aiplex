@@ -1,6 +1,6 @@
 # Harness onboarding
 
-How to point a coding agent (Claude Code, Codex, Gemini CLI) at an AIPlex access point, and how to let that agent inspect AIPlex itself. Three pieces:
+How to point a coding agent (Claude Code, Codex, Gemini CLI), or Branchyard's model gateway, at an AIPlex access point, and how to let that agent inspect AIPlex itself. Three pieces:
 
 | Piece | What it is |
 | --- | --- |
@@ -27,6 +27,7 @@ Supported clients and the files they touch (user scope; paths are under your hom
 | `codex` | `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`) | `model_provider`, `model`, `[model_providers.aiplex]`, `[mcp_servers.aiplex-<id>]` |
 | `gemini-cli` | `~/.gemini/settings.json` (`./.gemini/settings.json` with `--scope project`) | `mcpServers.aiplex-<id>`, `security.auth.selectedType = "gemini-api-key"`, `model.name` (the first Google GenAI model of the access point, or `--model`) |
 | `antigravity` | `~/.gemini/config/mcp_config.json` (`./.agents/mcp_config.json` with `--scope project`) | MCP only: `mcpServers.aiplex` = the stdio server `aiplex mcp serve`. The access point's own MCP endpoint is not written (see below). Model and gateway settings stay print-only |
+| `branchyard` | `./branchyard.toml` (must exist), or the file named with `--file` (created when missing) | `[secrets] aiplex`, `[models.backends.aiplex-<id>-anthropic]` and `-openai`, and one `[[models.routes]]` per model. See [Branchyard](#branchyard) |
 
 ### What it does to your files
 
@@ -70,6 +71,10 @@ Backups are exact copies of your original files, so they contain whatever secret
 ### Codex TOML
 
 TOML libraries drop comments and reorder keys, so the Codex file is edited as text. AIPlex owns two delimited blocks (`# >>> aiplex connect ...` and `# <<< aiplex connect ...`): top-level keys at the start of the file, and the tables at the end. Everything else is left byte for byte. An existing top-level `model` or `model_provider` line is commented out with `# aiplex disabled: `, not deleted. After editing, the whole file is parsed and compared with the original: if anything outside the blocks would differ, or the result is not valid TOML (for example you already have an `[otel]` table or your own `[model_providers.aiplex]`), the command refuses and writes nothing. Codex ignores `model_providers` and `otel` in a project `.codex/config.toml`, so `--scope project` is refused for Codex.
+
+### Branchyard
+
+`--client branchyard` is not a harness: Branchyard runs harnesses, and its model gateway is what talks to AIPlex. The command writes the `[models]` tables that make the access point a Branchyard backend (`control_plane = "aiplex"`), with the token named as `AIPLEX_TOKEN` and never written. It differs from the other targets in three ways: the default file is `./branchyard.toml`, which must exist (otherwise the tables are printed and nothing is created; `--file PATH` creates one); `--scope user`, `--model`, `--token-helper` and `--with-telemetry` do not apply and are refused; and the TOML is edited in place, entry by entry, rather than as AIPlex-owned blocks, so you may keep your own routes next to the AIPlex ones. A route that would mix an AIPlex backend with a plain one is refused by name. The whole integration, including what AIPlex records for a Branchyard call, is in [Branchyard](branchyard.md).
 
 ### `--with-telemetry <otlp-endpoint>`
 

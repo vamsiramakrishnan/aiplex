@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
 )
 
 func captureUsageStdout(t *testing.T, fn func()) string {
@@ -340,4 +341,148 @@ func TestUsageForbiddenIsSurfaced(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "FORBIDDEN") {
 		t.Fatal(err)
 	}
+}
+
+func TestUsageRecordsFindTheRecordOfACall(t *testing.T) {
+	var seen []map[string][]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Query())
+		w.Write([]byte(`{"records":[{"id":"r1","request_id":"req-1","client_request_id":"by-1","usage":null,"cost":{"basis":"unknown"}}]}`))
+	}))
+	defer server.Close()
+	out, err := runUsage(t, server, "json", "records", "--client-request-id", "by-1", "--request-id", "req-1", "--trace-id", "0af7651916cd43dd8448eb211c80319c")
+	if err != nil || !strings.Contains(out, `"r1"`) || len(seen) != 1 {
+		t.Fatal(out, err, seen)
+	}
+	q := seen[0]
+	if q["client_request_id"][0] != "by-1" || q["request_id"][0] != "req-1" || q["trace_id"][0] != "0af7651916cd43dd8448eb211c80319c" {
+		t.Fatalf("filters not sent: %v", q)
+	}
+	// The summary takes the same filters.
+	seen = nil
+	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Query())
+		w.Write([]byte(`{"groups":[],"records_scanned":0}`))
+	}))
+	defer server2.Close()
+	if _, err = runUsage(t, server2, "json", "summary", "--client-request-id", "by-1"); err != nil || len(seen) != 1 || seen[0]["client_request_id"][0] != "by-1" {
+		t.Fatalf("summary: %v %v", err, seen)
+	}
+}
+
+func pageCursor(n int) string {
+	return usageledger.EncodeCursor(usageledger.Record{ID: "r", StartedAt: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Add(-time.Duration(n) * time.Hour)})
+}
+
+// An exact filter asks for one record: an empty page with a cursor is the
+// scan stopping early, so the CLI follows it.
+func TestUsageRecordsExactFilterFollowsEmptyPages(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.Write([]byte(`{"records":[],"next_cursor":"` + pageCursor(calls) + `"}`))
+			return
+		}
+		w.Write([]byte(`{"records":[{"id":"found","client_request_id":"by-1","usage":null,"cost":{"basis":"unknown"}}]}`))
+	}))
+	defer server.Close()
+	out, err := runUsage(t, server, "json", "records", "--client-request-id", "by-1")
+	if err != nil || calls != 3 || !strings.Contains(out, `"found"`) {
+		t.Fatal(out, err, calls)
+	}
+}
+
+func TestUsageRecordsExactFilterStopsAtItsBoundAndSaysSo(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"records":[],"next_cursor":"` + pageCursor(calls) + `"}`))
+	}))
+	defer server.Close()
+	// The scan did not answer the question: exit 1 (not 0), the message says how
+	// far it got and how to continue, and -o json stays valid JSON.
+	for _, format := range []string{"table", "json"} {
+		calls = 0
+		out, err := runUsage(t, server, format, "records", "--request-id", "req-1")
+		var ce *cliError
+		if err == nil || !errors.As(err, &ce) || ce.code != exitError || calls != usageExactScanPages {
+			t.Fatalf("%s: want exit 1 after the bound, got %v (calls %d)", format, err, calls)
+		}
+		for _, want := range []string{"stopped after", "oldest", "--cursor " + pageCursor(usageExactScanPages)} {
+			if !strings.Contains(ce.msg+strings.Join(ce.hints, " "), want) {
+				t.Fatalf("%s: missing %q in %q %v", format, want, ce.msg, ce.hints)
+			}
+		}
+		if strings.Contains(out, "No usage records match") {
+			t.Fatalf("a stopped scan is not a no-match: %s", out)
+		}
+		if format == "json" {
+			var page struct {
+				Records    []any  `json:"records"`
+				NextCursor string `json:"next_cursor"`
+			}
+			if jerr := json.Unmarshal([]byte(out), &page); jerr != nil || page.NextCursor != pageCursor(usageExactScanPages) {
+				t.Fatalf("stdout is not the JSON page: %q %v", out, jerr)
+			}
+		}
+	}
+}
+
+// A scan that reaches the end of the ledger with no match is a complete answer.
+func TestUsageRecordsExactFilterEndOfLedgerIsExitZero(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.Write([]byte(`{"records":[],"next_cursor":"` + pageCursor(calls) + `"}`))
+			return
+		}
+		w.Write([]byte(`{"records":[]}`))
+	}))
+	defer server.Close()
+	out, err := runUsage(t, server, "table", "records", "--request-id", "req-1")
+	if err != nil || calls != 3 || !strings.Contains(out, "No usage records match") {
+		t.Fatal(out, err, calls)
+	}
+}
+
+func TestUsageRecordsEmptyPageWithCursorIsNotNoMatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"records":[],"next_cursor":"` + pageCursor(1) + `"}`))
+	}))
+	defer server.Close()
+	out, err := runUsage(t, server, "table", "records", "--model", "m")
+	if err != nil || strings.Contains(out, "No usage records match") || !strings.Contains(out, "--cursor") {
+		t.Fatal(out, err)
+	}
+}
+
+func TestUsageCorrelationFlagGivenEmptyIsAUsageError(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++ }))
+	defer server.Close()
+	for _, flag := range []string{"--client-request-id", "--request-id", "--trace-id"} {
+		_, err := runUsage(t, server, "json", "records", flag, "")
+		var ce *cliError
+		if err == nil || !errors.As(err, &ce) || ce.code != exitUsage || calls != 0 {
+			t.Fatalf("%s: %v calls=%d", flag, err, calls)
+		}
+	}
+}
+
+func captureUsageStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	done := make(chan string)
+	go func() { b, _ := io.ReadAll(r); done <- string(b) }()
+	fn()
+	w.Close()
+	os.Stderr = original
+	return <-done
 }

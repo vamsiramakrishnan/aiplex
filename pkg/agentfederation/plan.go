@@ -10,7 +10,7 @@ import (
 type Step struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
-	// Language of Content: bash, yaml, json, or empty for prose-only steps.
+	// Language of Content: bash, yaml, json, toml, or empty for prose-only steps.
 	Language string `json:"language,omitempty"`
 	Content  string `json:"content,omitempty"`
 }
@@ -186,6 +186,25 @@ jobs:
 			{Title: "Register the workload", Description: "Ensure the agent workload is issued SPIFFE ID " + b.Subject + "."},
 		}
 		p.TokenSnippet = Step{Title: "Acquire a token", Description: "Fetch a JWT-SVID for audience " + aud + " from the SPIFFE Workload API (for example with the go-spiffe workloadapi client) and send it as a bearer token."}
+	case PresetBranchyard:
+		backend := `[models.backends.aiplex-anthropic]
+api = "anthropic"
+url = ` + jsonString(api+"/ap/ACCESS_POINT") + `
+auth = "turn-token"
+audience = ` + jsonString(aud) + `
+control_plane = "aiplex"
+
+[models.backends.aiplex-openai]
+api = "openai"
+url = ` + jsonString(api+"/ap/ACCESS_POINT") + `
+auth = "turn-token"
+audience = ` + jsonString(aud) + `
+control_plane = "aiplex"`
+		p.Steps = []Step{
+			{Title: "Confirm the server's issuer and keys", Description: "The binding pins issuer " + b.Issuer + " exactly and reads its Ed25519 keys from " + b.JWKSURL + ", which must be reachable under the AIPlex outbound endpoint policy. The server's tokens must carry exactly this iss."},
+			{Title: "Point the tenant's model backends at an AIPlex access point", Description: "In the Branchyard configuration for tenant " + strings.TrimPrefix(b.Subject, "branchyard:") + ", one backend per wire. Replace ACCESS_POINT with the access point's ID. The audience must equal the binding audience.", Language: "toml", Content: backend},
+		}
+		p.TokenSnippet = Step{Title: "Acquire a token", Description: "Branchyard's gateway mints a token for each turn and sends it as the bearer; nothing is run by hand. To dry-run one, take a token the gateway minted (sub " + b.Subject + ", by_purpose aiplex, aud " + aud + ")."}
 	default:
 		p.Steps = []Step{{Title: "Configure the issuer", Description: "Ensure " + b.Issuer + " signs RS256, ES256 or ES384 tokens with subject " + b.Subject + " and audience " + aud + ", with keys at " + b.JWKSURL + " reachable under the AIPlex outbound endpoint policy."}}
 		p.TokenSnippet = Step{Title: "Acquire a token", Description: "Obtain a token for audience " + aud + " from your issuer and send it as `Authorization: Bearer <token>`."}

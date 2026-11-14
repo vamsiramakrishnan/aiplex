@@ -16,8 +16,8 @@ import (
 //     traceparent the harness sent) equals the reported event's own span id,
 //     and the trace ids are equal;
 //   - request_id: both sides carry the same X-Request-Id the caller chose. The
-//     server-generated form ("req-<number>") is unique only within one process
-//     and is never used as a key;
+//     server-generated form ("req-<token>-<number>") is never used as a
+//     key, and the API never takes an id of that form from a caller;
 //   - trace only, as a fallback: the reported event is in a trace the caller
 //     propagated (the managed record continued it) but its span is not the
 //     request's. Claude Code's log events are an example: they carry the
@@ -28,8 +28,14 @@ import (
 // With no shared key the records are kept apart and are not guessed together
 // by model, time or token counts.
 
-// serverRequestID matches request ids the API generates itself.
-var serverRequestID = regexp.MustCompile(`^req-[0-9]+$`)
+// serverRequestID matches request ids the API generates itself: req-<token>-<n>
+// with a random 16-hex token per process, and the older req-<n>, which records
+// written before the token was added still carry.
+var serverRequestID = regexp.MustCompile(`^req-(?:[0-9a-f]{16}-)?[0-9]+$`)
+
+// IsServerRequestID reports whether id has the form the API generates. Such an
+// id is never a correlation key, and the API never accepts one from a caller.
+func IsServerRequestID(id string) bool { return serverRequestID.MatchString(id) }
 
 func correlationKey(kind, principal string, parts ...string) string {
 	for _, p := range parts {

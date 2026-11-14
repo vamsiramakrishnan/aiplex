@@ -25,7 +25,7 @@ deployer gets the overview's configuration view with usage withheld (see
 
 | Route | Purpose |
 | --- | --- |
-| `GET /api/v1/usage/records` | List records, newest first. Filters: `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `budget_id`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `hook_decision`, `harness`, `tag.<key>`, `cost_basis`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
+| `GET /api/v1/usage/records` | List records, newest first. Filters: `request_id`, `client_request_id`, `trace_id` ([find the record of a call](#find-the-record-of-a-call)), `plane`, `provider`, `model_id`, `tool_name`, `actor_id`, `principal_id`, `client_id`, `access_point_id`, `caller_kind`, `budget_id`, `status`, `source`, `error_class`, `usage_bound`, `batch`, `hook_decision`, `harness`, `tag.<key>`, `cost_basis`, `since`, `until`. Pagination: `limit` (1 to 1000), `cursor`. |
 | `GET /api/v1/usage/records/{id}` | One record, with its latest `feedback` when it has any. |
 | `GET /api/v1/usage/records/{id}/feedback` | The record's feedback history, newest first. |
 | `POST /api/v1/usage/records/{id}/feedback` | Add feedback to a record: the record's own principal or actor, or an operator (admin or deployer). See [feedback](#feedback). |
@@ -63,6 +63,40 @@ Filter values are checked before the query runs:
 
 `usage_bound=none` matches records with no `usage_bound`, meaning counters that are final or
 unknown. Any other value is matched exactly.
+
+### Find the record of a call
+
+Three filters select the records of one call by an exact match, on `GET /api/v1/usage/records`
+and `GET /api/v1/usage/summary`:
+
+| Parameter | Matches | Accepted values |
+| --- | --- | --- |
+| `client_request_id` | The `X-Client-Request-Id` the caller sent (a Branchyard turn sends the id of its own usage record). | 1 to 128 characters of `A-Z a-z 0-9 . _ : -` |
+| `request_id` | AIPlex's request id: the `X-Aiplex-Request-Id` response header of an [access point](access-points.md#response-headers) call. | 1 to 128 characters of `A-Z a-z 0-9 . _ : -` |
+| `trace_id` | The W3C trace id of the exchange. | 32 lower-case hexadecimal characters, not all zero |
+
+A malformed value, a repeated parameter, a parameter that is present but empty, or a query string that cannot
+be parsed is `400 INVALID_QUERY` (an empty id must never read as "no filter").
+The visibility rule is unchanged: an admin sees the tenant's records, anyone else only records where they
+are the principal or the actor, so another caller's `client_request_id` gives an empty list. CLI:
+`aiplex usage records --client-request-id ID`, `--request-id ID`, `--trace-id ID`.
+With one of these three the CLI follows empty pages that carry a cursor, up to 50 pages. Exit 0 means the
+answer is complete: a record was found, or the scan reached the end of the ledger and none matches (it
+prints "No usage records match."). If the scan stops at the 50-page bound it exits 1, prints how far it got
+(the oldest time scanned) and the `--cursor` to continue with, and `-o json` still prints the page and its
+`next_cursor` on stdout.
+
+`request_id` and `trace_id` can match several records (a request id the caller chose twice, several
+exchanges of one trace). The ledger stores a
+record's fields in one JSON document, so these filters are applied after a read in the Firestore store
+as every other filter is, so the code needs and adds no index (not checked against a real Firestore). On a tenant with many records the search reads
+newest first and one call stops after 5,000 documents and returns a `next_cursor` even when nothing
+matched yet: follow the cursor, or pass `since` (and `until`) to bound the search. The in-memory store
+filters in process.
+
+Not tested: the Firestore emulator was not run for these filters (the in-process wire fake of the Firestore
+client was); a deployment with several replicas; and no measurement of the scan cost on a large tenant was
+made.
 
 ## Record fields
 
@@ -650,8 +684,9 @@ tenant and one verified principal; model, time and token counts are never used t
    it on the managed record).
 2. The managed record's `caller_span_id` (the span id in the `traceparent` the harness sent)
    equals the reported event's own `span_id`, and the trace ids are equal.
-3. A `request_id` the caller chose with `X-Request-Id` (the server-generated `req-<number>`
-   form is unique only within a process and is never a key).
+3. A `request_id` the caller chose with `X-Request-Id` (the server-generated `req-<token>-<number>`
+   form, and the older `req-<number>` that earlier records carry, are never keys; the API ignores a
+   caller's id of that form).
 4. As a fallback, the same trace: the harness propagated a trace and the managed record
    continued it, but the event's span is not the request's span. Each managed record absorbs
    at most one reported record this way.
@@ -675,6 +710,10 @@ most 8 tags a record. Header values per key and tenant are capped at `AIPLEX_TAG
 (default 50); beyond it a value is stored as `(other)` and counted with reason `overflow`.
 The cap is kept in process memory, so each replica applies it to its own view and a restart
 begins afresh. Filter with `tag.<key>=<value>`; group with `tag:<key>`.
+The record of a refused call carries the call's tags, `client_request_id`, `access_point_id` and
+`caller_kind` as a successful call's record does (a model not found, a missing grant, quota, capacity and
+hook refusals, a routed model with no backend, and a managed tool call). A refusal that writes no record
+(see [response headers](access-points.md#response-headers)) has nothing to carry them.
 
 ## Feedback
 

@@ -219,6 +219,12 @@ class UsageFilter:
     hook_decision: str | None = None
     #: settled, estimated, reported, cached or unknown.
     cost_basis: str | None = None
+    #: The record of one call, by exact match: AIPlex's request id (the
+    #: X-Aiplex-Request-Id response header), the caller's X-Client-Request-Id
+    #: and the W3C trace id (32 lower-case hexadecimal characters).
+    request_id: str | None = None
+    client_request_id: str | None = None
+    trace_id: str | None = None
     #: Records carrying every tag pair, sent as tag.<key>=<value>.
     tags: dict[str, str] | None = None
     since: str | None = None
@@ -245,9 +251,16 @@ class UsageFilter:
             ("harness", self.harness),
             ("hook_decision", self.hook_decision),
             ("cost_basis", self.cost_basis),
+            ("request_id", self.request_id),
+            ("client_request_id", self.client_request_id),
+            ("trace_id", self.trace_id),
             ("since", self.since),
             ("until", self.until),
         )
+        for name in ("request_id", "client_request_id", "trace_id"):
+            if getattr(self, name) == "":
+                # An empty id would read as "no filter" and match every record.
+                raise ValueError(f"{name} must not be empty; leave it as None to not filter")
         for name, value in str_fields:
             if value is not None and value != "":
                 params[name] = value
