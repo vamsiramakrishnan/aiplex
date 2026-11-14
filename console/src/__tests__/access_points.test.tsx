@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AccessPoints from '../pages/AccessPoints'
 import * as api from '../api/accessPoints'
@@ -8,12 +8,18 @@ import * as apUsage from '../api/accessPointUsage'
 import { fieldIssue, parseFieldPath } from '../api/accessPoints'
 import { listInstances } from '../api/client'
 import * as overview from '../api/overview'
+import { accessFrom } from '../hooks/useAccess'
+
+// The signed-in caller's roles; tests change them to check what a non-admin sees.
+const who = vi.hoisted(() => ({ roles: ['admin'] as string[] }))
+vi.mock('../hooks/useAccess', async (original) => ({ ...(await original<typeof import('../hooks/useAccess')>()), useAccess: () => accessFrom(who.roles) }))
 
 vi.mock('../api/client', async (original) => ({ ...(await original<typeof import('../api/client')>()), listInstances: vi.fn(), listAgents: vi.fn() }))
 vi.mock('../api/accessPoints', async (original) => ({
   ...(await original<typeof import('../api/accessPoints')>()),
   listAccessPoints: vi.fn(), getAccessPoint: vi.fn(), putAccessPoint: vi.fn(), deleteAccessPoint: vi.fn(), getQuotaPlan: vi.fn(),
   listModelSurfaces: vi.fn(), listClientRegistrations: vi.fn(), listToolConnections: vi.fn(), listAgents: vi.fn(),
+  getAccessPointRouting: vi.fn(), purgeAccessPointCache: vi.fn(),
 }))
 vi.mock('../api/overview', async (original) => ({ ...(await original<typeof import('../api/overview')>()), getConnect: vi.fn(), listClientProfiles: vi.fn() }))
 vi.mock('../api/accessPointUsage', async (original) => ({ ...(await original<typeof import('../api/accessPointUsage')>()), accessPointUsageSummary: vi.fn() }))
@@ -31,6 +37,17 @@ const surfaces: api.ModelSurfaceRecord[] = [
   { id: 'vertex-global', revision: 1, spec: { surface: { id: 'vertex-global', protocol: 'google-genai', models: ['gemini-2.5-pro', 'gemini-2.5-flash'] } } },
   { id: 'anthropic-us', revision: 1, spec: { surface: { id: 'anthropic-us', protocol: 'anthropic-messages', models: ['claude-sonnet-4-5'] } } },
 ]
+const routing: api.AccessPointRouting = {
+  access_point_id: 'ide-team', process_local: true,
+  models: [{
+    name: 'gemini-pro', strategy: 'priority',
+    backends: [
+      { surface_ref: 'vertex-global', native_model: 'gemini-2.5-pro', weight: 0, priority: 0, breaker: { state: 'open', consecutive_failures: 3, opened_at: '2026-11-14T10:30:00Z', half_open_at: '2026-11-14T10:31:00Z', recent: [{ at: '2026-11-14T10:30:00Z', outcome: 'upstream_error', upstream_status: 503 }] } },
+      { surface_ref: 'anthropic-us', native_model: 'claude-sonnet-4-5', weight: 2, priority: 1, breaker: { state: 'closed', consecutive_failures: 0, recent: [] } },
+    ],
+  }],
+  cache_store: { entries: 4, bytes: 2048, max_bytes: 1048576 },
+}
 const exec = { id: 'x', endpoint: 'https://t.example/mcp' }
 const connections = [
   { id: 'github', revision: 1, spec: { id: 'github', execution: exec } },
@@ -62,6 +79,9 @@ beforeEach(() => {
   vi.mocked(listInstances).mockResolvedValue([{ id: 'runbooks', display_name: 'Runbooks' } as never])
   vi.mocked(apUsage.accessPointUsageSummary).mockResolvedValue({ group_by: [], groups: [], records_scanned: 0, truncated: false })
   vi.mocked(overview.getConnect).mockRejectedValue(Object.assign(new Error('public URL not set'), { status: 409, code: 'PUBLIC_URL_REQUIRED' }))
+  who.roles = ['admin']
+  vi.mocked(api.getAccessPointRouting).mockResolvedValue(routing)
+  vi.mocked(api.purgeAccessPointCache).mockResolvedValue({ access_point_id: 'ide-team', model: '', purged: 7, process_local: true })
   vi.mocked(api.putAccessPoint).mockImplementation(async (s, revision) => ({ id: s.id, revision: revision + 1, spec: s }))
   Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn().mockResolvedValue(undefined) }, configurable: true })
 })
@@ -476,3 +496,237 @@ describe('detail endpoint URLs from the server', () => {
     expect(await screen.findByRole('dialog', { name: 'Connect a client to ide-team' })).toBeInTheDocument()
   })
 })
+
+describe('routing panel: missing and empty values', () => {
+  const panelOf = async () => screen.findByRole('region', { name: 'Routing' })
+  const withRouting = (r: unknown) => vi.mocked(api.getAccessPointRouting).mockResolvedValue(r as api.AccessPointRouting)
+
+  it('treats a null or missing model list as unknown and an empty one as none', async () => {
+    withRouting({ access_point_id: 'ide-team', process_local: true, models: null })
+    show('/access-points/ide-team')
+    expect(await within(await panelOf()).findByText('Routed models: unknown')).toBeInTheDocument()
+    cleanup()
+
+    withRouting({ access_point_id: 'ide-team', process_local: true })
+    show('/access-points/ide-team')
+    expect(await within(await panelOf()).findByText('Routed models: unknown')).toBeInTheDocument()
+    cleanup()
+
+    withRouting({ access_point_id: 'ide-team', process_local: true, models: [] })
+    show('/access-points/ide-team')
+    expect(await within(await panelOf()).findByText(/No routed models/)).toBeInTheDocument()
+  })
+
+  it('treats a null or missing backend list as unknown and an empty one as none', async () => {
+    withRouting({ access_point_id: 'ide-team', process_local: true, models: [{ name: 'gemini-pro', strategy: 'priority', backends: null }] })
+    show('/access-points/ide-team')
+    expect(await within(await panelOf()).findByText('Backends: unknown')).toBeInTheDocument()
+    cleanup()
+
+    withRouting({ access_point_id: 'ide-team', process_local: true, models: [{ name: 'gemini-pro', strategy: 'priority', backends: [] }] })
+    show('/access-points/ide-team')
+    expect(await within(await panelOf()).findByText('No backends.')).toBeInTheDocument()
+  })
+
+  it('shows when the breaker opened when the API sends it, and nothing extra when it does not', async () => {
+    show('/access-points/ide-team')
+    const table = await within(await panelOf()).findByRole('table', { name: 'Backends of gemini-pro' })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(within(rows[0]).getAllByRole('cell')[4].textContent).toMatch(/^open, opened at .+, retry at .+$/)
+    expect(within(rows[1]).getAllByRole('cell')[4].textContent).toBe('closed')
+  })
+
+  it('states the process scope only when the API says the state is process-local, and says so when it does not send it', async () => {
+    withRouting({ ...routing, process_local: true })
+    show('/access-points/ide-team')
+    expect(await within(await panelOf()).findByText(/State is per API process/)).toBeInTheDocument()
+    cleanup()
+
+    withRouting({ ...routing, process_local: false })
+    show('/access-points/ide-team')
+    const off = await panelOf()
+    await within(off).findByRole('table', { name: 'Backends of gemini-pro' })
+    expect(within(off).queryByText(/per API process/)).toBeNull()
+    expect(within(off).queryByText(/Scope of this state: unknown/)).toBeNull()
+    cleanup()
+
+    withRouting({ ...routing, process_local: undefined })
+    show('/access-points/ide-team')
+    expect(await within(await panelOf()).findByText('Scope of this state: unknown.')).toBeInTheDocument()
+  })
+})
+
+describe('routing panel', () => {
+  const panelOf = async () => screen.findByRole('region', { name: 'Routing' })
+
+  /** Like show(), with a control outside the routes that moves the same mounted tree to another access point. */
+  function showSwitchable(path: string) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+    // ap-2's record is already cached (as after a visit), so the detail stays mounted while the user switches; a cold load would remount it.
+    client.setQueryData(['access-point', 'ap-2'], { id: 'ap-2', revision: 1, spec: { ...spec, id: 'ap-2', display_name: 'ap-2' } })
+    function GoTo({ to }: { to: string }) {
+      const navigate = useNavigate()
+      return <button type="button" onClick={() => navigate(to)}>Go to {to}</button>
+    }
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[path]}>
+          <GoTo to="/access-points/ap-2" />
+          <Routes><Route path="/access-points/*" element={<AccessPoints />} /></Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  }
+  const otherPoint = (id: string) => ({ ...record, id, spec: { ...spec, id, display_name: id } })
+
+  it('forgets a purge result when the user moves to another access point in the same view', async () => {
+    vi.mocked(api.getAccessPoint).mockImplementation(async (id: string) => otherPoint(id))
+    vi.mocked(api.getAccessPointRouting).mockImplementation(async (id: string) => ({ ...routing, access_point_id: id }))
+    showSwitchable('/access-points/ap-1')
+    const panel = await panelOf()
+    await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Purge cache' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Confirm purge' }))
+    expect(await within(panel).findByText('Removed 7 cached answers of access point ap-1 (this API process).')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to /access-points/ap-2' }))
+    await screen.findByRole('heading', { level: 1, name: 'ap-2' })
+    const next = screen.getByRole('region', { name: 'Routing' })
+    await within(next).findByRole('table', { name: 'Backends of gemini-pro' })
+    expect(within(next).queryByText(/Removed 7 cached answers/)).toBeNull()
+    expect(api.purgeAccessPointCache).toHaveBeenCalledTimes(1)
+    expect(api.purgeAccessPointCache).toHaveBeenCalledWith('ap-1')
+  })
+
+  it('does not carry an open purge confirmation over to another access point', async () => {
+    vi.mocked(api.getAccessPoint).mockImplementation(async (id: string) => otherPoint(id))
+    vi.mocked(api.getAccessPointRouting).mockImplementation(async (id: string) => ({ ...routing, access_point_id: id }))
+    showSwitchable('/access-points/ap-1')
+    const panel = await panelOf()
+    await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Purge cache' }))
+    expect(within(panel).getByRole('group', { name: 'Confirm purge' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go to /access-points/ap-2' }))
+    await screen.findByRole('heading', { level: 1, name: 'ap-2' })
+    const next = screen.getByRole('region', { name: 'Routing' })
+    await within(next).findByRole('table', { name: 'Backends of gemini-pro' })
+    expect(within(next).queryByRole('group', { name: 'Confirm purge' })).toBeNull()
+    expect(within(next).getByRole('button', { name: 'Purge cache' })).toBeInTheDocument()
+    expect(api.purgeAccessPointCache).toHaveBeenCalledTimes(0)
+  })
+  const cellsOf = (row: HTMLElement) => within(row).getAllByRole('cell').map(c => c.textContent)
+
+  it('shows each backend in routing order with breaker state, weight, priority and recent outcomes, and real zeros as 0', async () => {
+    show('/access-points/ide-team')
+    const panel = await panelOf()
+    const table = await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    expect(within(panel).getByText('gemini-pro')).toBeInTheDocument()
+    expect(within(panel).getByText('priority')).toBeInTheDocument()
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows).toHaveLength(2)
+    // order, backend, weight, priority, breaker, consecutive failures, recent outcomes
+    expect(cellsOf(rows[0])[0]).toBe('1')
+    expect(cellsOf(rows[0])[1]).toContain('vertex-global/gemini-2.5-pro')
+    expect(cellsOf(rows[0])[2]).toBe('0')
+    expect(cellsOf(rows[0])[3]).toBe('0')
+    expect(cellsOf(rows[0])[4]).toContain('open')
+    expect(cellsOf(rows[0])[5]).toBe('3')
+    expect(cellsOf(rows[0])[6]).toBe('upstream_error(503)')
+    expect(cellsOf(rows[1])[0]).toBe('2')
+    expect(cellsOf(rows[1])[1]).toContain('anthropic-us/claude-sonnet-4-5')
+    expect(cellsOf(rows[1])[2]).toBe('2')
+    expect(cellsOf(rows[1])[4]).toBe('closed')
+    expect(cellsOf(rows[1])[5]).toBe('0')
+    expect(cellsOf(rows[1])[6]).toBe('none recorded')
+    expect(within(panel).getByText(/State is per API process/)).toBeInTheDocument()
+    expect(within(panel).getByText(/4 entries/)).toBeInTheDocument()
+  })
+
+  it('shows unknown for every value the API did not send, never 0, blank or healthy', async () => {
+    const partial = {
+      access_point_id: 'ide-team', process_local: true,
+      models: [{ name: 'gemini-pro', backends: [{ surface_ref: 'vertex-global', native_model: 'gemini-2.5-pro', breaker: { consecutive_failures: 1 } }] }],
+    } as unknown as api.AccessPointRouting
+    vi.mocked(api.getAccessPointRouting).mockResolvedValue(partial)
+    show('/access-points/ide-team')
+    const panel = await panelOf()
+    const table = await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    const row = within(table).getAllByRole('row')[1]
+    const cells = cellsOf(row)
+    expect(cells[2]).toBe('unknown') // weight
+    expect(cells[3]).toBe('unknown') // priority
+    expect(cells[4]).toBe('unknown') // breaker state
+    expect(cells[6]).toBe('unknown') // recent outcomes
+    expect(within(panel).getByText(/^Strategy:/)).toHaveTextContent('Strategy: unknown')
+    expect(panel.textContent).not.toMatch(/healthy/i)
+    expect(cells[4]).not.toMatch(/closed/)
+  })
+
+  it('shows an error, not an empty panel, when the routing state cannot be read', async () => {
+    vi.mocked(api.getAccessPointRouting).mockRejectedValue(apiError('routing backend unavailable', 500))
+    show('/access-points/ide-team')
+    const panel = await panelOf()
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('Could not load routing state: routing backend unavailable')
+    expect(within(panel).queryByRole('table')).toBeNull()
+    expect(within(panel).getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
+  it('keeps the last good figures and labels them stale when a later refresh fails', async () => {
+    show('/access-points/ide-team')
+    const panel = await panelOf()
+    await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    vi.mocked(api.getAccessPointRouting).mockRejectedValueOnce(apiError('connection reset', 503))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Refresh routing state' }))
+    const alert = await within(panel).findByRole('alert')
+    expect(alert).toHaveTextContent(/latest refresh of routing state failed \(connection reset\)/)
+    expect(alert).toHaveTextContent(/from the last successful refresh at/)
+    expect(within(panel).getByRole('table', { name: 'Backends of gemini-pro' })).toBeInTheDocument()
+  })
+
+  it('hides the purge action from a caller who is not an admin', async () => {
+    who.roles = ['deployer']
+    show('/access-points/ide-team')
+    const panel = await panelOf()
+    await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    expect(within(panel).queryByRole('button', { name: 'Purge cache' })).toBeNull()
+    expect(api.purgeAccessPointCache).not.toHaveBeenCalled()
+  })
+
+  it('asks for confirmation before purging; no call is made until the admin confirms', async () => {
+    show('/access-points/ide-team')
+    const panel = await panelOf()
+    await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Purge cache' }))
+    expect(api.purgeAccessPointCache).toHaveBeenCalledTimes(0)
+    expect(within(panel).getByRole('group', { name: 'Confirm purge' })).toHaveTextContent(/Remove the cached answers of ide-team/)
+    fireEvent.click(within(panel).getByRole('button', { name: 'Cancel' }))
+    expect(api.purgeAccessPointCache).toHaveBeenCalledTimes(0)
+    fireEvent.click(within(panel).getByRole('button', { name: 'Purge cache' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Confirm purge' }))
+    expect(await within(panel).findByText('Removed 7 cached answers of access point ide-team (this API process).')).toBeInTheDocument()
+    expect(api.purgeAccessPointCache).toHaveBeenCalledTimes(1)
+    expect(api.purgeAccessPointCache).toHaveBeenCalledWith('ide-team')
+  })
+
+  it('reports a purge result the API did not count as unknown', async () => {
+    vi.mocked(api.purgeAccessPointCache).mockResolvedValue({ access_point_id: 'ide-team', model: '', process_local: true } as unknown as api.AccessPointCachePurge)
+    show('/access-points/ide-team')
+    const panel = await panelOf()
+    await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Purge cache' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Confirm purge' }))
+    expect(await within(panel).findByText(/did not say how many cached answers were removed/)).toBeInTheDocument()
+  })
+
+  it('shows a purge failure with the server message', async () => {
+    vi.mocked(api.purgeAccessPointCache).mockRejectedValue(apiError('cache store busy', 500))
+    show('/access-points/ide-team')
+    const panel = await panelOf()
+    await within(panel).findByRole('table', { name: 'Backends of gemini-pro' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Purge cache' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Confirm purge' }))
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('Could not purge the cache: cache store busy')
+  })
+})
+
