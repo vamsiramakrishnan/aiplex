@@ -2,7 +2,7 @@
 
 User identity federation lets people sign in to AIPlex with a token from their own
 identity provider: Google Workspace, Microsoft Entra ID, Okta, a Google Workforce
-pool, or any OIDC issuer that signs RS256 or ES256 tokens. A user identity provider
+pool, or any OIDC issuer that signs RS256, ES256 or ES384 tokens. A user identity provider
 pins the issuer, audience, subject claim and group source. A verified user gets a
 canonical principal ID and, when groups are verified, a group view that role
 bindings and quota eligibility can use.
@@ -206,6 +206,10 @@ receives the request. Run it on every replica, or wait for the TTL to expire.
   `groups_from: membership-authority`.
 - Dry-run `verify` checks the provider's signature, issuer, audience, subject, client
   claim and group view. It does not prove that the user has any access.
+- Signatures are verified with the same rules as agent identity federation: RS256 only with
+  an RSA key, ES256 only with a P-256 key, ES384 only with a P-384 key, raw `R||S` EC
+  signatures, and no other algorithm. See
+  [agent identity federation](agent-identity-federation.md#presets).
 - Provider JWKS URLs must pass the outbound endpoint policy when saved. Issuers must be `https`.
   A JWKS URL may be plain `http` only when its host is `localhost` or a loopback address. The
   outbound endpoint policy then refuses it unless the `network.allow_loopback` option is set in

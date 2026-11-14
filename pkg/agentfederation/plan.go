@@ -109,7 +109,7 @@ func RenderPlan(b Binding, pc PlanContext) (Plan, error) {
 			{Title: "Confirm the account issuer URL", Description: "The binding pins issuer " + b.Issuer + "; it must equal the issuer reported here.", Language: "bash", Content: "aws iam get-outbound-web-identity-federation-info"},
 			{Title: "Allow the role to mint tokens for AIPlex only", Description: "Attach this policy to " + b.Subject + ".", Language: "json", Content: policy},
 		}
-		p.TokenSnippet = Step{Title: "Acquire a token", Description: "Run as the role. GetWebIdentityToken needs a regional STS endpoint; RS256 is required because AIPlex does not verify ES384.", Language: "bash", Content: "TOKEN=$(aws sts get-web-identity-token --region " + region + " --endpoint-url https://sts." + region + ".amazonaws.com --audience " + shellQuote(aud) + " --signing-algorithm RS256 --duration-seconds 300 --query WebIdentityToken --output text)\n" + callAIPlex}
+		p.TokenSnippet = Step{Title: "Acquire a token", Description: "Run as the role. GetWebIdentityToken needs a regional STS endpoint. AIPlex verifies ES384 (P-384 key) and RS256 tokens; --signing-algorithm RS256 also works.", Language: "bash", Content: "TOKEN=$(aws sts get-web-identity-token --region " + region + " --endpoint-url https://sts." + region + ".amazonaws.com --audience " + shellQuote(aud) + " --signing-algorithm ES384 --duration-seconds 300 --query WebIdentityToken --output text)\n" + callAIPlex}
 	case PresetAWSEKSIRSA, PresetKubernetes:
 		if b.Preset == PresetAWSEKSIRSA {
 			cluster := placeholder(in["cluster_name"], "CLUSTER")
@@ -187,7 +187,7 @@ jobs:
 		}
 		p.TokenSnippet = Step{Title: "Acquire a token", Description: "Fetch a JWT-SVID for audience " + aud + " from the SPIFFE Workload API (for example with the go-spiffe workloadapi client) and send it as a bearer token."}
 	default:
-		p.Steps = []Step{{Title: "Configure the issuer", Description: "Ensure " + b.Issuer + " signs RS256 or ES256 tokens with subject " + b.Subject + " and audience " + aud + ", with keys at " + b.JWKSURL + " reachable under the AIPlex outbound endpoint policy."}}
+		p.Steps = []Step{{Title: "Configure the issuer", Description: "Ensure " + b.Issuer + " signs RS256, ES256 or ES384 tokens with subject " + b.Subject + " and audience " + aud + ", with keys at " + b.JWKSURL + " reachable under the AIPlex outbound endpoint policy."}}
 		p.TokenSnippet = Step{Title: "Acquire a token", Description: "Obtain a token for audience " + aud + " from your issuer and send it as `Authorization: Bearer <token>`."}
 	}
 

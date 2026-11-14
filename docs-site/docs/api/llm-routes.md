@@ -10,17 +10,17 @@ The LLM routes API manages how models are routed to provider backends, which pro
 
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
-| GET | `/api/v1/llm/routes` | List saved route configurations | Verified identity |
-| GET | `/api/v1/llm/routes/{modelId}` | Read one route configuration | Verified identity |
+| GET | `/api/v1/llm/routes` | List saved route configurations | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/llm/routes/{modelId}` | Read one route configuration | `admin` or `deployer` outside development mode |
 | PUT | `/api/v1/llm/routes/{modelId}` | Create or replace a route configuration | `admin` or `deployer` outside development mode |
 | DELETE | `/api/v1/llm/routes/{modelId}` | Delete a route configuration | `admin` or `deployer` outside development mode |
-| GET | `/api/v1/llm/providers` | List provider configurations | Verified identity |
+| GET | `/api/v1/llm/providers` | List provider configurations | `admin` or `deployer` outside development mode |
 | PUT | `/api/v1/llm/providers/{provider}` | Create or replace a provider configuration | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/llm/usage` | Record a usage report | `admin` outside development mode |
-| GET | `/api/v1/llm/usage` | List recent usage reports | Verified identity |
-| GET | `/api/v1/llm/usage/summary` | Summarize usage reports | Verified identity |
+| GET | `/api/v1/llm/usage` | List recent usage reports | `admin` outside development mode |
+| GET | `/api/v1/llm/usage/summary` | Summarize usage reports | `admin` outside development mode |
 
-The routes are mounted under `/api/v1` by the `llmplex` module, which is enabled by default. All routes require a verified identity. Outside development mode, the `/api/v1` group requires the `admin` or `deployer` role for every non-GET method. Usage reports need the `admin` role. A caller without the required role receives `403 FORBIDDEN`. Development mode skips that check.
+The routes are mounted under `/api/v1` by the `llmplex` module, which is enabled by default. All routes require a verified identity. Outside development mode every route on this page also requires a role, reads included: the `admin` or `deployer` role for routes and providers, and the `admin` role for usage reports. A signed-in caller without the required role receives `403 ROLE_REQUIRED`. Development mode skips that check. The rules are in `cmd/aiplex-api/route_policy.go`; a route with no entry there is limited to `admin` and `deployer`.
 
 Errors use this shape:
 
@@ -81,6 +81,7 @@ Returns every saved route configuration as a JSON array.
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks the required role |
 | 500 | `STORE_ERROR` | Store read failed |
 
 ### Example
@@ -100,6 +101,7 @@ Returns one route configuration. The response carries an `ETag` header with the 
 | 200 | none | Route returned |
 | 400 | `INVALID_MODEL` | Path is not a valid route model identifier |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks the required role |
 | 404 | `NOT_FOUND` | No route for this model |
 | 500 | `STORE_ERROR` | Store read failed |
 
@@ -135,7 +137,7 @@ The response header `X-LLM-Activation` reports the activation state. A successfu
 | 400 | `INVALID_MODEL` | Path is not a valid route model identifier |
 | 400 | `BAD_REQUEST` | Body does not decode, identity does not match the path, or backends, fallbacks or providers fail validation |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 409 | `ROUTE_DELETION_PENDING` | The saved route is being deleted |
 | 409 | `ROUTE_ACTIVATION_PENDING` | The saved route has an unfinished activation for a different desired route |
 | 409 | `ROUTE_IN_USE` | The backend list changes while another route uses this route as a fallback |
@@ -183,7 +185,7 @@ On success the response is `204` with no body.
 | 400 | `INVALID_MODEL` | Path is not a valid route model identifier |
 | 400 | `INVALID_PRECONDITION` | `If-Match` is malformed |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 404 | `NOT_FOUND` | No route for this model |
 | 409 | `ROUTE_ACTIVATION_PENDING` | An unfinished activation must finish first |
 | 409 | `ROUTE_IN_USE` | Another route uses this route as a fallback |
@@ -228,6 +230,7 @@ Returns every provider configuration as a JSON array.
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks the required role |
 | 500 | `STORE_ERROR` | Store read failed |
 
 ### PUT `/api/v1/llm/providers/{provider}`
@@ -242,7 +245,7 @@ The response headers say that the change is saved and not applied to existing ro
 | 400 | `BAD_REQUEST` | Body does not decode, or `provider` differs from the path |
 | 400 | `INVALID_PROVIDER` | Name, secret reference, base URL or metadata fail validation, or the secret does not exist |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 409 | `PROVIDER_IN_USE` | Disabling a provider that enabled route backends still use, or whose backend cleanup is pending |
 | 412 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
 | 428 | `PRECONDITION_REQUIRED` | An existing provider was replaced without `If-Match` |
@@ -301,7 +304,7 @@ Headers on the response:
 | 400 | `BAD_REQUEST` | Body does not decode, has unknown fields, or is not one JSON object |
 | 400 | `INVALID_USAGE` | A required identifier is missing or too long, a counter or cost is negative or out of range, or the total overflows |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` outside development mode |
 | 500 | `STORE_ERROR` | The report could not be stored |
 
 #### Example
@@ -351,6 +354,7 @@ Returns recent usage reports as a JSON array.
 | 400 | `INVALID_SINCE` | `since` is not an RFC 3339 timestamp |
 | 400 | `INVALID_LIMIT` | `limit` is not an integer from 1 to 1000 |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks the required role |
 | 500 | `STORE_ERROR` | Store read failed |
 
 #### Example
@@ -394,6 +398,7 @@ Returns one summary of the usage reports that match the filters.
 | 200 | none | Summary returned |
 | 400 | `INVALID_PERIOD` | `period` is not `day`, `week` or `month` |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks the required role |
 | 500 | `STORE_ERROR` | Store read failed |
 
 #### Example

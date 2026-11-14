@@ -105,6 +105,9 @@ List hook policies
 Usage:
   aiplex hooks policies list [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex hooks policies list
   aiplex hooks policies list -o wide
@@ -138,6 +141,9 @@ Show one hook policy and its current revision
 
 Usage:
   aiplex hooks policies get <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex hooks policies get pii
@@ -209,6 +215,9 @@ Delete a hook policy (uses the current revision unless --revision is given)
 
 Usage:
   aiplex hooks policies delete <id> [flags]
+
+Aliases:
+  delete, rm, remove
 
 Examples:
   aiplex hooks policies delete pii --yes

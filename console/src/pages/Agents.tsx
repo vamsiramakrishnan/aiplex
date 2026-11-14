@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listAgents, listInstances, registerAgent, deleteAgent, type Agent } from '../api/client'
+import { countOf } from '../api/counts'
 import StatusBadge from '../components/StatusBadge'
 import ScopeSelector from '../components/ScopeSelector'
 import AgentIdentities from '../components/AgentIdentities'
@@ -96,7 +97,7 @@ export default function Agents() {
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">{agent.client_id}</td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{agent.auth_method}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{agent.allowed_scopes?.length ?? 0} scopes</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{countOf(agent.allowed_scopes, 'scope')}</td>
                   <td className="px-4 py-3"><StatusBadge status={agent.status} /></td>
                   <td className="px-4 py-3">
                     <button

@@ -2,6 +2,7 @@ package agentfederation
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -9,7 +10,7 @@ import (
 // agent identity engine so sibling federation packages (user identity
 // providers) apply exactly the same rules instead of re-implementing them.
 
-// ParseCompactJWT parses an unverified compact JWS (RS256/ES256 with a key ID)
+// ParseCompactJWT parses an unverified compact JWS (RS256/ES256/ES384 with a key ID)
 // and returns its payload claims with numbers as json.Number. problem is
 // non-empty, and safe to show, when the token is not acceptable.
 func ParseCompactJWT(token string) (claims map[string]any, alg, problem string) {
@@ -27,7 +28,7 @@ func NumericDate(raw any) (int64, bool) { return numeric(raw) }
 func Clip(s string) string { return clip(s) }
 
 // Contains reports whether values includes v.
-func Contains(values []string, v string) bool { return contains(values, v) }
+func Contains(values []string, v string) bool { return slices.Contains(values, v) }
 
 // ExactValue rejects empty, padded, over-long or wildcard values.
 func ExactValue(label, value string) error { return exactValue(label, value) }

@@ -7,6 +7,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -36,8 +37,10 @@ type JWKSConfig struct {
 	CacheTTL   time.Duration
 }
 
-// JWKSVerifier verifies RS256 and ES256 JWTs with cached public keys. Other signature
-// algorithms can be supplied through TokenVerifier without changing WIF logic.
+// JWKSVerifier verifies RS256, ES256 and ES384 JWTs with cached public keys.
+// Each algorithm is bound to one key type: RS256 to RSA, ES256 to P-256 and
+// ES384 to P-384. Other signature algorithms can be supplied through
+// TokenVerifier without changing WIF logic.
 type JWKSVerifier struct {
 	cfg         JWKSConfig
 	mu          sync.Mutex
@@ -122,8 +125,8 @@ func (v *JWKSVerifier) VerifySignature(ctx context.Context, token string) (map[s
 		KeyID     string `json:"kid"`
 	}
 	h, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil || json.Unmarshal(h, &header) != nil || (header.Algorithm != "RS256" && header.Algorithm != "ES256") || header.KeyID == "" {
-		return nil, fmt.Errorf("JWT requires RS256 or ES256 and a key ID")
+	if err != nil || json.Unmarshal(h, &header) != nil || (header.Algorithm != "RS256" && header.Algorithm != "ES256" && header.Algorithm != "ES384") || header.KeyID == "" {
+		return nil, fmt.Errorf("JWT requires RS256, ES256 or ES384 and a key ID")
 	}
 	key, err := v.key(ctx, header.KeyID)
 	if err != nil {
@@ -133,13 +136,20 @@ func (v *JWKSVerifier) VerifySignature(ctx context.Context, token string) (map[s
 	if err != nil {
 		return nil, fmt.Errorf("invalid JWT signature encoding")
 	}
-	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+	signingInput := []byte(parts[0] + "." + parts[1])
 	valid := false
 	switch k := key.(type) {
 	case *rsa.PublicKey:
+		digest := sha256.Sum256(signingInput)
 		valid = header.Algorithm == "RS256" && rsa.VerifyPKCS1v15(k, crypto.SHA256, digest[:], signature) == nil
 	case *ecdsa.PublicKey:
-		valid = header.Algorithm == "ES256" && len(signature) == 64 && ecdsa.Verify(k, digest[:], new(big.Int).SetBytes(signature[:32]), new(big.Int).SetBytes(signature[32:]))
+		// The curve of the pinned key decides the algorithm; the header must
+		// name exactly that algorithm, and the signature must be raw R||S of
+		// exactly twice the curve's coordinate size (RFC 7518 section 3.4).
+		spec, ok := ecAlgorithms[k.Curve.Params().Name]
+		if ok && spec.curve == k.Curve && header.Algorithm == spec.alg && len(signature) == 2*spec.size {
+			valid = ecdsa.Verify(k, spec.digest(signingInput), new(big.Int).SetBytes(signature[:spec.size]), new(big.Int).SetBytes(signature[spec.size:]))
+		}
 	}
 	if !valid {
 		return nil, fmt.Errorf("invalid JWT signature")
@@ -158,6 +168,21 @@ func (v *JWKSVerifier) VerifySignature(ctx context.Context, token string) (map[s
 		return nil, fmt.Errorf("invalid trailing JWT payload")
 	}
 	return claims, nil
+}
+
+// ecAlgorithm binds one JWK curve to the only JWS algorithm it may verify.
+type ecAlgorithm struct {
+	curve  elliptic.Curve
+	alg    string
+	size   int // bytes per coordinate and per signature half
+	digest func([]byte) []byte
+}
+
+// ecAlgorithms is keyed by the JWK crv value, which is also the curve's
+// Params().Name.
+var ecAlgorithms = map[string]ecAlgorithm{
+	"P-256": {curve: elliptic.P256(), alg: "ES256", size: 32, digest: func(b []byte) []byte { d := sha256.Sum256(b); return d[:] }},
+	"P-384": {curve: elliptic.P384(), alg: "ES384", size: 48, digest: func(b []byte) []byte { d := sha512.Sum384(b); return d[:] }},
 }
 
 func numericDate(raw any) (int64, bool) {
@@ -237,22 +262,23 @@ func (v *JWKSVerifier) key(ctx context.Context, kid string) (any, error) {
 			continue
 		}
 		if j.Type == "EC" {
-			if j.Curve != "P-256" || (j.Algorithm != "" && j.Algorithm != "ES256") {
+			spec, ok := ecAlgorithms[j.Curve]
+			if !ok || (j.Algorithm != "" && j.Algorithm != spec.alg) {
 				continue
 			}
 			x, xe := base64.RawURLEncoding.DecodeString(j.X)
 			y, ye := base64.RawURLEncoding.DecodeString(j.Y)
-			if xe != nil || ye != nil || len(x) != 32 || len(y) != 32 {
+			if xe != nil || ye != nil || len(x) != spec.size || len(y) != spec.size {
 				continue
 			}
 			pointX, pointY := new(big.Int).SetBytes(x), new(big.Int).SetBytes(y)
-			if !elliptic.P256().IsOnCurve(pointX, pointY) {
+			if !spec.curve.IsOnCurve(pointX, pointY) {
 				continue
 			}
 			if _, duplicate := keys[j.KeyID]; duplicate {
 				return nil, fmt.Errorf("duplicate JWKS key ID")
 			}
-			keys[j.KeyID] = &ecdsa.PublicKey{Curve: elliptic.P256(), X: pointX, Y: pointY}
+			keys[j.KeyID] = &ecdsa.PublicKey{Curve: spec.curve, X: pointX, Y: pointY}
 			continue
 		}
 		if j.Type != "RSA" || (j.Algorithm != "" && j.Algorithm != "RS256") {

@@ -34,6 +34,7 @@ const sidebars: SidebarsConfig = {
         'concepts/identity',
         'concepts/quota-and-usage',
         'concepts/request-path',
+        L('naming', 'Naming and glossary'),
       ],
     },
     {
@@ -191,6 +192,7 @@ const sidebars: SidebarsConfig = {
         'reference/brand',
       ],
     },
+    L('project-status', 'Project status'),
     'contributing',
   ],
 };

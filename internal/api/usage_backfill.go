@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/usageledger"
@@ -92,16 +93,11 @@ func (h *UsageHandler) Backfill(w http.ResponseWriter, r *http.Request) {
 		Error(w, r, http.StatusNotImplemented, "NOT_IMPLEMENTED", "this usage ledger store cannot back-estimate costs")
 		return
 	case errors.Is(err, usageledger.ErrInvalid):
-		Error(w, r, http.StatusBadRequest, "INVALID_REQUEST", "limit must be between 1 and "+itoa(usageledger.MaxBackfillBatch))
+		Error(w, r, http.StatusBadRequest, "INVALID_REQUEST", "limit must be between 1 and "+strconv.Itoa(usageledger.MaxBackfillBatch))
 		return
 	case err != nil:
 		h.storeError(w, r, err)
 		return
 	}
 	JSON(w, http.StatusOK, result)
-}
-
-func itoa(n int) string {
-	b, _ := json.Marshal(n)
-	return string(b)
 }

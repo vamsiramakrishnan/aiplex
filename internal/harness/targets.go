@@ -5,9 +5,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/vamsiramakrishnan/aiplex/internal/harness/fragment"
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
@@ -32,7 +32,12 @@ type Options struct {
 	// later, from the client, where it would otherwise resolve the default
 	// context and return the wrong token.
 	HelperContext string
-	Telemetry   string // OTLP endpoint for the harness's own telemetry; "" = off
+	// HelperArgv is the helper as a command and arguments, for a caller that
+	// needs a different command than `aiplex auth print-token` (an absolute
+	// path, for example). It replaces the default helper; naming it together
+	// with HelperContext is refused.
+	HelperArgv []string
+	Telemetry  string // OTLP endpoint for the harness's own telemetry; "" = off
 	// TelemetryAIPlex means Telemetry is this deployment's own OTLP receiver
 	// (--with-telemetry aiplex). The receiver authenticates the sender with the
 	// AIPlex token, so the export header references the token and no file ever
@@ -58,27 +63,17 @@ func (o Options) scope() string {
 
 // helperArgv is the credential helper as a command and arguments.
 func (o Options) helperArgv() []string {
+	if len(o.HelperArgv) > 0 {
+		return o.HelperArgv
+	}
 	if o.HelperContext == "" {
 		return strings.Fields(DefaultHelper)
 	}
 	return []string{"aiplex", "--context", o.HelperContext, "auth", "print-token"}
 }
 
-var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_.@:/+=,-]+$`)
-
 // helper is the helper as one shell command line, quoted for a POSIX shell.
-func (o Options) helper() string {
-	argv := o.helperArgv()
-	out := make([]string, len(argv))
-	for i, a := range argv {
-		if shellSafe.MatchString(a) {
-			out[i] = a
-		} else {
-			out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
-		}
-	}
-	return strings.Join(out, " ")
-}
+func (o Options) helper() string { return fragment.ShellCommand(o.helperArgv()) }
 
 func (o Options) validate() error {
 	if o.Home == "" {
@@ -92,6 +87,9 @@ func (o Options) validate() error {
 		}
 	default:
 		return fmt.Errorf("--scope must be user or project, not %q", o.Scope)
+	}
+	if len(o.HelperArgv) > 0 && o.HelperContext != "" {
+		return fmt.Errorf("HelperArgv and HelperContext are alternatives; name one")
 	}
 	if o.Telemetry != "" {
 		u, err := url.Parse(o.Telemetry)
@@ -130,23 +128,23 @@ func tokenStep(client string) string {
 }
 
 // editJSON merges into a JSON file with fn and returns the Change.
-func editJSON(path string, fn func(root *object) error) (Change, error) {
+func editJSON(path string, fn func(root *fragment.Object) error) (Change, error) {
 	data, existed, mode, err := readFile(path)
 	if err != nil {
 		return Change{}, err
 	}
-	root, err := parseObject(data)
+	root, err := fragment.ParseObject(data)
 	if err != nil {
 		return Change{}, fmt.Errorf("%s is not valid JSON (%v); fix or move it, nothing was changed", path, err)
 	}
 	if err := fn(root); err != nil {
 		return Change{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return Change{Path: path, Before: data, Existed: existed, After: root.marshal(), Mode: mode}, nil
+	return Change{Path: path, Before: data, Existed: existed, After: root.Marshal(), Mode: mode}, nil
 }
 
-func mcpHTTPEntry(mcpURL string) *object {
-	return obj("type", "http", "url", mcpURL, "headers", obj("Authorization", "Bearer ${"+TokenEnv+"}"))
+func mcpHTTPEntry(mcpURL string) *fragment.Object {
+	return fragment.Obj("type", "http", "url", mcpURL, "headers", fragment.Obj("Authorization", "Bearer ${"+TokenEnv+"}"))
 }
 
 // PlanClaudeCode plans the Claude Code configuration.
@@ -179,37 +177,34 @@ func PlanClaudeCode(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 		settingsPath = filepath.Join(o.Cwd, ".claude", "settings.local.json")
 		mcpPath = filepath.Join(o.Cwd, ".mcp.json")
 	}
-	ch, err := editJSON(settingsPath, func(root *object) error {
-		env, err := root.child("env")
+	ch, err := editJSON(settingsPath, func(root *fragment.Object) error {
+		env, err := root.Child("env")
 		if err != nil {
 			return err
 		}
-		if _, has := env.get("ANTHROPIC_API_KEY"); has {
+		if _, has := env.Get("ANTHROPIC_API_KEY"); has {
 			// Observed with Claude Code 2.1.322: it sends this as x-api-key
 			// next to the AIPlex token, and the access point refuses a request
 			// whose credentials differ (401 "conflicting credentials").
 			p.Notes = append(p.Notes, "this settings file sets ANTHROPIC_API_KEY, which Claude Code would send to the access point as x-api-key beside your AIPlex token: the access point refuses that (conflicting credentials) and your provider key would reach AIPlex. AIPlex does not remove keys; delete it from env in this file, or use a separate Claude Code settings scope for AIPlex")
 		}
-		env.set("ANTHROPIC_BASE_URL", base)
-		if model != "" {
-			env.set("ANTHROPIC_MODEL", model)
-		}
+		fragment.SetClaudeCodeEnv(env, base, model)
 		if o.Telemetry != "" {
 			proto := "http/protobuf"
 			if otlpProtocol(o.Telemetry) == "grpc" {
 				proto = "grpc"
 			}
-			env.set("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
-			env.set("OTEL_METRICS_EXPORTER", "otlp")
-			env.set("OTEL_LOGS_EXPORTER", "otlp")
-			env.set("OTEL_EXPORTER_OTLP_PROTOCOL", proto)
-			env.set("OTEL_EXPORTER_OTLP_ENDPOINT", o.Telemetry)
-			if v, ok := env.get("OTEL_LOG_USER_PROMPTS"); ok && v == "1" {
+			env.Set("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+			env.Set("OTEL_METRICS_EXPORTER", "otlp")
+			env.Set("OTEL_LOGS_EXPORTER", "otlp")
+			env.Set("OTEL_EXPORTER_OTLP_PROTOCOL", proto)
+			env.Set("OTEL_EXPORTER_OTLP_ENDPOINT", o.Telemetry)
+			if v, ok := env.Get("OTEL_LOG_USER_PROMPTS"); ok && v == "1" {
 				p.Notes = append(p.Notes, "your settings already set OTEL_LOG_USER_PROMPTS=1, which exports prompt text; AIPlex left it alone, consider removing it")
 			}
 		}
 		if o.TokenHelper {
-			root.set("apiKeyHelper", o.helper())
+			fragment.SetClaudeCodeHelper(root, o.helper())
 		}
 		return nil
 	})
@@ -219,12 +214,12 @@ func PlanClaudeCode(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	p.Changes = append(p.Changes, ch)
 
 	if c.MCPURL != "" {
-		ch, err := editJSON(mcpPath, func(root *object) error {
-			servers, err := root.child("mcpServers")
+		ch, err := editJSON(mcpPath, func(root *fragment.Object) error {
+			servers, err := root.Child("mcpServers")
 			if err != nil {
 				return err
 			}
-			servers.set(serverName(c), mcpHTTPEntry(c.MCPURL))
+			servers.Set(serverName(c), mcpHTTPEntry(c.MCPURL))
 			return nil
 		})
 		if err != nil {
@@ -250,7 +245,7 @@ func PlanClaudeCode(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 			tokenStep("claude")+"   # still needed for the MCP server header")
 	} else {
 		p.Remaining = append(p.Remaining,
-			"Claude Code reads the model credential from ANTHROPIC_AUTH_TOKEN, and settings files cannot reference an environment variable, so set it in the shell instead of a file: export ANTHROPIC_AUTH_TOKEN=\"$"+TokenEnv+"\"  (or rerun with --token-helper)",
+			"Claude Code reads the model credential from ANTHROPIC_AUTH_TOKEN, and settings files cannot reference an environment variable, so set it in the shell instead of a file: "+fragment.CopyLine(fragment.ClaudeCodeTokenEnv, TokenEnv)+"  (or rerun with --token-helper)",
 			tokenStep("claude"))
 	}
 	return p, nil
@@ -273,8 +268,8 @@ func PlanGeminiCLI(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	p := &Plan{Client: "gemini-cli"}
 	if base := c.BaseURLs["genai"]; base != "" {
 		p.Remaining = append(p.Remaining,
-			"export GOOGLE_GEMINI_BASE_URL="+base+"   # Gemini CLI has no settings-file key for the base URL",
-			"export GEMINI_API_KEY=\"$"+TokenEnv+"\"   # sent as the API key; "+TokenEnv+" must hold your access token")
+			fragment.ExportLine(fragment.GeminiBaseURLEnv, base)+"   # Gemini CLI has no settings-file key for the base URL",
+			fragment.CopyLine(fragment.GeminiKeyEnv, TokenEnv)+"   # sent as the API key; "+TokenEnv+" must hold your access token")
 	} else {
 		p.Notes = append(p.Notes, "this access point has no Google GenAI endpoint, so Gemini CLI cannot use its models; only the MCP server is configured")
 	}
@@ -289,46 +284,28 @@ func PlanGeminiCLI(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	if o.scope() == "project" {
 		path = filepath.Join(o.Cwd, ".gemini", "settings.json")
 	}
-	ch, err := editJSON(path, func(root *object) error {
+	ch, err := editJSON(path, func(root *fragment.Object) error {
 		if c.BaseURLs["genai"] != "" {
-			// Observed with Gemini CLI 0.67 (2026-11-10): with only
-			// GEMINI_API_KEY in the environment a headless run stops with
-			// "Invalid auth method selected" unless security.auth.selectedType
-			// names the API-key method, and the CLI asks for its own default
-			// model unless model.name names one the access point serves.
-			sec, err := root.child("security")
-			if err != nil {
+			if err := fragment.SetGeminiCLIModel(root, model); err != nil {
 				return err
-			}
-			auth, err := sec.child("auth")
-			if err != nil {
-				return err
-			}
-			auth.set("selectedType", "gemini-api-key")
-			if model != "" {
-				m, err := root.child("model")
-				if err != nil {
-					return err
-				}
-				m.set("name", model)
 			}
 		}
 		if c.MCPURL != "" {
-			servers, err := root.child("mcpServers")
+			servers, err := root.Child("mcpServers")
 			if err != nil {
 				return err
 			}
-			servers.set(serverName(c), obj("httpUrl", c.MCPURL, "headers", obj("Authorization", "Bearer ${"+TokenEnv+"}")))
+			servers.Set(serverName(c), fragment.Obj("httpUrl", c.MCPURL, "headers", fragment.Obj("Authorization", "Bearer ${"+TokenEnv+"}")))
 		}
 		if o.Telemetry != "" {
-			t, err := root.child("telemetry")
+			t, err := root.Child("telemetry")
 			if err != nil {
 				return err
 			}
-			t.set("enabled", true)
-			t.set("otlpEndpoint", o.Telemetry)
-			t.set("otlpProtocol", otlpProtocol(o.Telemetry))
-			t.set("logPrompts", false)
+			t.Set("enabled", true)
+			t.Set("otlpEndpoint", o.Telemetry)
+			t.Set("otlpProtocol", otlpProtocol(o.Telemetry))
+			t.Set("logPrompts", false)
 		}
 		return nil
 	})
@@ -369,12 +346,12 @@ func PlanAntigravity(c *aiplex.AccessPointConnect, o Options) (*Plan, error) {
 	if o.scope() == "project" {
 		path = filepath.Join(o.Cwd, ".agents", "mcp_config.json")
 	}
-	ch, err := editJSON(path, func(root *object) error {
-		servers, err := root.child("mcpServers")
+	ch, err := editJSON(path, func(root *fragment.Object) error {
+		servers, err := root.Child("mcpServers")
 		if err != nil {
 			return err
 		}
-		servers.set("aiplex", obj("command", "aiplex", "args", []any{"mcp", "serve"}))
+		servers.Set("aiplex", fragment.Obj("command", "aiplex", "args", []any{"mcp", "serve"}))
 		return nil
 	})
 	if err != nil {

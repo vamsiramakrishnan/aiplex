@@ -464,7 +464,22 @@ func loadBudget(tx Tx, limit BudgetLimit) (budgetRecord, error) {
 	} else if err != nil {
 		return budgetRecord{}, err
 	}
-	if state.Key != limit.Key || state.Shape != limit.Shape || state.MeterID != limit.MeterID || !state.Window.Start.Equal(limit.Window.Start) || !state.Window.End.Equal(limit.Window.End) || state.Held < 0 || state.Consumed < 0 || state.Credited < 0 || state.Debited < 0 {
+	sameMeter := state.MeterID == limit.MeterID
+	if limit.BudgetID != "" {
+		// A tenant budget draw's counter is identified by its key, which
+		// binds the budget id, the draw's shape (unit, currency, scale,
+		// period) and the window. Its MeterID is the money meter identity
+		// of a cost draw. Records written before that identity was fixed
+		// carry "" (first written by an unpriced allow_and_flag request) or
+		// the first priced money meter; an attempt admitted then carries the
+		// same in its plan. They are the same counter: adopt the current
+		// identity and keep every count.
+		sameMeter = true
+		if limit.MeterID != "" {
+			state.MeterID = limit.MeterID
+		}
+	}
+	if state.Key != limit.Key || state.Shape != limit.Shape || !sameMeter || !state.Window.Start.Equal(limit.Window.Start) || !state.Window.End.Equal(limit.Window.End) || state.Held < 0 || state.Consumed < 0 || state.Credited < 0 || state.Debited < 0 {
 		return budgetRecord{}, fmt.Errorf("budget state shape mismatch: %w", ErrConflict)
 	}
 	return state, nil

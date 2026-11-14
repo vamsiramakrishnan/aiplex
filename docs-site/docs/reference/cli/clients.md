@@ -20,10 +20,10 @@ Examples:
 Available Commands:
   profiles    List supported client profiles
   list        List registered clients
-  get         
+  get         Show one registered client
   plan        Render reviewed configuration fragments without applying them
   register    Create or update a client registration
-  delete      
+  delete      Delete a client registration (needs its current revision)
 
 Flags:
   -h, --help   help for clients
@@ -89,6 +89,9 @@ List registered clients
 Usage:
   aiplex clients list [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex clients list
 
@@ -116,8 +119,13 @@ Exit codes:
 ### `aiplex clients get`
 
 ```text
+Show one registered client
+
 Usage:
   aiplex clients get <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex clients get cursor-team
@@ -212,8 +220,13 @@ Exit codes:
 ### `aiplex clients delete`
 
 ```text
+Delete a client registration (needs its current revision)
+
 Usage:
   aiplex clients delete <id> [flags]
+
+Aliases:
+  delete, rm, remove
 
 Examples:
   aiplex clients delete cursor-team

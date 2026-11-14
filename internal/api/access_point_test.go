@@ -25,6 +25,8 @@ import (
 // upstreamCall is one request observed by the fake provider/tool server.
 type upstreamCall struct {
 	Path, Query, Body, Authorization string
+	ContentType                      string
+	ContentLength                    int64 // -1 when the request was chunked
 }
 
 type apFixture struct {
@@ -100,7 +102,7 @@ func newAPFixture(t *testing.T) *apFixture {
 	f.upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
-		f.calls = append(f.calls, upstreamCall{Path: r.URL.Path, Query: r.URL.RawQuery, Body: string(body), Authorization: r.Header.Get("Authorization")})
+		f.calls = append(f.calls, upstreamCall{Path: r.URL.Path, Query: r.URL.RawQuery, Body: string(body), Authorization: r.Header.Get("Authorization"), ContentType: r.Header.Get("Content-Type"), ContentLength: r.ContentLength})
 		f.mu.Unlock()
 		switch {
 		case r.URL.Path == "/v1/realtime":

@@ -26,12 +26,13 @@ func whoCmd() *cobra.Command {
 models, tools and skills it can reach with the reason for each, quota coverage,
 and recent usage by model and tool.
 
-With --kind (or just a kind), lists callers of that kind with their identity,
-access points, last activity and usage over --since (default 24h).
+With no arguments, lists every caller, one table per kind. With --kind (or
+just a kind), lists callers of that kind with their identity, access points,
+last activity and usage over --since (default 24h).
 
 Unknown is shown as "unknown", never as zero. There is no user directory:
 known users are those named by an access point or seen in the usage ledger.`,
-		Example: "  aiplex who --kind agent\n  aiplex who agent tutor-agent\n  aiplex who user principal-ab12… --since 7d\n  aiplex who --kind client -o json",
+		Example: "  aiplex who\n  aiplex who --kind agent\n  aiplex who agent tutor-agent\n  aiplex who user principal-ab12… --since 7d\n  aiplex who --kind client -o json",
 		Args:    cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
@@ -53,7 +54,7 @@ known users are those named by an access point or seen in the usage ledger.`,
 				kind = args[0]
 			}
 			if kind == "" {
-				return fmt.Errorf("give a kind and an id (aiplex who agent <id>) or --kind agent|user|client to list")
+				return whoAllKinds(cmd, c, since, limit, cursor)
 			}
 			page, err := c.ListOverviewSubjects(cmd.Context(), aiplex.OverviewSubjectsQuery{Kind: kind, Since: since, Limit: limit, Cursor: cursor})
 			if err != nil {
@@ -71,6 +72,38 @@ known users are those named by an access point or seen in the usage ledger.`,
 	cmd.Flags().IntVar(&limit, "limit", 0, "Page size when listing (default 50, max 200)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "Continue a listing from a previous next-cursor")
 	return cmd
+}
+
+// whoKinds is the order callers are listed in when no kind is given. It is the
+// same precedence the API uses to classify a caller.
+var whoKinds = []string{"agent", "client", "user"}
+
+// whoAllKinds lists every caller kind, one table per kind. A cursor belongs to
+// one kind's listing, so it is refused here instead of being applied to all three.
+func whoAllKinds(cmd *cobra.Command, c *aiplex.Client, since string, limit int, cursor string) error {
+	if cursor != "" {
+		return fmt.Errorf("--cursor continues one kind's listing: add --kind agent|client|user")
+	}
+	pages := make(map[string]*aiplex.OverviewSubjectPage, len(whoKinds))
+	for _, k := range whoKinds {
+		page, err := c.ListOverviewSubjects(cmd.Context(), aiplex.OverviewSubjectsQuery{Kind: k, Since: since, Limit: limit})
+		if err != nil {
+			return fmt.Errorf("who: %w", err)
+		}
+		pages[k] = page
+	}
+	if spStructured(cmd, pages) {
+		return nil
+	}
+	out := cmd.OutOrStdout()
+	for i, k := range whoKinds {
+		if i > 0 {
+			fmt.Fprintln(out)
+		}
+		spRenderSubjects(out, pages[k])
+	}
+	fmt.Fprintln(out, "\nOne caller in detail: aiplex who <agent|client|user> <id>")
+	return nil
 }
 
 func spLastSeen(t *time.Time) string {

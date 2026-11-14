@@ -21,6 +21,11 @@ Cost budgets need a price for every model they count. A model with no price is
 refused by default (--on-unknown-cost deny); allow_and_flag admits it and counts
 it as unknown cost instead.
 
+A cost budget counts model calls only, unless it is created or updated with
+--include-tool-calls: then managed tool calls draw their price too, and a tool
+call with no price is treated like a model with no price. Deployment actions are
+not tool calls for this purpose: they are never charged or refused by it.
+
 Usage:
   aiplex budgets [flags]
   aiplex budgets [command]
@@ -164,6 +169,7 @@ Flags:
   -f, --file string              JSON or YAML specification, or - for stdin (instead of the flags)
       --group strings            Member group name from your identity provider, repeatable
   -h, --help                     help for create
+      --include-tool-calls       Cost budgets: also count managed tool calls at their price (off by default: model calls only; deployment actions are never counted by it); --include-tool-calls=false turns it off
       --name string              Display name
       --on-unknown-cost string   Cost budgets: deny (default) refuses a model with no price; allow_and_flag admits it and counts it as unknown cost
       --parent string            Parent budget ID (a request also draws from every ancestor)
@@ -208,6 +214,7 @@ Usage:
 Examples:
   aiplex budgets update platform --amount 400.00
   aiplex budgets update platform --add group=data-eng --remove project=old
+  aiplex budgets update platform --include-tool-calls
   aiplex budgets update platform -f budget.yaml
 
 Flags:
@@ -216,6 +223,7 @@ Flags:
       --currency string          Currency for a cost budget (for example USD); must match a money meter of the quota policy
   -f, --file string              Replace the specification from a JSON or YAML file, or - for stdin
   -h, --help                     help for update
+      --include-tool-calls       Cost budgets: also count managed tool calls at their price (off by default: model calls only; deployment actions are never counted by it); --include-tool-calls=false turns it off
       --name string              Display name
       --on-unknown-cost string   Cost budgets: deny (default) refuses a model with no price; allow_and_flag admits it and counts it as unknown cost
       --parent string            Parent budget ID (a request also draws from every ancestor)
@@ -252,7 +260,7 @@ Usage:
   aiplex budgets delete <id> [flags]
 
 Aliases:
-  delete, remove, rm
+  delete, rm, remove
 
 Examples:
   aiplex budgets delete platform --yes

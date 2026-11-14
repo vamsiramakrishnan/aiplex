@@ -1,5 +1,7 @@
 package modelapi
 
+import "github.com/vamsiramakrishnan/aiplex/pkg/execution"
+
 // rejectedBeforeProcessing reports an HTTP status that the provider documents
 // as a refusal before any generation: rate limiting, overload, authentication
 // or permission failure, and request validation. Such a response carries no
@@ -26,8 +28,7 @@ package modelapi
 //	  ThrottlingException/ModelNotReadyException. 408 ModelTimeoutException,
 //	  424 ModelErrorException, 500 and 503 are retained.
 func (g *Gateway) rejectedBeforeProcessing(status int) bool {
-	switch status {
-	case 400, 401, 403, 404, 429:
+	if execution.RejectedBeforeProcessing(status) {
 		return true
 	}
 	provider := ""

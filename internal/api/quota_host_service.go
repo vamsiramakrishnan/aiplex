@@ -144,7 +144,7 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 		if !ok {
 			return nil, fmt.Errorf("quota binding references an unconfigured tenant")
 		}
-		if binding.Profile != quotaProfileRequests && !quotaStrictProfile(binding.Profile) && !quotaExtendedProfile(binding.Profile) {
+		if binding.Profile != quotaProfileRequests && binding.Profile != quotaProfileToolUsage && !quotaStrictProfile(binding.Profile) && !quotaExtendedProfile(binding.Profile) {
 			return nil, fmt.Errorf("quota binding profile is unsupported")
 		}
 		if quotaStrictProfile(binding.Profile) && ((!quotaInterfacePresent(bounds) && binding.Profile != quotaProfileLiveAllowance) || binding.Plane != "llmplex" || binding.Model == "" || binding.ModelVersion == "") {
@@ -165,11 +165,18 @@ func NewQuotaHost(ctx context.Context, cfg QuotaHostConfig, store quotaplex.Stor
 				return nil, err
 			}
 		}
+		if binding.Profile == quotaProfileToolUsage {
+			if err := validateToolUsageBinding(binding, policy); err != nil {
+				return nil, err
+			}
+		}
 		seenMeters := map[string]bool{}
 		for native, meterID := range binding.Meters {
 			unit := ""
 			if quotaExtendedProfile(binding.Profile) {
 				unit = quotaExtendedMeterUnit(binding, native)
+			} else if binding.Profile == quotaProfileToolUsage {
+				unit = quotaToolUsageMeterUnits[native]
 			} else {
 				switch native {
 				case "requests":
@@ -457,7 +464,7 @@ func (h *QuotaHost) prepare(ctx context.Context, r *http.Request, in QuotaInvoca
 	if accessPoint != nil {
 		project = accessPoint.Project
 	}
-	budgetSet, err := h.resolveBudgets(ctx, in.Context.TenantID, tenant, budgetFacts(principal, actor, identity, target, project), in.Plane)
+	budgetSet, err := h.resolveBudgets(ctx, in.Context.TenantID, tenant, budgetFacts(principal, actor, identity, target, project), in.Plane, in.DeploymentAction)
 	if err != nil {
 		return nil, err
 	}

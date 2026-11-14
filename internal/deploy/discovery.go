@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
+	"github.com/vamsiramakrishnan/aiplex/pkg/mcpdiscover"
 )
 
 type DiscoveredTool struct {
@@ -17,55 +18,22 @@ type DiscoveredTool struct {
 	Description string `json:"description"`
 }
 
-// DiscoverTools calls MCP tools/list against a deployed MCP server's /mcp
-// endpoint and returns the tool definitions. Use this for MCPlex only —
-// A2A agents speak the Agent Card protocol; see DiscoverAgentCard.
+// DiscoverTools lists the tools of a deployed MCP server's /mcp endpoint with
+// the MCP Streamable HTTP handshake (initialize, then tools/list, following
+// pagination). Use this for MCPlex only — A2A agents speak the Agent Card
+// protocol; see DiscoverAgentCard. Redirects are followed as net/http does by
+// default; no credential is sent.
 func DiscoverTools(ctx context.Context, endpoint string) ([]DiscoveredTool, error) {
-	reqBody := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/list",
-		"params":  map[string]any{},
-	}
-	data, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, err
-	}
-
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(data))
+	tools, err := mcpdiscover.ListTools(ctx, client, endpoint, mcpdiscover.Options{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tools/list discovery failed: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("tools/list request failed: %w", err)
+	out := make([]DiscoveredTool, len(tools))
+	for i, t := range tools {
+		out[i] = DiscoveredTool{Name: t.Name, Description: t.Description}
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("tools/list returned status %d", resp.StatusCode)
-	}
-
-	var rpcResp struct {
-		Result struct {
-			Tools []DiscoveredTool `json:"tools"`
-		} `json:"result"`
-		Error *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
-		return nil, fmt.Errorf("decode tools/list response: %w", err)
-	}
-	if rpcResp.Error != nil {
-		return nil, fmt.Errorf("tools/list error %d: %s", rpcResp.Error.Code, rpcResp.Error.Message)
-	}
-
-	return rpcResp.Result.Tools, nil
+	return out, nil
 }
 
 // ErrAgentCardNotFound is returned when an A2A agent does not expose a

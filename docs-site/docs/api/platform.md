@@ -13,23 +13,23 @@ The platform API covers the routes that are not specific to one plane. It has he
 | GET | `/healthz` | Liveness | None |
 | GET | `/readyz` | Readiness, including the store and module runtime | None |
 | GET | `/api/v1/modules` | List module descriptors | Verified identity |
-| GET | `/api/v1/catalog` | List catalog templates | Verified identity |
-| GET | `/api/v1/catalog/{id}` | Read one catalog template | Verified identity |
-| GET | `/api/v1/instances` | List instances | Verified identity |
+| GET | `/api/v1/catalog` | List catalog templates | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/catalog/{id}` | Read one catalog template | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/instances` | List instances | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/instances` | Deploy an instance from a template | `admin` or `deployer` outside development mode |
-| GET | `/api/v1/instances/{id}` | Read one instance | Verified identity |
+| GET | `/api/v1/instances/{id}` | Read one instance | `admin` or `deployer` outside development mode |
 | DELETE | `/api/v1/instances/{id}` | Undeploy an instance | `admin` or `deployer` outside development mode |
-| GET | `/api/v1/instances/{id}/history` | List deploy history of an instance | Verified identity |
-| GET | `/api/v1/agents` | List registered agents | Verified identity |
+| GET | `/api/v1/instances/{id}/history` | List deploy history of an instance | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/agents` | List registered agents | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/agents` | Register an agent | `admin` or `deployer` outside development mode |
-| GET | `/api/v1/agents/{clientId}` | Read one agent | Verified identity |
+| GET | `/api/v1/agents/{clientId}` | Read one agent | `admin` or `deployer` outside development mode |
 | DELETE | `/api/v1/agents/{clientId}` | Delete an agent registration | `admin` or `deployer` outside development mode |
-| GET | `/api/v1/agents/{clientId}/permissions` | Read an agent's permission ceiling by plane | Verified identity |
-| GET | `/api/v1/dashboard/stats` | Read the platform summary | Verified identity |
+| GET | `/api/v1/agents/{clientId}/permissions` | Read an agent's permission ceiling by plane | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/dashboard/stats` | Read the platform summary | `admin` outside development mode |
 | GET | `/api/v1/dashboard/denials` | List recent policy denials | `admin` role; deployment-wide, so an identity bound to a tenant is refused |
 | POST | `/api/v1/dashboard/denials` | Record a policy denial | `admin` outside development mode |
 | POST | `/internal/policy-denials` | Record a denial reported by the authz sidecar | Shared bearer secret (`AIPLEX_DENIAL_TOKEN`) |
-| GET | `/v0.1/servers` | List catalog entries as an MCP registry view | Verified identity. Mounted when `mcplex` is enabled. |
+| GET | `/v0.1/servers` | List catalog entries as an MCP registry view | `admin` or `deployer` outside development mode. Mounted when `mcplex` is enabled. |
 | GET | `/a2a/{instanceId}/.well-known/agent.json` | Read the Agent Card of an A2A agent instance | Verified identity. Mounted when `a2aplex` is enabled. |
 | GET | `/auth/login` | Return the login challenge details for Hydra | None |
 | GET | `/auth/consent` | Read a consent request from Hydra | Verified identity |
@@ -184,6 +184,7 @@ Returns one template.
 |---|---|---|
 | 200 | none | Template returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `NOT_FOUND` | No template with this identifier |
 | 404 | `MODULE_DISABLED` | The template's plane is disabled |
 
@@ -229,6 +230,7 @@ Returns instances as a JSON array. The optional `plane` query parameter filters 
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | `STORE_ERROR` | Store read failed |
 
 ### POST `/api/v1/instances`
@@ -249,7 +251,7 @@ The response is `201 Created` with the instance.
 | 201 | none | Instance deployed. Body is the instance. |
 | 400 | `BAD_REQUEST` | Body does not decode, or `plane` or `template_id` is missing |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 409 | `RUNTIME_IMMUTABLE` | The change would alter the runtime of an existing instance |
 | 500 | `DEPLOY_ERROR` | Any other deployment failure |
 
@@ -270,6 +272,7 @@ Returns one instance.
 |---|---|---|
 | 200 | none | Instance returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `NOT_FOUND` | No instance with this identifier |
 | 500 | `STORE_ERROR` | Store read failed |
 
@@ -281,13 +284,13 @@ Undeploys an instance. The response is `204` with no body.
 |---|---|---|
 | 204 | none | Instance undeployed |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 404 | `NOT_FOUND` | No instance with this identifier |
 | 500 | `UNDEPLOY_ERROR` | Undeploy failed |
 
 ### GET `/api/v1/instances/{id}/history`
 
-Returns up to 50 deploy history entries of the instance as a JSON array.
+Returns up to 50 deploy history entries of the instance as a JSON array. The CLI shows it with `aiplex get instance <id> --history`.
 
 #### History entry fields
 
@@ -310,6 +313,7 @@ Returns up to 50 deploy history entries of the instance as a JSON array.
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | `STORE_ERROR` | Store read failed |
 
 ## Agents
@@ -345,6 +349,7 @@ Returns every registered agent as a JSON array.
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | `STORE_ERROR` | Store read failed |
 
 ### POST `/api/v1/agents`
@@ -369,7 +374,7 @@ When an authorization server is configured, the agent is first saved as `provisi
 | 400 | `INVALID_WIF_PRINCIPAL` | `wif_principal` does not pass validation |
 | 400 | `INVALID_PRECONDITION` | `If-Match` is malformed |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 409 | `CONFLICT` | An agent with this `client_id` already exists |
 | 412 | `REVISION_CONFLICT` | `If-Match` is present and is not `"0"` |
 | 500 | `STORE_ERROR` | Agent registry lookup failed |
@@ -394,6 +399,7 @@ Returns one agent with an `ETag` header holding the revision.
 |---|---|---|
 | 200 | none | Agent returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `NOT_FOUND` | No agent with this identifier |
 | 500 | `STORE_ERROR` | Store read failed |
 
@@ -405,7 +411,7 @@ Deletes an agent registration. The agent is first marked `deleting`, the client 
 |---|---|---|
 | 204 | none | Agent deleted |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 400 | `INVALID_PRECONDITION` | `If-Match` is malformed |
 | 404 | `NOT_FOUND` | No agent with this identifier |
 | 412 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
@@ -432,6 +438,7 @@ Each scope entry has `scope` and `description`.
 |---|---|---|
 | 200 | none | Permissions returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `NOT_FOUND` | No agent with this identifier |
 | 500 | `STORE_ERROR` | Store read failed |
 
@@ -477,11 +484,12 @@ only `ledger` or `legacy-store`.
 |---|---|---|
 | 200 | none | Summary returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` role |
 | 503 | `STATS_UNAVAILABLE` | A source needed for the summary could not be read |
 
 ### GET `/api/v1/dashboard/denials`
 
-Returns the most recent 50 policy denials as a JSON array. The route policy classifies it as `admin` and deployment-wide: denials are deployment-wide operator data, so a verified identity without the `admin` role is refused (`403 ROLE_REQUIRED`), and so is an identity bound to a tenant (`403 DEPLOYMENT_SCOPE_REQUIRED`). A verified identity alone is not enough.
+Returns the most recent policy denials, newest first, as a JSON array. The query parameter `limit` sets how many (1 to 1000; default 50). The route policy classifies it as `admin` and deployment-wide: denials are deployment-wide operator data, so a verified identity without the `admin` role is refused (`403 ROLE_REQUIRED`), and so is an identity bound to a tenant (`403 DEPLOYMENT_SCOPE_REQUIRED`). A verified identity alone is not enough.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -499,6 +507,7 @@ Returns the most recent 50 policy denials as a JSON array. The route policy clas
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 400 | `INVALID_LIMIT` | `limit` is not an integer from 1 to 1000 |
 | 403 | `ROLE_REQUIRED` | The identity does not hold the `admin` role |
 | 403 | `DEPLOYMENT_SCOPE_REQUIRED` | The identity is bound to a tenant |
 | 500 | `STORE_ERROR` | Store read failed |
@@ -514,7 +523,7 @@ Outside development mode, this route requires the `admin` role, because the `/ap
 | 201 | none | Denial recorded |
 | 400 | `BAD_REQUEST`, `INVALID_FIELD` | Body does not decode, has unknown fields, or a field is invalid |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` outside development mode |
 | 413 | `PAYLOAD_TOO_LARGE` | Body over 4096 bytes |
 | 429 | `RATE_LIMITED` | Too many reports |
 | 500 | `STORE_ERROR` | Store write failed |
@@ -649,7 +658,7 @@ Returns a user's scope ceiling. `userId` must be a canonical principal identifie
 | 200 | none | Scopes returned |
 | 400 | `INVALID_PRINCIPAL` | `userId` is not a canonical principal identifier |
 | 401 | `UNAUTHENTICATED` | No verified role context |
-| 403 | `FORBIDDEN` | Caller lacks the `admin` role |
+| 403 | `ROLE_REQUIRED` | Caller lacks the `admin` role |
 | 500 | `STORE_ERROR` | Store read failed |
 | 503 | `CONFIGURATION_UNAVAILABLE` | The stored scope configuration cannot be read |
 
@@ -665,7 +674,7 @@ Replaces a user's scope ceiling. The body is `{"scopes": [...]}`. `scopes` must 
 | 400 | `INVALID_SCOPE` | A scope is malformed |
 | 400 | `INVALID_PRECONDITION` | `If-Match` is malformed |
 | 401 | `UNAUTHENTICATED` | No verified role context |
-| 403 | `FORBIDDEN` | Caller lacks the `admin` role |
+| 403 | `ROLE_REQUIRED` | Caller lacks the `admin` role |
 | 412 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
 | 428 | `PRECONDITION_REQUIRED` | `If-Match` is missing for an existing configuration |
 | 503 | `CONFIGURATION_CAS_UNAVAILABLE` | The configuration store does not support revisions |

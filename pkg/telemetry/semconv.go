@@ -213,6 +213,28 @@ const (
 	MetricCacheLookups      = "aiplex.cache.lookups"
 )
 
+// QuotaPlex attempts in the unknown state (AIPlex). Gauges from the last
+// complete recovery scan of each tenant the process serves, summed across
+// those tenants: like every other metric, no tenant, principal or attempt
+// identifier is a label. Labels are the policy-declared meter identifier
+// (operator configuration, at most 64 per policy), its unit, currency and
+// scale, and whether the exposure is complete.
+const (
+	AttrQuotaMeter            = "aiplex.quota.meter"
+	AttrQuotaUnit             = "aiplex.quota.unit"
+	AttrQuotaCurrency         = "aiplex.quota.currency"
+	AttrQuotaScale            = "aiplex.quota.scale"
+	AttrQuotaExposureComplete = "aiplex.quota.exposure.complete"
+
+	MetricQuotaUnknownAttempts   = "aiplex.quota.unknown.attempts"
+	MetricQuotaUnknownUndated    = "aiplex.quota.unknown.undated"
+	MetricQuotaUnknownUnreadable = "aiplex.quota.unknown.unreadable"
+	MetricQuotaUnknownOldestAge  = "aiplex.quota.unknown.oldest_age"
+	MetricQuotaUnknownExposure   = "aiplex.quota.unknown.exposure"
+	MetricQuotaUnknownUncomputed = "aiplex.quota.unknown.exposure_uncomputed"
+	MetricQuotaUnknownScanAge    = "aiplex.quota.unknown.scan_age"
+)
+
 // Configuration environment variables AIPlex reads in addition to the
 // standard OTEL_* variables the SDK and exporters read themselves.
 const (

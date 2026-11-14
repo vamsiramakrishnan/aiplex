@@ -11,9 +11,10 @@ func completionCmd() *cobra.Command {
 		Use:   "completion <bash|zsh|fish|powershell>",
 		Short: "Print a shell completion script (commands, flags and resource ids)",
 		Long: `Print a shell completion script for aiplex. It completes commands and flags,
-and the ids of access points, model surfaces, tool connections, prices and
-identity providers by asking the current API (one request, 1.5s timeout,
-silent when the API is not reachable).
+and the ids a command takes (access points, surfaces, connections, agents,
+clients, runs, instances and more) by asking the current API: one GET, 1.5s
+timeout, nothing offered when the API cannot be reached, refuses the request
+or your stored login has expired.
 
 Add to your shell profile:
 

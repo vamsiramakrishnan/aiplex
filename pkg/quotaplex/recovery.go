@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -56,6 +58,266 @@ type RecoveryReport struct {
 	NextAfterID string            `json:"next_after_id,omitempty"`
 	Done        bool              `json:"done"`
 	Failures    []RecoveryFailure `json:"failures,omitempty"`
+	// Unknown summarizes the scanned attempts still in the unknown state
+	// after this page. Only RecoverAttempts sets it; it is never nil there,
+	// so "none" is distinguishable from "not computed".
+	Unknown *UnknownExposure `json:"unknown,omitempty"`
+}
+
+// UnknownExposure summarizes attempts that were dispatched and whose outcome
+// QuotaPlex never learned (state "unknown"). They keep holding budget until
+// terminal evidence or a reviewed reconciliation settles them. Exposure is
+// reported per meter and unit and is never folded into one cost. An amount
+// that cannot be computed is counted in UncomputedAttempts and makes the
+// meter's Quantity unknown (null), never 0.
+type UnknownExposure struct {
+	AsOf             time.Time  `json:"as_of"`
+	Attempts         int        `json:"attempts"`
+	OldestDispatchAt *time.Time `json:"oldest_dispatch_at,omitempty"`
+	// UndatedAttempts are unknown attempts without a valid dispatch time; the
+	// oldest age is then unknown.
+	UndatedAttempts int `json:"undated_attempts,omitempty"`
+	// Unreadable counts scanned attempt records that could not be decoded or
+	// validated. Their state and exposure are unknown, so the summary is
+	// incomplete while it is nonzero.
+	Unreadable int            `json:"unreadable,omitempty"`
+	Exposure   []HeldExposure `json:"exposure"`
+}
+
+// HeldExposure is the admitted bound (the most the attempts may have
+// consumed) on one meter. Quantity is set only when every contributing amount
+// is known and the sum fits; otherwise it is null and KnownPart is a lower
+// bound. A MeterID or Unit of "" means the attempt's plan did not identify it.
+type HeldExposure struct {
+	MeterID            string `json:"meter_id"`
+	Unit               string `json:"unit"`
+	Currency           string `json:"currency,omitempty"`
+	Scale              uint8  `json:"scale,omitempty"`
+	Quantity           *int64 `json:"quantity"`
+	KnownPart          int64  `json:"known_part"`
+	UncomputedAttempts int    `json:"uncomputed_attempts"`
+	Overflow           bool   `json:"overflow,omitempty"`
+	Attempts           int    `json:"attempts"`
+}
+
+// String renders one exposure for operators. An unknown amount reads
+// "unknown", with the known lower bound and the reason.
+func (h HeldExposure) String() string {
+	name, unit := h.MeterID, h.Unit
+	if name == "" {
+		name = "unknown meter"
+	}
+	switch unit {
+	case "":
+		unit = "(unknown unit)"
+	case "money":
+		currency := h.Currency
+		if currency == "" {
+			currency = "unknown currency"
+		}
+		unit = fmt.Sprintf("%s minor units (scale %d)", currency, h.Scale)
+	}
+	if h.Quantity != nil {
+		return fmt.Sprintf("%s: %d %s", name, *h.Quantity, unit)
+	}
+	var reasons []string
+	if h.UncomputedAttempts > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d attempt(s) not computable", h.UncomputedAttempts))
+	}
+	if h.Overflow {
+		reasons = append(reasons, "sum overflows")
+	}
+	return fmt.Sprintf("%s: unknown (known part %d %s; %s)", name, h.KnownPart, unit, strings.Join(reasons, ", "))
+}
+
+func (h HeldExposure) key() [4]string {
+	return [4]string{h.MeterID, h.Unit, h.Currency, fmt.Sprint(h.Scale)}
+}
+
+// Complete reports whether count, age and every exposure amount are known.
+func (u *UnknownExposure) Complete() bool {
+	if u == nil || u.Unreadable > 0 || u.UndatedAttempts > 0 {
+		return false
+	}
+	for _, e := range u.Exposure {
+		if e.Quantity == nil {
+			return false
+		}
+	}
+	return true
+}
+
+// OldestAge is AsOf minus the oldest dispatch time. It is unknown (false)
+// when there are no unknown attempts, when one is undated, or when the as-of
+// time is missing.
+func (u *UnknownExposure) OldestAge() (time.Duration, bool) {
+	if u == nil || u.Attempts == 0 || u.UndatedAttempts > 0 || u.OldestDispatchAt == nil || !validAccountingTime(u.AsOf) {
+		return 0, false
+	}
+	age := u.AsOf.Sub(*u.OldestDispatchAt)
+	if age < 0 {
+		age = 0
+	}
+	return age, true
+}
+
+// Merge adds another summary (a later page, or another tenant). The later
+// as-of time is kept. Sums that would overflow keep their lower bound and
+// become unknown.
+func (u *UnknownExposure) Merge(o UnknownExposure) {
+	if o.AsOf.After(u.AsOf) {
+		u.AsOf = o.AsOf
+	}
+	u.Attempts += o.Attempts
+	u.UndatedAttempts += o.UndatedAttempts
+	u.Unreadable += o.Unreadable
+	if o.OldestDispatchAt != nil && (u.OldestDispatchAt == nil || o.OldestDispatchAt.Before(*u.OldestDispatchAt)) {
+		at := *o.OldestDispatchAt
+		u.OldestDispatchAt = &at
+	}
+	for _, e := range o.Exposure {
+		u.add(e)
+	}
+	u.normalize()
+}
+
+func (u *UnknownExposure) add(e HeldExposure) {
+	for i := range u.Exposure {
+		current := &u.Exposure[i]
+		if current.key() != e.key() {
+			continue
+		}
+		sum, err := checkedAdd(current.KnownPart, e.KnownPart)
+		if err != nil {
+			current.Overflow = true
+		} else {
+			current.KnownPart = sum
+		}
+		current.Overflow = current.Overflow || e.Overflow
+		current.UncomputedAttempts += e.UncomputedAttempts
+		current.Attempts += e.Attempts
+		return
+	}
+	e.Quantity = nil
+	u.Exposure = append(u.Exposure, e)
+}
+
+// normalize sorts entries and derives Quantity from the known part.
+func (u *UnknownExposure) normalize() {
+	if u.Exposure == nil {
+		u.Exposure = []HeldExposure{}
+	}
+	for i := range u.Exposure {
+		e := &u.Exposure[i]
+		e.Quantity = nil
+		if e.UncomputedAttempts == 0 && !e.Overflow {
+			q := e.KnownPart
+			e.Quantity = &q
+		}
+	}
+	sort.Slice(u.Exposure, func(i, j int) bool {
+		a, b := u.Exposure[i].key(), u.Exposure[j].key()
+		for k := range a {
+			if a[k] != b[k] {
+				return a[k] < b[k]
+			}
+		}
+		return false
+	})
+}
+
+// addAttempt counts one attempt in the unknown state.
+func (u *UnknownExposure) addAttempt(attempt attemptRecord) {
+	u.Attempts++
+	if validAccountingTime(attempt.DispatchAt) {
+		at := attempt.DispatchAt.UTC()
+		if u.OldestDispatchAt == nil || at.Before(*u.OldestDispatchAt) {
+			u.OldestDispatchAt = &at
+		}
+	} else {
+		u.UndatedAttempts++
+	}
+	for _, e := range attemptExposure(attempt) {
+		u.add(e)
+	}
+	u.normalize()
+}
+
+// attemptExposure lists one attempt's admitted bounds per meter. A bound on an
+// undeclared meter, a negative bound, a plan without bounds and a cost that
+// was admitted unpriced (on_unknown_cost allow_and_flag) are uncomputed.
+func attemptExposure(attempt attemptRecord) []HeldExposure {
+	out := map[[4]string]HeldExposure{}
+	known := func(e HeldExposure, quantity int64) {
+		e.Attempts, e.KnownPart = 1, quantity
+		out[e.key()] = e
+	}
+	unknown := func(e HeldExposure) {
+		e.Attempts, e.UncomputedAttempts, e.KnownPart = 1, 1, 0
+		out[e.key()] = e
+	}
+	plan := attempt.Plan
+	if len(plan.Bounds) == 0 {
+		unknown(HeldExposure{})
+	}
+	for id, quantity := range plan.Bounds {
+		meter, ok := plan.Meters[id]
+		if !ok || meter.Unit == "" {
+			unknown(HeldExposure{MeterID: id})
+			continue
+		}
+		e := HeldExposure{MeterID: id, Unit: meter.Unit, Currency: meter.Currency, Scale: meter.Scale}
+		if quantity < 0 {
+			unknown(e)
+			continue
+		}
+		known(e, quantity)
+	}
+	for _, limit := range plan.Budgets {
+		if !limit.UnknownCost {
+			continue
+		}
+		var draw *BudgetDraw
+		for i := range attempt.Demand.Budgets {
+			if attempt.Demand.Budgets[i].ID == limit.BudgetID {
+				draw = &attempt.Demand.Budgets[i]
+			}
+		}
+		if draw == nil {
+			unknown(HeldExposure{Unit: "money"})
+			continue
+		}
+		matched := false
+		for id, meter := range plan.Meters {
+			if meter.Unit != "money" || meter.Currency != draw.Currency || meter.Scale != draw.Scale {
+				continue
+			}
+			matched = true
+			e := HeldExposure{MeterID: id, Unit: "money", Currency: meter.Currency, Scale: meter.Scale}
+			// Admission can flag the cost unknown while still holding a money
+			// bound: PriceUsage skips billable meters bounded at 0, but
+			// drawCostPriced requires a price for every billable bounded meter.
+			// The bound is then only a known part, never an exact amount.
+			if quantity, bounded := plan.Bounds[id]; bounded && quantity >= 0 {
+				e.Attempts, e.UncomputedAttempts, e.KnownPart = 1, 1, quantity
+				out[e.key()] = e
+			} else {
+				unknown(e)
+			}
+		}
+		if !matched {
+			unknown(HeldExposure{Unit: "money", Currency: draw.Currency, Scale: draw.Scale})
+		}
+	}
+	entries := make([]HeldExposure, 0, len(out))
+	for _, e := range out {
+		entries = append(entries, e)
+	}
+	return entries
+}
+
+func newUnknownExposure(at time.Time) *UnknownExposure {
+	return &UnknownExposure{AsOf: at, Exposure: []HeldExposure{}}
 }
 
 type Recovery struct {
@@ -156,6 +418,11 @@ func (r *Recovery) RecoverAttempts(ctx context.Context, page RecoveryPage) (Reco
 	if err != nil {
 		return report, err
 	}
+	now := r.engine.clock().UTC()
+	if !validAccountingTime(now) {
+		return report, fmt.Errorf("valid quota clock required")
+	}
+	report.Unknown = newUnknownExposure(now)
 	for _, record := range records {
 		if err := ctx.Err(); err != nil {
 			return report, err
@@ -164,83 +431,87 @@ func (r *Recovery) RecoverAttempts(ctx context.Context, page RecoveryPage) (Reco
 		report.NextAfterID = record.ID
 		var attempt attemptRecord
 		if err := DecodeStoreValue(record.Value, &attempt); err != nil {
+			report.Unknown.Unreadable++
 			recoveryFailure(&report, record.ID, err)
 			continue
 		}
 		if attempt.Demand.AttemptID != record.ID || attempt.Decision.TenantID != page.TenantID {
+			report.Unknown.Unreadable++
 			recoveryFailure(&report, record.ID, ErrConflict)
 			continue
 		}
-		switch attempt.Decision.State {
-		case "settled", "aborted", "denied":
-			continue
-		case "admitted":
-			aborted, err := r.abortExpiredAdmission(ctx, page.TenantID, record.ID)
-			if errors.Is(err, ErrInvalidTransition) || errors.Is(err, ErrDispatchClaimed) {
-				report.Pending++
-				continue
-			}
-			if err != nil {
-				recoveryFailure(&report, record.ID, err)
-				continue
-			}
-			if aborted {
-				report.Aborted++
-			} else {
-				report.Pending++
-			}
-			continue
-		case "dispatching", "unknown":
-		default:
-			recoveryFailure(&report, record.ID, ErrConflict)
-			continue
-		}
-		// Prefer existing acknowledged evidence over another status lookup.
-		var canonical terminalAttemptRecord
-		err := r.engine.store.View(ctx, page.TenantID, func(tx Tx) error { return tx.Get(terminalAttemptKind, record.ID, &canonical) })
-		if err == nil {
-			ack, err := r.engine.ProcessTerminal(ctx, page.TenantID, canonical.EventID)
-			if errors.Is(err, ErrRecoveryDeferred) {
-				report.Pending++
-				report.Deferred++
-				continue
-			}
-			if err != nil {
-				recoveryFailure(&report, record.ID, err)
-				continue
-			}
-			if ack.Status == UsageSettled {
-				report.Settled++
-			} else {
-				report.Pending++
-			}
-			continue
-		}
-		if !errors.Is(err, ErrNotFound) {
-			recoveryFailure(&report, record.ID, err)
-			continue
-		}
-		if r.resolver == nil || attempt.ProviderResource == "" {
-			report.Pending++
-			continue
-		}
-		settled, err := r.resolveAttempt(ctx, page.TenantID, record.ID)
-		if errors.Is(err, ErrRecoveryDeferred) {
-			report.Pending++
-			report.Deferred++
-			continue
-		}
-		if err != nil {
-			recoveryFailure(&report, record.ID, err)
-			continue
-		}
-		if settled {
-			report.Settled++
-		} else {
-			report.Pending++
+		if !r.recoverAttempt(ctx, page.TenantID, record, attempt, &report) && attempt.Decision.State == "unknown" {
+			report.Unknown.addAttempt(attempt)
 		}
 	}
 	return report, nil
+}
+
+// recoverAttempt processes one decoded attempt and reports whether this pass
+// settled it. An attempt that is not settled keeps its exposure.
+func (r *Recovery) recoverAttempt(ctx context.Context, tenant string, record Record, attempt attemptRecord, report *RecoveryReport) bool {
+	switch attempt.Decision.State {
+	case "settled", "aborted", "denied":
+		return false
+	case "admitted":
+		aborted, err := r.abortExpiredAdmission(ctx, tenant, record.ID)
+		if errors.Is(err, ErrInvalidTransition) || errors.Is(err, ErrDispatchClaimed) {
+			report.Pending++
+			return false
+		}
+		if err != nil {
+			recoveryFailure(report, record.ID, err)
+			return false
+		}
+		if aborted {
+			report.Aborted++
+		} else {
+			report.Pending++
+		}
+		return false
+	case "dispatching", "unknown":
+	default:
+		report.Unknown.Unreadable++
+		recoveryFailure(report, record.ID, ErrConflict)
+		return false
+	}
+	settledBy := func(ack UsageAcknowledgement, err error) bool {
+		if errors.Is(err, ErrRecoveryDeferred) {
+			report.Pending++
+			report.Deferred++
+			return false
+		}
+		if err != nil {
+			recoveryFailure(report, record.ID, err)
+			return false
+		}
+		if ack.Status == UsageSettled {
+			report.Settled++
+			return true
+		}
+		report.Pending++
+		return false
+	}
+	// Prefer existing acknowledged evidence over another status lookup.
+	var canonical terminalAttemptRecord
+	err := r.engine.store.View(ctx, tenant, func(tx Tx) error { return tx.Get(terminalAttemptKind, record.ID, &canonical) })
+	if err == nil {
+		return settledBy(r.engine.ProcessTerminal(ctx, tenant, canonical.EventID))
+	}
+	if !errors.Is(err, ErrNotFound) {
+		recoveryFailure(report, record.ID, err)
+		return false
+	}
+	if r.resolver == nil || attempt.ProviderResource == "" {
+		report.Pending++
+		return false
+	}
+	settled, err := r.resolveAttempt(ctx, tenant, record.ID)
+	ack := UsageAcknowledgement{}
+	if settled {
+		ack.Status = UsageSettled
+	}
+	return settledBy(ack, err)
 }
 
 func (r *Recovery) abortExpiredAdmission(ctx context.Context, tenant, id string) (bool, error) {

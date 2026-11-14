@@ -93,9 +93,9 @@ func (w *WebSocketSessions) validate() error {
 		return nil
 	}
 	switch w.Metering {
-	case "", SessionMeteringSession, SessionMeteringToken:
+	case "", SessionMeteringSession, SessionMeteringToken, SessionMeteringSeconds:
 	default:
-		return fmt.Errorf("websocket.metering must be %q or %q", SessionMeteringSession, SessionMeteringToken)
+		return fmt.Errorf("websocket.metering must be %q, %q or %q", SessionMeteringSession, SessionMeteringToken, SessionMeteringSeconds)
 	}
 	if w.MaxSessionSeconds != 0 && (w.MaxSessionSeconds < MinMaxSessionSeconds || w.MaxSessionSeconds > MaxMaxSessionSeconds) {
 		return fmt.Errorf("websocket.max_session_seconds must be between %d and %d", MinMaxSessionSeconds, MaxMaxSessionSeconds)
@@ -508,6 +508,7 @@ var liveCounterNames = []string{"input_tokens", "cached_tokens", "output_tokens"
 
 type liveWindowGate struct {
 	gateway    *Gateway
+	operation  string
 	admit      func(n int) (*executionRun, error)
 	allowance  int64
 	current    *executionRun
@@ -537,7 +538,7 @@ func (a *liveWindowGate) delta() map[string]int64 {
 }
 
 func (a *liveWindowGate) settle(run *executionRun, counters map[string]int64) error {
-	value := UsageObservation{Source: "upstream", SurfaceID: a.gateway.surface.ID, OperationID: "live.connect", Counters: counters, Cumulative: true, Terminal: true}
+	value := UsageObservation{Source: "upstream", SurfaceID: a.gateway.surface.ID, OperationID: a.operation, Counters: counters, Cumulative: true, Terminal: true}
 	run.modelIdentity(&value)
 	if err := run.observe(value); err != nil {
 		run.finish(execution.Result{ResponseComplete: true, Err: err})

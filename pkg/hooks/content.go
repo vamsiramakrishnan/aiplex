@@ -26,6 +26,10 @@ type Part struct {
 	// assembled from stream fragments has one span per fragment, possibly in
 	// different documents (doc indexes into Content.docs).
 	spans []span
+	// repeats are complete copies of the text elsewhere in a stream (a
+	// "done" event, a completed response). A transform writes the whole
+	// replacement into each, so no copy of the original survives.
+	repeats []span
 }
 
 type span struct {
@@ -49,6 +53,10 @@ type Content struct {
 	docs        [][]byte
 	// stream is set for a buffered SSE stream; Apply re-emits the events.
 	stream *sseStream
+	// scrubs are string literals that carry no text but could hold a copy of
+	// it (a delta's padding). Whenever a transform changes the stream they
+	// are emptied.
+	scrubs []span
 }
 
 // ErrUninspectable reports a body AIPlex cannot inspect: a format with no
@@ -62,6 +70,32 @@ func uninspectable(format string, args ...any) error {
 type collector struct {
 	content *Content
 	doc     int
+	// join, when set, makes the text parts of one candidate a single part
+	// (per join key): see textJoined.
+	join  string
+	joins map[string]int
+}
+
+// textJoined adds a text to the part of its join key, creating it on the
+// first. The text parts of a Gemini candidate are one text to the SDKs'
+// accessors; a value split around another part must be seen whole, and a
+// transform writes the whole replacement into the first span and empties the
+// rest.
+func (c *collector) textJoined(key string, n *node, loc, role, kind string) {
+	s, ok := n.stringValue()
+	if !ok {
+		return
+	}
+	if i, seen := c.joins[key]; seen {
+		c.content.Parts[i].Text += s
+		c.content.Parts[i].spans = append(c.content.Parts[i].spans, span{c.doc, n.start, n.end})
+		return
+	}
+	if c.joins == nil {
+		c.joins = map[string]int{}
+	}
+	c.joins[key] = len(c.content.Parts)
+	c.text(n, loc, role, kind)
 }
 
 func (c *collector) text(n *node, loc, role, kind string) {
@@ -127,6 +161,9 @@ func (c *Content) Apply(replacements map[int]string) []byte {
 				value = text
 			}
 			edits = append(edits, edit{s.start, s.end, value})
+		}
+		for _, s := range c.Parts[i].repeats {
+			edits = append(edits, edit{s.start, s.end, text})
 		}
 	}
 	if len(edits) == 0 {

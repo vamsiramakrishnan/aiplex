@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useRunTimelineSSE } from '../hooks/useRunTimelineSSE'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import {
   ExecutionEventKind,
   ExecutionRun,
@@ -8,6 +8,9 @@ import {
   OperatorAudit,
   getRunsHealth,
   listOperatorAudit,
+  listRunBudgets,
+  listRunEffects,
+  listRunObligations,
   listRuns,
   runCancel,
   runCompensate,
@@ -15,6 +18,7 @@ import {
   runRedrive,
   runSignal,
 } from '../api/client'
+import { UNKNOWN } from '../api/usage'
 
 // Visual priority for the run-timeline view. Each entry from Tape's
 // journal gets a colour + glyph so a Console reader can scan a wall of
@@ -235,8 +239,21 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
     enabled: !compacted,
   })
 
+  // Effects, obligations and budget charges are separate reads: each section loads and fails on its own.
+  // A compacted run's payloads are zeroed, so these routes are not called for it (see archived* below).
+  const detailPolling = detailRefetchInterval(run, compacted)
+  const effectsQ = useQuery({ queryKey: ['run-effects', runID], queryFn: () => listRunEffects(runID), refetchInterval: detailPolling, enabled: !compacted })
+  const obligationsQ = useQuery({ queryKey: ['run-obligations', runID], queryFn: () => listRunObligations(runID), refetchInterval: detailPolling, enabled: !compacted })
+  const budgetsQ = useQuery({ queryKey: ['run-budgets', runID], queryFn: () => listRunBudgets(runID), refetchInterval: detailPolling, enabled: !compacted })
+  const archivedEffects = compacted ? `Effect detail was archived when this run was compacted. The run summary counts ${run?.effects_count ?? 0} effect(s), ${run?.unknown_effects ?? 0} with unknown outcome.` : null
+  const archivedObligations = compacted ? `Obligation detail was archived when this run was compacted. The run summary counts ${run?.obligations ?? 0} obligation(s).` : null
+  const archivedBudgets = compacted ? 'Charge detail was archived when this run was compacted. The run summary does not count charges.' : null
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['run-audit', runID] })
+    queryClient.invalidateQueries({ queryKey: ['run-effects', runID] })
+    queryClient.invalidateQueries({ queryKey: ['run-obligations', runID] })
+    queryClient.invalidateQueries({ queryKey: ['run-budgets', runID] })
     queryClient.invalidateQueries({ queryKey: ['runs'] })
   }
 
@@ -285,6 +302,71 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
         })}
       </ol>
 
+      <RunSection title="Effects" label="effects" query={effectsQ} archived={archivedEffects} isEmpty={d => d.effects.length === 0} emptyText="No effects recorded for this run.">
+        {d => {
+          const unknown = d.effects.filter(e => effectOutcome(e.kind) === UNKNOWN).length
+          return <>
+            <ol className="space-y-1">
+              {d.effects.map(e => (
+                <li key={e.seq} className="flex items-baseline gap-2 text-xs">
+                  <span className="font-mono w-6 text-right">{e.seq}</span>
+                  <span className={effectOutcome(e.kind) === UNKNOWN ? 'font-medium text-status-warning-fg' : ''}>{effectOutcome(e.kind)}</span>
+                  <span className="font-mono truncate">{e.tool || '-'}</span>
+                  <span className="text-gray-600 dark:text-gray-400 truncate">{e.scope || '-'}</span>
+                </li>
+              ))}
+            </ol>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+              {d.effects.length} effect(s){unknown > 0 ? `, ${unknown} with unknown outcome` : ''}
+            </p>
+          </>
+        }}
+      </RunSection>
+
+      <RunSection title="Obligations" label="obligations" query={obligationsQ} archived={archivedObligations} isEmpty={d => d.obligations.length === 0} emptyText="No obligations recorded for this run.">
+        {d => <>
+          <ol className="space-y-1">
+            {d.obligations.map(e => (
+              <li key={e.seq} className="flex items-baseline gap-2 text-xs">
+                <span className="font-mono w-6 text-right">{e.seq}</span>
+                <span className="font-mono truncate">{e.tool || '-'}</span>
+                <span className="text-gray-600 dark:text-gray-400 truncate">{e.scope || '-'}</span>
+                {e.payload_json && <span className="font-mono text-[10px] text-gray-600 dark:text-gray-400 truncate">{e.payload_json}</span>}
+              </li>
+            ))}
+          </ol>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{d.obligations.length} obligation(s)</p>
+        </>}
+      </RunSection>
+
+      <RunSection title="Budget charges" label="budget charges" query={budgetsQ} archived={archivedBudgets} isEmpty={d => d.budgets.length === 0} emptyText="No budget charges recorded on this run; no total.">
+        {d => {
+          const charges = d.budgets.map(e => ({ seq: e.seq, usd: chargedUSD(e.payload_json) }))
+          const known = charges.flatMap(c => (c.usd === null ? [] : [c.usd]))
+          const unknown = charges.length - known.length
+          const total = known.reduce((sum, usd) => sum + usd, 0)
+          const totalLine = unknown === charges.length
+            ? `Total charged: ${UNKNOWN} (${unknown} charge(s) with unknown amount)`
+            : unknown > 0
+              ? `Total charged: $${total.toFixed(2)} (excludes ${unknown} charge(s) with unknown amount)`
+              : `Total charged: $${total.toFixed(2)}`
+          return <>
+            <ol className="space-y-1">
+              {charges.map(c => (
+                <li key={c.seq} className="flex items-baseline gap-2 text-xs">
+                  <span className="font-mono w-6 text-right">{c.seq}</span>
+                  {c.usd === null
+                    ? <span className="font-medium text-status-warning-fg">{UNKNOWN}</span>
+                    : <span className="font-mono">${c.usd.toFixed(2)}</span>}
+                </li>
+              ))}
+            </ol>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{charges.length} charge(s)</p>
+            <p className="text-xs font-medium mt-1">{totalLine}</p>
+          </>
+        }}
+      </RunSection>
+
       {auditQ.data && auditQ.data.audit.length > 0 && (
         <div className="mt-4 pt-3 border-t">
           <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2 dark:text-gray-300">
@@ -297,6 +379,72 @@ function RunDetail({ runID, run }: { runID: string; run: ExecutionRun | null }) 
       )}
     </div>
   )
+}
+
+// RunSection shows one run-detail list with its own loading, error and empty states, so a failed
+// fetch reads as a failure and never as an empty list.
+function RunSection<T>({ title, label, query, archived, isEmpty, emptyText, children }: {
+  title: string
+  label: string
+  query: UseQueryResult<T, Error>
+  /** Set for a compacted run: the section then says what was archived and never reads the query. */
+  archived?: string | null
+  isEmpty: (data: T) => boolean
+  emptyText: string
+  children: (data: T) => React.ReactNode
+}) {
+  let body: React.ReactNode
+  if (archived) {
+    body = <p className="text-xs text-gray-700 dark:text-gray-300">{archived}</p>
+  } else if (query.isPending) {
+    body = <p role="status" className="text-xs text-gray-600 dark:text-gray-400">Loading {label}…</p>
+  } else if (query.isError) {
+    body = <p role="alert" className="text-xs text-status-denied-fg">Could not load {label}: {query.error?.message || 'unknown error'}</p>
+  } else {
+    const data = query.data as T
+    body = isEmpty(data)
+      ? <p className="text-xs italic text-gray-600 dark:text-gray-400">{emptyText}</p>
+      : children(data)
+  }
+  return (
+    <div className="mt-4 pt-3 border-t">
+      <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2 dark:text-gray-300">{title}</h4>
+      {body}
+    </div>
+  )
+}
+
+// detailRefetchInterval polls a run's effect, obligation and budget lists every 5 s only while the run can
+// still change: never for a compacted run, and not once the run is terminal. The status set is the one
+// the models define (ExecutionRunTerminal); failed, stuck and cancelled runs can still be redriven or
+// compensated, so they keep polling. A run that is not in the loaded list (null) keeps polling.
+export function detailRefetchInterval(run: ExecutionRun | null, compacted: boolean): number | false {
+  if (compacted) return false
+  return run?.status === 'terminal' ? false : 5_000
+}
+
+// Effect outcomes follow `aiplex runs effects`: a missing kind or effect.unknown is unknown, which is
+// neither success nor failure, and an unrecognised kind is shown as itself.
+const EFFECT_OUTCOMES: Record<string, string> = {
+  'effect.begin': 'started',
+  'effect.confirmed': 'confirmed',
+  'effect.failed': 'failed',
+  'effect.duplicate': 'duplicate',
+}
+function effectOutcome(kind: string): string {
+  if (kind === '' || kind === 'effect.unknown') return UNKNOWN
+  return EFFECT_OUTCOMES[kind] ?? kind
+}
+
+// chargedUSD reads usd_charged from a budget event's payload. Null means the amount is unknown, never zero.
+function chargedUSD(payload?: string): number | null {
+  if (!payload) return null
+  try {
+    const amount = (JSON.parse(payload) as { usd_charged?: unknown } | null)?.usd_charged
+    return typeof amount === 'number' && Number.isFinite(amount) ? amount : null
+  } catch {
+    return null
+  }
 }
 
 function OperatorAuditRow({ a }: { a: OperatorAudit }) {
@@ -321,6 +469,7 @@ function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTake
   const [signalForm, setSignalForm] = useState<{ open: boolean; gate: string; resolution: string }>({
     open: false, gate: '', resolution: '',
   })
+  const [cancelForm, setCancelForm] = useState<{ open: boolean; reason: string }>({ open: false, reason: '' })
 
   const fire = async (label: string, fn: () => Promise<unknown>) => {
     setError(null)
@@ -346,11 +495,7 @@ function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTake
     { label: 'Signal',     onClick: () => setSignalForm({ open: true, gate: '', resolution: '' }) },
     {
       label: 'Cancel', destructive: true,
-      onClick: () => {
-        const reason = window.prompt('Reason for cancel:')
-        if (reason === null) return
-        void fire('Cancel', () => runCancel(runID, reason))
-      },
+      onClick: () => setCancelForm({ open: true, reason: '' }),
     },
     {
       label: 'Compensate', destructive: true,
@@ -377,6 +522,29 @@ function OperatorToolbar({ runID, onActionTaken }: { runID: string; onActionTake
         ))}
       </div>
       {error && <div className="text-xs text-status-denied-fg">{error}</div>}
+      {cancelForm.open && (
+        <div className="p-2 border rounded border-status-denied-fg space-y-2 text-xs">
+          <input
+            aria-label="Cancel reason" placeholder="Reason for cancel (optional)"
+            className="block w-full border rounded px-2 py-1"
+            value={cancelForm.reason}
+            onChange={e => setCancelForm({ open: true, reason: e.target.value })}
+          />
+          <div className="flex gap-2">
+            <button
+              className="px-2 py-1 rounded border border-status-denied-fg text-status-denied-fg"
+              onClick={() => {
+                void fire('Cancel', () => runCancel(runID, cancelForm.reason))
+                setCancelForm({ open: false, reason: '' })
+              }}
+            >Send cancel</button>
+            <button
+              className="px-2 py-1 rounded border"
+              onClick={() => setCancelForm({ open: false, reason: '' })}
+            >Keep run</button>
+          </div>
+        </div>
+      )}
       {signalForm.open && (
         <div className="p-2 border rounded bg-brand-50 space-y-2 text-xs">
           <input
@@ -421,7 +589,12 @@ function EmptyRunsChecklist() {
     refetchInterval: 30_000,
   })
 
-  const tapeOK = (healthQ.data?.tape_instances_count ?? 0) > 0
+  // Absent values are unknown (for example, deployment-wide values withheld
+  // from a caller confined to one tenant); their rows say so instead of
+  // showing zero.
+  const tapeCount = healthQ.data?.tape_instances_count
+  const ingestKnown = healthQ.data?.last_ingest_at !== undefined
+  const tapeOK = (tapeCount ?? 0) > 0
   const ingestRecent = (() => {
     if (!healthQ.data?.last_ingest_at) return false
     const last = new Date(healthQ.data.last_ingest_at).getTime()
@@ -455,14 +628,16 @@ function EmptyRunsChecklist() {
         <Row
           ok={tapeOK}
           title="At least one Instance with runtime.engine=tape"
-          body={`${healthQ.data?.tape_instances_count ?? 0} Tape-backed instance(s) deployed.`}
+          body={tapeCount === undefined ? 'Unknown: the number of Tape-backed instances is not available to you.' : `${tapeCount} Tape-backed instance(s) deployed.`}
           href="https://github.com/vamsiramakrishnan/aiplex/blob/main/docs-site/docs/guides/tape-runtime.md"
         />
         <Row
           ok={ingestRecent}
           title="Tape ingestion seen recently"
           body={
-            healthQ.data?.last_ingest_at
+            healthQ.data && !ingestKnown
+              ? 'Unknown: the last ingest time is not available to you.'
+              : healthQ.data?.last_ingest_at
               ? (new Date(healthQ.data.last_ingest_at).getFullYear() <= 1 ? 'No event has ever been ingested.' : `Last event at ${new Date(healthQ.data.last_ingest_at).toLocaleString()}.`)
               : 'No events ingested yet — has the AIPlex outbox sink been wired into Tape?'
           }

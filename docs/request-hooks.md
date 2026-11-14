@@ -234,9 +234,9 @@ no hook transformed is forwarded byte for byte.
 | Wire format (operations) | Request parts | Response parts | Streamed response |
 | --- | --- | --- | --- |
 | OpenAI Chat Completions (OpenAI, Azure OpenAI, OpenAI-compatible, Vertex OpenAI endpoint) | `messages[].content` (string, or `text` parts), `refusal`, `tool_calls[].function.arguments`, legacy `function_call.arguments` | `choices[].message` the same fields | `buffer` supported: `delta.content`, `delta.refusal`, `delta.tool_calls[].function.arguments` |
-| OpenAI Responses (`response.create`, Azure, Vertex) | `instructions`, `input` (string or items: message `content` text parts, `function_call.arguments`, `function_call_output.output`) | `output[]` the same item types | Not supported: refused under `buffer` |
+| OpenAI Responses (`response.create`, Azure, Vertex) | `instructions`, `input` (string or items: message `content` text parts, `function_call.arguments`, `function_call_output.output`) | `output[]` the same item types | `buffer` supported: output text and refusal deltas, `function_call` arguments and `custom_tool_call` input, with every repeated copy (see [Buffered streams that repeat content](#buffered-streams-that-repeat-content)) |
 | Anthropic Messages (Anthropic, Vertex `rawPredict`/`streamRawPredict` for the anthropic publisher, Anthropic-shaped Bedrock `InvokeModel`, `count_tokens`) | `system` (string or text blocks), `messages[].content` (string, `text`, `tool_use.input` string leaves, `tool_result` content) | `content[]` the same block types | `buffer` supported: `text_delta`, `input_json_delta` |
-| Gemini `generateContent` / `streamGenerateContent` / `countTokens` (Vertex and Gemini Developer API) | `systemInstruction`/`system_instruction` parts, `contents[].parts[]`: `text`, `functionCall.args` and `functionResponse.response` string leaves, `executableCode.code`, `codeExecutionResult.output` | `candidates[].content.parts[]` the same (also the JSON-array form of `streamGenerateContent`) | Not supported (SSE): refused under `buffer` |
+| Gemini `generateContent` / `streamGenerateContent` / `countTokens` (Vertex and Gemini Developer API) | `systemInstruction`/`system_instruction` parts, `contents[].parts[]`: `text`, `functionCall.args` and `functionResponse.response` string leaves, `executableCode.code`, `codeExecutionResult.output` | `candidates[].content.parts[]` the same (also the JSON-array form of `streamGenerateContent`) | `buffer` supported, as server-sent events (`alt=sse`) and as the JSON array: `text` parts of a candidate assembled across chunks, `functionCall.args` leaves, `executableCode.code`, `codeExecutionResult.output` |
 | Bedrock Converse / ConverseStream | `system[].text`, `messages[].content[]`: `text`, `toolUse.input` leaves, `toolResult.content` (`text`, `json` leaves) | `output.message.content[]` the same | Not supported (event stream): refused under `buffer` |
 | OpenAI embeddings and moderations | `input` (string or strings; token arrays are uninspected) | No text (vectors, scores) | — |
 | MCP `tools/call` | `params.arguments` string leaves | `result.content[]` `text`, `resource.text`, `result.structuredContent` string leaves (JSON or one SSE event) | — |
@@ -285,10 +285,117 @@ When a response hook applies and the request streams (`stream: true`, or a
 | `streaming` | Behaviour |
 | --- | --- |
 | `deny` (default) | Refused before the request is sent: HTTP 403 `hook_denied` with a message asking for a non-streaming request. |
-| `buffer` | OpenAI Chat SSE and Anthropic Messages SSE only. The whole stream is read (bounded by the 8 MiB body limit) through the same usage observers as an unbuffered stream, so metering is unchanged. The response hooks see the assembled text of each choice or block; the stream is then re-emitted with every event in place. A transformed part's full text goes into its first fragment and the later fragments become empty strings. Time to first token becomes the time to the whole response. Any other streamed format is refused. |
+| `buffer` | OpenAI Chat SSE, Anthropic Messages SSE, OpenAI Responses SSE and Gemini `streamGenerateContent` (SSE or JSON array) only. The whole stream is read (bounded by the 8 MiB body limit) through the same usage observers as an unbuffered stream, so metering is unchanged. The response hooks see the assembled text of each choice or block; the stream is then re-emitted with every event in place. A transformed part's full text goes into its first fragment and the later fragments become empty strings. Time to first token becomes the time to the whole response. Any other streamed format is refused (Bedrock ConverseStream, for one). Responses and Gemini streams have extra rules: see below. |
 | `passthrough_uninspected` | The stream is relayed unchanged and uninspected; the response hooks are recorded as `skipped` with rule `streaming_passthrough`. |
 
 Request hooks run on streaming requests as on any other.
+
+### Buffered streams that repeat content
+
+Chat Completions and Anthropic streams carry each piece of text once. OpenAI
+Responses and Gemini streams repeat it, so a redaction that rewrote only the
+deltas would leave the original in a later event. For these two formats:
+
+- **Every copy is rewritten.** A Responses stream sends the text as
+  `response.output_text.delta` events and again whole in
+  `response.output_text.done`, `response.content_part.done`,
+  `response.output_item.done` and the `output` of `response.completed`
+  (likewise refusals, `function_call` arguments and `custom_tool_call` input).
+  The assembler registers every one of those copies. A copy whose text equals
+  the assembled deltas (or an earlier copy) is inspected once with them, and a
+  transform writes the whole replacement into the first delta (the later deltas
+  become empty strings) and into each repeated copy. A copy that differs from
+  everything before it is inspected as a part of its own, so no copy escapes the
+  hooks whatever its event says. All text parts of a Gemini candidate
+  (answer text and thought text apart), across chunks and around any function
+  call or other part between them, are one part, because the SDKs' text
+  accessors join them; a transform writes the whole replacement into the first
+  text part and empties the others. The non-streamed Gemini extractor joins a
+  candidate's text parts the same way.
+- **Characters split across deltas** are joined from their escaped form before
+  the hooks see them, so a surrogate pair written as two `\u` escapes in two
+  events is one character.
+- **Error events are inspected.** The `message` of a Responses `error` event or
+  failed response, and of a Gemini `{"error": ...}` chunk, is a part like any
+  other (its code and status are left as sent).
+- **Metering is unchanged.** Only the string literals of text are rewritten.
+  Usage, ids, finish reasons and terminal events are the provider's bytes, and
+  every event is re-emitted in its place; an unchanged stream is returned byte
+  for byte. The conformance tests run the usage observers over the original and
+  the re-emitted fixtures and compare the observations.
+- **Comments and padding are dropped when a stream is rewritten.** A
+  server-sent-event comment line (`: ...`) is removed from every event of a
+  stream the hooks changed, and a Responses delta's `obfuscation` padding is
+  emptied, so neither can carry a copy of replaced text. Other provider
+  metadata (ids, names, status and finish reasons, usage) is relayed as sent;
+  a message from a role other than `assistant` (Responses) or `model` (Gemini)
+  is refused.
+
+Anything the assembler does not read is refused (`hook_denied`, rule
+`uninspectable`, unless the hook's `on_uninspectable` is `allow`), rather than
+passed on:
+
+- Responses: an event type that is not one of the lifecycle, output item,
+  content part, text, refusal, function call, custom tool call, reasoning,
+  tool-status, audio or `error` events; any field an event, item or part does
+  not list (for example a `text` key on a delta, or an unknown item type);
+  `response.output_text.annotation.added` and non-empty `annotations` or
+  `logprobs` (they index into or repeat the text, which a transform changes);
+  an `output_text` field on the response; an `event:` line that does not name the
+  event's `type`.
+- Gemini: a chunk, candidate, content, part, `functionCall`, `executableCode` or
+  `codeExecutionResult` with a field not listed in the extractor (so
+  `groundingMetadata`, `logprobsResult` and streamed call arguments
+  `partialArgs`/`willContinue` are refused); a `text` that is not a string; an
+  `error` chunk with other fields.
+- Every streamed format (including Chat Completions, Anthropic and MCP): an
+  event that is not unambiguous JSON, a stream whose last event is not
+  terminated by a blank line, and a carriage return that is not part of a CRLF
+  (the SSE specification ends a line at a lone CR, and a client that follows it
+  would read a different stream than the one inspected). CRLF-framed streams
+  work and are inspected. For Responses and Gemini also: a duplicate or
+  differently cased key in a field the assembler reads, and an SSE field other
+  than `data` (and `event` for Responses).
+- Buffers over the 8 MiB bound are refused before the hooks run (HTTP 502), as
+  for every format.
+
+**The `response` object of a Responses stream.** What the provider or model
+produces is inspected: the output items and every repeat of them, refusals,
+tool-call arguments, `error` (including `error.message`), `incomplete_details`,
+and any field the guide does not list, whatever its name. A number, boolean or
+null in an unlisted field passes; a string is a text part that a transform
+rewrites in place; an array or object is walked and each string in it is a part
+(at most 8 levels and 2000 strings in each field, beyond which the stream is refused). The
+provider's own identifiers, enumerations and numbers (`id`, `object`, `status`,
+`model`, `service_tier`, `truncation`, `previous_response_id`, `created_at`,
+`completed_at`, `max_output_tokens`, `max_tool_calls`, `temperature`, `top_p`,
+`top_logprobs`, `parallel_tool_calls`, `store`, `background`) are relayed as
+sent while they have their expected JSON type; with another type they are
+treated as unlisted fields. No list of allowed values is kept. The caller's own
+request, echoed back (`instructions`, `tools`, `tool_choice`, `text`,
+`reasoning`, `prompt`, `conversation`, `metadata`, `user`,
+`safety_identifier`, `prompt_cache_key`, `billing`, `input`), is relayed as sent:
+it is not inspected as model output and not reported as uninspected, because
+request hooks already cover it. The non-streamed Responses extractor reads only
+`output` and treats these fields the same way, so a streamed and a non-streamed
+response with the same content get the same decision, the same redacted text and
+the same uninspected reports (a test checks this under `non_text: deny` and
+`allow`).
+
+Two behaviours differ from before and are deliberate. When a redaction applies
+to a Gemini candidate whose text surrounds a function call, the whole
+replacement is written into the first text part, so text that followed the call
+now comes before it (nothing is duplicated or dropped; a stream no hook changed
+is returned byte for byte). And when an upstream drops the connection in the
+middle of an event, the partial last event is refused in every streamed format;
+Chat Completions and Anthropic used to relay it unseen.
+
+Reasoning summaries, reasoning text, audio, code interpreter and MCP call
+payloads, image data and `inlineData`/`fileData` parts are reported as
+uninspected parts (the ledger's `hooks.uninspected_parts`; `non_text: deny`
+refuses them), exactly as the non-streamed extractor reports the same output
+items. They are relayed as sent, so a hook never sees or redacts text that only
+appears in them.
 
 ## Refusals
 
@@ -360,6 +467,14 @@ aiplex hooks policies delete pii-guard --yes
 aiplex usage records --hook-decision deny -o wide
 ```
 
+The Console has a **Hooks** screen (operators only, like the routes): it lists
+policies with scope, hooks and revision, creates, replaces and deletes them at the
+revision it read (a conflict is shown, never overwritten), and dry-runs a sample
+against a chosen policy. The editor takes the JSON document the API returns; a YAML
+file is applied with the CLI (`aiplex hooks policies set -f FILE`). The server's
+validation message is shown verbatim beside the editor. The sample is sent only to the test route and is kept in
+memory only; it is cleared when you leave the screen or choose another policy.
+
 The Go SDK has `ListHookPolicies`, `GetHookPolicy`, `PutHookPolicy`,
 `DeleteHookPolicy` and `TestHookPolicy`. `aiplex dev` starts with no hook
 policy. See `examples/hooks/`.
@@ -385,6 +500,14 @@ token cost cannot be bounded before dispatch.
 - Masking a tool argument string inside a JSON-encoded argument string (OpenAI
   `function.arguments`) replaces text inside that JSON; an operator pattern that
   matches quotes can make it invalid JSON.
-- A WebSocket session cannot be used on a scope with any hook.
+- A WebSocket session cannot be used on a scope with any hook (this includes the
+  Responses WebSocket mode and Gemini Live).
+- Buffered Responses and Gemini streams were tested against the repository's
+  recorded fixtures and hand-built streams, not against the live services.
+  Server-side grounding (`groundingMetadata`), log probabilities and
+  annotations make a stream be refused under `buffer` rather than inspected.
+  Object keys inside tool arguments are not inspected (as in every format).
+  After a transform, offsets that the provider computed on the original text
+  (Gemini `citationMetadata` indexes) are not adjusted.
 - Hook decisions are not part of QuotaPlex replay: a retried request with the
   same idempotency key runs the hooks again.

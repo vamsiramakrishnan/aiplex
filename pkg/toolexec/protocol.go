@@ -37,6 +37,12 @@ type Connection struct {
 	AllowedTools    []string `json:"allowed_tools"`
 	ProtocolVersion string   `json:"protocol_version"`
 	Mode            string   `json:"mode"`
+	// MaxResponseBytes and MaxDurationSeconds bound every call on the
+	// connection (defaults: the gateway's 8 MiB and 5 minutes). A quota
+	// binding that meters response bytes or duration reserves them, so it
+	// requires them to be set here.
+	MaxResponseBytes   int64 `json:"max_response_bytes,omitempty"`
+	MaxDurationSeconds int64 `json:"max_duration_seconds,omitempty"`
 }
 
 func (c Connection) Validate() error {
@@ -45,6 +51,9 @@ func (c Connection) Validate() error {
 	credentialValid = credentialValid || ((c.CredentialMode == DelegatedOAuth || c.CredentialMode == ConnectionAuth) && c.IdentityRef == "")
 	if !validIdentifier(c.ID) || !credentialValid || (c.Mode != StatelessJSON && c.Mode != StatelessStreamableHTTP) || !protocolVersion.MatchString(c.ProtocolVersion) || versionErr != nil || len(c.AllowedTools) == 0 || len(c.AllowedTools) > 1024 {
 		return fmt.Errorf("bounded identity, explicit stateless mode, protocol version and tools are required")
+	}
+	if c.MaxResponseBytes < 0 || c.MaxResponseBytes > MaxResponseBytesLimit || c.MaxDurationSeconds < 0 || c.MaxDurationSeconds > MaxDurationSecondsLimit {
+		return fmt.Errorf("max_response_bytes must be 1 to %d and max_duration_seconds 1 to %d", MaxResponseBytesLimit, MaxDurationSecondsLimit)
 	}
 	u, err := url.Parse(c.Endpoint)
 	if err != nil || len(c.Endpoint) > 8192 || u.Host == "" || u.User != nil || u.Opaque != "" || u.Fragment != "" || u.RawQuery != "" || strings.ContainsAny(c.Endpoint, "\\\x00\r\n") {

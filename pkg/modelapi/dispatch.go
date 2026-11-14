@@ -3,9 +3,7 @@ package modelapi
 import (
 	"context"
 	"net/http"
-	"net/http/httptrace"
 	"strings"
-	"sync/atomic"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
@@ -30,11 +28,10 @@ type DispatchOutcome struct {
 // while writing the request or waiting for headers) may have reached the
 // provider and is not.
 func (g *Gateway) do(request *http.Request) (*http.Response, bool, error) {
-	var connected atomic.Bool
-	trace := &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { connected.Store(true) }}
-	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
+	traced, connected := execution.ConnectionTrace(request.Context())
+	request = request.WithContext(traced)
 	response, err := g.client.Do(request)
-	notSent := err != nil && !connected.Load()
+	notSent := err != nil && !connected()
 	if observe := g.options.ObserveDispatch; observe != nil {
 		outcome := DispatchOutcome{NotSent: notSent, Err: err}
 		if err == nil {

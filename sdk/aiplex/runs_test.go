@@ -111,3 +111,123 @@ func TestListRunOperatorAudit_Decodes(t *testing.T) {
 		t.Errorf("expected 1 redrive row, got %+v", rows)
 	}
 }
+
+func TestListRunEvents_PagingQuery(t *testing.T) {
+	var seenPath, seenQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath, seenQuery = r.URL.Path, r.URL.RawQuery
+		_, _ = w.Write([]byte(`{"events":[{"run_id":"r 1","seq":7,"kind":"effect.unknown"}]}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+
+	if _, err := c.ListRunEvents(context.Background(), "r 1"); err != nil || seenQuery != "" {
+		t.Fatalf("no opts must send no query: %v %q", err, seenQuery)
+	}
+	ev, err := c.ListRunEvents(context.Background(), "r 1", aiplex.ListRunEventsOpts{FromSeq: 7, Limit: 2})
+	if err != nil || len(ev) != 1 || ev[0].Seq != 7 {
+		t.Fatalf("%v %+v", err, ev)
+	}
+	if seenPath != "/api/v1/runs/r 1/events" || seenQuery != "from_seq=7&limit=2" {
+		t.Errorf("path %q query %q", seenPath, seenQuery)
+	}
+	if _, err := c.ListRunEvents(context.Background(), "r", aiplex.ListRunEventsOpts{}, aiplex.ListRunEventsOpts{}); err == nil {
+		t.Error("two opts must be refused")
+	}
+}
+
+func TestListRunEffectsObligationsBudgets_PathsAndDecode(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/effects"):
+			_, _ = w.Write([]byte(`{"effects":[{"run_id":"r-1","seq":1,"kind":"effect.unknown","tool":"pay","scope":"s","timestamp":"2026-01-02T03:04:05Z","payload_json":"{}"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/obligations"):
+			_, _ = w.Write([]byte(`{"obligations":[{"run_id":"r-1","seq":2,"kind":"obligation.created"}]}`))
+		default:
+			_, _ = w.Write([]byte(`{"budgets":[{"run_id":"r-1","seq":3,"kind":"budget.charged","payload_json":"{\"usd_charged\":1.5}"}]}`))
+		}
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	ctx := context.Background()
+
+	eff, err := c.ListRunEffects(ctx, "r-1")
+	if err != nil || len(eff) != 1 || eff[0].Kind != "effect.unknown" || eff[0].Tool != "pay" || eff[0].Timestamp.Year() != 2026 {
+		t.Fatalf("effects: %v %+v", err, eff)
+	}
+	ob, err := c.ListRunObligations(ctx, "r-1")
+	if err != nil || len(ob) != 1 || ob[0].Kind != "obligation.created" {
+		t.Fatalf("obligations: %v %+v", err, ob)
+	}
+	bu, err := c.ListRunBudgets(ctx, "r-1")
+	if err != nil || len(bu) != 1 || !strings.Contains(bu[0].PayloadJSON, "usd_charged") {
+		t.Fatalf("budgets: %v %+v", err, bu)
+	}
+	want := []string{"/api/v1/runs/r-1/effects", "/api/v1/runs/r-1/obligations", "/api/v1/runs/r-1/budgets"}
+	for i, p := range want {
+		if paths[i] != p {
+			t.Errorf("path %d = %q want %q", i, paths[i], p)
+		}
+	}
+}
+
+func TestListRunEffects_ErrorSurfaces(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"code":"NOT_FOUND","message":"run not found"}`))
+	}))
+	defer srv.Close()
+	if _, err := newTestClient(srv).ListRunEffects(context.Background(), "nope"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGetRun_DecodesCompactionFields(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/r-2") {
+			_, _ = w.Write([]byte(`{"run_id":"r-2","status":"running"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"run_id":"r-1","status":"terminal","compacted":true,"compacted_at":"2026-05-01T10:00:00Z","retained_until":"2026-08-01T00:00:00Z"}`))
+	}))
+	defer srv.Close()
+	c := newTestClient(srv)
+	run, err := c.GetRun(context.Background(), "r-1")
+	if err != nil || !run.Compacted || run.CompactedAt == nil || run.CompactedAt.Month() != 5 || run.RetainedUntil == nil || run.RetainedUntil.Month() != 8 {
+		t.Fatalf("%v %+v", err, run)
+	}
+	run, err = c.GetRun(context.Background(), "r-2")
+	if err != nil || run.Compacted || run.CompactedAt != nil || run.RetainedUntil != nil {
+		t.Fatalf("absent fields must stay nil: %v %+v", err, run)
+	}
+}
+
+func TestGetRunsHealth_Decodes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/runs/_health" {
+			t.Errorf("path %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"last_ingest_at":"2026-05-01T10:00:00Z","has_runs":true,"tape_instances_count":2,"now":"2026-05-01T10:05:00Z"}`))
+	}))
+	defer srv.Close()
+	h, err := newTestClient(srv).GetRunsHealth(context.Background())
+	if err != nil || h.HasRuns == nil || !*h.HasRuns || h.TapeInstancesCount == nil || *h.TapeInstancesCount != 2 ||
+		h.LastIngestAt == nil || h.LastIngestAt.Hour() != 10 || h.Now.Minute() != 5 {
+		t.Fatalf("%v %+v", err, h)
+	}
+}
+
+// A caller confined to one tenant gets no deployment-wide values; they decode
+// as unknown (nil), not as zero.
+func TestGetRunsHealth_OmittedFieldsAreUnknown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"has_runs":false,"now":"2026-05-01T10:05:00Z"}`))
+	}))
+	defer srv.Close()
+	h, err := newTestClient(srv).GetRunsHealth(context.Background())
+	if err != nil || h.LastIngestAt != nil || h.TapeInstancesCount != nil || h.HasRuns == nil || *h.HasRuns {
+		t.Fatalf("%v %+v", err, h)
+	}
+}

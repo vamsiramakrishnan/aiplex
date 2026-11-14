@@ -144,12 +144,14 @@ func (p *Policy) DialContext(ctx context.Context, network, address string) (net.
 		return nil, e
 	}
 	// Dialing must also be origin-authorized; hostname alone is insufficient.
-	authorized := false
+	authorized, plain := false, true
 	for o := range p.origins {
 		u, _ := url.Parse(o)
 		if strings.EqualFold(u.Hostname(), host) && u.Port() == port {
 			authorized = true
-			break
+			if u.Scheme == "https" {
+				plain = false
+			}
 		}
 	}
 	if !authorized {
@@ -170,6 +172,13 @@ func (p *Policy) DialContext(ctx context.Context, network, address string) (net.
 	for _, ip := range ips {
 		if !p.allowed(ip) {
 			return nil, fmt.Errorf("DNS answer includes disallowed address")
+		}
+		// Plain http is permitted only to loopback (allow_loopback): a name such
+		// as localhost must resolve to loopback addresses only, never to a public
+		// or private one, which would carry the request over the network
+		// unencrypted. The https rules are unchanged.
+		if plain && !ip.Unmap().IsLoopback() {
+			return nil, fmt.Errorf("plain http origin resolved to a non-loopback address")
 		}
 	}
 	d := net.Dialer{Timeout: p.timeout}

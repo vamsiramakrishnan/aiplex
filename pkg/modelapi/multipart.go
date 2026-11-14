@@ -52,6 +52,29 @@ func (u *spooledUpload) reader() (io.Reader, error) {
 	return io.LimitReader(u.file, u.size), nil
 }
 
+// validateStrict runs ValidateMultipart over the spooled body and refuses a
+// body whose model field differs between it and the standard-library pass
+// that filled u.fields.
+func (u *spooledUpload) validateStrict() error {
+	reader, err := u.reader()
+	if err != nil {
+		return fmt.Errorf("upload spool unavailable")
+	}
+	model, found, err := ValidateMultipart(reader, u.contentType)
+	if err != nil {
+		var refusal *MultipartError
+		if errors.As(err, &refusal) {
+			return badRequest("invalid multipart body: %s", refusal.Message)
+		}
+		return badRequest("invalid multipart body")
+	}
+	values := u.fields["model"]
+	if found && (len(values) != 1 || values[0] != model) || !found && len(values) != 0 {
+		return badRequest("invalid multipart body: the model form field is ambiguous")
+	}
+	return nil
+}
+
 // field returns a single-valued form field; repeated values are refused.
 func (u *spooledUpload) field(name string) (string, bool, error) {
 	values := u.fields[name]
@@ -179,6 +202,13 @@ func spoolMultipart(body io.Reader, contentType string, limit int64) (*spooledUp
 		return nil, badRequest("invalid multipart body")
 	}
 	upload.size = counter.n
+	// The strict structural check, shared with the access point and the
+	// rewriter: the spooled bytes are what the provider will parse, so the
+	// model the fields above name must be the model the strict parser reads.
+	if err := upload.validateStrict(); err != nil {
+		upload.Close()
+		return nil, err
+	}
 	for key := range upload.fields {
 		for _, reserved := range []string{"model", "stream", "purpose", "n"} {
 			if strings.EqualFold(key, reserved) && key != reserved {

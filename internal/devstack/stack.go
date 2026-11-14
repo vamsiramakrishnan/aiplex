@@ -2,6 +2,8 @@ package devstack
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,6 +87,21 @@ type Stack struct {
 	ModelsB    *MockModels
 	ModelsBURL string
 	MCP        *MockMCP
+	// KeyedMCP is a second built-in MCP server that answers only requests that
+	// carry its API key (KeyedMCPHeader). The key is random per run, held here
+	// and in the API process's environment under KeyedSecretRef, and nowhere
+	// else: the seeded connection to it holds the reference.
+	KeyedMCP    *MockMCP
+	KeyedMCPURL string
+	// Agent is the mock agent runtime the seeded agent connection points at. It
+	// requires a random bearer token (Agent.Token), held here and in the API
+	// process's environment under AgentTokenEnv and nowhere else.
+	Agent    *MockAgent
+	AgentURL string
+	// Federation is the set of loopback identity providers the API trusts only
+	// once they are configured through the identity APIs. It is set for every
+	// started stack.
+	Federation *Federation
 	APIURL     string
 	ModelsURL  string
 	MCPURL     string
@@ -160,14 +177,21 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	if opts.Quota && opts.Provider != "mock" {
 		return nil, fmt.Errorf("--quota covers the built-in mock surfaces; with --provider %s, enable QuotaPlex with an operator quota file (AIPLEX_QUOTA_FILE), see docs/budgets.md", opts.Provider)
 	}
-	s := &Stack{opts: opts, Models: &MockModels{}, ModelsB: &MockModels{Name: "b"}, MCP: &MockMCP{}, exited: make(chan struct{})}
+	keyedKey, err := randomKey()
+	if err != nil {
+		return nil, err
+	}
+	agentKey, err := randomKey()
+	if err != nil {
+		return nil, err
+	}
+	s := &Stack{opts: opts, Models: &MockModels{}, ModelsB: &MockModels{Name: "b"}, MCP: &MockMCP{}, KeyedMCP: &MockMCP{APIKeyHeader: KeyedMCPHeader, APIKeyValue: keyedKey}, Agent: &MockAgent{Token: agentKey}, exited: make(chan struct{})}
 	ok := false
 	defer func() {
 		if !ok {
 			s.Stop()
 		}
 	}()
-	var err error
 	if opts.Dir == "" {
 		if s.Dir, err = os.MkdirTemp("", "aiplex-dev-"); err != nil {
 			return nil, err
@@ -185,7 +209,7 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	for _, srv := range []struct {
 		h   http.Handler
 		dst *string
-	}{{s.issuerHandler(), &s.IssuerURL}, {s.Models, &s.ModelsURL}, {s.ModelsB, &s.ModelsBURL}, {s.MCP, &s.MCPURL}} {
+	}{{s.issuerHandler(), &s.IssuerURL}, {s.Models, &s.ModelsURL}, {s.ModelsB, &s.ModelsBURL}, {s.MCP, &s.MCPURL}, {s.KeyedMCP, &s.KeyedMCPURL}, {s.Agent, &s.AgentURL}} {
 		server, url, e := Listen(srv.h)
 		if e != nil {
 			return nil, e
@@ -194,6 +218,9 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 		*srv.dst = url
 	}
 	s.Issuer.SetIssuer(s.IssuerURL)
+	if err = s.startFederation(); err != nil {
+		return nil, err
+	}
 
 	port := opts.Port
 	if port == 0 {
@@ -237,6 +264,16 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 		"AIPLEX_PUBLIC_URL="+s.APIURL,
 		"AIPLEX_TENANT_ID="+DevTenant,
 		"LOG_LEVEL=info",
+		// Live authentication with identity providers and agent bindings that
+		// are configured through the API. Nothing is trusted until then, and the
+		// built-in developer and role bindings above are unchanged.
+		"AIPLEX_USER_FEDERATION=enabled",
+		"AIPLEX_AGENT_FEDERATION=enabled",
+		// The keyed tool connection's credential, under its secret reference.
+		keyedSecretEnv()+"="+s.KeyedMCP.APIKeyValue,
+		// The mock agent's bearer token, read through the bearer-env identity
+		// profile in the connections file (which holds this name, not a value).
+		AgentTokenEnv+"="+s.Agent.Token,
 	)
 	if s.providerE != "" {
 		// Hand the key to the API process only, under the development secret
@@ -258,7 +295,7 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 		}
 		env = append(env, "AIPLEX_MODULES="+QuotaModules, "AIPLEX_QUOTA_FILE="+quotaPath)
 	}
-	env = append(env, opts.Env...)
+	env = mergeEnv(env, opts.Env)
 	s.env = env
 	if err = s.launch(); err != nil {
 		return nil, err
@@ -321,7 +358,7 @@ func portFree(port int) error {
 // filterEnv drops variables that would change what the local API connects to
 // (for example a cloud project that switches the store to Firestore).
 func filterEnv(in []string) []string {
-	drop := map[string]bool{"GCP_PROJECT": true, "GCP_PROJECT_ID": true, "FIRESTORE_PROJECT_ID": true, "FIRESTORE_DATABASE": true, "HYDRA_ADMIN_URL": true, "AIPLEX_TENANT_ID": true, "AIPLEX_ROLE_BINDINGS_FILE": true, "AIPLEX_CONNECTIONS_FILE": true, "JWT_ISSUER": true, "JWT_AUDIENCE": true, "JWT_JWKS_URL": true, "FIRESTORE_EMULATOR_HOST": true, "KUBERNETES_SERVICE_HOST": true, "AIPLEX_IDENTITY_PROVIDERS_FILE": true, "AIPLEX_QUOTA_FILE": true, "AIPLEX_MODULE_MANIFEST": true, "TLS_CERT_FILE": true, "TLS_KEY_FILE": true, "CLIENT_CA_FILE": true, "CONSOLE_ORIGINS": true, "AIPLEX_MODULES": true, "AIPLEX_EXIT_WITH_PARENT": true}
+	drop := map[string]bool{"GCP_PROJECT": true, "GCP_PROJECT_ID": true, "FIRESTORE_PROJECT_ID": true, "FIRESTORE_DATABASE": true, "HYDRA_ADMIN_URL": true, "AIPLEX_TENANT_ID": true, "AIPLEX_ROLE_BINDINGS_FILE": true, "AIPLEX_CONNECTIONS_FILE": true, "JWT_ISSUER": true, "JWT_AUDIENCE": true, "JWT_JWKS_URL": true, "FIRESTORE_EMULATOR_HOST": true, "KUBERNETES_SERVICE_HOST": true, "AIPLEX_IDENTITY_PROVIDERS_FILE": true, "AIPLEX_QUOTA_FILE": true, "AIPLEX_USER_FEDERATION": true, "AIPLEX_AGENT_FEDERATION": true, "AIPLEX_AGENT_FEDERATION_AUDIENCE": true, "AIPLEX_MODULE_MANIFEST": true, "TLS_CERT_FILE": true, "TLS_KEY_FILE": true, "CLIENT_CA_FILE": true, "CONSOLE_ORIGINS": true, "AIPLEX_MODULES": true, "AIPLEX_EXIT_WITH_PARENT": true}
 	out := make([]string, 0, len(in))
 	for _, kv := range in {
 		name, _, _ := strings.Cut(kv, "=")
@@ -341,12 +378,32 @@ func writeJSONFile(path string, v any) error {
 	return os.WriteFile(path, data, 0o600)
 }
 
+// KeyedMCPHeader is the header the keyed MCP server reads its API key from.
+const KeyedMCPHeader = "X-Api-Key"
+
+// KeyedSecretRef is the secret reference of the keyed tool connection; in
+// development mode it resolves from AIPLEX_TOOL_SECRET_DEV_TOOL_KEY.
+const KeyedSecretRef = "dev-tool-key"
+
+func keyedSecretEnv() string {
+	return "AIPLEX_TOOL_SECRET_" + strings.ToUpper(strings.ReplaceAll(KeyedSecretRef, "-", "_"))
+}
+
+// randomKey returns a fresh throwaway API key for the keyed MCP server.
+func randomKey() (string, error) {
+	b := make([]byte, 18)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "dev-" + hex.EncodeToString(b), nil
+}
+
 // ProviderSecretRef is the secret reference the stack's real-provider surface
 // uses; in development mode it resolves from AIPLEX_TOOL_SECRET_<REF>.
 const ProviderSecretRef = "dev-provider-key"
 
 func (s *Stack) writeConnections() (string, error) {
-	origins := []string{s.ModelsURL, s.ModelsBURL, s.MCPURL, s.IssuerURL}
+	origins := []string{s.ModelsURL, s.ModelsBURL, s.MCPURL, s.KeyedMCPURL, s.AgentURL, s.IssuerURL}
 	origins = append(origins, s.opts.ExtraOrigins...)
 	if s.opts.Provider != "mock" {
 		origin, _ := ProviderOrigin(s.opts.Provider)
@@ -358,7 +415,11 @@ func (s *Stack) writeConnections() (string, error) {
 		network["timeout"] = int64(s.opts.UpstreamTimeout)
 	}
 	path := filepath.Join(s.Dir, "connections.json")
-	return path, writeJSONFile(path, map[string]any{"network": network, "identities": []any{}})
+	identities := []any{map[string]any{
+		"id": AgentIdentityRef, "tenant_id": DevTenant, "type": "bearer-env", "token_env": AgentTokenEnv,
+		"allowed_origins": []string{s.AgentURL},
+	}}
+	return path, writeJSONFile(path, map[string]any{"network": network, "identities": identities})
 }
 
 // MintDeveloperToken returns an admin token for the local developer.
@@ -437,3 +498,22 @@ func (s *Stack) Stop() {
 
 // ErrNotReady is returned by helpers that need a running API.
 var ErrNotReady = errors.New("local API is not running")
+
+// mergeEnv returns base with extra applied: a variable in extra replaces every
+// earlier entry of the same name, so the result has one entry per name for
+// everything extra sets (the options' environment replaces the stack's
+// defaults, for example AIPLEX_USER_FEDERATION=disabled).
+func mergeEnv(base, extra []string) []string {
+	set := map[string]bool{}
+	for _, kv := range extra {
+		name, _, _ := strings.Cut(kv, "=")
+		set[name] = true
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	for _, kv := range base {
+		if name, _, _ := strings.Cut(kv, "="); !set[name] {
+			out = append(out, kv)
+		}
+	}
+	return append(out, extra...)
+}

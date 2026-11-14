@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -228,7 +229,7 @@ func resolveURL(r Remote, supplied map[string]string) (string, []secretQuery, []
 			missing = append(missing, name)
 		}
 		if v.Value != "" {
-			if len(in.Choices) > 0 && !contains(in.Choices, v.Value) {
+			if len(in.Choices) > 0 && !slices.Contains(in.Choices, v.Value) {
 				return "", nil, vars, fmt.Errorf("variable {%s} must be one of %s", name, strings.Join(in.Choices, ", "))
 			}
 			values[name] = v.Value
@@ -259,15 +260,6 @@ type MissingVariablesError struct{ Names []string }
 
 func (e *MissingVariablesError) Error() string {
 	return "the URL needs values for: " + strings.Join(e.Names, ", ") + " (pass --var name=value)"
-}
-
-func contains(list []string, v string) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }
 
 // queryParamFor returns the parameter name when {variable} is exactly the

@@ -347,6 +347,9 @@ type BudgetStatus struct {
 	Remaining   string       `json:"remaining"`
 	OverLimit   bool         `json:"over_limit,omitempty"`
 	Window      BudgetWindow `json:"window"`
+	// IncludeToolCalls is set on a cost budget that also counts tool calls,
+	// so spent and reserved include them.
+	IncludeToolCalls bool `json:"include_tool_calls,omitempty"`
 	// The fields below are operator-only.
 	UnknownCostRequests *int64                 `json:"unknown_cost_requests,omitempty"`
 	OnUnknownCost       string                 `json:"on_unknown_cost,omitempty"`
@@ -400,7 +403,7 @@ func (h *ConnectedHandler) budgetStatus(ctx context.Context, tenant string, tree
 	if err != nil {
 		return BudgetStatus{}, err
 	}
-	st := BudgetStatus{ID: b.ID, DisplayName: b.DisplayName, Parent: b.Parent, Unit: b.Limit.Unit, Currency: b.Limit.Currency, Window: BudgetWindow{Start: bal.Window.Start, End: bal.Window.End}}
+	st := BudgetStatus{ID: b.ID, DisplayName: b.DisplayName, Parent: b.Parent, Unit: b.Limit.Unit, Currency: b.Limit.Currency, Window: BudgetWindow{Start: bal.Window.Start, End: bal.Window.End}, IncludeToolCalls: b.IncludeToolCalls}
 	st.Limit = budgetAmount(b, bal.Limit, scale)
 	st.Spent = budgetAmount(b, bal.Consumed, scale)
 	st.Reserved = budgetAmount(b, bal.Held, scale)
@@ -440,6 +443,18 @@ func (h *ConnectedHandler) budgetStatus(ctx context.Context, tenant string, tree
 	return st, nil
 }
 
+// spenderTokenRank orders token spenders. The ledger's token counters overlap
+// (total_tokens covers input and output; cache and reasoning counts can be
+// subsets of those), so they are never added together: the rank is the known
+// total, or input plus output where no total was recorded. It is an ordering
+// over ledger records, not the budget's own count.
+func spenderTokenRank(tokens map[string]int64) int64 {
+	if total := tokens[usageledger.CounterTotal]; total > 0 {
+		return total
+	}
+	return tokens[usageledger.CounterInput] + tokens[usageledger.CounterOutput]
+}
+
 // budgetSpenders ranks principals by their ledger usage under the budget in
 // its current window. The ledger is a separate record from the budget's
 // counters; see docs/budgets.md for how the two relate.
@@ -461,11 +476,7 @@ func (h *ConnectedHandler) budgetSpenders(ctx context.Context, tenant string, b 
 			}
 			return newBigRank("0", 0)
 		case budgets.UnitTokens:
-			var sum int64
-			for _, v := range g.Tokens {
-				sum += v
-			}
-			return newBigRank(fmt.Sprint(sum), 0)
+			return newBigRank(fmt.Sprint(spenderTokenRank(g.Tokens)), 0)
 		}
 		return newBigRank(fmt.Sprint(g.Requests), 0)
 	}
@@ -619,6 +630,8 @@ type BudgetPreviewDraw struct {
 	Limit       string         `json:"limit"`
 	Window      budgets.Window `json:"window"`
 	Draft       bool           `json:"draft,omitempty"`
+	// IncludeToolCalls is set on a cost budget that also counts tool calls.
+	IncludeToolCalls bool `json:"include_tool_calls,omitempty"`
 }
 
 // BudgetPreviewSkipped is a matched budget that does not count this plane.
@@ -648,7 +661,7 @@ type BudgetPreview struct {
 
 func previewDraw(m budgets.Match, draft bool) BudgetPreviewDraw {
 	b := m.Budget
-	return BudgetPreviewDraw{ID: b.ID, DisplayName: b.DisplayName, Parent: b.Parent, Direct: m.Direct, Reasons: m.Reasons, ViaChild: m.ViaChild, Unit: b.Limit.Unit, Currency: b.Limit.Currency, Limit: b.Limit.Amount, Window: b.Window, Draft: draft}
+	return BudgetPreviewDraw{ID: b.ID, DisplayName: b.DisplayName, Parent: b.Parent, Direct: m.Direct, Reasons: m.Reasons, ViaChild: m.ViaChild, Unit: b.Limit.Unit, Currency: b.Limit.Currency, Limit: b.Limit.Amount, Window: b.Window, Draft: draft, IncludeToolCalls: b.IncludeToolCalls}
 }
 
 func (h *ConnectedHandler) budgetPreview(w http.ResponseWriter, r *http.Request) {
@@ -737,8 +750,8 @@ func (h *ConnectedHandler) budgetPreview(w http.ResponseWriter, r *http.Request)
 	}
 	for _, m := range tree.Resolve(facts) {
 		isDraft := req.Draft != nil && out.Draft != nil && out.Draft.Valid && m.ID == req.Draft.ID
-		if !m.Budget.Applies(plane) {
-			out.Skipped = append(out.Skipped, BudgetPreviewSkipped{ID: m.ID, Reason: fmt.Sprintf("%s budgets count model traffic only; this request is on %s", m.Budget.Limit.Unit, plane)})
+		if reason := m.Budget.NotApplied(plane); reason != "" {
+			out.Skipped = append(out.Skipped, BudgetPreviewSkipped{ID: m.ID, Reason: reason})
 			continue
 		}
 		out.Draws = append(out.Draws, previewDraw(m, isDraft))

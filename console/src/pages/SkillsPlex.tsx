@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { getCatalog, authenticatedRequest } from '../api/client'
+import { tabLabel } from '../api/counts'
 import StatusBadge from '../components/StatusBadge'
 
 interface SkillServer {
@@ -71,10 +72,10 @@ export default function SkillsPlex() {
             }`}
           >
             {t === 'servers'
-              ? `Servers (${servers.data?.length ?? 0})`
+              ? tabLabel('Servers', servers.data?.length)
               : t === 'catalog'
-              ? `Catalog (${catalog.data?.total ?? 0})`
-              : `Invocations (${invocations.data?.length ?? 0})`}
+              ? tabLabel('Catalog', catalog.data?.total)
+              : tabLabel('Invocations', invocations.data?.length)}
           </button>
         ))}
       </div>
@@ -201,12 +202,12 @@ export default function SkillsPlex() {
                         <StatusBadge status={inv.status} />
                       </td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                        {inv.duration_ms ? `${inv.duration_ms}ms` : '-'}
+                        {inv.duration_ms != null ? `${inv.duration_ms}ms` : 'unknown'}
                       </td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">
-                        {inv.trace_id ? inv.trace_id.slice(0, 8) : '-'}
+                        {inv.trace_id ? inv.trace_id.slice(0, 8) : 'unknown'}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{inv.user_id ?? '-'}</td>
+                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{inv.user_id ?? 'unknown'}</td>
                     </tr>
                   ))}
                 </tbody>

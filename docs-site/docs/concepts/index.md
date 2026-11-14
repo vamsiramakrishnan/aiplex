@@ -15,3 +15,4 @@ AIPlex answers one question for every request: which caller may use which resour
 | Who a caller is and what it may reach | [Identity and authorization](./identity.md) |
 | Budgets, admission and the usage record | [Quota and usage](./quota-and-usage.md) |
 | How the pieces connect at runtime | [Request path](./request-path.md) |
+| What "plex" means, and the glossary | [Naming and glossary](../library/naming.md) |

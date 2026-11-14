@@ -110,6 +110,15 @@ describe('specFromDraft', () => {
     expect(api.specFromDraft({ ...d, operationIds: ['openai.v1.chat-completions'] }, descriptors.openai).spec!.surface.websocket).toBeUndefined()
   })
 
+  it('offers seconds metering for Live voice only, and requires a maximum session length', () => {
+    const d = fill('openai', { operationIds: ['openai.v1.live'], wsMetering: 'seconds', wsMaxSessionSeconds: '600' })
+    expect(api.specFromDraft(d, descriptors.openai).spec!.surface.websocket).toEqual({ metering: 'seconds', max_session_seconds: 600 })
+    expect(api.specFromDraft({ ...d, wsMaxSessionSeconds: '' }, descriptors.openai).errors.join()).toMatch(/needs a maximum session length/)
+    expect(api.specFromDraft({ ...d, operationIds: ['openai.v1.realtime'] }, descriptors.openai).errors.join()).toMatch(/Live voice sessions only/)
+    expect(api.secondsMeteringAvailable(['openai.v1.realtime'])).toBe(false)
+    expect(api.secondsMeteringAvailable(['openai.v1.realtime', 'openai.v1.live'])).toBe(true)
+  })
+
   it('validates the capacity policy like the server and omits unset members', () => {
     const base = fill('openai', { operationIds: ['openai.v1.chat-completions'], capacityEnabled: true })
     expect(api.specFromDraft(base, descriptors.openai).errors.join()).toMatch(/cooldown or set a headroom/)
@@ -272,6 +281,16 @@ describe('Model surfaces panel', () => {
     expect(within(google).queryByRole('button', { name: /Edit surface/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Capacity of surface oa' }))
     expect(await screen.findByRole('region', { name: 'Capacity of oa' })).toHaveTextContent('No provider limit has been observed on this replica yet')
+  })
+
+  it('shows unknown operations for a surface that lists none, and a real 0 for an empty list', async () => {
+    const surface = (id: string, operations?: unknown[]) => ({ id, revision: 1, spec: { surface: { id, protocol: 'openai-chat', origin: 'https://x', provider: { id: 'openai' }, ...(operations ? { operations } : {}) }, auth: { type: 'bearer', secret_ref: 'k' } } })
+    routes['GET /api/v1/llm/surfaces/'] = () => ({ body: [surface('absent'), surface('empty', []), surface('one', [{ id: 'openai.v1.chat-completions' }])] })
+    show(<ModelSurfacesPanel />)
+    const cell = async (id: string) => (await screen.findByRole('rowheader', { name: id })).closest('tr')!.querySelectorAll('td')[2]
+    expect((await cell('absent')).textContent).toBe('unknown')
+    expect((await cell('empty')).textContent).toBe('0')
+    expect((await cell('one')).textContent).toBe('1')
   })
 
   it('deletes at the listed revision and refreshes on a conflict', async () => {

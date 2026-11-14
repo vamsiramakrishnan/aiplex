@@ -256,6 +256,10 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 	if binding.Profile == quotaProfileRequests {
 		return counts, nil, nil
 	}
+	if binding.Profile == quotaProfileToolUsage {
+		usage, err := toolUsageBounds(binding, in)
+		return usage, nil, err
+	}
 	if quotaExtendedProfile(binding.Profile) {
 		return h.extendedBounds(ctx, binding, target, in, now)
 	}
@@ -276,8 +280,8 @@ func (h *QuotaHost) nativeBounds(ctx context.Context, binding QuotaBinding, targ
 		}
 		return counts, nil, nil
 	}
-	if binding.OperationID == "compat.chat-completions" && in.UsageSemantics != modelapi.UsageSemanticsOpenAI {
-		return nil, nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "the compatible server has no declared OpenAI usage semantics")
+	if binding.OperationID == "compat.chat-completions" && !modelapi.TokenUsageSemantics(in.UsageSemantics) {
+		return nil, nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "the compatible server has no declared OpenAI or DeepSeek usage semantics")
 	}
 	if len(in.Headers.Values("Anthropic-Beta")) > 0 || len(in.Headers.Values("Last-Event-ID")) > 0 {
 		return nil, nil, quotaStatus(400, "QUOTA_PROTOCOL_UNSUPPORTED", "beta features and stream resumption require their own exposure profile")

@@ -160,6 +160,6 @@ the command shows the dry-run result first and asks before writing (or needs
 	fl.StringVar(&model, "model", "", "Only this model ID (model_id)")
 	fl.StringVar(&provider, "provider", "", "Only this provider")
 	fl.BoolVar(&dryRun, "dry-run", false, "Report counts and totals and write nothing")
-	fl.BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	return cmd
 }

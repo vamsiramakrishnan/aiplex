@@ -85,7 +85,7 @@ func NewBuiltinRegistry() *Registry {
 	wrap := func(f func(*Plan, Registration, Destination)) Renderer {
 		return func(p *Plan, s Registration, d Destination) error { f(p, s, d); return nil }
 	}
-	renderers := map[string]Renderer{"antigravity": wrap(renderAntigravity), "antigravity-acp": wrap(renderAntigravity), "codex": wrap(renderCodex), "claude-code": wrap(renderClaudeCode), "claude-desktop": wrap(renderClaudeDesktop)}
+	renderers := map[string]Renderer{"antigravity": wrap(renderAntigravity), "antigravity-acp": wrap(renderAntigravity), "codex": wrap(renderCodex), "claude-code": wrap(renderClaudeCode), "claude-desktop": wrap(renderClaudeDesktop), "gemini-cli": wrap(renderGeminiCLI)}
 	for _, p := range builtin {
 		if e := r.Register(p, renderers[p.ID]); e != nil {
 			panic(e)

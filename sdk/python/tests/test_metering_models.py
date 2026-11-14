@@ -55,6 +55,13 @@ def test_usage_record_service_tier_server_tools_and_new_counters() -> None:
     assert bare.service_tier is None and bare.server_tools == {}
     assert bare.usage == UsageCounters.from_wire({"input_tokens": 1})
     assert bare.usage.cache_write_1h_tokens is None
+    # Every cache-write TTL the ledger records is read; absent ones stay None.
+    ttl = UsageCounters.from_wire(
+        {"cache_write_tokens": 30, "cache_write_5m_tokens": 10, "cache_write_30m_tokens": 0, "cache_write_12h_tokens": 20}
+    )
+    assert (ttl.cache_write_5m_tokens, ttl.cache_write_30m_tokens, ttl.cache_write_12h_tokens) == (10, 0, 20)
+    assert ttl.cache_write_1h_tokens is None
+    assert bare.usage.cache_write_5m_tokens is None and bare.usage.cache_write_12h_tokens is None
 
 
 def test_price_tiers_and_service_tier_round_trip_exactly() -> None:
@@ -82,3 +89,21 @@ def test_price_tiers_and_service_tier_round_trip_exactly() -> None:
 def test_usage_filter_cost_basis_query() -> None:
     assert UsageFilter(cost_basis="reported").to_query() == {"cost_basis": "reported"}
     assert "cost_basis" not in UsageFilter().to_query()
+
+
+def test_tool_call_size_and_duration_counters() -> None:
+    present = UsageCounters.from_wire({"tool_response_bytes": 2048, "tool_duration_milliseconds": 350})
+    assert (present.tool_response_bytes, present.tool_duration_milliseconds) == (2048, 350)
+    # A real zero is a reported zero, not unknown.
+    zero = UsageCounters.from_wire({"tool_response_bytes": 0, "tool_duration_milliseconds": 0})
+    assert (zero.tool_response_bytes, zero.tool_duration_milliseconds) == (0, 0)
+    # Absent and null are both unknown: None, never 0.
+    absent = UsageCounters.from_wire({"input_tokens": 1})
+    assert absent.tool_response_bytes is None and absent.tool_duration_milliseconds is None
+    nulled = UsageCounters.from_wire({"tool_response_bytes": None, "tool_duration_milliseconds": None})
+    assert nulled.tool_response_bytes is None and nulled.tool_duration_milliseconds is None
+    # Read from a usage record; the wire value also stays in raw.
+    rec = UsageRecord.from_wire({"id": "ul_3", "usage": {"tool_response_bytes": 7, "tool_duration_milliseconds": 0}})
+    assert rec.usage is not None
+    assert (rec.usage.tool_response_bytes, rec.usage.tool_duration_milliseconds) == (7, 0)
+    assert rec.usage.raw["tool_response_bytes"] == 7

@@ -31,8 +31,12 @@ const DevDeployerGroup = "aiplex-local-deployers"
 // DevTokenRequest asks the issuer for a token for another local caller.
 type DevTokenRequest struct {
 	User   string   `json:"user"`
-	Role   string   `json:"role,omitempty"` // none (default), deployer or admin
+	Role   string   `json:"role,omitempty"` // none (default), deployer or admin; local issuer only
 	Groups []string `json:"groups,omitempty"`
+	// Issuer selects who signs the token: local (default), idp, workload or
+	// unconfigured. Only local tokens can carry a role: the others are for
+	// identity federation, where roles come from role bindings.
+	Issuer string `json:"issuer,omitempty"`
 }
 
 // DevTokenResponse is the issuer's answer. The token is the only secret.
@@ -44,6 +48,12 @@ type DevTokenResponse struct {
 	Role        string   `json:"role"`
 	Groups      []string `json:"groups"`
 	ExpiresIn   int64    `json:"expires_in"`
+	// Issuer names who signed the token. IssuerURL, JWKSURL and Audience are
+	// what to configure the API with so it trusts that issuer (public values).
+	Issuer    string `json:"issuer"`
+	IssuerURL string `json:"issuer_url,omitempty"`
+	JWKSURL   string `json:"jwks_url,omitempty"`
+	Audience  string `json:"audience,omitempty"`
 }
 
 var (
@@ -65,6 +75,19 @@ func (s *Stack) MintCallerToken(req DevTokenRequest) (*DevTokenResponse, error) 
 	role := req.Role
 	if role == "" {
 		role = "none"
+	}
+	issuerName := req.Issuer
+	if issuerName == "" {
+		issuerName = IssuerLocal
+	}
+	var federated *FederatedIssuer
+	if issuerName != IssuerLocal {
+		if federated = s.Federation.Get(issuerName); federated == nil {
+			return nil, fmt.Errorf("issuer must be one of %s", strings.Join(IssuerNames, ", "))
+		}
+		if role != "none" {
+			return nil, fmt.Errorf("--role applies to the local issuer only; a token from the %s issuer has the role the API's role bindings give it (none until you add one)", issuerName)
+		}
 	}
 	groups := []string{}
 	switch role {
@@ -91,12 +114,40 @@ func (s *Stack) MintCallerToken(req DevTokenRequest) (*DevTokenResponse, error) 
 	if len(groups) > 20 {
 		return nil, fmt.Errorf("at most 20 groups")
 	}
+	if federated != nil {
+		return s.mintFederated(federated, user, groups)
+	}
 	email := user + "@localhost"
 	token, err := s.Issuer.Mint(map[string]any{"sub": user, "email": email, "name": user, "groups": groups}, CallerTokenTTL)
 	if err != nil {
 		return nil, err
 	}
-	return &DevTokenResponse{Token: token, Subject: user, Email: email, PrincipalID: auth.CanonicalPrincipalID(s.IssuerURL, DevPoolID, user), Role: role, Groups: groups, ExpiresIn: int64(CallerTokenTTL.Seconds())}, nil
+	return &DevTokenResponse{Token: token, Subject: user, Email: email, PrincipalID: auth.CanonicalPrincipalID(s.IssuerURL, DevPoolID, user), Role: role, Groups: groups, ExpiresIn: int64(CallerTokenTTL.Seconds()), Issuer: IssuerLocal, IssuerURL: s.IssuerURL, JWKSURL: s.Issuer.JWKSURL(), Audience: DevAudience}, nil
+}
+
+// mintFederated signs a token with one of the federation issuers. A user token
+// (idp, unconfigured) carries sub, email and a groups claim; a workload token
+// carries only the subject. The groups are whatever the caller asked for: the
+// API reads them through the provider it configured, and gives no role for
+// them unless a role binding names that provider.
+func (s *Stack) mintFederated(f *FederatedIssuer, subject string, groups []string) (*DevTokenResponse, error) {
+	claims := map[string]any{"sub": subject}
+	email := ""
+	if f.Name != IssuerWorkload {
+		email = subject + "@" + f.Name + ".localhost"
+		claims["email"], claims["name"], claims["groups"] = email, subject, groups
+	} else if len(groups) > 0 {
+		return nil, fmt.Errorf("a workload token has a subject and no groups")
+	}
+	token, err := f.Issuer.Mint(claims, CallerTokenTTL)
+	if err != nil {
+		return nil, err
+	}
+	out := &DevTokenResponse{Token: token, Subject: subject, Email: email, Role: "none", Groups: groups, ExpiresIn: int64(CallerTokenTTL.Seconds()), Issuer: f.Name, IssuerURL: f.IssuerURL(), JWKSURL: f.JWKSURL, Audience: f.Audience}
+	if f.Name != IssuerUnconfigured {
+		out.PrincipalID = federatedPrincipalID(f, subject)
+	}
+	return out, nil
 }
 
 // issuerHandler is the issuer's JWKS and discovery handler plus DevTokenPath.

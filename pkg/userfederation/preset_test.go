@@ -12,7 +12,7 @@ func TestCatalogStable(t *testing.T) {
 		t.Fatalf("catalog = %d presets", len(got))
 	}
 	for i, p := range got {
-		if p.ID != want[i] || p.DisplayName == "" || p.Description == "" || len(p.Algorithms) != 2 || len(p.GroupSources) == 0 {
+		if p.ID != want[i] || p.DisplayName == "" || p.Description == "" || len(p.Algorithms) != 3 || len(p.GroupSources) == 0 {
 			t.Fatalf("preset %d = %+v", i, p)
 		}
 		for _, f := range p.Inputs {

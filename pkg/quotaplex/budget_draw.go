@@ -260,15 +260,20 @@ func (c *CompiledPolicy) resolveDraws(demand Demand, plan *Plan, selected *Price
 		limit := BudgetLimit{Key: DrawKey(policy.ID, d, window), LineageKey: lineage, Shape: DrawShape(d), RuleID: "budget:" + d.ID, Window: window, Limit: d.Limit, BudgetID: d.ID, Thresholds: append([]int(nil), d.Thresholds...)}
 		ids := drawMeters(d, policy.Meters, plan.Bounds)
 		if d.Unit == DrawCost {
-			known := false
-			for _, m := range policy.Meters {
-				if m.Unit == "money" && m.Currency == d.Currency && m.Scale == d.Scale {
-					known = true
+			// The counter's meter identity is the policy's money meter for
+			// the currency and scale (the lowest id when there are several),
+			// the same for a priced and an unpriced request, so both share
+			// one counter record.
+			identity := ""
+			for id, m := range policy.Meters {
+				if m.Unit == "money" && m.Currency == d.Currency && m.Scale == d.Scale && (identity == "" || id < identity) {
+					identity = id
 				}
 			}
-			if !known {
+			if identity == "" {
 				return drawDenied("unsupported_meter", "the quota policy has no money meter for this currency and scale", d.ID)
 			}
+			limit.MeterID = identity
 			// Cost is computable only through a matching price book that
 			// prices every billable bounded meter. Unknown is never zero.
 			priced := len(ids) > 0
@@ -298,7 +303,10 @@ func (c *CompiledPolicy) resolveDraws(demand Demand, plan *Plan, selected *Price
 		if d.Unit == DrawRequests && demandSum == 0 {
 			return drawDenied("unsupported_meter", "requests require a positive attempt bound", d.ID)
 		}
-		limit.MeterID, limit.MeterIDs, limit.Demand = ids[0], ids, demandSum
+		if limit.MeterID == "" {
+			limit.MeterID = ids[0]
+		}
+		limit.MeterIDs, limit.Demand = ids, demandSum
 		plan.Budgets = append(plan.Budgets, limit)
 	}
 	return nil

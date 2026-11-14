@@ -46,7 +46,7 @@ type SigV4Credentials struct {
 }
 
 func (s SigV4Credentials) Authenticate(ctx context.Context, req *http.Request) error {
-	if s.Source == nil || s.Region == "" || (s.Service != "bedrock" && s.Service != "bedrock-agentcore") {
+	if s.Source == nil || s.Region == "" || (s.Service != "bedrock" && s.Service != "bedrock-mantle" && s.Service != "bedrock-agentcore") {
 		return fmt.Errorf("explicit AWS role credentials, region and signing service required")
 	}
 	creds, e := s.Source.Retrieve(ctx)

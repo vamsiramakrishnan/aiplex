@@ -2,13 +2,11 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useModules } from '../hooks/useModules'
-import { useAccess, ADMIN_REASON } from '../hooks/useAccess'
+import { ADMIN_REASON } from '../hooks/useAccess'
+import { useNavigation } from './navigation'
 import { useFocusTrap } from '../hooks/useFocusTrap'
 import { useDarkMode } from '../theme'
 import logoReversed from '../brand/aiplex-lockup-horizontal-reversed.svg'
-
-type Need = 'operator' | 'admin' | undefined
-interface NavItem { to: string; label: string; need?: Need }
 
 const routeLabels: Record<string, string> = {
   overview: 'Overview',
@@ -28,6 +26,7 @@ const routeLabels: Record<string, string> = {
   permissions: 'Permissions',
   deploy: 'Deploy',
   instances: 'Instances',
+  hooks: 'Hooks',
 }
 
 function Breadcrumbs() {
@@ -55,8 +54,8 @@ const linkBase = 'block px-4 py-2 text-sm focus-visible:outline-offset-[-2px]'
 
 export default function Layout() {
   const { user, logout, ambient } = useAuth()
-  const { enabled, error } = useModules()
-  const access = useAccess()
+  const { error } = useModules()
+  const { shown, hiddenForRole, access } = useNavigation()
   const [dark, toggleDark] = useDarkMode()
   const [open, setOpen] = useState(false)
   const navigate = useNavigate()
@@ -66,19 +65,6 @@ export default function Layout() {
   useEffect(() => { setOpen(false) }, [location.pathname])
   const drawerRef = useFocusTrap<HTMLElement>(open, () => setOpen(false))
 
-  const items: NavItem[] = [
-    { to: '/overview', label: 'Overview' },
-    { to: '/dashboard', label: 'Dashboard', need: 'admin' },
-    ...enabled.map((module) => ({ to: module.path, label: module.label, need: 'operator' as const })),
-    { to: '/usage', label: 'Usage' },
-    { to: '/agents', label: 'Agents', need: 'operator' },
-    { to: '/access-points', label: 'Access points' },
-    { to: '/identity/users', label: 'User identity', need: 'operator' },
-    { to: '/runs', label: 'Runs', need: 'operator' },
-    { to: '/permissions', label: 'Permissions', need: 'admin' },
-  ]
-  const shown = items.filter((item) => item.need !== 'operator' || access.isOperator)
-  const hiddenForRole = items.length - shown.length
 
   function handleLogout() {
     logout()

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -168,7 +169,7 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 	if e != nil {
 		return Registration{}, e
 	}
-	if !contains(metadata.CodeChallengeMethodsSupported, "S256") {
+	if !slices.Contains(metadata.CodeChallengeMethodsSupported, "S256") {
 		return Registration{}, fmt.Errorf("authorization server does not advertise PKCE S256")
 	}
 	result := Registration{TenantID: connection.TenantID, ProfileID: profile.ID, Issuer: issuer, Resource: connection.ResourceURL, RedirectURIs: append([]string(nil), profile.RedirectURIs...), AuthorizationEndpoint: metadata.AuthorizationEndpoint, TokenEndpoint: metadata.TokenEndpoint, ResourceParameter: connection.ResourceURL, PKCEMethod: "S256", RequireIssuer: metadata.AuthorizationResponseIssuerSupported, AllowRefresh: profile.RefreshTokens}
@@ -190,7 +191,7 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 		if !sameStrings(document.RedirectURIs, profile.RedirectURIs) || document.ClientName != profile.Name {
 			return Registration{}, fmt.Errorf("CIMD metadata does not match client profile")
 		}
-		if profile.RefreshTokens && !contains(document.GrantTypes, "refresh_token") {
+		if profile.RefreshTokens && !slices.Contains(document.GrantTypes, "refresh_token") {
 			return Registration{}, fmt.Errorf("refresh-token use requires matching CIMD grant_types")
 		}
 		result.Mode = CIMD
@@ -215,7 +216,7 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 		if !sameStrings(credential.RedirectURIs, profile.RedirectURIs) {
 			return Registration{}, fmt.Errorf("stored registration redirect URI mismatch")
 		}
-		if profile.RefreshTokens && !contains(credential.GrantTypes, "refresh_token") {
+		if profile.RefreshTokens && !slices.Contains(credential.GrantTypes, "refresh_token") {
 			return Registration{}, fmt.Errorf("stored DCR registration lacks refresh_token grant; configure a newly registered client profile")
 		}
 		if credential.SecretExpiresAt == 0 || credential.SecretExpiresAt > time.Now().Unix() {
@@ -231,7 +232,7 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 	if profile.RefreshTokens {
 		clientMetadata.GrantTypes = append(clientMetadata.GrantTypes, "refresh_token")
 	}
-	if len(metadata.TokenEndpointAuthMethodsSupported) > 0 && !contains(metadata.TokenEndpointAuthMethodsSupported, "none") {
+	if len(metadata.TokenEndpointAuthMethodsSupported) > 0 && !slices.Contains(metadata.TokenEndpointAuthMethodsSupported, "none") {
 		return Registration{}, fmt.Errorf("authorization server does not support public-client registration")
 	}
 	payload, _ := json.Marshal(clientMetadata)
@@ -277,14 +278,6 @@ func (s *Service) Prepare(ctx context.Context, connection Connection, profile Cl
 	result.ClientID = registered.ClientID
 	result.CredentialRef = ref
 	return result, nil
-}
-func contains(values []string, value string) bool {
-	for _, v := range values {
-		if v == value {
-			return true
-		}
-	}
-	return false
 }
 
 // FetchClientMetadata lets an authorization-server adapter validate an external

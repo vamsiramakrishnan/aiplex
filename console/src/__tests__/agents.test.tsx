@@ -15,6 +15,15 @@ describe('OAuth agent registration', () => {
   it('preserves the issued-once credential only until explicitly dismissed', async () => {
     show(); identity(); fireEvent.click(screen.getByText('Next')); fireEvent.click(screen.getByRole('button', { name: 'Review' })); fireEvent.click(screen.getByText('Register Agent')); const field = await screen.findByLabelText('Issued client secret'); expect(field).toHaveValue('issued-once-fixture'); expect(field).toHaveAttribute('type', 'password'); fireEvent.click(screen.getByText('Dismiss credential')); expect(screen.queryByLabelText('Issued client secret')).not.toBeInTheDocument()
   })
+  it('shows unknown scopes for an agent without a scope list and a real 0 scopes for an empty one', async () => {
+    const agent = (id: string, allowed_scopes: string[] | null) => ({ client_id: id, display_name: id, auth_method: 'client_credentials', grant_types: ['client_credentials'], allowed_scopes, status: 'active', registered_at: '2026-01-01T00:00:00Z' })
+    vi.mocked(listAgents).mockResolvedValue([agent('no-field', null), agent('empty', []), agent('two', ['llm:model:a', 'llm:model:b'])] as never)
+    show()
+    const row = async (id: string) => (await screen.findByRole('button', { name: id })).closest('tr') as HTMLElement
+    expect((await row('no-field')).textContent).toContain('unknown scopes')
+    expect((await row('empty')).textContent).toContain('0 scopes')
+    expect((await row('two')).textContent).toContain('2 scopes')
+  })
   it('does not misreport a failed list request as an empty registry', async () => {
     vi.mocked(listAgents).mockRejectedValue(new Error('Registry unavailable')); show(); expect(await screen.findByRole('alert')).toHaveTextContent('Registry unavailable'); expect(screen.queryByText(/No agents match/)).toBeNull()
   })

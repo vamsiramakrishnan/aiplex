@@ -311,6 +311,8 @@ var (
 	callCompatS = with(callCompat, func(c *fixtureCall) {
 		c.body = `{"model":"fixture-model-a","messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}`
 	})
+	callDeepSeek    = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAICompatible, UsageSemantics: UsageSemanticsDeepSeek}, ProtocolOpenAIChat, []string{"fixture-model-a"}, "compat.chat-completions"), path: "/v1/chat/completions", body: callCompat.body}
+	callDeepSeekS   = with(callDeepSeek, func(c *fixtureCall) { c.body = callCompatS.body })
 	callLive        = &fixtureCall{surface: googleSurfaceFor("google", "live.connect"), path: "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent", body: `{"setup":{"model":"model-a"}}`, ws: "live"}
 	callRealtime    = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIRealtime, []string{"fixture-model-c"}, "openai.v1.realtime"), path: "/v1/realtime?model=fixture-model-c", ws: "realtime"}
 	callResponsesWS = &fixtureCall{surface: providerSurfaceFor(Provider{ID: ProviderOpenAI}, ProtocolOpenAIResponses, []string{"fixture-model-b"}, "openai.v1.responses-websocket"), path: "/v1/responses", ws: "responses"}
@@ -335,11 +337,17 @@ func usageRoutes() []fixtureRoute {
 	advisory := func(provider, file, surface, transport string, call *fixtureCall, conv expectConvention, native nativeSemantics, final bool, reason string) fixtureRoute {
 		return fixtureRoute{provider: provider, file: file, surface: surface, transport: transport, status: statusAdvisory, reason: reason, call: call, conv: conv, native: native, final: final}
 	}
+	mantleDocumented := func(r fixtureRoute) fixtureRoute {
+		r.reason = "fixture built from AWS's documented Messages format (inference-messages-api.html), not recorded from a live bedrock-mantle response"
+		return r
+	}
 	formatOnly := func(r fixtureRoute, status conformanceStatus, reason string) fixtureRoute {
 		r.status, r.reason, r.formatOnly, r.strict = status, reason, true, strictNotApplicable
 		return r
 	}
 	const noDA = "no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it"
+	// Developer API Live: observed like Vertex Live, but request-count only.
+	const daLive = "WebSocket session: one request-count admission and one settlement per session (token-metered surfaces refused at save time). usageMetadata snapshots are read as session-cumulative, as Vertex documents; the Developer API reference does not say cumulative or per-turn (UNCONFIRMED): per-turn counts that never decrease would be under-recorded as the last one, so usage is advisory. A decreasing snapshot is never summed and labels the session ambiguous"
 	const cwRefuse = "positive cache writes are outside the output-inclusive token profile (fail closed)"
 	const toolRefuse = "server-tool quantities are outside the output-inclusive token profile (fail closed)"
 	const noCached = "openai-text requires a cached-input breakdown that this endpoint does not report (fail closed)"
@@ -375,6 +383,11 @@ func usageRoutes() []fixtureRoute {
 		exact("openai-compatible", "chat.final-usage.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, true, strictSettles, ""),
 		exact("openai-compatible", "chat.no-done.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
 		exact("openai-compatible", "chat.nousage.sse", "chat-completions", "sse", callCompatS, convOpenAI, natOpenAI, false, strictUnknown, ""),
+		// DeepSeek (usage_semantics: "deepseek"), documented, not recorded live.
+		exact("openai-compatible", "deepseek-chat.json", "deepseek-chat-completions", "json", callDeepSeek, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai-compatible", "deepseek-chat-cache-hit.json", "deepseek-chat-completions", "json", callDeepSeek, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai-compatible", "deepseek-chat-cache-hit.sse", "deepseek-chat-completions", "sse", callDeepSeekS, convOpenAI, natOpenAI, true, strictSettles, ""),
+		exact("openai-compatible", "deepseek-chat-inconsistent.json", "deepseek-chat-completions", "json", callDeepSeek, convOpenAI, natOpenAI, true, strictRefuses, "prompt_cache_hit_tokens + prompt_cache_miss_tokens differs from prompt_tokens: the cache split is unknown and openai-text requires it (fail closed)"),
 
 		// ---------------- Anthropic ----------------
 		exact("anthropic", "messages.json", "messages", "json", callAnthropic, convAnthropic, natAnthropic, true, strictRefuses, cwRefuse),
@@ -397,7 +410,7 @@ func usageRoutes() []fixtureRoute {
 		exact("anthropic", "bedrock-converse.json", "bedrock-converse", "json", callConverse, convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "bedrock-converse-stream.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "bedrock-converse-stream-interrupted.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, false, strictUnknown, ""),
-		formatOnly(exact("anthropic", "bedrock-mantle.sse", "bedrock-mantle-messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictNotApplicable, ""), statusUnsupported, "no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer"),
+		mantleDocumented(exact("anthropic", "bedrock-mantle.sse", "bedrock-mantle-messages", "sse", callMantle, convAnthropic, natAnthropic, true, strictSettles, "")),
 
 		// ---------------- Google ----------------
 		formatOnly(exact("google", "gemini-generate.json", "gemini-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
@@ -412,8 +425,10 @@ func usageRoutes() []fixtureRoute {
 		formatOnly(exact("google", "gemini-interactions.json", "gemini-interactions", "json", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions-interrupted.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, false, strictNotApplicable, ""), statusUnsupported, noDA),
-		formatOnly(advisory("google", "gemini-live.ws.jsonl", "gemini-live", "websocket", callLive, convGemini, natGemini, true, ""), statusUnsupported, noDA+" (Live messages replayed through the Vertex Live relay)"),
-		formatOnly(advisory("google", "gemini-live-interrupted.ws.jsonl", "gemini-live", "websocket", callLive, convGemini, natGemini, false, ""), statusUnsupported, noDA+" (Live messages replayed through the Vertex Live relay)"),
+		// Developer API Live (gemini.live.connect): the Vertex Live relay and
+		// observer behind the surface's x-goog-api-key credential.
+		advisory("google", "gemini-live.ws.jsonl", "gemini-live", "websocket", callDALive, convGemini, natGemini, true, daLive),
+		advisory("google", "gemini-live-interrupted.ws.jsonl", "gemini-live", "websocket", callDALive, convGemini, natGemini, false, daLive),
 		exact("google", "vertex-generate.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-flex.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-image.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
@@ -454,7 +469,7 @@ func usageRoutes() []fixtureRoute {
 	// Utility operations (ops_utility_routes_test.go) replace the matching
 	// unsupported/format-checked entries above; media and batch routes
 	// (usage_conformance_extended_test.go) are appended.
-	return append(overrideRoutes(routes, utilityRoutes()), extendedUsageRoutes()...)
+	return append(append(overrideRoutes(routes, utilityRoutes()), extendedUsageRoutes()...), bedrockFamilyRoutes()...)
 }
 
 // usageFixtureProviders are the fixture directories under testdata/usage-formats.
@@ -1074,8 +1089,9 @@ total - prompt - candidates. Cache writes are a separate meter (scalar or per-TT
 OpenAI-format strict settlement treats an absent ` + "`cache_write_tokens`" + ` as 0 (documented
 default; models without separately billed writes keep them in ordinary input).
 Strict lease rows also cover Azure OpenAI (` + "`azure-openai/`" + `) and generic compatible
-servers that declare ` + "`usage_semantics: \"openai\"`" + ` (` + "`openai-compatible/`" + `), both in the
-OpenAI convention. Non-token units the ledger holds (audio/voice/video milliseconds,
+servers that declare ` + "`usage_semantics: \"openai\"`" + ` or ` + "`\"deepseek\"`" + ` (` + "`openai-compatible/`" + `), both in the
+OpenAI convention. The DeepSeek rows are built from DeepSeek's documented response and were
+not recorded from the live service. Non-token units the ledger holds (audio/voice/video milliseconds,
 generated images, per-modality token splits) are compared by the media and batch
 checks; batch results files are aggregated with the gateway's own batch parser
 and must settle only when complete.

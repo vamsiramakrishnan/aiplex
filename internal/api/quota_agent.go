@@ -26,7 +26,7 @@ type quotaAgentConfiguration struct {
 }
 
 func (h *ConnectedHandler) quotaAgentConfiguration(ctx context.Context, tenant string, record resources.Record, c cloudagents.Connection) (quotaAgentConfiguration, error) {
-	if h.Runtime == nil || h.Runtime.Policy == nil || h.Store == nil || record.TenantID != tenant || record.Kind != "agent-connection" || record.ID != c.ID || record.Revision == 0 || c.TenantID != tenant || c.Validate() != nil {
+	if h.Runtime == nil || h.Runtime.Policy == nil || h.Store == nil || record.TenantID != tenant || record.Kind != "agent-connection" || record.ID != c.ID || record.Revision == 0 || c.TenantID != tenant || c.ValidateWith(h.allowLoopback()) != nil {
 		return quotaAgentConfiguration{}, fmt.Errorf("native agent configuration is unavailable")
 	}
 	if e := h.Runtime.Policy.ValidateURL(c.Endpoint); e != nil {

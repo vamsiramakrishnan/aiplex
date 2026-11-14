@@ -3,7 +3,13 @@ package modelapi
 import "fmt"
 
 func anthropicOperation(op Operation) bool {
-	return op.ID == "anthropic.messages" || op.ID == "models.rawPredict" || op.ID == "models.streamRawPredict"
+	return anthropicMessagesOperation(op) || op.ID == "models.rawPredict" || op.ID == "models.streamRawPredict"
+}
+
+// anthropicMessagesOperation reports the native Anthropic Messages wire: the
+// Claude API and the Bedrock Mantle endpoint (same request and response format).
+func anthropicMessagesOperation(op Operation) bool {
+	return op.ID == "anthropic.messages" || op.ID == BedrockMantleMessagesOperation
 }
 
 // serverToolCounters names the documented Anthropic server_tool_use request
@@ -183,7 +189,9 @@ func normalizeControlledFinal(op Operation, value *UsageObservation) error {
 		return normalizeVertexOpenAIChat(value)
 	case op.ID == "response.create" || providerOpenAITokenOperation(op) || op.ID == "compat.chat-completions":
 		// compat: the quota host admits a token profile only when the
-		// surface declares OpenAI usage semantics (usage_semantics).
+		// surface declares OpenAI or DeepSeek usage semantics
+		// (usage_semantics); DeepSeek's cache split is settled by the
+		// observer (deepseekCacheCounters).
 		return normalizeOutputInclusive(value, false)
 	case anthropicOperation(op) || bedrockOperation(op):
 		// Bedrock Converse inputTokens is "only the non-cached input tokens"

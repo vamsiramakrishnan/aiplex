@@ -258,7 +258,7 @@ Usage:
   aiplex access-points delete <id> [flags]
 
 Aliases:
-  delete, remove, rm
+  delete, rm, remove
 
 Examples:
   aiplex access-points delete team --yes

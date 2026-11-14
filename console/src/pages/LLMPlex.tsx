@@ -1,10 +1,15 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import LedgerCosts from '../components/LedgerCosts'
 import { getCatalog, listInstances, putLLMRoute, deleteLLMRoute, authenticatedRequest, type LLMBackend } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import ModelSurfacesPanel from '../components/ModelSurfacesPanel'
 import OpenBatches from '../components/OpenBatches'
+import { UNKNOWN } from '../api/usage'
+import { PROVIDER_IDS, PROVIDER_LABELS, type ProviderId } from '../api/modelSurfaces'
+
+const providerLabel = (id: string) => PROVIDER_LABELS[id as ProviderId] ?? id
 
 interface RouteConfig {
  revision?: number
@@ -12,7 +17,7 @@ interface RouteConfig {
   backends: { provider: string; model_id: string; weight: number; enabled: boolean }[]
   fallbacks?: string[]
   cache_ttl_seconds?: number
-  budget?: { max_daily_cost_usd: number; alert_threshold_pct: number }
+  budget?: { max_daily_cost_usd?: number; max_monthly_cost_usd?: number; max_daily_tokens?: number; alert_threshold_pct?: number }
 }
 
 
@@ -22,8 +27,9 @@ interface RouteFormData {
   model_id: string
   backends: LLMBackend[]
   fallbacks: string[]
+  /** The cost is the text typed: empty means no budget, so a typed 0 can be refused instead of dropped. */
   budget: {
-    max_daily_cost_usd: number
+    max_daily_cost_usd: string
     alert_threshold_pct: number
   }
 }
@@ -36,8 +42,10 @@ export default function LLMPlex() {
     model_id: '',
     backends: [],
     fallbacks: [],
-    budget: { max_daily_cost_usd: 0, alert_threshold_pct: 80 }
+    budget: { max_daily_cost_usd: '', alert_threshold_pct: 80 }
   })
+  const [fallbackDraft, setFallbackDraft] = useState('')
+  const [formError, setFormError] = useState('')
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error', message: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
@@ -84,8 +92,10 @@ export default function LLMPlex() {
       model_id: '',
       backends: [],
       fallbacks: [],
-      budget: { max_daily_cost_usd: 0, alert_threshold_pct: 80 }
+      budget: { max_daily_cost_usd: '', alert_threshold_pct: 80 }
     })
+    setFallbackDraft('')
+    setFormError('')
     setEditingRoute(null)
     setShowRouteForm(true)
   }
@@ -95,8 +105,12 @@ export default function LLMPlex() {
       model_id: route.model_id,
       backends: route.backends,
       fallbacks: route.fallbacks || [],
-      budget: route.budget || { max_daily_cost_usd: 0, alert_threshold_pct: 80 }
+      budget: route.budget
+        ? { max_daily_cost_usd: route.budget.max_daily_cost_usd == null ? '' : String(route.budget.max_daily_cost_usd), alert_threshold_pct: route.budget.alert_threshold_pct ?? 80 }
+        : { max_daily_cost_usd: '', alert_threshold_pct: 80 }
     })
+    setFallbackDraft('')
+    setFormError('')
     setEditingRoute(route)
     setShowRouteForm(true)
   }
@@ -106,7 +120,7 @@ export default function LLMPlex() {
       ...formData,
       backends: [
         ...formData.backends,
-        { provider: 'google', model_id: '', weight: 100, enabled: true }
+        { provider: PROVIDER_IDS[0], model_id: '', weight: 100, enabled: true }
       ]
     })
   }
@@ -125,10 +139,10 @@ export default function LLMPlex() {
   }
 
   const addFallback = () => {
-    const fallback = prompt('Enter fallback model ID:')
-    if (fallback) {
-      setFormData({ ...formData, fallbacks: [...formData.fallbacks, fallback] })
-    }
+    const fallback = fallbackDraft.trim()
+    if (!fallback) return
+    if (!formData.fallbacks.includes(fallback)) setFormData({ ...formData, fallbacks: [...formData.fallbacks, fallback] })
+    setFallbackDraft('')
   }
 
   const removeFallback = (index: number) => {
@@ -150,6 +164,19 @@ export default function LLMPlex() {
       return
     }
 
+    // An empty cost means no budget. A typed 0 would be dropped by the API (omitempty) and read as "no cap", so it is refused.
+    const costText = formData.budget.max_daily_cost_usd.trim()
+    let budget: { max_daily_cost_usd: number; alert_threshold_pct: number } | undefined
+    if (costText !== '') {
+      const cost = Number(costText)
+      if (!Number.isFinite(cost) || cost <= 0) {
+        setFormError('Max daily cost must be greater than 0. Leave it empty for no budget.')
+        return
+      }
+      budget = { max_daily_cost_usd: cost, alert_threshold_pct: formData.budget.alert_threshold_pct }
+    }
+    setFormError('')
+
     putRouteMutation.mutate({
       modelId: formData.model_id,
       config: {
@@ -157,7 +184,7 @@ export default function LLMPlex() {
         model_id: formData.model_id,
         backends: formData.backends,
         fallbacks: formData.fallbacks.length > 0 ? formData.fallbacks : undefined,
-        budget: formData.budget.max_daily_cost_usd > 0 ? formData.budget : undefined
+        budget
       }
     })
   }
@@ -198,7 +225,7 @@ export default function LLMPlex() {
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">{t.description}</p>
                 {t.pricing && (
                   <p className="text-xs text-gray-600 dark:text-gray-400">
-                    ${t.pricing.input}/M input &middot; ${t.pricing.output}/M output
+                    {t.pricing.input == null ? UNKNOWN : `$${t.pricing.input}`}/M input &middot; {t.pricing.output == null ? UNKNOWN : `$${t.pricing.output}`}/M output
                   </p>
                 )}
                 {t.capabilities && (
@@ -214,7 +241,7 @@ export default function LLMPlex() {
             ))}
           </div>
 
-          <h3 className="font-semibold text-lg mb-3">Active Model Routes</h3>
+          <h3 className="font-semibold text-lg mb-3">Deployed LLM instances</h3>
           {instances.data && instances.data.length > 0 ? (
             <div className="bg-white rounded-lg shadow dark:bg-gray-900">
               <table className="w-full text-sm">
@@ -228,7 +255,7 @@ export default function LLMPlex() {
                 <tbody>
                   {instances.data.map((inst) => (
                     <tr key={inst.id} className="border-t">
-                      <td className="px-4 py-3 font-medium">{inst.display_name || inst.id}</td>
+                      <td className="px-4 py-3 font-medium"><Link to={`/instances/${encodeURIComponent(inst.id)}`} className="hover:underline">{inst.display_name || inst.id}</Link></td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{inst.template_id}</td>
                       <td className="px-4 py-3"><StatusBadge status={inst.status} /></td>
                     </tr>
@@ -237,7 +264,7 @@ export default function LLMPlex() {
               </table>
             </div>
           ) : (
-            <p className="text-gray-600 dark:text-gray-400 text-sm">No model routes configured yet.</p>
+            <p className="text-gray-600 dark:text-gray-400 text-sm">No LLM instances deployed yet.</p>
           )}
         </div>
       )}
@@ -289,10 +316,10 @@ export default function LLMPlex() {
                         <span className="text-gray-600 dark:text-gray-400">{b.model_id}</span>
                         <div className="flex-1">
                           <div className="bg-gray-100 rounded-full h-2 dark:bg-gray-800">
-                            <div className="bg-brand-600 rounded-full h-2" style={{ width: `${b.weight}%` }} />
+                            <div className="bg-brand-600 rounded-full h-2" style={{ width: `${b.weight ?? 0}%` }} />
                           </div>
                         </div>
-                        <span className="text-gray-600 dark:text-gray-400 w-12 text-right">{b.weight}%</span>
+                        <span className="text-gray-600 dark:text-gray-400 w-12 text-right">{b.weight == null ? UNKNOWN : `${b.weight}%`}</span>
                       </div>
                     ))}
                   </div>
@@ -303,8 +330,10 @@ export default function LLMPlex() {
                   )}
                   {rc.budget && (
                     <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                      Budget: ${rc.budget.max_daily_cost_usd}/day
-                      {rc.budget.alert_threshold_pct > 0 && ` (alert at ${rc.budget.alert_threshold_pct}%)`}
+                      Budget: {rc.budget.max_daily_cost_usd == null ? 'no daily cap' : `$${rc.budget.max_daily_cost_usd}/day`}
+                      {rc.budget.max_monthly_cost_usd != null && `, $${rc.budget.max_monthly_cost_usd}/month`}
+                      {rc.budget.max_daily_tokens != null && `, ${rc.budget.max_daily_tokens} tokens/day`}
+                      {(rc.budget.alert_threshold_pct ?? 0) > 0 && ` (alert at ${rc.budget.alert_threshold_pct}%)`}
                     </p>
                   )}
                 </div>
@@ -379,15 +408,13 @@ export default function LLMPlex() {
                         <div key={idx} className="bg-gray-50 p-3 rounded space-y-2 dark:bg-gray-900">
                           <div className="flex gap-2">
                             <select
+                              aria-label="Provider"
                               value={backend.provider}
                               onChange={(e) => updateBackend(idx, 'provider', e.target.value)}
                               className="px-2 py-1 border rounded text-sm"
                             >
-                              <option value="google">Google</option>
-                              <option value="anthropic">Anthropic</option>
-                              <option value="openai">OpenAI</option>
-                              <option value="bedrock">Bedrock</option>
-                              <option value="ollama">Ollama</option>
+                              {!(PROVIDER_IDS as readonly string[]).includes(backend.provider) && <option value={backend.provider}>{backend.provider}</option>}
+                              {PROVIDER_IDS.map(p => <option key={p} value={p}>{providerLabel(p)}</option>)}
                             </select>
                             <input
                               type="text"
@@ -437,6 +464,16 @@ export default function LLMPlex() {
                         + Add Fallback
                       </button>
                     </div>
+                    <div className="flex gap-2 mb-2">
+                      <input
+                        type="text"
+                        value={fallbackDraft}
+                        onChange={(e) => setFallbackDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFallback() } }}
+                        aria-label="Fallback model ID" placeholder="Fallback model ID"
+                        className="flex-1 px-2 py-1 border rounded text-sm"
+                      />
+                    </div>
                     <div className="space-y-1">
                       {formData.fallbacks.map((fb, idx) => (
                         <div key={idx} className="flex items-center gap-2">
@@ -457,16 +494,17 @@ export default function LLMPlex() {
                     <label className="block text-sm font-medium mb-2">Budget (optional)</label>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs text-gray-600 mb-1 dark:text-gray-400">Max Daily Cost (USD)</label>
+                        <label htmlFor="route-max-daily-cost" className="block text-xs text-gray-600 mb-1 dark:text-gray-400">Max Daily Cost (USD)</label>
                         <input
+                          id="route-max-daily-cost"
                           type="number"
                           value={formData.budget.max_daily_cost_usd}
                           onChange={(e) => setFormData({
                             ...formData,
-                            budget: { ...formData.budget, max_daily_cost_usd: parseFloat(e.target.value) || 0 }
+                            budget: { ...formData.budget, max_daily_cost_usd: e.target.value }
                           })}
                           className="w-full px-3 py-2 border rounded"
-                          placeholder="0"
+                          placeholder="empty = no budget"
                           step="0.01"
                         />
                       </div>
@@ -486,6 +524,8 @@ export default function LLMPlex() {
                     </div>
                   </div>
                 </div>
+
+                {formError && <p role="alert" className="mt-4 text-sm text-status-denied-fg">{formError}</p>}
 
                 <div className="flex justify-end gap-2 mt-6">
                   <button

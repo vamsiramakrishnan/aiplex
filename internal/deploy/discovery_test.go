@@ -8,27 +8,23 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/vamsiramakrishnan/aiplex/internal/models"
 )
 
+type noArgs struct{}
+
+// TestDiscoverTools_Success uses a spec-compliant Streamable HTTP server (the
+// MCP SDK's own), which requires initialize before tools/list.
 func TestDiscoverTools_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
-		if req["method"] != "tools/list" {
-			t.Errorf("expected tools/list, got %v", req["method"])
-		}
-		json.NewEncoder(w).Encode(map[string]any{
-			"jsonrpc": "2.0",
-			"id":      req["id"],
-			"result": map[string]any{
-				"tools": []map[string]any{
-					{"name": "search_docs", "description": "Search documentation"},
-					{"name": "get_file", "description": "Read a file"},
-				},
-			},
+	s := mcp.NewServer(&mcp.Implementation{Name: "fake", Version: "1"}, nil)
+	for _, tl := range []mcp.Tool{{Name: "search_docs", Description: "Search documentation"}, {Name: "get_file", Description: "Read a file"}} {
+		mcp.AddTool(s, &tl, func(context.Context, *mcp.CallToolRequest, noArgs) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{}, nil, nil
 		})
-	}))
+	}
+	srv := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s }, nil))
 	defer srv.Close()
 
 	tools, err := DiscoverTools(context.Background(), srv.URL)
@@ -38,8 +34,27 @@ func TestDiscoverTools_Success(t *testing.T) {
 	if len(tools) != 2 {
 		t.Fatalf("got %d tools, want 2", len(tools))
 	}
-	if tools[0].Name != "search_docs" {
-		t.Errorf("tools[0].Name = %q, want search_docs", tools[0].Name)
+	got := map[string]string{tools[0].Name: tools[0].Description, tools[1].Name: tools[1].Description}
+	if got["search_docs"] != "Search documentation" || got["get_file"] != "Read a file" {
+		t.Errorf("tools = %+v", tools)
+	}
+}
+
+// A server that only answers a bare tools/list (no initialize) is not MCP
+// Streamable HTTP compliant and is no longer accepted.
+func TestDiscoverTools_BareToolsListRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		json.NewDecoder(r.Body).Decode(&req)
+		if req["method"] != "tools/list" {
+			http.Error(w, "initialize required", http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": map[string]any{"tools": []any{}}})
+	}))
+	defer srv.Close()
+	if _, err := DiscoverTools(context.Background(), srv.URL); err == nil {
+		t.Fatal("expected an error from a server that does not support initialize")
 	}
 }
 
@@ -206,15 +221,8 @@ func TestDiscoverAgentCard_ServerDown(t *testing.T) {
 }
 
 func TestDiscoverTools_EmptyResponse(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
-		json.NewEncoder(w).Encode(map[string]any{
-			"jsonrpc": "2.0",
-			"id":      req["id"],
-			"result":  map[string]any{"tools": []any{}},
-		})
-	}))
+	s := mcp.NewServer(&mcp.Implementation{Name: "fake", Version: "1"}, nil)
+	srv := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s }, nil))
 	defer srv.Close()
 
 	tools, err := DiscoverTools(context.Background(), srv.URL)

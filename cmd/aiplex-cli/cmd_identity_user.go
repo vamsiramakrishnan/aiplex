@@ -31,7 +31,7 @@ role bindings and quota eligibility.
   aiplex identity user-providers plan okta
   aiplex identity user-providers verify --token-file token.txt`,
 	}
-	providers.AddCommand(uipPresetsCmd(), uipListCmd(), uipGetCmd(), uipApplyCmd(), uipDeleteCmd(), uipPlanCmd(), uipVerifyCmd())
+	providers.AddCommand(uipPresetsCmd(), uipListCmd(), uipGetCmd(), uipApplyCmd(), uipDeleteCmd(), uipPlanCmd(), uipVerifyCmd(), uipInvalidateMembershipCmd())
 	cmd.AddCommand(providers)
 	return cmd
 }
@@ -245,6 +245,38 @@ func uipDeleteCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func uipInvalidateMembershipCmd() *cobra.Command {
+	var subject string
+	cmd := &cobra.Command{
+		Use:   "invalidate-membership <id> --subject <subject>",
+		Short: "Make a person's directory groups be looked up again on their next request (admin)",
+		Long: `Forces the next request of one person to resolve their groups from the
+provider's directory again, no earlier than now, instead of using a cached
+answer. Use it after removing someone from a group. The subject is the verified
+subject claim value of the person's token. The provider needs a directory
+block.
+
+The cache is per server process: run this against every replica, or wait out the
+cache lifetime.`,
+		Example: "  aiplex identity user-providers invalidate-membership okta --subject 00u1abcd",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			res, err := newClient().InvalidateUserMembership(cmd.Context(), args[0], subject)
+			if err != nil {
+				return spExplain("invalidate membership", err)
+			}
+			if spStructured(cmd, res) {
+				return nil
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Invalidated group membership of %s\n  Not before: %s\n  Scope: %s\n", res.PrincipalID, res.NotBefore.Format("2006-01-02 15:04:05Z07:00"), res.Scope)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&subject, "subject", "", "The person's verified subject claim value (required)")
+	_ = cmd.MarkFlagRequired("subject")
+	return cmd
 }
 
 func uipPlanCmd() *cobra.Command {

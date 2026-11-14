@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 func healthCmd() *cobra.Command {
@@ -30,23 +31,25 @@ Checks:
   - Gateway routing (MCPlex, A2APlex, LLMPlex paths)
   - DNS resolution for custom domain`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Resolve base URL
-			// --url, then AIPLEX_URL, then the context, then the default.
-			url := resolveAPIURL()
+			// Resolve base URL and token the way every command does:
+			// --url, AIPLEX_URL, the context; --token, AIPLEX_TOKEN, the context.
+			tgt := resolveTarget()
+			url := tgt.URL
 
 			fmt.Println("AIPlex Health Check")
 			fmt.Println("════════════════════════════════════════")
 			fmt.Printf("Target: %s\n\n", url)
 
-			client := &http.Client{Timeout: 5 * time.Second}
+			client := newHealthHTTPClient()
 			allHealthy := true
+			warnings := 0
 
 			checks := []healthCheck{
 				{name: "API Server", path: "/healthz"},
 				{name: "API Readiness", path: "/readyz"},
-				{name: "Catalog", path: "/api/v1/catalog"},
-				{name: "Instances", path: "/api/v1/instances"},
-				{name: "Dashboard", path: "/api/v1/dashboard/stats"},
+				{name: "Catalog", path: "/api/v1/catalog", signedIn: true},
+				{name: "Instances", path: "/api/v1/instances", signedIn: true},
+				{name: "Dashboard", path: "/api/v1/dashboard/stats", signedIn: true},
 			}
 
 			// Auth checks (these might be on different hosts in prod)
@@ -54,15 +57,23 @@ Checks:
 				{name: "Hydra (OAuth)", path: "/auth/login"},
 			}
 
-			// Run core checks
+			// Run core checks. Only the signed-in API routes carry the token.
 			fmt.Println("Core Services:")
 			for _, c := range checks {
-				result := runHealthCheck(client, url+c.path, verbose)
-				if result.healthy {
+				bearer := ""
+				if c.signedIn {
+					bearer = tgt.Token
+				}
+				result := runHealthCheck(client, url+c.path, bearer, c.signedIn, verbose)
+				switch {
+				case result.healthy:
 					fmt.Printf("  [pass] %-20s %dms\n", c.name, result.latencyMs)
-				} else {
+				case result.failed:
 					fmt.Printf("  [FAIL] %-20s %s\n", c.name, result.error)
 					allHealthy = false
+				default:
+					fmt.Printf("  [WARN] %-20s %s\n", c.name, result.error)
+					warnings++
 				}
 			}
 			fmt.Println()
@@ -74,17 +85,26 @@ Checks:
 				authChecks = nil
 			}
 			for _, c := range authChecks {
-				result := runHealthCheck(client, url+c.path, verbose)
-				if result.healthy {
+				// Auth services may be on other hosts, so they never get the token.
+				// A bare GET to the login endpoint can answer 400 (no login
+				// challenge) or redirect to the login UI, which is normal, so only
+				// an unreachable service or a 5xx fails this check.
+				result := runHealthCheck(client, url+c.path, "", false, verbose)
+				switch {
+				case result.healthy:
 					fmt.Printf("  [pass] %-20s %dms\n", c.name, result.latencyMs)
-				} else {
+				case result.failed && (result.status == 0 || result.status >= 500):
+					fmt.Printf("  [FAIL] %-20s %s\n", c.name, result.error)
+					allHealthy = false
+				default:
 					fmt.Printf("  [WARN] %-20s %s\n", c.name, result.error)
+					warnings++
 				}
 			}
 			fmt.Println()
 
 			// Try to get dashboard stats for a richer view
-			c := newClient()
+			c := withoutRedirects(newClient())
 			stats, err := c.GetDashboardStats(context.Background())
 			if err == nil {
 				fmt.Println("Platform Status:")
@@ -120,7 +140,11 @@ Checks:
 			}
 
 			if allHealthy {
-				fmt.Println("All checks passed.")
+				if warnings == 0 {
+					fmt.Println("All checks passed.")
+				} else {
+					fmt.Printf("Reachable, with %d check(s) to look at (see [WARN] above).\n", warnings)
+				}
 			} else {
 				fmt.Println()
 				fmt.Println("Troubleshooting:")
@@ -163,32 +187,71 @@ Checks:
 }
 
 type healthCheck struct {
-	name string
-	path string
+	name     string
+	path     string
+	signedIn bool // the route is one of the API's signed-in routes
 }
 
 type healthResult struct {
 	healthy   bool
+	failed    bool // a failure: unreachable, or an answer that is not 2xx (see runHealthCheck)
 	latencyMs int64
-	status    int
+	status    int // 0 when no answer was received
 	error     string
 }
 
-func runHealthCheck(client *http.Client, url string, verbose bool) healthResult {
+// newHealthHTTPClient is the client the health probes use. It does not follow
+// redirects: Go keeps the Authorization header when a redirect goes to another
+// port or to an https-to-http downgrade on the same host, so a followed
+// redirect could hand the token to a host the caller never configured.
+func newHealthHTTPClient() *http.Client {
+	return aiplex.NewNoRedirectHTTPClient(5 * time.Second)
+}
+
+// withoutRedirects stops an SDK client from following redirects, for the same
+// reason as newHealthHTTPClient: its requests carry the bearer token.
+func withoutRedirects(c *aiplex.Client) *aiplex.Client {
+	if c.HTTPClient != nil {
+		c.HTTPClient.CheckRedirect = noFollowRedirects
+	}
+	return c
+}
+
+// noFollowRedirects is the SDK's own function: one implementation.
+func noFollowRedirects(req *http.Request, via []*http.Request) error {
+	return aiplex.NoFollowRedirects(req, via)
+}
+
+// runHealthCheck GETs target once. The bearer is sent only when signedIn is
+// true, so the probes that carry the caller's token are the signed-in API
+// routes, which are built from the configured API URL. Auth-service probes
+// pass no bearer.
+//
+// Only a 2xx answer is healthy. A connection error, or any other answer, is a
+// failure. The exception is a 401 or 403 on a signed-in route: that is a
+// sign-in or role answer, reported as a warning.
+func runHealthCheck(client *http.Client, target, bearer string, signedIn, verbose bool) healthResult {
+	req, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		return healthResult{failed: true, error: simplifyError(err)}
+	}
+	if signedIn && bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+
 	start := time.Now()
-	resp, err := client.Get(url)
+	resp, err := client.Do(req)
 	latency := time.Since(start).Milliseconds()
 
 	if err != nil {
 		return healthResult{
-			healthy: false,
-			error:   simplifyError(err),
+			failed: true,
+			error:  simplifyError(err),
 		}
 	}
 	defer resp.Body.Close()
 
-	// 2xx and 3xx are healthy
-	if resp.StatusCode < 400 {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return healthResult{
 			healthy:   true,
 			latencyMs: latency,
@@ -196,50 +259,51 @@ func runHealthCheck(client *http.Client, url string, verbose bool) healthResult 
 		}
 	}
 
-	// Try to read error body
-	errMsg := fmt.Sprintf("HTTP %d", resp.StatusCode)
+	errMsg := httpStatusMessage(resp.StatusCode)
 	if verbose {
 		var body map[string]any
 		if json.NewDecoder(resp.Body).Decode(&body) == nil {
 			if msg, ok := body["message"].(string); ok {
-				errMsg = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, msg)
+				errMsg += ": " + msg
 			}
 		}
 	}
 
+	softAnswer := signedIn && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden)
 	return healthResult{
-		healthy: false,
-		status:  resp.StatusCode,
-		error:   errMsg,
+		failed: !softAnswer,
+		status: resp.StatusCode,
+		error:  errMsg,
+	}
+}
+
+// httpStatusMessage says what a non-2xx answer means for a health check.
+func httpStatusMessage(code int) string {
+	switch {
+	case code == http.StatusUnauthorized:
+		return "HTTP 401: not signed in, or token rejected — run: aiplex login"
+	case code == http.StatusForbidden:
+		return "HTTP 403: this identity lacks the role for this check"
+	case code >= 300 && code < 400:
+		return fmt.Sprintf("HTTP %d: redirect not followed", code)
+	default:
+		return fmt.Sprintf("HTTP %d", code)
 	}
 }
 
 func simplifyError(err error) string {
 	msg := err.Error()
-	if contains(msg, "connection refused") {
+	if strings.Contains(msg, "connection refused") {
 		return "connection refused — server not running?"
 	}
-	if contains(msg, "no such host") {
+	if strings.Contains(msg, "no such host") {
 		return "DNS resolution failed — check domain"
 	}
-	if contains(msg, "timeout") {
+	if strings.Contains(msg, "timeout") {
 		return "connection timed out — check network/firewall"
 	}
-	if contains(msg, "certificate") {
+	if strings.Contains(msg, "certificate") {
 		return "TLS error — check SSL certificate"
 	}
 	return msg
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
-}
-
-func containsStr(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

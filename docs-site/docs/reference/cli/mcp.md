@@ -73,6 +73,7 @@ Available Commands:
   create      Add an MCP tool connection from flags (or -f for a full spec)
   delete      Delete an MCP tool connection
   test        Send a real tools/list through the gateway and print the tools
+  call        Call one tool through the gateway and print the result
   rules       Policy rules on a connection's tool calls
 
 Flags:
@@ -251,7 +252,7 @@ Usage:
   aiplex mcp connections delete <id> [flags]
 
 Aliases:
-  delete, remove, rm
+  delete, rm, remove
 
 Examples:
   aiplex mcp connections delete docs --yes
@@ -294,6 +295,51 @@ Examples:
 
 Flags:
   -h, --help   help for test
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+#### `aiplex mcp connections call`
+
+```text
+Sends one tools/call through the gateway with the connection's credential and
+policy rules applied, and the caller's mcp:tools:<tool> grant checked, exactly
+as a client's call would be. Text content prints as text; other content prints
+as its type. -o json prints the raw result.
+
+Arguments are a JSON (or YAML) object from --args, or from --args-file (use -
+for stdin). A policy denial exits 3 and names the rule. A tool that ran and
+reported a failure prints its text and exits 1, as does a tool server error.
+
+Calls are real: a tool with side effects runs.
+
+Usage:
+  aiplex mcp connections call <id> <tool> [--args JSON | --args-file <file>|-] [flags]
+
+Examples:
+  aiplex mcp connections call local-tools echo --args '{"text":"hi"}'
+  aiplex mcp connections call search query --args-file query.json -o json
+  echo '{"a":1,"b":2}' | aiplex mcp connections call local-tools add --args-file -
+
+Flags:
+      --args string        Tool arguments as a JSON object
+      --args-file string   Read the tool arguments from a JSON or YAML file ('-' for stdin)
+  -h, --help               help for call
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

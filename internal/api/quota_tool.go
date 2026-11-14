@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/connections"
@@ -205,7 +206,7 @@ func (h *ConnectedHandler) ToolExecutionPreparer(r *http.Request, record resourc
 			return nil, err
 		}
 		endpoint, _ := url.Parse(connection.Execution.Endpoint)
-		return h.Quota.Prepare(ctx, r, QuotaInvocation{Context: in.Context, Plane: "mcplex", ResourceID: connection.ID, OperationID: "tools/call:" + in.Request.Name, Target: quotaplex.Target{Provider: "mcp"}, Method: http.MethodPost, Path: endpoint.EscapedPath(), RawQuery: endpoint.RawQuery, Body: in.Request.Body, Headers: in.Headers, Configuration: configuration, Reauthorize: func(recheck context.Context) error {
+		return h.Quota.Prepare(ctx, r, QuotaInvocation{Context: in.Context, Plane: "mcplex", ResourceID: connection.ID, OperationID: "tools/call:" + in.Request.Name, Target: quotaplex.Target{Provider: "mcp"}, Method: http.MethodPost, Path: endpoint.EscapedPath(), RawQuery: endpoint.RawQuery, Body: in.Request.Body, Headers: in.Headers, Configuration: configuration, ToolMaxResponseBytes: connection.Execution.MaxResponseBytes, ToolMaxDurationMilliseconds: connection.Execution.MaxDurationSeconds * 1000, Reauthorize: func(recheck context.Context) error {
 			current, err := h.Store.Get(recheck, in.Context.TenantID, "tool-connection", connection.ID)
 			if err != nil {
 				return &execution.StatusError{Status: 409, Code: "TOOL_CONFIGURATION_CHANGED", Message: "tool configuration changed"}
@@ -225,4 +226,93 @@ func (h *ConnectedHandler) ToolExecutionPreparer(r *http.Request, record resourc
 			return h.authorizeCurrent(recheck, r, "mcp:tools:"+in.Request.Name)
 		}})
 	}
+}
+
+// Tool usage metering (profile tool-usage). A tool binding may map, besides
+// requests and tool_calls, the response size (tool_response_bytes, a meter of
+// unit "bytes") and the duration (tool_duration_milliseconds, unit
+// "milliseconds") of a managed tool call. Admission reserves the connection's
+// own bounds (execution.max_response_bytes, execution.max_duration_seconds);
+// a mapped meter without its bound is refused before the tool server is
+// contacted. Settlement uses the gateway's observation of a complete response
+// (pkg/toolexec usage.go); every other ending keeps the whole hold unknown,
+// except a call provably not sent (zero) or refused before processing (one
+// request, nothing else). A binding with profile request-count is unchanged.
+const quotaProfileToolUsage = toolexec.MeteringProfileToolUsage
+
+var quotaToolUsageMeterUnits = map[string]string{
+	"requests":                               "requests",
+	"tool_calls":                             "calls",
+	toolexec.CounterToolResponseBytes:        "bytes",
+	toolexec.CounterToolDurationMilliseconds: "milliseconds",
+}
+
+// validateToolUsageBinding checks a tool-usage binding at host start: a
+// managed tools/call operation (never a deployment action) that maps a request
+// meter and at least one of the response-size and duration meters, each to a
+// meter of its unit.
+func validateToolUsageBinding(binding QuotaBinding, policy quotaplex.Policy) error {
+	if binding.Plane != "mcplex" || binding.Provider != "mcp" || !strings.HasPrefix(binding.OperationID, "tools/call:") || binding.Model != "" {
+		return fmt.Errorf("tool-usage quota profile applies only to managed MCP tools/call operations")
+	}
+	if binding.Meters["requests"] == "" || (binding.Meters[toolexec.CounterToolResponseBytes] == "" && binding.Meters[toolexec.CounterToolDurationMilliseconds] == "") {
+		return fmt.Errorf("tool-usage quota binding requires a request meter and a response-size or duration meter")
+	}
+	seen := map[string]bool{}
+	for native, meterID := range binding.Meters {
+		unit := quotaToolUsageMeterUnits[native]
+		meter, known := policy.Meters[meterID]
+		if unit == "" || !known || meter.Unit != unit || seen[meterID] {
+			return fmt.Errorf("tool-usage quota binding maps %s to an incompatible or overlapping meter (it needs a meter of unit %q)", native, unit)
+		}
+		seen[meterID] = true
+	}
+	return nil
+}
+
+// toolUsageBounds is the exposure of one tool-usage call: one request, one
+// call, and the connection's configured bounds for the mapped meters.
+func toolUsageBounds(binding QuotaBinding, in QuotaInvocation) (map[string]int64, error) {
+	if in.DeploymentAction || in.Plane != "mcplex" {
+		return nil, quotaStatus(503, "QUOTA_PROFILE_UNSUPPORTED", "tool-usage metering applies only to managed tool calls")
+	}
+	counts := map[string]int64{"requests": 1, "tool_calls": 1}
+	if _, mapped := binding.Meters[toolexec.CounterToolResponseBytes]; mapped {
+		if in.ToolMaxResponseBytes <= 0 {
+			return nil, quotaStatus(503, "QUOTA_BOUNDS_UNAVAILABLE", "the tool connection does not configure execution.max_response_bytes, which a response-size meter reserves")
+		}
+		counts[toolexec.CounterToolResponseBytes] = in.ToolMaxResponseBytes
+	}
+	if _, mapped := binding.Meters[toolexec.CounterToolDurationMilliseconds]; mapped {
+		if in.ToolMaxDurationMilliseconds <= 0 {
+			return nil, quotaStatus(503, "QUOTA_BOUNDS_UNAVAILABLE", "the tool connection does not configure execution.max_duration_seconds, which a duration meter reserves")
+		}
+		counts[toolexec.CounterToolDurationMilliseconds] = in.ToolMaxDurationMilliseconds
+	}
+	return counts, nil
+}
+
+// checkToolUsageConnection refuses saving a tool connection that a loaded
+// tool-usage binding meters by size or duration without the bound it
+// reserves. Bindings come from the operator's quota file, loaded at API
+// start; a later file change is caught at admission instead.
+func (h *QuotaHost) checkToolUsageConnection(tenant string, connection ToolConnection) error {
+	if h == nil {
+		return nil
+	}
+	for _, binding := range h.bindings {
+		if binding.TenantID != tenant || binding.Profile != quotaProfileToolUsage || binding.ResourceID != connection.ID {
+			continue
+		}
+		if connection.Execution == nil {
+			return fmt.Errorf("tool-usage quota binding %q meters this connection, which needs a managed execution block", binding.ID)
+		}
+		if binding.Meters[toolexec.CounterToolResponseBytes] != "" && connection.Execution.MaxResponseBytes <= 0 {
+			return fmt.Errorf("tool-usage quota binding %q meters response bytes: set execution.max_response_bytes", binding.ID)
+		}
+		if binding.Meters[toolexec.CounterToolDurationMilliseconds] != "" && connection.Execution.MaxDurationSeconds <= 0 {
+			return fmt.Errorf("tool-usage quota binding %q meters duration: set execution.max_duration_seconds", binding.ID)
+		}
+	}
+	return nil
 }

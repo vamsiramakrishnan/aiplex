@@ -75,6 +75,7 @@ Returns the active policy.
 | Status | Code | When |
 |---|---|---|
 | 200 | none | Inspection returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | No policy |
 
 ### Example
@@ -106,6 +107,7 @@ The response is the validation artifact: `version`, `policy`, `reference`, `expe
 | 400 | `QUOTA_INVALID_REQUEST` | The body is invalid, or the candidate does not compile |
 | 403 | `TENANT_MISMATCH` | The candidate's `tenant_id` is not the verified tenant |
 | 403 | `QUOTA_ACTION_DENIED` | The `simulate` grant is missing |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 
 ### Example
 
@@ -141,6 +143,7 @@ The body is a `Demand`: `version`, `context` (the request context, whose `tenant
 | 400 | `QUOTA_INVALID_REQUEST` | The body is invalid |
 | 403 | `TENANT_MISMATCH` | The demand's `context.tenant_id` is not the verified tenant |
 | 403 | `QUOTA_ACTION_DENIED` | The `simulate` grant is missing |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 
 ### Example
 
@@ -179,6 +182,7 @@ Pages through the administration records of one kind.
 |---|---|---|
 | 200 | none | Page returned |
 | 400 | `QUOTA_INVALID_REQUEST` | `limit` is not an integer, or the engine rejects the query |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 
 ### Example
 
@@ -209,6 +213,7 @@ Returns the balance of one budget key. The `id` is the budget key.
 | Status | Code | When |
 |---|---|---|
 | 200 | none | Balance returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | No budget key with this identifier |
 
 ### Example
@@ -245,6 +250,7 @@ The response is the loan: `request` (`tenant_id`, `id`, `rule_id`, `amount`, `ex
 | 400 | `QUOTA_INVALID_REQUEST` | The body is invalid, or it has an unknown field |
 | 403 | `QUOTA_ACTION_DENIED` | The `loans` grant is missing |
 | 403 | `QUOTA_OPERATION_DENIED` | The engine refuses the loan under the sharing rule |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | The sharing rule does not exist |
 | 409 | `QUOTA_STATE_CONFLICT` | The loan conflicts with an existing record |
 
@@ -267,6 +273,7 @@ Returns one loan in the shape described above.
 | Status | Code | When |
 |---|---|---|
 | 200 | none | Loan returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | No loan with this identifier |
 
 ### Example
@@ -286,6 +293,7 @@ Returns the unused part of a loan. The request has no body. Requires the `loans`
 | 200 | none | Unused amount returned |
 | 400 | `IDEMPOTENCY_REQUIRED` | Header missing, repeated or invalid |
 | 403 | `QUOTA_ACTION_DENIED` | The `loans` grant is missing |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | No loan with this identifier |
 | 409 | `QUOTA_STATE_CONFLICT` | The loan is not in a state that can be returned |
 
@@ -313,6 +321,7 @@ The `settlement` holds `tenant_id`, `attempt_id`, `event_id`, `claim`, `usage` (
 | Status | Code | When |
 |---|---|---|
 | 200 | none | Evidence returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | No evidence for this event |
 
 ### Example
@@ -365,6 +374,7 @@ Whether the requester may also approve is an operator setting. Independent appro
 | 400 | `IDEMPOTENCY_REQUIRED` | Header missing, repeated or invalid |
 | 400 | `QUOTA_INVALID_REQUEST` | The body is invalid or has an unknown field |
 | 403 | `QUOTA_ACTION_DENIED` | The `reconcile:plan` grant is missing |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | The attempt does not exist |
 | 409 | `QUOTA_STATE_CONFLICT` | The attempt cannot be reconciled in its current state |
 
@@ -392,6 +402,7 @@ Returns the stored plan and, once it has been applied, its receipt.
 | Status | Code | When |
 |---|---|---|
 | 200 | none | Inspection returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | No plan with this identifier |
 
 ### Example
@@ -435,6 +446,7 @@ A repeated apply of the same plan by the same approver returns the stored receip
 | 400 | `QUOTA_INVALID_REQUEST` | The body is invalid |
 | 403 | `QUOTA_ACTION_DENIED` | The `reconcile:approve` grant is missing |
 | 403 | `QUOTA_OPERATION_DENIED` | The approver is the requester while independent approval is required, or the plan has expired |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `QUOTA_NOT_FOUND` | No plan with this identifier |
 | 409 | `QUOTA_STATE_CONFLICT` | A stored receipt for this plan belongs to a different digest or approver |
 

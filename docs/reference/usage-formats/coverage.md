@@ -43,8 +43,9 @@ total - prompt - candidates. Cache writes are a separate meter (scalar or per-TT
 OpenAI-format strict settlement treats an absent `cache_write_tokens` as 0 (documented
 default; models without separately billed writes keep them in ordinary input).
 Strict lease rows also cover Azure OpenAI (`azure-openai/`) and generic compatible
-servers that declare `usage_semantics: "openai"` (`openai-compatible/`), both in the
-OpenAI convention. Non-token units the ledger holds (audio/voice/video milliseconds,
+servers that declare `usage_semantics: "openai"` or `"deepseek"` (`openai-compatible/`), both in the
+OpenAI convention. The DeepSeek rows are built from DeepSeek's documented response and were
+not recorded from the live service. Non-token units the ledger holds (audio/voice/video milliseconds,
 generated images, per-modality token splits) are compared by the media and batch
 checks; batch results files are aggregated with the gateway's own batch parser
 and must settle only when complete.
@@ -63,11 +64,11 @@ interrupted session leaves its open lease unsettled.
 
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
-| anthropic | 9 | 1 | 3 |
+| anthropic | 10 | 4 | 3 |
 | azure-openai | 5 | 0 | 0 |
-| google | 18 | 4 | 2 |
+| google | 18 | 5 | 1 |
 | openai | 13 | 4 | 0 |
-| openai-compatible | 2 | 0 | 0 |
+| openai-compatible | 4 | 0 | 0 |
 
 ## Matrix
 
@@ -76,8 +77,12 @@ interrupted session leaves its open lease unsettled.
 | anthropic | bedrock-converse | json | exact | `bedrock-converse.json` |  |
 | anthropic | bedrock-converse-stream | aws-eventstream | exact | `bedrock-converse-stream-interrupted.jsonl`<br>`bedrock-converse-stream.jsonl` |  |
 | anthropic | bedrock-invoke | json | exact | `bedrock-invoke.json` |  |
+| anthropic | bedrock-invoke-llama | json | advisory | `bedrock-invoke-llama.json` | advisory: usage read from the fields AWS documents for this family (fixture built from AWS's documented response shape with synthetic values, not recorded live); request-count only, no token profile, so a strict lease refuses it |
+| anthropic | bedrock-invoke-nova | json | advisory | `bedrock-invoke-nova.json` | advisory: usage read from the fields AWS documents for this family (fixture built from AWS's documented response shape with synthetic values, not recorded live); request-count only, no token profile, so a strict lease refuses it |
 | anthropic | bedrock-invoke-stream | aws-eventstream | exact | `bedrock-invoke-stream-interrupted.jsonl`<br>`bedrock-invoke-stream.jsonl` |  |
-| anthropic | bedrock-mantle-messages | sse | unsupported | `bedrock-mantle.sse (format-checked)` | no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer |
+| anthropic | bedrock-invoke-stream-titan-text | aws-eventstream | unsupported | `bedrock-invoke-stream-titan-text.jsonl` | not observed: AWS documents the Titan Text stream chunk fields but not which chunk is final or whether totalOutputTextTokenCount is cumulative (fixture built from the documented chunk shape with synthetic values, not recorded live); usage unknown, a strict lease refuses it |
+| anthropic | bedrock-invoke-titan-text | json | advisory | `bedrock-invoke-titan-text.json` | advisory: usage read from the fields AWS documents for this family (fixture built from AWS's documented response shape with synthetic values, not recorded live); request-count only, no token profile, so a strict lease refuses it |
+| anthropic | bedrock-mantle-messages | sse | exact | `bedrock-mantle.sse` | fixture built from AWS's documented Messages format (inference-messages-api.html), not recorded from a live bedrock-mantle response |
 | anthropic | count-tokens | json | advisory | `count-tokens.json` | POST /v1/messages/count_tokens: an input-size estimate, never consumption; only the request is counted and the response is never read for usage |
 | anthropic | managed-agents | json | unsupported | `managed-agents-session.json` | no Managed Agents operation: the session object usage is a documented cumulative snapshot (platform.claude.com/docs/en/managed-agents/session-observability, re-read 2026-11-10), but the session.usage event envelope is still not shown and a session has no single terminal exchange through which a snapshot could settle once without double counting repeated polls |
 | anthropic | message-batches | jsonl-file | exact | `batch-results-partial.jsonl`<br>`batch-results.jsonl` | batch-usage binding: admitted at create, settled once from complete per-line results through the gateway (succeeded lines only; batch-object usage is a cross-check, never added); GET /v1/messages/batches/{id}/results; a cache counter absent on any succeeded line leaves that sum unknown<br>batch-usage binding: admitted at create, settled once from complete per-line results through the gateway (succeeded lines only; batch-object usage is a cross-check, never added) |
@@ -98,7 +103,7 @@ interrupted session leaves its open lease unsettled.
 | google | gemini-generateContent | json | exact | `gemini-generate-error-429.json`<br>`gemini-generate-grounded.json`<br>`gemini-generate-tooluse.json`<br>`gemini-generate.json` | observation exact; strict settlement fails closed for this fixture: toolUsePromptTokenCount is positive: Gemini tool-use prompt tokens are outside the gemini-text profile (fail closed) |
 | google | gemini-interactions | json | exact | `gemini-interactions.json` |  |
 | google | gemini-interactions | sse | exact | `gemini-interactions-interrupted.sse`<br>`gemini-interactions.sse` |  |
-| google | gemini-live | websocket | unsupported | `gemini-live-interrupted.ws.jsonl (format-checked)`<br>`gemini-live.ws.jsonl (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it (Live messages replayed through the Vertex Live relay) |
+| google | gemini-live | websocket | advisory | `gemini-live-interrupted.ws.jsonl`<br>`gemini-live.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session (token-metered surfaces refused at save time). usageMetadata snapshots are read as session-cumulative, as Vertex documents; the Developer API reference does not say cumulative or per-turn (UNCONFIRMED): per-turn counts that never decrease would be under-recorded as the last one, so usage is advisory. A decreasing snapshot is never summed and labels the session ambiguous |
 | google | gemini-predictLongRunning | json | advisory | `gemini-veo-operation.json` | predictLongRunning and the operation poll are request-count exchanges; the done result reports no usage and no duration, so video_output_milliseconds stays unknown (billed per output second by the provider) |
 | google | gemini-streamGenerateContent | json-array | exact | `gemini-generate.stream.json` |  |
 | google | gemini-streamGenerateContent | sse | exact | `gemini-generate-interrupted.sse`<br>`gemini-generate.sse` |  |
@@ -134,3 +139,5 @@ interrupted session leaves its open lease unsettled.
 | openai | responses-retrieve | json | advisory | `responses.background.queued.json` | GET /v1/responses/{id}: request-count, owner-only; never read for usage, so a retrieved background response is not settled a second time |
 | openai-compatible | chat-completions | json | exact | `chat.json` | observation exact; strict settlement fails closed for this fixture: server reports no prompt_tokens_details; openai-text requires the cached-input breakdown (fail closed) |
 | openai-compatible | chat-completions | sse | exact | `chat.final-usage.sse`<br>`chat.no-done.sse`<br>`chat.nousage.sse` |  |
+| openai-compatible | deepseek-chat-completions | json | exact | `deepseek-chat-cache-hit.json`<br>`deepseek-chat-inconsistent.json`<br>`deepseek-chat.json` | observation exact; strict settlement fails closed for this fixture: prompt_cache_hit_tokens + prompt_cache_miss_tokens differs from prompt_tokens: the cache split is unknown and openai-text requires it (fail closed) |
+| openai-compatible | deepseek-chat-completions | sse | exact | `deepseek-chat-cache-hit.sse` |  |

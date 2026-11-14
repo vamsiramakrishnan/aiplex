@@ -95,6 +95,11 @@ func (g *Gateway) observeControlledJSON(owner Owner, op Operation, data []byte, 
 		}
 		return false, err
 	}
+	if value.advisory && !requestCountRun(run) {
+		// Advisory family usage never settles a token-metered lease: the
+		// lease stays unsettled, as for any body it cannot read.
+		value.usage = nil
+	}
 	if value.usage == nil || !value.nativeTerminal {
 		if observeErr := observeVersionMetadata(run, value); observeErr != nil {
 			return false, observeErr
@@ -142,7 +147,7 @@ func sseFields(frame []byte) (data []byte, eventID string) {
 // usage; this preserves TTFT without delivering a false settled completion.
 func (g *Gateway) copyControlledSSE(w http.ResponseWriter, r *http.Request, reader io.Reader, owner Owner, op Operation, run *executionRun, status int) {
 	input := bufio.NewReaderSize(reader, 32<<10)
-	anthropic := op.ID == "anthropic.messages" || (g.surface.Publisher == "anthropic" && anthropicOperation(op))
+	anthropic := anthropicMessagesOperation(op) || (g.surface.Publisher == "anthropic" && anthropicOperation(op))
 	validateCumulative := anthropic || !requestCountRun(run)
 	var frame, tail bytes.Buffer
 	var latest *UsageObservation

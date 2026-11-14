@@ -10,14 +10,14 @@ The runs API is the read side of the AIPlex and Tape integration. Tape records e
 
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
-| GET | `/api/v1/runs` | List projected runs, optionally filtered | Verified identity. Tenant filter as described under Tenant scope. |
-| GET | `/api/v1/runs/_health` | Report whether the run pipeline is receiving data | Verified identity |
-| GET | `/api/v1/runs/{run_id}` | Read one run summary | Verified identity |
-| GET | `/api/v1/runs/{run_id}/events` | Read the ordered event timeline of one run | Verified identity |
-| GET | `/api/v1/runs/{run_id}/effects` | Read the effect events of one run | Verified identity |
-| GET | `/api/v1/runs/{run_id}/obligations` | Read the obligation events of one run | Verified identity |
-| GET | `/api/v1/runs/{run_id}/budgets` | Read the budget events of one run | Verified identity |
-| GET | `/api/v1/runs/{run_id}/operator-audit` | Read the operator actions taken on one run | Verified identity |
+| GET | `/api/v1/runs` | List projected runs, optionally filtered | `admin` or `deployer` outside development mode. Tenant filter as described under Tenant scope. |
+| GET | `/api/v1/runs/_health` | Report whether the run pipeline is receiving data | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}` | Read one run summary | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/events` | Read the ordered event timeline of one run | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/effects` | Read the effect events of one run | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/obligations` | Read the obligation events of one run | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/budgets` | Read the budget events of one run | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/operator-audit` | Read the operator actions taken on one run | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/runs/{run_id}/redrive` | Ask Tape to resume a run | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/runs/{run_id}/reconcile` | Ask Tape to reconcile a run | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/runs/{run_id}/cancel` | Ask Tape to cancel a run | `admin` or `deployer` outside development mode |
@@ -29,13 +29,27 @@ All routes are mounted under `/api/v1/runs`. They require a verified identity. O
 
 ## Tenant scope
 
-Every route in this group sits behind a tenant check. The check is enabled only when the environment variable `AIPLEX_REQUIRE_TENANT` is set to `1`. When it is set, the caller must have a tenant claim or the cross-tenant scope `aiplex:runs:read:cross_tenant`. Otherwise the response is `403 TENANT_REQUIRED`.
+Every route in this group, and the per-run mode of `GET /events/stream?run_id=`, decides which tenant's runs the caller sees from the verified identity only. No header, query parameter or body field can name or widen the tenant.
 
-The list route applies the tenant claim as a filter. A caller with a tenant claim and no cross-tenant scope gets only that tenant's runs. A `tenant_id` query value for another tenant returns an empty list, not an error. When the tenant check is off, a caller without a tenant claim gets runs from every tenant unless `tenant_id` is given. The routes for one run do not compare the run's tenant with the caller's tenant.
+| Verified identity | Result |
+|---|---|
+| One tenant: one or more `aiplex:tenant:<id>` scopes naming the same tenant, or, with no tenant scope, a domain (`hd` claim) mapped to one tenant by `AIPLEX_DOMAIN_TENANT_MAP` | That tenant's runs only |
+| More than one distinct tenant, from the scopes or from the domain map | `403 TENANT_AMBIGUOUS`, under every setting and even with the cross-tenant scope |
+| The cross-tenant scope `aiplex:runs:read:cross_tenant` | Every tenant's runs |
+| No tenant and no cross-tenant scope | `403 TENANT_REQUIRED`, unless `AIPLEX_REQUIRE_TENANT=0` |
+| No verified identity | `401 UNAUTHENTICATED` |
+
+A tenant is required by default; no setting is needed. `AIPLEX_REQUIRE_TENANT=0` (exactly) is the single opt-out, for single-tenant deployments: a verified caller with no tenant then sees every run, and the server logs a warning at startup. Any other value, including `1`, means a tenant is required. Development mode (loopback only) serves the local developer every run, as before.
+
+This is a change of default. Before, a caller with no tenant saw every tenant's runs unless `AIPLEX_REQUIRE_TENANT=1` was set, and an identity with two tenant scopes was resolved to the last one.
+
+The list route filters to the caller's tenant. A `tenant_id` query value for another tenant returns an empty list, not an error. The routes for one run answer a run of another tenant with `404 NOT_FOUND`, exactly as for a missing run, and the operator actions do not act on it. `_health` reports `has_runs` for the caller's tenant only.
+
+The runs routes are deployment-wide in the route policy, so an identity bound by scope to a tenant other than the home tenant (`AIPLEX_TENANT_ID`), or to two tenants, is refused earlier with `403 DEPLOYMENT_SCOPE_REQUIRED`. See [authorization](/docs/library/authorization#tenant-rules).
 
 ## Response and error format
 
-Successful responses are JSON. Most lists are wrapped in an object keyed by the field name, as shown below. Errors from the run handlers are plain text with the matching HTTP status, not the AIPlex error shape. The only AIPlex error shape in this group is the `403 TENANT_REQUIRED` response, which the tenant check returns when it is enabled.
+Successful responses are JSON. Most lists are wrapped in an object keyed by the field name, as shown below. Errors use the AIPlex error shape, except the `400` and `502` answers of the operator actions, which are plain text:
 
 ```json
 {
@@ -44,6 +58,19 @@ Successful responses are JSON. Most lists are wrapped in an object keyed by the 
   "request_id": "req-example"
 }
 ```
+
+Every route in this group can refuse the caller before it runs, in this order:
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
+| 403 | `DEPLOYMENT_SCOPE_REQUIRED` | The identity is bound by scope to a tenant other than the home tenant, or to more than one tenant |
+| 403 | `TENANT_AMBIGUOUS` | The identity names more than one tenant (for example through the domain map) |
+| 403 | `TENANT_REQUIRED` | No tenant and no cross-tenant scope, and `AIPLEX_REQUIRE_TENANT` is not `0` |
+| 403 | `RUNS_SCOPE_REQUIRED` | The caller lacks the route's `aiplex:runs:<action>` grant (`aiplex:runs:read` for reads) |
+
+The route sections below list these again only where it helps, and add the route's own answers.
 
 ## GET `/api/v1/runs`
 
@@ -69,8 +96,12 @@ The run objects are described under [Run summary fields](#run-summary-fields).
 |---|---|---|
 | 200 | `{"runs": [...]}` | Runs returned |
 | 401 | `UNAUTHENTICATED` (AIPlex shape) | No verified identity outside development mode |
-| 403 | `TENANT_REQUIRED` (AIPlex shape) | Tenant check enabled and no tenant claim or cross-tenant scope |
-| 500 | plain text | Store read failed |
+| 403 | `ROLE_REQUIRED` (AIPlex shape) | The caller is signed in but lacks `admin` or `deployer` role |
+| 403 | `TENANT_REQUIRED` (AIPlex shape) | No tenant and no cross-tenant scope, and `AIPLEX_REQUIRE_TENANT` is not `0` |
+| 403 | `TENANT_AMBIGUOUS` (AIPlex shape) | The identity names more than one tenant |
+| 403 | `DEPLOYMENT_SCOPE_REQUIRED` (AIPlex shape) | The identity is bound by scope to a tenant other than the home tenant, or to more than one tenant |
+| 403 | `RUNS_SCOPE_REQUIRED` (AIPlex shape) | The caller lacks the route's `aiplex:runs:<action>` grant |
+| 500 | `RUN_STORE_UNAVAILABLE` (AIPlex shape) | Store read failed |
 
 ### Example
 
@@ -87,12 +118,14 @@ Reports whether the run pipeline has received data. It is intended for the Conso
 
 | Field | Type | Meaning |
 |---|---|---|
-| `last_ingest_at` | RFC 3339 timestamp | Time of the last ingest, as the store reports it |
-| `has_runs` | boolean | `true` when at least one run exists. The handler does not filter by tenant. |
-| `tape_instances_count` | integer | Number of instances that use the Tape runtime. The handler does not filter by tenant. |
+| `last_ingest_at` | RFC 3339 timestamp | Time of the last ingest, deployment-wide. The zero time (`0001-01-01T00:00:00Z`) means no ingest has been recorded. Returned only to the all-tenants view (see below). |
+| `has_runs` | boolean | `true` when at least one run of the caller's tenant exists (any tenant for the all-tenants view) |
+| `tape_instances_count` | integer | Number of instances that use the Tape runtime, deployment-wide. Returned only to the all-tenants view. |
 | `now` | RFC 3339 timestamp | Server time, UTC |
 
-This route does not return an error status. Store errors are ignored and their values are zero.
+The all-tenants view is development mode, the cross-tenant scope, or `AIPLEX_REQUIRE_TENANT=0` with no tenant. A caller confined to one tenant does not get `last_ingest_at` or `tape_instances_count`, because they describe every tenant's pipeline. A value the store cannot read is also omitted. An omitted field is unknown, not zero or false: `aiplex runs health` prints it as `unknown`, and the SDK returns `nil`.
+
+Apart from the refusals listed under [Response and error format](#response-and-error-format), this route does not return an error status.
 
 ### Example
 
@@ -118,8 +151,9 @@ Returns one run summary as a JSON object.
 | Status | Body | When |
 |---|---|---|
 | 200 | run summary | Run returned |
-| 404 | plain text | No run with this identifier |
-| 500 | plain text | Store read failed |
+| 403 | `ROLE_REQUIRED` (AIPlex shape) | The caller is signed in but lacks `admin` or `deployer` role |
+| 404 | `NOT_FOUND` (AIPlex shape) | No run with this identifier, or a run of another tenant (the two are indistinguishable) |
+| 500 | `RUN_STORE_UNAVAILABLE` (AIPlex shape) | Store read failed |
 
 ### Example
 
@@ -143,7 +177,9 @@ Returns the ordered event timeline of one run as `{"events": [...]}`.
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"events": [...]}` | Events returned |
-| 500 | plain text | Store read failed |
+| 403 | `ROLE_REQUIRED` (AIPlex shape) | The caller is signed in but lacks `admin` or `deployer` role |
+| 404 | `NOT_FOUND` (AIPlex shape) | No run with this identifier, or a run of another tenant (the two are indistinguishable) |
+| 500 | `RUN_STORE_UNAVAILABLE` (AIPlex shape) | Store read failed |
 
 ### Example
 
@@ -161,7 +197,9 @@ Returns the effect events of one run as `{"effects": [...]}`. The handler reads 
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"effects": [...]}` | Effects returned |
-| 500 | plain text | Store read failed |
+| 403 | `ROLE_REQUIRED` (AIPlex shape) | The caller is signed in but lacks `admin` or `deployer` role |
+| 404 | `NOT_FOUND` (AIPlex shape) | No run with this identifier, or a run of another tenant (the two are indistinguishable) |
+| 500 | `RUN_STORE_UNAVAILABLE` (AIPlex shape) | Store read failed |
 
 ### Example
 
@@ -178,7 +216,9 @@ Returns the `obligation.created` events of one run as `{"obligations": [...]}`. 
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"obligations": [...]}` | Obligations returned |
-| 500 | plain text | Store read failed |
+| 403 | `ROLE_REQUIRED` (AIPlex shape) | The caller is signed in but lacks `admin` or `deployer` role |
+| 404 | `NOT_FOUND` (AIPlex shape) | No run with this identifier, or a run of another tenant (the two are indistinguishable) |
+| 500 | `RUN_STORE_UNAVAILABLE` (AIPlex shape) | Store read failed |
 
 ### Example
 
@@ -195,7 +235,9 @@ Returns the `budget.charged` events of one run as `{"budgets": [...]}`. Like eff
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"budgets": [...]}` | Budget events returned |
-| 500 | plain text | Store read failed |
+| 403 | `ROLE_REQUIRED` (AIPlex shape) | The caller is signed in but lacks `admin` or `deployer` role |
+| 404 | `NOT_FOUND` (AIPlex shape) | No run with this identifier, or a run of another tenant (the two are indistinguishable) |
+| 500 | `RUN_STORE_UNAVAILABLE` (AIPlex shape) | Store read failed |
 
 ### Example
 
@@ -233,7 +275,9 @@ Returns the operator actions recorded for one run as `{"audit": [...]}`. Each en
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"audit": [...]}` | Rows returned |
-| 500 | plain text | Store read failed |
+| 403 | `ROLE_REQUIRED` (AIPlex shape) | The caller is signed in but lacks `admin` or `deployer` role |
+| 404 | `NOT_FOUND` (AIPlex shape) | No run with this identifier, or a run of another tenant (the two are indistinguishable) |
+| 500 | `RUN_STORE_UNAVAILABLE` (AIPlex shape) | Store read failed |
 
 ### Example
 
@@ -282,10 +326,13 @@ Shared status codes for every action:
 |---|---|---|
 | 202 | action response | Tape accepted the action |
 | 401 | `UNAUTHENTICATED` (AIPlex shape) | No verified identity outside development mode |
-| 403 | `FORBIDDEN` (AIPlex shape) | Caller lacks `admin` or `deployer` outside development mode |
-| 403 | `TENANT_REQUIRED` (AIPlex shape) | Tenant check enabled and no tenant claim or cross-tenant scope |
-| 404 | plain text | No run with this identifier |
-| 500 | plain text | Store read or write failed |
+| 403 | `ROLE_REQUIRED` (AIPlex shape) | The caller is signed in but lacks `admin` or `deployer` role |
+| 403 | `TENANT_REQUIRED` (AIPlex shape) | No tenant and no cross-tenant scope, and `AIPLEX_REQUIRE_TENANT` is not `0` |
+| 403 | `TENANT_AMBIGUOUS` (AIPlex shape) | The identity names more than one tenant |
+| 403 | `DEPLOYMENT_SCOPE_REQUIRED` (AIPlex shape) | The identity is bound by scope to a tenant other than the home tenant, or to more than one tenant |
+| 403 | `RUNS_SCOPE_REQUIRED` (AIPlex shape) | The caller lacks the route's `aiplex:runs:<action>` grant |
+| 404 | `NOT_FOUND` (AIPlex shape) | No run with this identifier, or a run of another tenant (the two are indistinguishable) |
+| 500 | `RUN_STORE_UNAVAILABLE` (AIPlex shape) | Store read failed. A failed audit write does not fail the action. |
 | 502 | plain text | Tape rejected or could not complete the call. The audit row records status `failed`. |
 
 ### Example
@@ -347,4 +394,4 @@ Event kinds: `run.started`, `run.completed`, `run.failed`, `decision.recorded`, 
 - **Runs are a projection.** The run and event data come from Tape's journal through the ingest path. This API only reads and projects them. The ingest route is internal and is not part of this reference.
 - **Operator actions do not rewrite the journal.** Each action is sent to Tape and recorded in the operator audit trail. The event timeline is unchanged.
 - **Limits are read limits.** The effect, obligation and budget routes read up to 10000 events. The list route reads up to `limit` runs.
-- **Errors are plain text.** Only the tenant check and the `/api/v1` group use the AIPlex error shape.
+- **Tenant isolation is tested route by route.** `cmd/aiplex-api/runs_tenant_test.go` walks every mounted runs route of the production router; a route it cannot classify fails the test. It has not been validated against a live identity provider.

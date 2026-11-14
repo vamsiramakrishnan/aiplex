@@ -191,7 +191,7 @@ func TestModelOperationNames(t *testing.T) {
 	for id, want := range map[string]string{
 		"openai.v1.chat-completions": OpChat, "anthropic.messages": OpChat, "bedrock.converse-stream": OpChat, "openai.v1.responses": OpChat,
 		"models.generateContent": OpGenerateContent, "gemini.models.streamGenerateContent": OpGenerateContent, "openai.v1.embeddings": OpEmbeddings,
-		"openai.v1.realtime": OpRealtime, "live.connect": OpRealtime, "openai.v1.responses-retrieve": OpFetchResponse, "models.countTokens": "models.countTokens",
+		"openai.v1.realtime": OpRealtime, "live.connect": OpRealtime, "gemini.live.connect": OpRealtime, "openai.v1.responses-retrieve": OpFetchResponse, "models.countTokens": "models.countTokens",
 	} {
 		if got := ModelOperationName(id); got != want {
 			t.Errorf("%s: %q, want %q", id, got, want)

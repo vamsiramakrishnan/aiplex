@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, ClassVar
 
 from .errors import AiplexError
 
@@ -442,6 +443,26 @@ class AccessPointTool:
 
 
 @dataclass(frozen=True)
+class AccessPointSkill:
+    """Skill server entry inside an access point specification."""
+
+    #: The skill instance exposed; None when the server did not report it.
+    instance_ref: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> AccessPointSkill:
+        d = _expect_dict(data, "access_point.skill")
+        return cls(instance_ref=_opt_str(d, "instance_ref"), raw=dict(d))
+
+    def to_wire(self) -> dict[str, Any]:
+        out = {k: copy.deepcopy(v) for k, v in self.raw.items() if k != "instance_ref"}
+        if self.instance_ref is not None:
+            out["instance_ref"] = self.instance_ref
+        return out
+
+
+@dataclass(frozen=True)
 class AccessPointSpec:
     """Specification of an access point."""
 
@@ -451,7 +472,7 @@ class AccessPointSpec:
     subjects: dict[str, Any] | None = None
     models: list[AccessPointModel] = field(default_factory=list)
     tools: list[AccessPointTool] = field(default_factory=list)
-    skills: list[dict[str, Any]] = field(default_factory=list)
+    skills: list[AccessPointSkill] = field(default_factory=list)
     qos: dict[str, Any] | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
@@ -478,7 +499,9 @@ class AccessPointSpec:
             subjects=_opt_dict(d, "subjects"),
             models=models,
             tools=tools,
-            skills=_dict_list(d, "skills"),
+            skills=[AccessPointSkill.from_wire(x) for x in _expect_list(d["skills"], "skills")]
+            if d.get("skills") is not None
+            else [],
             qos=_opt_dict(d, "qos"),
             raw=dict(d),
         )
@@ -498,7 +521,7 @@ class AccessPointSpec:
         if self.tools:
             out["tools"] = [t.to_wire() for t in self.tools]
         if self.skills:
-            out["skills"] = [dict(s) for s in self.skills]
+            out["skills"] = [s.to_wire() if isinstance(s, AccessPointSkill) else dict(s) for s in self.skills]
         if self.qos is not None:
             out["qos"] = dict(self.qos)
         return out
@@ -625,10 +648,18 @@ class UsageCounters:
     cache_write_tokens: int | None = None
     reasoning_tokens: int | None = None
     total_tokens: int | None = None
-    #: Part of cache_write_tokens written with the one-hour TTL (a subset).
+    #: Parts of cache_write_tokens written with each TTL (subsets, never added
+    #: to it): 5m and 1h for Anthropic and Bedrock, 30m and 12h for OpenAI.
+    cache_write_5m_tokens: int | None = None
     cache_write_1h_tokens: int | None = None
+    cache_write_30m_tokens: int | None = None
+    cache_write_12h_tokens: int | None = None
     #: Gemini tool-use prompt tokens; not part of input_tokens.
     tool_use_prompt_tokens: int | None = None
+    #: A managed tool call's response body size in bytes and its gateway-measured
+    #: duration in milliseconds; known only for a complete response.
+    tool_response_bytes: int | None = None
+    tool_duration_milliseconds: int | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -641,8 +672,13 @@ class UsageCounters:
             cache_write_tokens=_opt_int(d, "cache_write_tokens"),
             reasoning_tokens=_opt_int(d, "reasoning_tokens"),
             total_tokens=_opt_int(d, "total_tokens"),
+            cache_write_5m_tokens=_opt_int(d, "cache_write_5m_tokens"),
             cache_write_1h_tokens=_opt_int(d, "cache_write_1h_tokens"),
+            cache_write_30m_tokens=_opt_int(d, "cache_write_30m_tokens"),
+            cache_write_12h_tokens=_opt_int(d, "cache_write_12h_tokens"),
             tool_use_prompt_tokens=_opt_int(d, "tool_use_prompt_tokens"),
+            tool_response_bytes=_opt_int(d, "tool_response_bytes"),
+            tool_duration_milliseconds=_opt_int(d, "tool_duration_milliseconds"),
             raw=dict(d),
         )
 
@@ -1234,6 +1270,8 @@ class ModelSurface:
     protocol: str | None = None
     provider_id: str | None = None
     models: list[str] = field(default_factory=list)
+    #: The full typed specification; None when the record carries no spec.
+    spec: ModelSurfaceSpec | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -1252,6 +1290,7 @@ class ModelSurface:
             protocol=_opt_str(surface, "protocol"),
             provider_id=_opt_str(provider, "id"),
             models=_str_list(surface, "models"),
+            spec=ModelSurfaceSpec.from_wire(spec) if d.get("spec") is not None else None,
             raw=dict(d),
         )
 
@@ -1267,6 +1306,8 @@ class ToolConnection:
     resource_url: str | None = None
     auth_type: str | None = None
     allowed_tools: list[str] = field(default_factory=list)
+    #: The full typed specification; None when the record carries no spec.
+    spec: ToolConnectionSpec | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
@@ -1285,6 +1326,7 @@ class ToolConnection:
             resource_url=_opt_str(spec, "resource_url"),
             auth_type=_opt_str(auth, "type"),
             allowed_tools=_str_list(execution, "allowed_tools"),
+            spec=ToolConnectionSpec.from_wire(spec) if d.get("spec") is not None else None,
             raw=dict(d),
         )
 
@@ -1546,3 +1588,978 @@ class BudgetStatus:
             top_spenders=dicts("top_spenders"),
             raw=dict(d),
         )
+
+
+# ---------------------------------------------------------------------------
+# Administration models: budgets, model surfaces, tool connections, hook
+# policies and usage configuration.
+#
+# These specification types are declared as a field table. ``from_wire`` keeps
+# the full JSON in ``raw`` and ``to_wire`` writes it back with the typed fields
+# applied on top, so a read-modify-write never drops a field this SDK version
+# does not model. A member the server did not send is None (or an empty list),
+# never zero or false.
+# ---------------------------------------------------------------------------
+
+
+def _int_list(obj: dict[str, Any], key: str) -> list[int]:
+    val = obj.get(key)
+    if val is None:
+        return []
+    if not isinstance(val, list):
+        raise _decode_err(f"field '{key}' must be a list")
+    out: list[int] = []
+    for item in val:
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise _decode_err(f"elements of '{key}' must be integers")
+        out.append(item)
+    return out
+
+
+_SCALAR_PARSERS: dict[str, Any] = {
+    "str": _opt_str,
+    "int": _opt_int,
+    "float": _opt_float,
+    "bool": _opt_bool,
+    "strs": _str_list,
+    "ints": _int_list,
+    "dicts": _dict_list,
+    "dict": _opt_dict,
+}
+
+_LIST_KINDS = frozenset({"strs", "ints", "dicts"})
+
+
+def _parse_member(d: dict[str, Any], wire: str, kind: Any) -> Any:
+    if isinstance(kind, str):
+        return _SCALAR_PARSERS[kind](d, wire)
+    if isinstance(kind, list):
+        raw = d.get(wire)
+        if raw is None:
+            return []
+        return [kind[0].from_wire(x) for x in _expect_list(raw, wire)]
+    raw = d.get(wire)
+    return None if raw is None else kind.from_wire(raw)
+
+
+class _WireModel:
+    """Table-driven wire (de)serialisation for specification dataclasses."""
+
+    #: attribute -> (wire name, kind). kind is a scalar name, a model class, or
+    #: a one-element list holding a model class.
+    _FIELDS: ClassVar[dict[str, tuple[str, Any]]] = {}
+    #: Attributes written even when empty (required lists).
+    _ALWAYS: ClassVar[frozenset[str]] = frozenset()
+
+    @classmethod
+    def from_wire(cls, data: Any) -> Any:
+        d = _expect_dict(data, cls.__name__)
+        kwargs = {attr: _parse_member(d, wire, kind) for attr, (wire, kind) in cls._FIELDS.items()}
+        return cls(raw=dict(d), **kwargs)  # type: ignore[call-arg]
+
+    def to_wire(self) -> dict[str, Any]:
+        known = {wire for wire, _ in self._FIELDS.values()}
+        raw: dict[str, Any] = getattr(self, "raw", {})
+        out: dict[str, Any] = {k: copy.deepcopy(v) for k, v in raw.items() if k not in known}
+        for attr, (wire, kind) in self._FIELDS.items():
+            value = getattr(self, attr)
+            if isinstance(kind, list):
+                if value or attr in self._ALWAYS:
+                    out[wire] = [x.to_wire() for x in value or []]
+            elif isinstance(kind, str):
+                if kind in _LIST_KINDS:
+                    if value or attr in self._ALWAYS:
+                        out[wire] = copy.deepcopy(list(value or []))
+                elif value is not None:
+                    out[wire] = copy.deepcopy(value)
+            elif value is not None:
+                out[wire] = value.to_wire()
+        return out
+
+
+def _raw_field() -> Any:
+    return field(default_factory=dict, repr=False, compare=False)
+
+
+def _list_field() -> Any:
+    return field(default_factory=list)
+
+
+# ---- budgets ----
+
+
+@dataclass(frozen=True)
+class GroupRef(_WireModel):
+    """A source-qualified group from a verified token."""
+
+    source: str | None = None
+    id: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"source": ("source", "str"), "id": ("id", "str")}
+
+
+@dataclass(frozen=True)
+class BudgetLimit(_WireModel):
+    """What a budget caps. ``amount`` is an exact decimal string."""
+
+    unit: str | None = None
+    currency: str | None = None
+    amount: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"unit": ("unit", "str"), "currency": ("currency", "str"), "amount": ("amount", "str")}
+
+
+@dataclass(frozen=True)
+class BudgetWindow(_WireModel):
+    """A budget period: ``calendar`` (unit, time_zone) or ``tumbling`` (hours)."""
+
+    kind: str | None = None
+    unit: str | None = None
+    time_zone: str | None = None
+    hours: int | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "kind": ("kind", "str"),
+        "unit": ("unit", "str"),
+        "time_zone": ("time_zone", "str"),
+        "hours": ("hours", "int"),
+    }
+
+
+@dataclass(frozen=True)
+class BudgetMembers(_WireModel):
+    """Selectors for who draws from a budget; a request draws when any matches."""
+
+    groups: list[GroupRef] = field(default_factory=list)
+    principals: list[str] = field(default_factory=list)
+    agents: list[str] = field(default_factory=list)
+    client_registrations: list[str] = field(default_factory=list)
+    access_points: list[str] = field(default_factory=list)
+    projects: list[str] = field(default_factory=list)
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "groups": ("groups", [GroupRef]),
+        "principals": ("principals", "strs"),
+        "agents": ("agents", "strs"),
+        "client_registrations": ("client_registrations", "strs"),
+        "access_points": ("access_points", "strs"),
+        "projects": ("projects", "strs"),
+    }
+
+
+@dataclass(frozen=True)
+class Budget(_WireModel):
+    """Saved specification of a tenant budget (create it with ``put_budget``)."""
+
+    id: str | None = None
+    display_name: str | None = None
+    parent: str | None = None
+    limit: BudgetLimit | None = None
+    window: BudgetWindow | None = None
+    members: BudgetMembers | None = None
+    #: ``deny`` (server default) or ``allow_and_flag``.
+    on_unknown_cost: str | None = None
+    thresholds: list[int] = field(default_factory=list)
+    #: Cost budgets only: also count priced managed tool calls. ``None`` when
+    #: the server did not send it (the server default is not to count them).
+    include_tool_calls: bool | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "display_name": ("display_name", "str"),
+        "parent": ("parent", "str"),
+        "limit": ("limit", BudgetLimit),
+        "window": ("window", BudgetWindow),
+        "members": ("members", BudgetMembers),
+        "on_unknown_cost": ("on_unknown_cost", "str"),
+        "thresholds": ("thresholds", "ints"),
+        "include_tool_calls": ("include_tool_calls", "bool"),
+    }
+
+
+@dataclass(frozen=True)
+class BudgetRecord:
+    """A stored budget with its revision (the ``If-Match`` token for replace and delete)."""
+
+    id: str
+    revision: int
+    spec: Budget
+    tenant_id: str | None = None
+    kind: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> BudgetRecord:
+        d = _expect_dict(data, "budget_record")
+        rec_id = _req_str(d, "id")
+        spec_raw = d.get("spec")
+        if spec_raw is None:
+            raise _decode_err("missing required object field 'spec'")
+        return cls(
+            id=rec_id,
+            revision=_req_int(d, "revision"),
+            spec=Budget.from_wire(spec_raw),
+            tenant_id=_opt_str(d, "tenant_id"),
+            kind=_opt_str(d, "kind"),
+            raw=dict(d),
+        )
+
+
+@dataclass(frozen=True)
+class BudgetPreviewSubject(_WireModel):
+    """A hypothetical caller. Nothing in it is verified."""
+
+    principal: str | None = None
+    groups: list[GroupRef] = field(default_factory=list)
+    agent: str | None = None
+    client: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "principal": ("principal", "str"),
+        "groups": ("groups", [GroupRef]),
+        "agent": ("agent", "str"),
+        "client": ("client", "str"),
+    }
+
+
+@dataclass(frozen=True)
+class BudgetPreviewRequest(_WireModel):
+    """Asks which budgets a hypothetical request would draw from."""
+
+    subject: BudgetPreviewSubject = field(default_factory=BudgetPreviewSubject)
+    access_point: str | None = None
+    plane: str | None = None
+    #: A specification validated as if saved and included in the answer; never stored.
+    draft: Budget | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "subject": ("subject", BudgetPreviewSubject),
+        "access_point": ("access_point", "str"),
+        "plane": ("plane", "str"),
+        "draft": ("draft", Budget),
+    }
+
+
+@dataclass(frozen=True)
+class BudgetPreviewDraw(_WireModel):
+    """One budget the hypothetical request would draw from."""
+
+    id: str | None = None
+    display_name: str | None = None
+    parent: str | None = None
+    direct: bool | None = None
+    reasons: list[str] = field(default_factory=list)
+    via_child: str | None = None
+    unit: str | None = None
+    currency: str | None = None
+    limit: str | None = None
+    window: BudgetWindow | None = None
+    draft: bool | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "display_name": ("display_name", "str"),
+        "parent": ("parent", "str"),
+        "direct": ("direct", "bool"),
+        "reasons": ("reasons", "strs"),
+        "via_child": ("via_child", "str"),
+        "unit": ("unit", "str"),
+        "currency": ("currency", "str"),
+        "limit": ("limit", "str"),
+        "window": ("window", BudgetWindow),
+        "draft": ("draft", "bool"),
+    }
+
+
+@dataclass(frozen=True)
+class BudgetPreviewSkipped(_WireModel):
+    """A matched budget that does not count this plane."""
+
+    id: str | None = None
+    reason: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"id": ("id", "str"), "reason": ("reason", "str")}
+
+
+@dataclass(frozen=True)
+class BudgetPreviewDraft(_WireModel):
+    """Validation result of the draft specification."""
+
+    valid: bool | None = None
+    #: The specification field the error is about.
+    field: str | None = None
+    error: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"valid": ("valid", "bool"), "field": ("field", "str"), "error": ("error", "str")}
+
+
+@dataclass(frozen=True)
+class BudgetPreview(_WireModel):
+    """The dry-run answer of ``preview_budget``."""
+
+    hypothetical: bool | None = None
+    plane: str | None = None
+    access_point: str | None = None
+    project: str | None = None
+    draws: list[BudgetPreviewDraw] = _list_field()
+    skipped: list[BudgetPreviewSkipped] = _list_field()
+    draft: BudgetPreviewDraft | None = None
+    notes: list[str] = _list_field()
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "hypothetical": ("hypothetical", "bool"),
+        "plane": ("plane", "str"),
+        "access_point": ("access_point", "str"),
+        "project": ("project", "str"),
+        "draws": ("draws", [BudgetPreviewDraw]),
+        "skipped": ("skipped", [BudgetPreviewSkipped]),
+        "draft": ("draft", BudgetPreviewDraft),
+        "notes": ("notes", "strs"),
+    }
+
+
+# ---- model surfaces ----
+
+
+@dataclass(frozen=True)
+class ModelProvider(_WireModel):
+    """The pinned provider block of a non-Google model surface."""
+
+    id: str | None = None
+    base_path: str | None = None
+    api_version: str | None = None
+    region: str | None = None
+    organization: str | None = None
+    project: str | None = None
+    anthropic_version: str | None = None
+    anthropic_betas: list[str] = _list_field()
+    stream_usage: str | None = None
+    limit_header_passthrough: bool | None = None
+    usage_semantics: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "base_path": ("base_path", "str"),
+        "api_version": ("api_version", "str"),
+        "region": ("region", "str"),
+        "organization": ("organization", "str"),
+        "project": ("project", "str"),
+        "anthropic_version": ("anthropic_version", "str"),
+        "anthropic_betas": ("anthropic_betas", "strs"),
+        "stream_usage": ("stream_usage", "str"),
+        "limit_header_passthrough": ("limit_header_passthrough", "bool"),
+        "usage_semantics": ("usage_semantics", "str"),
+    }
+
+
+@dataclass(frozen=True)
+class ModelWebSocket(_WireModel):
+    """WebSocket session settings. A member left None means the server default."""
+
+    metering: str | None = None
+    max_session_seconds: int | None = None
+    token_allowance: int | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "metering": ("metering", "str"),
+        "max_session_seconds": ("max_session_seconds", "int"),
+        "token_allowance": ("token_allowance", "int"),
+    }
+
+
+@dataclass(frozen=True)
+class ModelCapacityPolicy(_WireModel):
+    """Advisory enforcement of provider limit signals (per surface and replica)."""
+
+    cooldown_enabled: bool | None = None
+    max_cooldown_seconds: int | None = None
+    headroom_fraction: float | None = None
+    min_weight: int | None = None
+    default_weight: int | None = None
+    signal_max_age_seconds: int | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "cooldown_enabled": ("cooldown_enabled", "bool"),
+        "max_cooldown_seconds": ("max_cooldown_seconds", "int"),
+        "headroom_fraction": ("headroom_fraction", "float"),
+        "min_weight": ("min_weight", "int"),
+        "default_weight": ("default_weight", "int"),
+        "signal_max_age_seconds": ("signal_max_age_seconds", "int"),
+    }
+
+
+@dataclass(frozen=True)
+class ModelSurfaceAuth(_WireModel):
+    """A credential reference. ``secret_ref`` names a tenant secret, never its value."""
+
+    type: str | None = None
+    #: The wire name is ``in`` (a Python keyword).
+    in_: str | None = None
+    name: str | None = None
+    prefix: str | None = None
+    secret_ref: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "type": ("type", "str"),
+        "in_": ("in", "str"),
+        "name": ("name", "str"),
+        "prefix": ("prefix", "str"),
+        "secret_ref": ("secret_ref", "str"),
+    }
+
+
+@dataclass(frozen=True)
+class ModelSurfaceBlock(_WireModel):
+    """The ``surface`` block of a model surface specification."""
+
+    id: str | None = None
+    protocol: str | None = None
+    origin: str | None = None
+    models: list[str] = _list_field()
+    #: Catalog operations exactly as the provider descriptor returns them.
+    operations: list[dict[str, Any]] = _list_field()
+    #: Selects a non-Google provider; None is a Google Cloud surface.
+    provider: ModelProvider | None = None
+    websocket: ModelWebSocket | None = None
+    api_version: str | None = None
+    project: str | None = None
+    location: str | None = None
+    publisher: str | None = None
+    data_prefixes: list[str] = _list_field()
+    agents: list[str] = _list_field()
+    endpoint: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "protocol": ("protocol", "str"),
+        "origin": ("origin", "str"),
+        "models": ("models", "strs"),
+        "operations": ("operations", "dicts"),
+        "provider": ("provider", ModelProvider),
+        "websocket": ("websocket", ModelWebSocket),
+        "api_version": ("api_version", "str"),
+        "project": ("project", "str"),
+        "location": ("location", "str"),
+        "publisher": ("publisher", "str"),
+        "data_prefixes": ("data_prefixes", "strs"),
+        "agents": ("agents", "strs"),
+        "endpoint": ("endpoint", "str"),
+    }
+
+
+@dataclass(frozen=True)
+class ModelSurfaceSpec(_WireModel):
+    """Specification of a model surface. A provider surface has exactly one of
+    ``auth`` and ``identity_ref``; the server performs all validation."""
+
+    surface: ModelSurfaceBlock | None = None
+    identity_ref: str | None = None
+    network_profile_ref: str | None = None
+    billing_project: str | None = None
+    auth: ModelSurfaceAuth | None = None
+    capacity_policy: ModelCapacityPolicy | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "surface": ("surface", ModelSurfaceBlock),
+        "identity_ref": ("identity_ref", "str"),
+        "network_profile_ref": ("network_profile_ref", "str"),
+        "billing_project": ("billing_project", "str"),
+        "auth": ("auth", ModelSurfaceAuth),
+        "capacity_policy": ("capacity_policy", ModelCapacityPolicy),
+    }
+
+
+@dataclass(frozen=True)
+class ProviderLimitWindow(_WireModel):
+    """One provider limit window. Unknown members are None, never zero."""
+
+    limit: int | None = None
+    remaining: int | None = None
+    reset_at: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"limit": ("limit", "int"), "remaining": ("remaining", "int"), "reset_at": ("reset_at", "str")}
+
+
+@dataclass(frozen=True)
+class ModelProviderLimits(_WireModel):
+    """The last normalized provider rate-limit observation."""
+
+    provider: str | None = None
+    observed_at: str | None = None
+    http_status: int | None = None
+    classification: str | None = None
+    retry_after_ms: int | None = None
+    requests: ProviderLimitWindow | None = None
+    tokens: ProviderLimitWindow | None = None
+    input_tokens: ProviderLimitWindow | None = None
+    output_tokens: ProviderLimitWindow | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "provider": ("provider", "str"),
+        "observed_at": ("observed_at", "str"),
+        "http_status": ("http_status", "int"),
+        "classification": ("classification", "str"),
+        "retry_after_ms": ("retry_after_ms", "int"),
+        "requests": ("requests", ProviderLimitWindow),
+        "tokens": ("tokens", ProviderLimitWindow),
+        "input_tokens": ("input_tokens", ProviderLimitWindow),
+        "output_tokens": ("output_tokens", ProviderLimitWindow),
+    }
+
+
+@dataclass(frozen=True)
+class ModelCooldownState(_WireModel):
+    """The capacity gate's cooldown phase for a surface."""
+
+    phase: str | None = None
+    until: str | None = None
+    retry_after_ms: int | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"phase": ("phase", "str"), "until": ("until", "str"), "retry_after_ms": ("retry_after_ms", "int")}
+
+
+@dataclass(frozen=True)
+class SurfaceCapacityPolicyState(_WireModel):
+    """The policy a surface enforces (defaults applied) and its cooldown.
+    ``policy`` and ``cooldown`` are None while the policy is off."""
+
+    enabled: bool | None = None
+    policy: ModelCapacityPolicy | None = None
+    cooldown: ModelCooldownState | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "enabled": ("enabled", "bool"),
+        "policy": ("policy", ModelCapacityPolicy),
+        "cooldown": ("cooldown", ModelCooldownState),
+    }
+
+
+@dataclass(frozen=True)
+class SurfaceCapacity(_WireModel):
+    """A surface's last provider limit observation (on the replica that answered)
+    and its capacity policy state. Advisory."""
+
+    surface_id: str | None = None
+    observed: bool | None = None
+    scope: str | None = None
+    limits: ModelProviderLimits | None = None
+    capacity_policy: SurfaceCapacityPolicyState = field(default_factory=SurfaceCapacityPolicyState)
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "surface_id": ("surface_id", "str"),
+        "observed": ("observed", "bool"),
+        "scope": ("scope", "str"),
+        "limits": ("limits", ModelProviderLimits),
+        "capacity_policy": ("capacity_policy", SurfaceCapacityPolicyState),
+    }
+
+    @classmethod
+    def from_wire(cls, data: Any) -> SurfaceCapacity:
+        d = _expect_dict(data, "surface_capacity")
+        if d.get("capacity_policy") is None:
+            raise _decode_err("missing required object field 'capacity_policy'")
+        return super().from_wire(d)  # type: ignore[no-any-return]
+
+
+# ---- tool connections ----
+
+
+@dataclass(frozen=True)
+class ToolAuth(_WireModel):
+    """The auth block of a tool connection. Secrets are references (names in the
+    tenant secret namespace), never values."""
+
+    type: str | None = None
+    #: The wire name is ``in`` (a Python keyword).
+    in_: str | None = None
+    name: str | None = None
+    prefix: str | None = None
+    secret_ref: str | None = None
+    username: str | None = None
+    token_endpoint: str | None = None
+    client_id: str | None = None
+    client_secret_ref: str | None = None
+    client_auth_method: str | None = None
+    scopes: list[str] = _list_field()
+    resource: str | None = None
+    audience: str | None = None
+    subject_token_type: str | None = None
+    requested_token_type: str | None = None
+    identity_ref: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "type": ("type", "str"),
+        "in_": ("in", "str"),
+        "name": ("name", "str"),
+        "prefix": ("prefix", "str"),
+        "secret_ref": ("secret_ref", "str"),
+        "username": ("username", "str"),
+        "token_endpoint": ("token_endpoint", "str"),
+        "client_id": ("client_id", "str"),
+        "client_secret_ref": ("client_secret_ref", "str"),
+        "client_auth_method": ("client_auth_method", "str"),
+        "scopes": ("scopes", "strs"),
+        "resource": ("resource", "str"),
+        "audience": ("audience", "str"),
+        "subject_token_type": ("subject_token_type", "str"),
+        "requested_token_type": ("requested_token_type", "str"),
+        "identity_ref": ("identity_ref", "str"),
+    }
+
+
+@dataclass(frozen=True)
+class ToolRule(_WireModel):
+    """A policy rule on tool calls. ``when`` is a CEL boolean expression;
+    ``effect`` is ``deny`` or ``allow``; ``message`` is shown to the caller."""
+
+    id: str | None = None
+    description: str | None = None
+    when: str | None = None
+    effect: str | None = None
+    message: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "description": ("description", "str"),
+        "when": ("when", "str"),
+        "effect": ("effect", "str"),
+        "message": ("message", "str"),
+    }
+
+
+@dataclass(frozen=True)
+class ToolPolicy(_WireModel):
+    """Connection-level tool authorization. Patterns are exact names or prefixes
+    ending in ``*``; deny wins over allow."""
+
+    allow: list[str] = _list_field()
+    deny: list[str] = _list_field()
+    read_only: bool | None = None
+    rules: list[ToolRule] = _list_field()
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "allow": ("allow", "strs"),
+        "deny": ("deny", "strs"),
+        "read_only": ("read_only", "bool"),
+        "rules": ("rules", [ToolRule]),
+    }
+
+
+@dataclass(frozen=True)
+class ToolExecution(_WireModel):
+    """The managed execution block of a tool connection."""
+
+    #: Execution id; equals the connection id.
+    id: str | None = None
+    endpoint: str | None = None
+    identity_ref: str | None = None
+    credential_mode: str | None = None
+    allowed_tools: list[str] = _list_field()
+    #: ``stateless-json`` or ``stateless-streamable-http``.
+    mode: str | None = None
+    #: A date such as ``2025-06-18``.
+    protocol_version: str | None = None
+    #: Bound on a tool response body in bytes; the response-size meter needs it.
+    max_response_bytes: int | None = None
+    #: Bound on a tool call's duration in seconds; the duration meter needs it.
+    max_duration_seconds: int | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "endpoint": ("endpoint", "str"),
+        "identity_ref": ("identity_ref", "str"),
+        "credential_mode": ("credential_mode", "str"),
+        "allowed_tools": ("allowed_tools", "strs"),
+        "mode": ("mode", "str"),
+        "protocol_version": ("protocol_version", "str"),
+        "max_response_bytes": ("max_response_bytes", "int"),
+        "max_duration_seconds": ("max_duration_seconds", "int"),
+    }
+
+
+@dataclass(frozen=True)
+class ToolProvenance(_WireModel):
+    """The MCP Registry entry a connection was imported from (informational)."""
+
+    registry: str | None = None
+    name: str | None = None
+    version: str | None = None
+    retrieved_at: str | None = None
+    sha256: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "registry": ("registry", "str"),
+        "name": ("name", "str"),
+        "version": ("version", "str"),
+        "retrieved_at": ("retrieved_at", "str"),
+        "sha256": ("sha256", "str"),
+    }
+
+
+@dataclass(frozen=True)
+class ToolConnectionSpec(_WireModel):
+    """Specification of a tool connection. Fields this SDK does not model are
+    kept from a read and written back unchanged."""
+
+    id: str | None = None
+    resource_url: str | None = None
+    execution: ToolExecution | None = None
+    auth: ToolAuth | None = None
+    tools: ToolPolicy | None = None
+    provenance: ToolProvenance | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "resource_url": ("resource_url", "str"),
+        "execution": ("execution", ToolExecution),
+        "auth": ("auth", ToolAuth),
+        "tools": ("tools", ToolPolicy),
+        "provenance": ("provenance", ToolProvenance),
+    }
+
+
+# ---- request-hook policies ----
+
+
+@dataclass(frozen=True)
+class HookScope(_WireModel):
+    """Where a policy applies: ``tenant`` (no id), ``access_point``,
+    ``model_surface`` or ``tool_connection``."""
+
+    kind: str | None = None
+    id: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"kind": ("kind", "str"), "id": ("id", "str")}
+
+
+@dataclass(frozen=True)
+class RedactRule(_WireModel):
+    """A built-in or RE2 pattern and the action (``mask`` or ``deny``) on a match."""
+
+    id: str | None = None
+    builtin: str | None = None
+    pattern: str | None = None
+    action: str | None = None
+    placeholder: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "builtin": ("builtin", "str"),
+        "pattern": ("pattern", "str"),
+        "action": ("action", "str"),
+        "placeholder": ("placeholder", "str"),
+    }
+
+
+@dataclass(frozen=True)
+class RedactConfig(_WireModel):
+    """Configuration of a ``redact`` hook."""
+
+    rules: list[RedactRule] = _list_field()
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"rules": ("rules", [RedactRule])}
+    _ALWAYS = frozenset({"rules"})
+
+
+@dataclass(frozen=True)
+class SizeLimitConfig(_WireModel):
+    """Configuration of a ``size_limit`` hook."""
+
+    max_chars: int | None = None
+    max_parts: int | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"max_chars": ("max_chars", "int"), "max_parts": ("max_parts", "int")}
+
+
+@dataclass(frozen=True)
+class HookHTTPConfig(_WireModel):
+    """Configuration of an ``http`` sidecar hook. ``auth_secret_ref`` names a
+    secret; only the reference is stored. ``presidio`` and ``llm_guard`` are the
+    adapter blocks as sent on the wire."""
+
+    endpoint: str | None = None
+    format: str | None = None
+    auth_secret_ref: str | None = None
+    fail_open: bool | None = None
+    presidio: dict[str, Any] | None = None
+    llm_guard: dict[str, Any] | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "endpoint": ("endpoint", "str"),
+        "format": ("format", "str"),
+        "auth_secret_ref": ("auth_secret_ref", "str"),
+        "fail_open": ("fail_open", "bool"),
+        "presidio": ("presidio", "dict"),
+        "llm_guard": ("llm_guard", "dict"),
+    }
+
+
+@dataclass(frozen=True)
+class Hook(_WireModel):
+    """One configured hook; set the block that matches ``type``."""
+
+    id: str | None = None
+    #: ``redact``, ``size_limit`` or ``http``.
+    type: str | None = None
+    phases: list[str] = _list_field()
+    timeout_ms: int | None = None
+    on_uninspectable: str | None = None
+    message: str | None = None
+    redact: RedactConfig | None = None
+    size_limit: SizeLimitConfig | None = None
+    http: HookHTTPConfig | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "type": ("type", "str"),
+        "phases": ("phases", "strs"),
+        "timeout_ms": ("timeout_ms", "int"),
+        "on_uninspectable": ("on_uninspectable", "str"),
+        "message": ("message", "str"),
+        "redact": ("redact", RedactConfig),
+        "size_limit": ("size_limit", SizeLimitConfig),
+        "http": ("http", HookHTTPConfig),
+    }
+    _ALWAYS = frozenset({"phases"})
+
+
+@dataclass(frozen=True)
+class HookPolicy(_WireModel):
+    """Binds an ordered list of hooks to a scope. The server validates it."""
+
+    id: str | None = None
+    description: str | None = None
+    scope: HookScope | None = None
+    planes: list[str] = _list_field()
+    streaming: str | None = None
+    non_text: str | None = None
+    hooks: list[Hook] = _list_field()
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "description": ("description", "str"),
+        "scope": ("scope", HookScope),
+        "planes": ("planes", "strs"),
+        "streaming": ("streaming", "str"),
+        "non_text": ("non_text", "str"),
+        "hooks": ("hooks", [Hook]),
+    }
+    _ALWAYS = frozenset({"hooks"})
+
+
+@dataclass(frozen=True)
+class HookPolicyRecord:
+    """A stored hook policy with its revision."""
+
+    id: str
+    revision: int
+    policy: HookPolicy
+    raw: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_wire(cls, data: Any) -> HookPolicyRecord:
+        d = _expect_dict(data, "hook_policy_record")
+        spec_raw = d.get("spec")
+        if spec_raw is None:
+            raise _decode_err("missing required object field 'spec'")
+        return cls(
+            id=_req_str(d, "id"),
+            revision=_req_int(d, "revision"),
+            policy=HookPolicy.from_wire(spec_raw),
+            raw=dict(d),
+        )
+
+
+@dataclass(frozen=True)
+class HookPolicyTest(_WireModel):
+    """A dry-run sample. The server never stores it."""
+
+    texts: list[str] = _list_field()
+    #: ``request`` (default) or ``response``.
+    phase: str | None = None
+    #: ``llmplex`` (default) or ``mcplex``.
+    plane: str | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"texts": ("texts", "strs"), "phase": ("phase", "str"), "plane": ("plane", "str")}
+    _ALWAYS = frozenset({"texts"})
+
+
+@dataclass(frozen=True)
+class HookRuleCount(_WireModel):
+    """A rule identifier and how many times it matched."""
+
+    id: str | None = None
+    count: int | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {"id": ("id", "str"), "count": ("count", "int")}
+
+
+@dataclass(frozen=True)
+class HookResult(_WireModel):
+    """What one hook decided."""
+
+    id: str | None = None
+    type: str | None = None
+    phase: str | None = None
+    decision: str | None = None
+    rules: list[HookRuleCount] = _list_field()
+    duration_ms: int | None = None
+    fail_open_used: bool | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "id": ("id", "str"),
+        "type": ("type", "str"),
+        "phase": ("phase", "str"),
+        "decision": ("decision", "str"),
+        "rules": ("rules", [HookRuleCount]),
+        "duration_ms": ("duration_ms", "int"),
+        "fail_open_used": ("fail_open_used", "bool"),
+    }
+
+
+@dataclass(frozen=True)
+class HookPolicyTestResult(_WireModel):
+    """What a policy decided on a sample. ``texts`` is the output after
+    transforms and is empty when the sample was refused."""
+
+    policy: str | None = None
+    phase: str | None = None
+    decision: str | None = None
+    code: str | None = None
+    message: str | None = None
+    texts: list[str] = _list_field()
+    results: list[HookResult] = _list_field()
+    uninspected_parts: int | None = None
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "policy": ("policy", "str"),
+        "phase": ("phase", "str"),
+        "decision": ("decision", "str"),
+        "code": ("code", "str"),
+        "message": ("message", "str"),
+        "texts": ("texts", "strs"),
+        "results": ("results", [HookResult]),
+        "uninspected_parts": ("uninspected_parts", "int"),
+    }
+
+
+# ---- usage configuration ----
+
+
+@dataclass(frozen=True)
+class UsageConfig(_WireModel):
+    """The deployment's usage settings. It carries no secret."""
+
+    #: Link template for a trace viewer; empty when not configured.
+    trace_url_template: str | None = None
+    feedback: bool | None = None
+    feedback_comments: bool | None = None
+    #: Tag keys a caller may set with ``X-AIPlex-Tags``.
+    tag_keys_allowed: list[str] = _list_field()
+    raw: dict[str, Any] = _raw_field()
+    _FIELDS = {
+        "trace_url_template": ("trace_url_template", "str"),
+        "feedback": ("feedback", "bool"),
+        "feedback_comments": ("feedback_comments", "bool"),
+        "tag_keys_allowed": ("tag_keys_allowed", "strs"),
+    }

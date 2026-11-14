@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
 )
@@ -45,6 +46,36 @@ func (c *Client) GetQuotaInventory(ctx context.Context, kind, after string, limi
 	var out quotaplex.AdministrationPage
 	err := c.do(ctx, http.MethodGet, "/api/v1/quota/inventory?"+query.Encode(), nil, &out)
 	return &out, err
+}
+
+// GetQuotaUnknownAttempts reads one page of the attempts inventory filtered to
+// attempts in the unknown state that were dispatched at least olderThan ago
+// (0 selects all of them). The page's Unknown field summarizes the matches on
+// that page: count, oldest dispatch time and exposure per meter, where an
+// amount that could not be computed has a null quantity. Merge the summaries
+// of every page (UnknownExposure.Merge) for the whole tenant; a page can
+// hold no match and still not be done.
+func (c *Client) GetQuotaUnknownAttempts(ctx context.Context, olderThan time.Duration, after string, limit int) (*quotaplex.AdministrationPage, error) {
+	if olderThan < 0 {
+		return nil, fmt.Errorf("older_than must not be negative")
+	}
+	if limit < 1 || limit > 64 {
+		return nil, fmt.Errorf("quota inventory limit must be in [1,64]")
+	}
+	query := url.Values{"kind": []string{"attempts"}, "limit": []string{strconv.Itoa(limit)}, "older_than": []string{olderThan.String()}}
+	if after != "" {
+		query.Set("after", after)
+	}
+	var out quotaplex.AdministrationPage
+	if err := c.do(ctx, http.MethodGet, "/api/v1/quota/inventory?"+query.Encode(), nil, &out); err != nil {
+		return nil, err
+	}
+	if out.Unknown == nil {
+		// A server that ignored the filter returned an unfiltered page;
+		// treating it as "no unknown attempts" would report unknown as zero.
+		return nil, fmt.Errorf("the server did not apply older_than (no unknown-attempt summary in the response)")
+	}
+	return &out, nil
 }
 func quotaAdminPath(kind, id string) (string, error) {
 	if err := validateResourceID(id); err != nil {

@@ -149,8 +149,74 @@ access point. "reported" records come from a harness's own telemetry
 harness reported one, has the basis "reported". The two sources can describe the
 same request, so a summary keeps them apart and never adds them silently.`,
 	}
-	cmd.AddCommand(usageRecordsCmd(), usageGetCmd(), usageSummaryCmd(), usageFeedbackCmd(), usagePricesCmd())
+	cmd.AddCommand(usageRecordsCmd(), usageGetCmd(), usageSummaryCmd(), usageFeedbackCmd(), usagePricesCmd(), usageConfigCmd())
 	return cmd
+}
+
+// usageConfigCmd shows the usage settings the deployment serves: the trace link
+// template, whether feedback and feedback comments are accepted, and the tag
+// keys a caller may set.
+func usageConfigCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "config",
+		Short: "Show the deployment's usage settings",
+		Long: `Show the usage settings the deployment serves: the trace link template,
+whether feedback and feedback comments are accepted, and the tag keys a caller
+may set. A template that is not configured is shown as "not set".`,
+		Example: "  aiplex usage config\n  aiplex usage config -o json",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := newClient().GetUsageConfig(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("usage config: %w", err)
+			}
+			if spStructured(cmd, cfg) {
+				return nil
+			}
+
+			spTable(cmd.OutOrStdout(), []string{"SETTING", "VALUE"}, [][]string{
+				{"Trace URL template", usageTraceCell(cfg.TraceURLTemplate)},
+				{"Feedback", usageYesNo(cfg.Feedback)},
+				{"Feedback comments", usageYesNo(cfg.FeedbackComments)},
+				{"Tag keys allowed", usageKeysCell(cfg.TagKeysAllowed)},
+			})
+			return nil
+		},
+	}
+}
+
+// usageTraceCell shows a template the API did not send as unknown, an explicit
+// empty template as not set.
+func usageTraceCell(v *string) string {
+	switch {
+	case v == nil:
+		return spUnknown
+	case *v == "":
+		return "not set"
+	}
+	return *v
+}
+
+func usageYesNo(v *bool) string {
+	switch {
+	case v == nil:
+		return spUnknown
+	case *v:
+		return "yes"
+	}
+	return "no"
+}
+
+// usageKeysCell shows a key list the API did not send as unknown, an explicit
+// empty list as none.
+func usageKeysCell(keys []string) string {
+	switch {
+	case keys == nil:
+		return spUnknown
+	case len(keys) == 0:
+		return "none"
+	}
+	return strings.Join(keys, ", ")
 }
 
 func usagePrint(v any) {
@@ -539,7 +605,7 @@ func usageRecordTable(records []usageledger.Record) *outTable {
 		row := []string{r.ID, relTime(r.StartedAt), r.Plane, usageTarget(r), usageCaller(r), usageDash(usageAgentLabel(r)), usageDash(r.PrincipalDisplay), usageDash(r.PrincipalID), usageDash(r.ClientID),
 			usageDash(usageAccessPointCell(r)), usageSessionCell(r), usageBatchCell(r), usageTagsCell(r.Tags), usageStatusCell(r), usageHooksCell(r),
 			usageAttemptsCell(r), usageBackendCell(r), usageCacheCell(r),
-			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageRecordCounter(r, usageledger.CounterCacheWrite),
+			usageRecordCounter(r, usageledger.CounterInput), usageRecordCounter(r, usageledger.CounterOutput), usageCacheWriteCell(r),
 			usageModalityCell(r), usageUnitsCell(r), cost, latency}
 		if reported {
 			row = append(row[:4], append([]string{usageSourceCell(r)}, row[4:]...)...)
@@ -695,6 +761,9 @@ var usageUnitLabel = map[string]string{
 	usageledger.CounterVoiceSessionMilliseconds: "voice-session",
 	usageledger.CounterVideoOutputMilliseconds:  "video-out",
 	usageledger.CounterGeneratedImages:          "images",
+	usageledger.CounterToolUsePrompt:            "tool-use-prompt",
+	usageledger.CounterToolResponseBytes:        "tool-response",
+	usageledger.CounterToolDurationMilliseconds: "tool-time",
 }
 
 // usageUnitValue renders one reported unit quantity: milliseconds as a
@@ -709,6 +778,12 @@ func usageUnitValue(name string, v int64, size, quality string) string {
 			cell += " (" + dims + ")"
 		}
 		return cell
+	}
+	switch name {
+	case usageledger.CounterToolResponseBytes:
+		return fmt.Sprintf("%d bytes", v)
+	case usageledger.CounterToolUsePrompt:
+		return fmt.Sprintf("%d tokens", v)
 	}
 	return usageDuration(v)
 }
@@ -771,6 +846,38 @@ func usageModalityCell(r usageledger.Record) string {
 	})
 }
 
+var usageCacheTTLShort = strings.NewReplacer("cache_write_", "", "_tokens", "")
+
+// usageCacheWriteText appends the reported per-TTL cache writes, subsets of
+// the total, to a cache-write cell: "30 (5m=10 1h=20)". TTLs that were not
+// reported are omitted, never shown as zero.
+func usageCacheWriteText(total string, get func(string) (int64, bool)) string {
+	parts := []string{}
+	for _, name := range usageledger.CacheSubsetCounters {
+		if v, ok := get(name); ok {
+			parts = append(parts, usageCacheTTLShort.Replace(name)+"="+strconv.FormatInt(v, 10))
+		}
+	}
+	if len(parts) == 0 {
+		return total
+	}
+	return total + " (" + strings.Join(parts, " ") + ")"
+}
+
+func usageCacheWriteCell(r usageledger.Record) string {
+	return usageCacheWriteText(usageRecordCounter(r, usageledger.CounterCacheWrite), func(name string) (int64, bool) {
+		v := r.Usage.UnitCounter(name)
+		if v == nil {
+			return 0, false
+		}
+		return *v, true
+	})
+}
+
+func usageGroupCacheWrite(g usageledger.SummaryGroup) string {
+	return usageCacheWriteText(usageTokens(g, usageledger.CounterCacheWrite), func(name string) (int64, bool) { v, ok := g.ModalityTokens[name]; return v, ok })
+}
+
 func usageRecordDetail(r usageledger.Record) [][2]string {
 	httpStatus := "—"
 	if r.HTTPStatus != 0 {
@@ -795,7 +902,7 @@ func usageRecordDetail(r usageledger.Record) [][2]string {
 		rows = append(rows, [2]string{name, usageRecordCounter(r, name)})
 	}
 	// Modality splits are subsets of input_tokens / output_tokens, and the
-	// one-hour cache writes a subset of cache_write_tokens.
+	// per-TTL cache writes subsets of cache_write_tokens.
 	for _, name := range append(append([]string{}, usageledger.ModalityCounters...), usageledger.CacheSubsetCounters...) {
 		rows = append(rows, [2]string{name + " (subset)", usageUnitCounter(r, name)})
 	}
@@ -886,8 +993,10 @@ func usageUnitCounter(r usageledger.Record, name string) string {
 		if r.ImageSize != "" || r.ImageQuality != "" {
 			cell += " (" + strings.TrimSpace(r.ImageSize+" "+r.ImageQuality) + ")"
 		}
-	case usageledger.CounterAudioInputMilliseconds, usageledger.CounterVoiceSessionMilliseconds, usageledger.CounterVideoOutputMilliseconds:
+	case usageledger.CounterAudioInputMilliseconds, usageledger.CounterVoiceSessionMilliseconds, usageledger.CounterVideoOutputMilliseconds, usageledger.CounterToolDurationMilliseconds:
 		cell += " ms (" + usageDuration(*v) + ")"
+	case usageledger.CounterToolResponseBytes:
+		cell += " bytes"
 	}
 	if r.UsageBound != "" {
 		cell += " (" + r.UsageBound + ")"
@@ -1086,7 +1195,7 @@ func usageSummaryTable(s *usageledger.Summary) *outTable {
 			row = append(row, start)
 		}
 		row = append(row, strconv.FormatInt(g.Requests, 10), strconv.FormatInt(g.Errors, 10), strconv.FormatInt(g.Denied, 10),
-			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageTokens(g, usageledger.CounterCacheWrite),
+			usageTokens(g, usageledger.CounterInput), usageTokens(g, usageledger.CounterOutput), usageGroupCacheWrite(g),
 			usageGroupModality(g), usageGroupUnits(g), usageGroupBatch(g), usageCostTotals(g), usageUnknownCounts(g), usageBoundedCounts(g))
 		if withFeedback {
 			row = append(row, usageFeedbackCell(g))
@@ -1410,7 +1519,7 @@ func usagePricesDeleteCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().Uint64Var(&revision, "revision", 0, "Expected revision")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	return cmd
 }
 

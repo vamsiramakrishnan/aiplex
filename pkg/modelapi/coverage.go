@@ -28,10 +28,11 @@ func Coverage(op Operation) ExecutionCoverage {
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}
 	case "compat.chat-completions":
 		// No provider usage contract: request-count unless the surface
-		// declares OpenAI usage semantics (Provider.UsageSemantics), which
-		// the quota host checks per invocation.
+		// declares OpenAI or DeepSeek usage semantics
+		// (Provider.UsageSemantics), which the quota host checks per
+		// invocation.
 		return ExecutionCoverage{RequestCount: true}
-	case "anthropic.messages", "models.rawPredict", "models.streamRawPredict":
+	case "anthropic.messages", BedrockMantleMessagesOperation, "models.rawPredict", "models.streamRawPredict":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}
 	case "interaction.create":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "gemini-interaction-text"}
@@ -41,6 +42,11 @@ func Coverage(op Operation) ExecutionCoverage {
 	// (Live) under these profiles instead (session_metering.go).
 	case "live.connect":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "gemini-live-allowance"}
+	case geminiLiveOperation:
+		// Developer API Live: the same observer, but whether its snapshots
+		// are session-cumulative is undocumented, so usage is advisory and
+		// no token profile (allowance windows) is offered.
+		return ExecutionCoverage{RequestCount: true}
 	case "openai.v1.realtime":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "openai-realtime"}
 	case "openai.v1.responses-websocket":

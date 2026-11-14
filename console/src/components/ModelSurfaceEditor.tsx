@@ -45,14 +45,16 @@ export default function ModelSurfaceEditor({ record, onClose }: { record?: api.S
   const chooseProvider = (provider: api.ProviderId) => setDraft(x => ({ ...api.blankDraft(provider), id: x.id }))
   const toggleOperation = (id: string) => setDraft(x => {
     const operationIds = x.operationIds.includes(id) ? x.operationIds.filter(o => o !== id) : [...x.operationIds, id]
-    // A selection that makes token metering invalid falls back to session metering.
-    return { ...x, operationIds, wsMetering: x.wsMetering === 'token' && api.tokenMeteringBlocked(operationIds) ? 'session' : x.wsMetering }
+    // A selection that makes token or seconds metering invalid falls back to session metering.
+    const blocked = (x.wsMetering === 'token' && api.tokenMeteringBlocked(operationIds)) || (x.wsMetering === 'seconds' && !api.secondsMeteringAvailable(operationIds))
+    return { ...x, operationIds, wsMetering: blocked ? 'session' : x.wsMetering }
   })
 
   const fields = api.PROVIDER_FIELDS[draft.provider]
   const modes = api.authModes(draft.provider, d)
   const wsApplies = api.hasWebSocketOperation(d, draft.operationIds)
   const tokenBlocked = api.tokenMeteringBlocked(draft.operationIds)
+  const secondsAvailable = api.secondsMeteringAvailable(draft.operationIds)
 
   async function save(e: FormEvent) {
     e.preventDefault()
@@ -118,7 +120,7 @@ export default function ModelSurfaceEditor({ record, onClose }: { record?: api.S
           {fields.includes('project') && <Labeled label="Project (optional)" hint="Pinned as OpenAI-Project on every request."><input className={input} {...bind('project')} /></Labeled>}
           {fields.includes('anthropic_version') && <Labeled label="Anthropic version" hint="Pinned as the anthropic-version header."><input className={input} placeholder="2023-06-01" {...bind('anthropic_version')} /></Labeled>}
           {fields.includes('anthropic_betas') && <Labeled label="Allowed beta flags (one per line)" hint="Callers may send only these anthropic-beta values."><textarea className={input} rows={2} {...bind('anthropic_betas')} /></Labeled>}
-          {fields.includes('usage_semantics') && <Labeled label="Usage semantics" hint="Declare OpenAI usage semantics only if this server reports usage exactly as OpenAI does; otherwise requests are counted, not metered by tokens."><select className={input} {...bind('usage_semantics')}><option value="">Not declared (request-count metering)</option><option value="openai">openai</option></select></Labeled>}
+          {fields.includes('usage_semantics') && <Labeled label="Usage semantics" hint="Declare usage semantics only if this server reports usage exactly as that provider documents: openai, or deepseek for DeepSeek's cache-hit and cache-miss fields. Otherwise requests are counted, not metered by tokens."><select className={input} {...bind('usage_semantics')}><option value="">Not declared (request-count metering)</option><option value="openai">openai</option><option value="deepseek">deepseek</option></select></Labeled>}
           {fields.includes('stream_usage') && <Labeled label="Streaming usage (stream_usage)" hint={STREAM_USAGE_TEXT[draft.stream_usage || d.default_stream_usage || ''] ?? undefined}>
             <select className={input} {...bind('stream_usage')}><option value="">Provider default{d.default_stream_usage ? ` (${d.default_stream_usage})` : ''}</option>{['require', 'inject', 'off'].map(v => <option key={v} value={v}>{v}</option>)}</select>
           </Labeled>}
@@ -150,11 +152,12 @@ export default function ModelSurfaceEditor({ record, onClose }: { record?: api.S
       {wsApplies && <fieldset className="space-y-2" aria-label="WebSocket sessions"><legend className="text-sm font-medium">WebSocket sessions</legend>
         <p className={muted}><strong>Session metering</strong> admits the whole WebSocket session once, as a single request, however long it runs.</p>
         <p className={muted}><strong>Token metering</strong> admits each response (or each renewable token allowance window) by the tokens it uses.</p>
+        <p className={muted}><strong>Seconds metering</strong> (Live voice only) reserves the maximum session length when a session starts and settles the length the provider confirms. It needs a maximum session length and a quota binding with the <code>voice-seconds</code> profile.</p>
         <div className="grid gap-3 sm:grid-cols-3">
           <Labeled label="Metering" hint={tokenBlocked ? 'Token metering is unavailable for Live voice: it is billed by session seconds.' : undefined}>
-            <select className={input} value={draft.wsMetering} onChange={e => set('wsMetering', e.target.value as api.SurfaceDraft['wsMetering'])}><option value="">Default (session)</option><option value="session">session</option><option value="token" disabled={tokenBlocked}>token</option></select>
+            <select className={input} value={draft.wsMetering} onChange={e => set('wsMetering', e.target.value as api.SurfaceDraft['wsMetering'])}><option value="">Default (session)</option><option value="session">session</option><option value="token" disabled={tokenBlocked}>token</option><option value="seconds" disabled={!secondsAvailable}>seconds</option></select>
           </Labeled>
-          <Labeled label="Maximum session seconds (optional)" hint="60 to 86400."><input className={input} inputMode="numeric" {...bind('wsMaxSessionSeconds')} /></Labeled>
+          <Labeled label={draft.wsMetering === 'seconds' ? 'Maximum session seconds' : 'Maximum session seconds (optional)'} hint="60 to 86400."><input className={input} inputMode="numeric" {...bind('wsMaxSessionSeconds')} /></Labeled>
           {draft.wsMetering === 'token' && <Labeled label="Token allowance (optional)" hint="1,024 to 4,194,304 tokens per window."><input className={input} inputMode="numeric" {...bind('wsTokenAllowance')} /></Labeled>}
         </div>
       </fieldset>}

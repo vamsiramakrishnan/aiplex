@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"math/big"
 	"time"
 )
@@ -24,12 +25,15 @@ const (
 	MeterCacheWrite = "cache_write_tokens"
 	MeterReasoning  = "reasoning_tokens"
 	MeterRequests   = "requests"
-	// MeterCacheWrite1h is the part of cache_write_tokens written with the
-	// one-hour TTL; when priced, cache_write_tokens is charged only for the
-	// remainder. MeterToolUsePrompt is the Gemini tool-use prompt tokens
-	// (separate from input_tokens). Per-call server-tool meters are named
-	// "server_tool.<kind>" (see server_tools.go).
+	// The per-TTL cache-write meters price the parts of cache_write_tokens
+	// written with that time-to-live; when one is priced, cache_write_tokens
+	// is charged only for the remainder. MeterToolUsePrompt is the Gemini
+	// tool-use prompt tokens (separate from input_tokens). Per-call
+	// server-tool meters are named "server_tool.<kind>" (see server_tools.go).
+	MeterCacheWrite5m  = CounterCacheWrite5m
 	MeterCacheWrite1h  = CounterCacheWrite1h
+	MeterCacheWrite30m = CounterCacheWrite30m
+	MeterCacheWrite12h = CounterCacheWrite12h
 	MeterToolUsePrompt = CounterToolUsePrompt
 )
 
@@ -124,9 +128,11 @@ func (p Price) Validate() error {
 	if err := validateMeters(p.Meters); err != nil {
 		return err
 	}
-	if _, priced := p.Meters[MeterCacheWrite1h]; priced {
-		if _, parent := p.Meters[MeterCacheWrite]; !parent {
-			return invalid("cache_write_1h_tokens needs cache_write_tokens to be priced too")
+	for _, subset := range CacheSubsetCounters {
+		if _, priced := p.Meters[subset]; priced {
+			if _, parent := p.Meters[MeterCacheWrite]; !parent {
+				return invalid("%s needs cache_write_tokens to be priced too", subset)
+			}
 		}
 	}
 	if len(p.Tiers) > MaxPriceTiers {
@@ -296,10 +302,27 @@ func EstimateWith(p Price, r Record) Cost {
 		for _, name := range append(append([]string{}, ModalityCounters...), UnitCounters...) {
 			quantities[name] = r.Usage.UnitCounter(name)
 		}
-		quantities[MeterCacheWrite1h] = r.Usage.UnitCounter(CounterCacheWrite1h)
-		// A zero cache-write total means every TTL bucket is zero.
-		if w := r.Usage.CacheWriteTokens; w != nil && *w == 0 && quantities[MeterCacheWrite1h] == nil {
-			quantities[MeterCacheWrite1h] = Int64(0)
+		// The per-TTL subsets never exceed cache_write_tokens, alone or
+		// together; a record that says otherwise cannot be priced. A zero
+		// cache-write total means every TTL bucket is zero.
+		var subsetSum int64
+		for _, name := range CacheSubsetCounters {
+			quantities[name] = r.Usage.UnitCounter(name)
+			if w := r.Usage.CacheWriteTokens; w != nil && *w == 0 && quantities[name] == nil {
+				quantities[name] = Int64(0)
+			}
+			if q := quantities[name]; q != nil {
+				if *q > math.MaxInt64-subsetSum {
+					return UnknownCost()
+				}
+				subsetSum += *q
+			}
+		}
+		// With the total unknown, positive subsets say only that it is at
+		// least their sum: it cannot be priced, and leaving it out would
+		// under-charge.
+		if w := r.Usage.CacheWriteTokens; (w != nil && subsetSum > *w) || (w == nil && subsetSum > 0) {
+			return UnknownCost()
 		}
 		// A price that states a non-text rate for one modality of a direction
 		// bills the modalities separately, so every other non-text modality
@@ -353,7 +376,7 @@ func EstimateWith(p Price, r Record) Cost {
 		}
 		// input_tokens is total input: cache reads and cache writes are inside
 		// it, as are input modality splits; output modality splits are inside
-		// output_tokens, and one-hour cache writes inside cache_write_tokens.
+		// output_tokens, and per-TTL cache writes inside cache_write_tokens.
 		// A separately priced subset is removed from its parent so it is
 		// charged once, at its own rate.
 		subtract := func(parent string, subsets []string) {
@@ -369,15 +392,19 @@ func EstimateWith(p Price, r Record) Cost {
 			}
 		}
 		subtract(MeterInput, append([]string{MeterCacheRead, MeterCacheWrite}, InputModalityCounters...))
-		subtract(MeterCacheWrite, []string{MeterCacheWrite1h})
+		subtract(MeterCacheWrite, CacheSubsetCounters)
 		subtract(MeterOutput, OutputModalityCounters)
 	}
 	// Every known, non-zero quantity must be declared. Cached input and
 	// modality splits are part of their parent unless separately priced, so
-	// they are covered either way; units have no parent. One-hour cache writes
-	// and tool-use prompt tokens cost differently from their parents, so they
-	// must be priced when present.
-	for _, meter := range append([]string{MeterInput, MeterOutput, MeterCacheWrite, MeterReasoning, MeterCacheWrite1h}, UnitCounters...) {
+	// they are covered either way; units have no parent. The cache_write_tokens
+	// rate is the rate of the provider's default TTL (five minutes for
+	// Anthropic and Bedrock, 30 minutes for OpenAI), so those writes are
+	// covered by it unless separately priced. One-hour and 12-hour writes and
+	// tool-use prompt tokens cost differently from their parents, so they must
+	// be priced when present.
+	declared := append(append([]string{MeterInput, MeterOutput, MeterCacheWrite, MeterReasoning}, CacheWriteLongTTLCounters...), UnitCounters...)
+	for _, meter := range declared {
 		if q := quantities[meter]; q != nil && *q > 0 {
 			if _, priced := meters[meter]; !priced {
 				return UnknownCost()

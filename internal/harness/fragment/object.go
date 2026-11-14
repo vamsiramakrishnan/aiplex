@@ -1,4 +1,8 @@
-package harness
+// Package fragment holds the client configuration fragments that both
+// `aiplex connect --write` (internal/harness) and ClientPlex plans
+// (pkg/clientplex) render, so the two cannot drift apart. It depends on nothing
+// else in the repository, which is what lets both import it.
+package fragment
 
 import (
 	"bytes"
@@ -8,21 +12,21 @@ import (
 	"strings"
 )
 
-// object is a JSON object that remembers key order, so merging into a user's
+// Object is a JSON object that remembers key order, so merging into a user's
 // settings file does not reshuffle the keys they wrote.
-type object struct {
+type Object struct {
 	keys []string
 	vals map[string]any
 }
 
-func newObject() *object { return &object{vals: map[string]any{}} }
+func NewObject() *Object { return &Object{vals: map[string]any{}} }
 
-func (o *object) get(key string) (any, bool) {
+func (o *Object) Get(key string) (any, bool) {
 	v, ok := o.vals[key]
 	return v, ok
 }
 
-func (o *object) set(key string, v any) {
+func (o *Object) Set(key string, v any) {
 	if _, ok := o.vals[key]; !ok {
 		o.keys = append(o.keys, key)
 	}
@@ -31,25 +35,25 @@ func (o *object) set(key string, v any) {
 
 // child returns the nested object at key, creating it when absent. It fails
 // when the key holds something that is not an object, rather than replacing it.
-func (o *object) child(key string) (*object, error) {
+func (o *Object) Child(key string) (*Object, error) {
 	v, ok := o.vals[key]
 	if !ok {
-		c := newObject()
-		o.set(key, c)
+		c := NewObject()
+		o.Set(key, c)
 		return c, nil
 	}
-	c, ok := v.(*object)
+	c, ok := v.(*Object)
 	if !ok {
 		return nil, fmt.Errorf("%q exists but is not a JSON object; refusing to replace it", key)
 	}
 	return c, nil
 }
 
-// parseObject parses a JSON document whose top level must be an object. An
+// ParseObject parses a JSON document whose top level must be an object. An
 // empty document is an empty object.
-func parseObject(data []byte) (*object, error) {
+func ParseObject(data []byte) (*Object, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return newObject(), nil
+		return NewObject(), nil
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
@@ -60,7 +64,7 @@ func parseObject(data []byte) (*object, error) {
 	if _, err := dec.Token(); err != io.EOF {
 		return nil, fmt.Errorf("unexpected data after the top-level JSON value")
 	}
-	o, ok := v.(*object)
+	o, ok := v.(*Object)
 	if !ok {
 		return nil, fmt.Errorf("top level is not a JSON object")
 	}
@@ -78,7 +82,7 @@ func decodeValue(dec *json.Decoder) (any, error) {
 	}
 	switch d {
 	case '{':
-		o := newObject()
+		o := NewObject()
 		for dec.More() {
 			kt, err := dec.Token()
 			if err != nil {
@@ -89,7 +93,7 @@ func decodeValue(dec *json.Decoder) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			o.set(key, v)
+			o.Set(key, v)
 		}
 		if _, err := dec.Token(); err != nil {
 			return nil, err
@@ -113,7 +117,7 @@ func decodeValue(dec *json.Decoder) (any, error) {
 }
 
 // marshal renders the object with two-space indentation and a trailing newline.
-func (o *object) marshal() []byte {
+func (o *Object) Marshal() []byte {
 	var buf bytes.Buffer
 	writeValue(&buf, o, 0)
 	buf.WriteByte('\n')
@@ -132,7 +136,7 @@ func writeValue(buf *bytes.Buffer, v any, depth int) {
 	pad := strings.Repeat("  ", depth+1)
 	end := strings.Repeat("  ", depth)
 	switch t := v.(type) {
-	case *object:
+	case *Object:
 		if len(t.keys) == 0 {
 			buf.WriteString("{}")
 			return
@@ -182,11 +186,14 @@ func writeValue(buf *bytes.Buffer, v any, depth int) {
 	}
 }
 
-// obj builds an object from alternating key, value arguments.
-func obj(kv ...any) *object {
-	o := newObject()
+// Obj builds an object from alternating key, value arguments.
+func Obj(kv ...any) *Object {
+	o := NewObject()
 	for i := 0; i+1 < len(kv); i += 2 {
-		o.set(kv[i].(string), kv[i+1])
+		o.Set(kv[i].(string), kv[i+1])
 	}
 	return o
 }
+
+// Keys returns the object's keys in order.
+func (o *Object) Keys() []string { return o.keys }

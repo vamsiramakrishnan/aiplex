@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -57,7 +56,6 @@ func truncateRule(s string, n int) string {
 func mcpRulesListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list <connection>",
-		Aliases: []string{"ls"},
 		Short:   "List a connection's policy rules in evaluation order",
 		Example: "  aiplex mcp connections rules list search\n  aiplex mcp connections rules list search -o yaml",
 		Args:    cobra.ExactArgs(1),
@@ -172,7 +170,6 @@ func mcpRulesRemoveCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "remove <connection> <rule-id>",
-		Aliases: []string{"rm", "delete"},
 		Short:   "Remove a policy rule",
 		Example: "  aiplex mcp connections rules remove search no-etc --yes",
 		Args:    cobra.ExactArgs(2),
@@ -195,7 +192,7 @@ func mcpRulesRemoveCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	return cmd
 }
 
@@ -240,7 +237,7 @@ for confirmation (--yes without a terminal). An empty list removes every rule.`,
 		},
 	}
 	cmd.Flags().StringVarP(&file, "file", "f", "", "Rules as JSON or YAML ('-' for stdin)")
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }
@@ -315,7 +312,7 @@ is false); pass --group for each group, or --groups-known=false to be explicit.`
 				}
 			}
 			if rulesFile != "" {
-				raw, err := spReadSpec(rulesFile, os.Stdin)
+				raw, err := spReadSpec(rulesFile, cmd.InOrStdin())
 				if err != nil {
 					return err
 				}

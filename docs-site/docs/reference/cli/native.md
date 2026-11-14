@@ -60,8 +60,8 @@ Available Commands:
   read        Read through a configured binding with an explicit revision
   plan        Review a saved desired action without applying it
   apply       Apply a reviewed plan using its exact revision and digest
-  get-plan    
-  receipt     
+  get-plan    Show a saved governance plan
+  receipt     Show the receipt of an applied governance plan
 
 Flags:
   -h, --help   help for governance
@@ -223,6 +223,8 @@ Exit codes:
 #### `aiplex native governance get-plan`
 
 ```text
+Show a saved governance plan
+
 Usage:
   aiplex native governance get-plan <plan-id> [flags]
 
@@ -253,6 +255,8 @@ Exit codes:
 #### `aiplex native governance receipt`
 
 ```text
+Show the receipt of an applied governance plan
+
 Usage:
   aiplex native governance receipt <plan-id> [flags]
 

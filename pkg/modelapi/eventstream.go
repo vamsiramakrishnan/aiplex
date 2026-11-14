@@ -216,7 +216,9 @@ func (g *Gateway) copyEventStream(w http.ResponseWriter, r *http.Request, body i
 			var wrapper struct {
 				Bytes []byte `json:"bytes"`
 			}
-			if json.Unmarshal(message.payload, &wrapper) == nil && anthropicShaped(wrapper.Bytes) {
+			// An id that names a vendor other than Anthropic never reaches
+			// this parser (bedrock_invoke_families.go).
+			if json.Unmarshal(message.payload, &wrapper) == nil && anthropicShaped(wrapper.Bytes) && invokeRouteOf(r.Context()).anthropic {
 				value, err := g.inspectJSON(r.Context(), owner, op, wrapper.Bytes, false, true)
 				if err != nil {
 					fail(err)

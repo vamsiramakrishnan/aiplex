@@ -232,3 +232,45 @@ describe('Prices with unit and modality meters and selectors', () => {
     })
   })
 })
+
+describe('Tool call response size and duration', () => {
+  it('formats bytes and milliseconds exactly, with no unit conversion; unknown is never 0', () => {
+    expect(api.formatUnit('tool_response_bytes', 2048)).toBe('2,048 bytes')
+    expect(api.formatUnit('tool_response_bytes', 0)).toBe('0 bytes')
+    expect(api.formatUnit('tool_response_bytes', null)).toBe('unknown')
+    expect(api.formatUnit('tool_response_bytes', undefined)).toBe('unknown')
+    expect(api.formatUnit('tool_duration_milliseconds', 90000)).toBe('90,000 ms')
+    expect(api.formatUnit('tool_duration_milliseconds', 0)).toBe('0 ms')
+    expect(api.formatUnit('tool_duration_milliseconds', null)).toBe('unknown')
+    expect(api.formatUnit('tool_duration_milliseconds', undefined)).toBe('unknown')
+    expect(api.UNIT_LABEL.tool_response_bytes).toBe('Tool response')
+    expect(api.UNIT_LABEL.tool_duration_milliseconds).toBe('Tool duration')
+  })
+  it('never totals them: the Console does no arithmetic on these units', () => {
+    const groups = [
+      { key: { model_id: 'a' }, units: { tool_response_bytes: 10, tool_duration_milliseconds: 5 }, unit_records: { tool_response_bytes: 1, tool_duration_milliseconds: 1 } },
+      { key: { model_id: 'b' }, units: { tool_response_bytes: 20 }, unit_records: { tool_response_bytes: 1 } },
+    ]
+    const t = api.unitHeadlines(groups as unknown as api.SummaryGroup[])
+    expect(t.tool_response_bytes).toBeUndefined()
+    expect(t.tool_duration_milliseconds).toBeUndefined()
+  })
+  it('shows present, zero and absent values on a usage record, and unknown in the detail', async () => {
+    const tool = { ...base, id: 'ul_tool', started_at: '2026-11-09T11:00:00Z', model_id: 'tool-model', status: 'ok', source: 'managed', tool_name: 'search', usage: { ...nullCounters, tool_response_bytes: 0, tool_duration_milliseconds: 90000 }, cost: { basis: 'unknown' } }
+    const absent = { ...base, id: 'ul_plain', started_at: '2026-11-09T12:00:00Z', model_id: 'plain-model', status: 'ok', source: 'managed', usage: { ...nullCounters, input_tokens: 1 }, cost: { basis: 'unknown' } }
+    routes['GET /api/v1/usage/records'] = () => ({ body: { records: [tool, absent] } })
+    show()
+    const table = await within(region('Requests')).findByRole('table')
+    const heads = within(table).getAllByRole('columnheader').map((h) => h.textContent)
+    expect(cellsOf(rowOf(table, 'tool-model'))[heads.indexOf('Units')]).toBe('Tool response 0 bytes, Tool duration 90,000 ms')
+    expect(cellsOf(rowOf(table, 'plain-model'))[heads.indexOf('Units')]).toBe('—')
+    fireEvent.click(await screen.findByRole('button', { name: 'Open details for record ul_tool' }))
+    let drawer = screen.getByRole('dialog', { name: 'Usage record detail' })
+    const fields = () => Object.fromEntries(within(drawer).getAllByRole('term').map((t) => [t.textContent, t.nextElementSibling?.textContent]))
+    expect(fields()).toMatchObject({ 'Tool response (unit)': '0 bytes', 'Tool duration (unit)': '90,000 ms' })
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open details for record ul_plain' }))
+    drawer = screen.getByRole('dialog', { name: 'Usage record detail' })
+    expect(fields()).toMatchObject({ 'Tool response (unit)': 'unknown', 'Tool duration (unit)': 'unknown' })
+  })
+})

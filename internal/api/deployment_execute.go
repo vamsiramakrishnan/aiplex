@@ -316,7 +316,7 @@ func (a deploymentHostAdmission) Admit(ctx context.Context, action deployment.Ac
 		}
 		_, _, err := a.h.deploymentInputs(c, action.Request.Context.TenantID, savedDeploymentPlan{Plan: deployment.Plan{ProviderID: action.ProviderID, BindingID: action.Request.BindingID}, IntentID: p.IntentID, IntentRevision: p.IntentRevision, NetworkProfileRef: p.NetworkID, NetworkRevision: p.NetworkRevision})
 		return err
-	}})
+	}, DeploymentAction: true})
 	if err != nil {
 		return nil, err
 	}

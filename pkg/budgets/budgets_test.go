@@ -233,3 +233,63 @@ func TestAppliesByPlane(t *testing.T) {
 		t.Fatal("token and cost budgets count model traffic only")
 	}
 }
+
+// A budget saved before include_tool_calls existed has no such field. It must
+// decode, validate and behave exactly as before: model traffic only.
+func TestStoredBudgetWithoutIncludeToolCallsCountsModelsOnly(t *testing.T) {
+	old := []byte(`{"id":"spend","display_name":"Finance spend","limit":{"unit":"cost","currency":"USD","amount":"0.004"},"window":{"kind":"calendar","unit":"month","time_zone":"UTC"},"members":{"groups":[{"source":"source-x","id":"finance"}]},"on_unknown_cost":"deny"}`)
+	b, err := Decode("spend", old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = b.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if b.IncludeToolCalls || b.Applies("mcplex") || b.Applies("a2aplex") || !b.Applies("llmplex") {
+		t.Fatalf("a budget that did not opt in must count model traffic only: %+v", b)
+	}
+	before, _ := cost("spend", "", "USD", "0.004").Draw(6)
+	after, err := b.Draw(6)
+	if err != nil || quotaplex.DrawShape(before) != quotaplex.DrawShape(after) {
+		t.Fatalf("the draw of an old budget changed: %+v %v", after, err)
+	}
+}
+
+func TestIncludeToolCallsIsACostBudgetOptIn(t *testing.T) {
+	b := cost("spend", "", "USD", "10.00")
+	b.IncludeToolCalls = true
+	if err := b.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !b.Applies("llmplex") || !b.Applies("mcplex") || b.Applies("a2aplex") || b.Applies("skillsplex") {
+		t.Fatal("an opted-in cost budget counts model and tool calls, nothing else")
+	}
+	if b.AppliesToDeploymentAction() || !(Budget{Limit: Limit{Unit: UnitRequests}}).AppliesToDeploymentAction() {
+		t.Fatal("deployment actions are counted by request budgets only, never through include_tool_calls")
+	}
+	// Opting in keeps the counter: the field is not part of the draw's shape.
+	d1, _ := cost("spend", "", "USD", "10.00").Draw(6)
+	d2, _ := b.Draw(6)
+	if quotaplex.DrawShape(d1) != quotaplex.DrawShape(d2) {
+		t.Fatal("turning include_tool_calls on must not start a new counter")
+	}
+	for name, l := range map[string]Limit{"requests": {Unit: UnitRequests, Amount: "5"}, "tokens": {Unit: UnitTokens, Amount: "5"}} {
+		nb := b
+		nb.Limit = l
+		err := nb.Validate()
+		var fe *FieldError
+		if err == nil || !errors.As(err, &fe) || fe.Field != "include_tool_calls" {
+			t.Fatalf("%s: include_tool_calls accepted or unnamed: %v", name, err)
+		}
+		if name == "requests" && !strings.Contains(err.Error(), "every plane") {
+			t.Fatalf("the refusal says why: %v", err)
+		}
+		if name == "tokens" && !strings.Contains(err.Error(), "token") {
+			t.Fatalf("the refusal says why: %v", err)
+		}
+	}
+	raw := []byte(`{"id":"spend","limit":{"unit":"cost","currency":"USD","amount":"1"},"window":{"kind":"calendar","unit":"day","time_zone":"UTC"},"include_tool_calls":true}`)
+	if d, err := Decode("spend", raw); err != nil || !d.IncludeToolCalls {
+		t.Fatalf("%+v %v", d, err)
+	}
+}

@@ -90,6 +90,27 @@ export interface QuotaPlan {
 export const getQuotaPlan = (id: string) =>
   authenticatedRequest<QuotaPlan>(`${base}/${encodeURIComponent(id)}/quota-plan`, { method: 'POST' })
 
+// ---- routing state (operators) and cache purge (admins) -----------------
+
+/** One recent upstream outcome of a backend (routing.RecentOutcome). */
+export interface RoutingOutcome { at?: string; outcome?: string; upstream_status?: number }
+/** A backend's circuit breaker in the answering API process (routing.BreakerState). */
+export interface RoutingBreaker { state?: string; consecutive_failures?: number; opened_at?: string; half_open_at?: string; recent?: RoutingOutcome[] }
+/** One backend of a routed model, in routing order (RoutedBackendView). */
+export interface RoutedBackend { surface_ref?: string; native_model?: string; weight?: number; priority?: number; breaker?: RoutingBreaker }
+/** One routed model of an access point (RoutedModelView). */
+export interface RoutedModel { name?: string; strategy?: string; backends?: RoutedBackend[] }
+export interface ResponseCacheStats { entries?: number; bytes?: number; max_bytes?: number }
+/** `GET /access-points/{id}/routing` (AccessPointRoutingView). State is per API process. */
+export interface AccessPointRouting { access_point_id?: string; process_local?: boolean; models?: RoutedModel[]; cache_store?: ResponseCacheStats }
+/** `POST /access-points/{id}/cache/purge` (AccessPointCachePurge handler). */
+export interface AccessPointCachePurge { access_point_id?: string; model?: string; purged?: number; process_local?: boolean }
+
+export const getAccessPointRouting = (id: string) => authenticatedRequest<AccessPointRouting>(`${base}/${encodeURIComponent(id)}/routing`)
+/** Removes this API process's cached answers of the access point (admins). Nothing is removed on other replicas. */
+export const purgeAccessPointCache = (id: string) =>
+  authenticatedRequest<AccessPointCachePurge>(`${base}/${encodeURIComponent(id)}/cache/purge`, { method: 'POST' })
+
 // ---- reference pickers ---------------------------------------------------
 
 export interface ModelSurfaceRecord {

@@ -33,6 +33,7 @@ Available Commands:
   summary     Totals of requests, tokens and cost, optionally grouped
   feedback    Rate a usage record (append-only), or show its feedback history
   prices      Manage model prices used to estimate cost (writes need the admin role)
+  config      Show the deployment's usage settings
 
 Flags:
   -h, --help   help for usage
@@ -123,6 +124,9 @@ Show every field of one usage record
 
 Usage:
   aiplex usage get <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex usage get ul_0123456789abcdef
@@ -320,6 +324,9 @@ List configured model prices
 Usage:
   aiplex usage prices list [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex usage prices list
   aiplex usage prices list -o wide
@@ -352,6 +359,9 @@ Show one price and its current revision
 
 Usage:
   aiplex usage prices get <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex usage prices get mock-gpt
@@ -442,6 +452,9 @@ Delete a price (uses the current revision unless --revision is given)
 
 Usage:
   aiplex usage prices delete <id> [flags]
+
+Aliases:
+  delete, rm, remove
 
 Examples:
   aiplex usage prices delete gemini-flash --yes
@@ -692,6 +705,41 @@ Flags:
       --since string      Start of window: duration like 24h, 7d, or an RFC3339 time
       --until string      End of window (exclusive): duration ago like 1h, or an RFC3339 time
   -y, --yes               Do not ask for confirmation (required when there is no terminal)
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex usage config`
+
+```text
+Show the usage settings the deployment serves: the trace link template,
+whether feedback and feedback comments are accepted, and the tag keys a caller
+may set. A template that is not configured is shown as "not set".
+
+Usage:
+  aiplex usage config [flags]
+
+Examples:
+  aiplex usage config
+  aiplex usage config -o json
+
+Flags:
+  -h, --help   help for config
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)

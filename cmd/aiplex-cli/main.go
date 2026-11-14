@@ -74,7 +74,7 @@ var groupOf = map[string]string{
 	"access-points": "connect", "connect": "connect", "clients": "connect", "who": "connect",
 	"llm": "models",
 	"mcp": "tools", "tools": "tools", "tool-auth": "tools", "skills": "tools",
-	"agents": "agents", "a2a": "agents", "identity": "agents",
+	"agents": "agents", "a2a": "agents", "identity": "agents", "iam": "agents",
 	"usage": "usage", "quota": "usage", "hooks": "usage", "budgets": "usage",
 	"platform": "operate", "upgrade": "operate", "infra": "operate", "native": "operate", "resources": "operate",
 	"modules": "operate", "apply": "operate", "validate": "operate", "deploy": "operate", "undeploy": "operate",
@@ -153,7 +153,7 @@ Start here (no Docker, no cloud account):
 		versionCmd(), initCmd(), quickstartCmd(),
 		accessPointsCmd(), connectCmd(), whoCmd(),
 		mcpCmd(), toolsCmd(), toolAuthCmd(),
-		agentsCmd(), identityUserCmd(),
+		agentsCmd(), identityUserCmd(), iamCmd(),
 		usageCmd(), quotaCmd(), budgetsCmd(), hooksCmd(),
 		statusCmd(), resourcesCmd(), applyCmd(), validateCmd(), modulesCmd(), platformCmd(), upgradeCmd(),
 		infrastructureCmd(), nativeCmd(), catalogCmd(), deployCmd(), undeployCmd(), listCmd(), getCmd(),
@@ -167,6 +167,7 @@ Start here (no Docker, no cloud account):
 		}
 	}
 	applyShortDescriptions(root)
+	applyVerbAliases(root)
 	applyExamples(root)
 	registerCompletions(root)
 	confirmDestructive(root)

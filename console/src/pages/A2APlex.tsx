@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { getCatalog, authenticatedRequest } from '../api/client'
+import { tabLabel } from '../api/counts'
 import StatusBadge from '../components/StatusBadge'
 
 interface Delegation {
@@ -65,9 +66,9 @@ export default function A2APlex() {
             onClick={() => setTab(t)}
             className={`px-4 py-2 rounded text-sm capitalize ${tab === t ? 'bg-brand-600 text-brand-contrast' : 'bg-gray-100 dark:bg-gray-800'}`}
           >
-            {t === 'agents' ? `Agents (${agentCards.data?.length ?? 0})` :
-             t === 'catalog' ? `Catalog (${catalog.data?.total ?? 0})` :
-             `Delegations (${delegations.data?.length ?? 0})`}
+            {t === 'agents' ? tabLabel('Agents', agentCards.data?.length) :
+             t === 'catalog' ? tabLabel('Catalog', catalog.data?.total) :
+             tabLabel('Delegations', delegations.data?.length)}
           </button>
         ))}
       </div>
@@ -184,10 +185,10 @@ export default function A2APlex() {
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={d.status} /></td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                        {d.duration_ms ? `${d.duration_ms}ms` : '-'}
+                        {d.duration_ms != null ? `${d.duration_ms}ms` : 'unknown'}
                       </td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">
-                        {d.trace_id ? d.trace_id.slice(0, 8) : '-'}
+                        {d.trace_id ? d.trace_id.slice(0, 8) : 'unknown'}
                       </td>
                       <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{d.user_id}</td>
                     </tr>

@@ -52,6 +52,9 @@ List enabled modules and their capabilities
 Usage:
   aiplex modules list [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex modules list
 

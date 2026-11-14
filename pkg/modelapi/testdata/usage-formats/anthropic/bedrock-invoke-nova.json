@@ -1,0 +1,1 @@
+{"output":{"message":{"role":"assistant","content":[{"text":"Synthetic answer."}]}},"stopReason":"end_turn","usage":{"inputTokens":431,"outputTokens":57,"totalTokens":488},"metrics":{"latencyMs":812}}

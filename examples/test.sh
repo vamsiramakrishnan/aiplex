@@ -5,11 +5,16 @@
 #   examples/mcp-tools    mcp.sh, and the MCP URL from `aiplex connect local`
 #   examples/usage-report report.sh
 #   examples/hooks        hooks.sh (redaction policy: masked and refused prompts)
+#   examples/budgets      budgets.sh, against its own `aiplex dev --quota`
+#   examples/sdk-python   example.py, with the aiplex Python SDK from sdk/python
+#   examples/sdk-typescript example.mjs, with @aiplex/sdk built from sdk/typescript
 #
 # SDK handling:
 #   default                   use an SDK that is already installed; otherwise print SKIP
-#   EXAMPLES_INSTALL_SDKS=1   install the OpenAI SDKs into a temporary venv / node_modules
-#                             (needs network access to PyPI and npm); CI sets this
+#                             (the two SDK examples always SKIP without the next setting)
+#   EXAMPLES_INSTALL_SDKS=1   install the OpenAI SDKs into a temporary venv / node_modules, and
+#                             build and install the aiplex Python and @aiplex/sdk TypeScript SDKs
+#                             from this checkout (needs network access to PyPI and npm); CI sets this
 #   EXAMPLES_REQUIRE_SDKS=1   treat a skipped SDK example as a failure
 #
 # Other settings: EXAMPLES_BIN (default ./bin), EXAMPLES_PORT (default 18081).
@@ -158,6 +163,60 @@ echo "$out"
 [[ "$out" == *'"code":"hook_denied"'* ]] || fail "hooks.sh: the private key was not refused: $out"
 [[ "$out" == *"Deleted hook policy pii-guard"* ]] || fail "hooks.sh did not clean up: $out"
 ok "hooks.sh"
+
+# ─── SDKs ───────────────────────────────────────────────────────────────────
+# The Python and TypeScript SDKs are built or installed from a copy of this
+# checkout's sdk/ directories, so the repository is not modified. Both need
+# EXAMPLES_INSTALL_SDKS=1 and are skipped without it.
+#
+# Output of an SDK example is checked for the token before anything prints it.
+# An empty token would match every string, so it is refused first. (test.sh
+# above already requires a non-empty AIPLEX_TOKEN after `aiplex dev env`.)
+guard_output() {  # NAME OUTPUT: fails, with output withheld, if OUTPUT contains the token
+    [[ -n "$AIPLEX_TOKEN" ]] || fail "$1: AIPLEX_TOKEN is empty, so the token check cannot run"
+    if [[ "$2" == *"$AIPLEX_TOKEN"* ]]; then
+        fail "$1 printed the access token; its output was not shown"
+    fi
+}
+
+step "sdk-python: example.py (aiplex Python SDK from sdk/python)"
+if [[ "${EXAMPLES_INSTALL_SDKS:-0}" == "1" ]]; then
+    # The whole directory is copied, so the build reads what a clean checkout has (pyproject.toml,
+    # src/, README.md). The copy's .venv (if any) is not needed and is removed.
+    cp -R "$ROOT/sdk/python" "$WORK/sdk-python" && rm -rf "$WORK/sdk-python/.venv" \
+        && python3 -m venv "$WORK/sdk-py-venv" && "$WORK/sdk-py-venv/bin/pip" install -q "$WORK/sdk-python" \
+        || fail "could not install the aiplex Python SDK from sdk/python"
+    rc=0
+    out=$("$WORK/sdk-py-venv/bin/python" "$EX/sdk-python/example.py" 2>&1) || rc=$?
+    guard_output "sdk-python example" "$out"
+    printf '%s\n' "$out"
+    (( rc == 0 )) || fail "sdk-python example exited with status $rc (output above)"
+    [[ "$out" == *"sdk-python: all checks passed"* ]] || fail "sdk-python example did not finish (output above)"
+    ok "sdk-python"
+else
+    skip "the aiplex Python SDK is not installed by this script (run with EXAMPLES_INSTALL_SDKS=1)"
+fi
+
+step "sdk-typescript: example.mjs (@aiplex/sdk built from sdk/typescript)"
+if [[ "${EXAMPLES_INSTALL_SDKS:-0}" == "1" ]]; then
+    command -v node >/dev/null && command -v npm >/dev/null || fail "node and npm are required for the TypeScript SDK example"
+    # Whole directory copied (package.json, package-lock.json, tsconfig.json, src/); node_modules and dist are rebuilt in the copy.
+    cp -R "$ROOT/sdk/typescript" "$WORK/sdk-typescript" && rm -rf "$WORK/sdk-typescript/node_modules" "$WORK/sdk-typescript/dist" \
+        && (cd "$WORK/sdk-typescript" && npm ci --no-audit --no-fund >/dev/null && npm run build >/dev/null) \
+        || fail "could not build @aiplex/sdk from sdk/typescript"
+    mkdir -p "$WORK/node-sdk" && (cd "$WORK/node-sdk" && npm init -y >/dev/null && npm install --silent "$WORK/sdk-typescript") \
+        || fail "could not install @aiplex/sdk"
+    cp "$EX/sdk-typescript/example.mjs" "$WORK/node-sdk/example.mjs"
+    rc=0
+    out=$(cd "$WORK/node-sdk" && node example.mjs 2>&1) || rc=$?
+    guard_output "sdk-typescript example" "$out"
+    printf '%s\n' "$out"
+    (( rc == 0 )) || fail "sdk-typescript example exited with status $rc (output above)"
+    [[ "$out" == *"sdk-typescript: all checks passed"* ]] || fail "sdk-typescript example did not finish (output above)"
+    ok "sdk-typescript"
+else
+    skip "@aiplex/sdk is not built by this script (run with EXAMPLES_INSTALL_SDKS=1)"
+fi
 
 # ─── declarative manifests ──────────────────────────────────────────────────
 # Every manifest in examples/ passes `aiplex validate` (the checks `aiplex apply`

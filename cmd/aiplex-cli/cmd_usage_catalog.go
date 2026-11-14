@@ -636,7 +636,7 @@ and native model and imports those the catalogue lists; the rest are listed.`,
 	fl.StringVar(&currency, "currency", pricecatalog.Currency, "Currency (the catalogue is USD only)")
 	fl.StringVar(&source, "source", pricecatalog.SourceLiteLLM, "Catalogue source: "+strings.Join(pricecatalog.SourceNames, ", ")+" (needed when the two disagree on a model)")
 	fl.BoolVar(&dryRun, "dry-run", false, "Show what would be written and write nothing")
-	fl.BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	fl.BoolVar(&replace, "replace", false, "Replace an existing price with the same id (never done without this flag)")
 	fl.BoolVar(&acceptPartial, "accept-partial", false, "Import base rates even when the model has pricing a price cannot express")
 	fl.BoolVar(&reasoningIncluded, "reasoning-included", false, "Declare reasoning tokens as included in output tokens (free meter); only when the provider does")

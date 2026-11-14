@@ -37,9 +37,15 @@ func validateAPIPath(path string) error {
 	}
 	return fmt.Errorf("aiplex: excessive resource path encoding")
 }
+
+// validateResourceID refuses an ID the server could not route. The error is an
+// *InputError so callers can tell "nothing was sent" from a failed request.
 func validateResourceID(id string) error {
 	if id == "" || strings.TrimSpace(id) != id || len(id) > 512 {
-		return fmt.Errorf("aiplex: resource ID is required")
+		return &InputError{Message: "resource ID is required"}
 	}
-	return validateAPIPath("/resource/" + url.PathEscape(id))
+	if err := validateAPIPath("/resource/" + url.PathEscape(id)); err != nil {
+		return &InputError{Message: strings.TrimPrefix(err.Error(), "aiplex: ")}
+	}
+	return nil
 }

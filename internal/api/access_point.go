@@ -202,14 +202,17 @@ func uniqueTexts(field string, values []string, max int) error {
 // client-facing model name to the native one for this surface: the model is a
 // path segment (GenAI, Bedrock), a connect-time query (Realtime) or a
 // top-level JSON string field that is rewritten in place (OpenAI chat,
-// responses and embeddings; Anthropic Messages). Elsewhere (moderations,
-// images and audio surfaces, which may carry a multipart form) the body is
-// relayed verbatim, so the client-facing name must be the native one.
+// responses and embeddings; Anthropic Messages) or the "model" field of a
+// multipart form, rewritten while the upload streams through (images and
+// audio). Elsewhere (moderations) the body is relayed verbatim, so the
+// client-facing name must be the native one.
 func accessPointAliasRewritable(s modelapi.Surface) bool {
 	switch s.Protocol {
 	case clientplex.GenAI:
 		return true
 	case clientplex.Messages, clientplex.OpenAIChat, clientplex.Responses, modelapi.ProtocolOpenAIEmbeddings:
+		return true
+	case modelapi.ProtocolOpenAIImages, modelapi.ProtocolOpenAIAudio:
 		return true
 	case modelapi.ProtocolBedrockConverse, modelapi.ProtocolBedrockInvoke, modelapi.ProtocolOpenAIRealtime:
 		// The model is the path segment (Bedrock) or connect-time query

@@ -19,7 +19,7 @@ aiplex agents permissions AGENT_ID
 
 ## Users and directories
 
-[User identity federation](../library/user-identity-federation.md) lets people sign in with a token from Google Workspace, Microsoft Entra ID, Okta, a Google Workforce pool or any OIDC issuer that signs RS256 or ES256 tokens. [Authoritative membership](../library/membership-authority.md) adds a signed directory that proves a subject's complete group view.
+[User identity federation](../library/user-identity-federation.md) lets people sign in with a token from Google Workspace, Microsoft Entra ID, Okta, a Google Workforce pool or any OIDC issuer that signs RS256, ES256 or ES384 tokens. [Authoritative membership](../library/membership-authority.md) adds a signed directory that proves a subject's complete group view.
 
 ```bash
 aiplex identity user-providers --help

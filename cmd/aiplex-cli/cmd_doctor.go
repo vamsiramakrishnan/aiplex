@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
 	"github.com/vamsiramakrishnan/aiplex/internal/gcpsetup"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 func doctorCmd() *cobra.Command {
@@ -207,14 +210,39 @@ func doctorCmd() *cobra.Command {
 					fmt.Printf("  [pass] API healthy (%s)\n", url)
 				}
 
-				// Try an authenticated request
-				c := newClient()
-				_, err = c.GetDashboardStats(context.Background())
-				if err != nil {
-					fmt.Printf("  [WARN] Authenticated request failed — check your token (%s)\n", simplifyError(err))
+				// Try an authenticated request. whoami answers for any signed-in
+				// identity; the dashboard is admin-only and says nothing about
+				// whether the token works.
+				c := withoutRedirects(newClient())
+				identity, err := c.GetIdentity(context.Background())
+				var apiErr *aiplex.Error
+				switch {
+				case err == nil:
+					name := identity.Identity.Email
+					if name == "" {
+						name = identity.Identity.Subject
+					}
+					if name == "" {
+						name = "(anonymous: this API admits unauthenticated requests)"
+					}
+					roles := "none"
+					if len(identity.Roles) > 0 {
+						roles = strings.Join(identity.Roles, ", ")
+					}
+					fmt.Printf("  [pass] Authenticated as %s (roles: %s)\n", name, roles)
+					if !slices.Contains(identity.Roles, "admin") {
+						fmt.Println("  [INFO] Admin role not held: admin-only checks (such as the dashboard) are unavailable to this identity")
+					}
+				case errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnauthorized:
+					fmt.Println("  [WARN] Token rejected or not signed in — run: aiplex login")
 					warnings++
-				} else {
-					fmt.Println("  [pass] Authenticated access working")
+				case errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusForbidden:
+					fmt.Println("  [INFO] Signed in, but this identity lacks the role for the identity lookup")
+				default:
+					// A 5xx, a connection error or any other answer: the API is not
+					// giving a usable identity answer, which is a failure.
+					fmt.Printf("  [FAIL] Identity check failed (%s)\n", simplifyError(err))
+					issues++
 				}
 			}
 			fmt.Println()

@@ -33,21 +33,27 @@ with Client("http://127.0.0.1:19190", "<token>") as client:
 
 Errors raise `aiplex.AiplexError` with `status_code`, `code`, `message`, `details`, `request_id` and `trace_id`. The token is never included in an error message, `repr()` or `str()`.
 
+The client does not follow redirects, because a followed redirect would carry the token to the redirect target. The API never redirects, so a 301, 302, 303, 307 or 308 answer is a wrong `AIPLEX_URL` or a proxy that rewrites requests; it raises `AiplexError` with code `redirect_refused`, the status, and only the scheme and host of the `Location` (never its path or query). A 304 is not a redirect and raises the usual `unknown` error. If you pass your own `httpx.Client`, its redirect policy (`follow_redirects`) is yours: the SDK does not change it, and a client you configure to follow redirects will send the token wherever they lead.
+
 ## Covered operations
 
 - `whoami()`
 - Access points: `list_access_points()`, `get_access_point(id)`, `put_access_point(spec, revision)` (revision 0 creates), `delete_access_point(id, revision)`, `connect_access_point(id, client=None)`
-- Budgets: `get_budget_status(id)` (counters in the current window; operators and members only)
-- Usage: `list_usage_records(filter, limit=, cursor=)`, `iter_usage_records(filter, limit=)`, `get_usage_record(id)`, `usage_summary(filter, group_by=, bucket=)`, `list_prices()`, `get_price(id)`, `put_price(price, revision)`, `delete_price(id, revision)`
-- Model surfaces: `list_model_surfaces()`, `get_model_surface(id)`
-- Tool connections: `list_tool_connections()`, `get_tool_connection(id)`
+- Budgets: `get_budget_status(id)` (counters in the current window; operators and members only); administration (operators only): `list_budgets()`, `get_budget(id)`, `put_budget(spec, revision)` (revision 0 creates), `delete_budget(id, revision)`, `preview_budget(request)` (dry run, nothing stored)
+- Usage: `list_usage_records(filter, limit=, cursor=)`, `iter_usage_records(filter, limit=)`, `get_usage_record(id)`, `usage_summary(filter, group_by=, bucket=)`, `list_prices()`, `get_price(id)`, `put_price(price, revision)`, `delete_price(id, revision)`, `add_usage_feedback(record_id, score, label=, comment=)`, `list_usage_feedback(record_id)`, `get_usage_config()`
+- Model surfaces: `list_model_surfaces()`, `get_model_surface(id)`, `put_model_surface(id, spec, revision)`, `delete_model_surface(id, revision)`, `get_model_surface_capacity(id)` (advisory, per replica)
+- Tool connections: `list_tool_connections()`, `get_tool_connection(id)`, `put_tool_connection(id, spec, revision)`, `delete_tool_connection(id, revision)`
+- Hook policies: `list_hook_policies()`, `get_hook_policy(id)`, `put_hook_policy(policy, revision)`, `delete_hook_policy(id, revision)`, `test_hook_policy(id, sample)`
 - Overview: `list_overview_access_points()` / `iter_overview_access_points()`, `get_overview_access_point(id)`, `list_overview_subjects(kind)` / `iter_overview_subjects(kind)`, `get_overview_subject(kind, id)`
 
 ## Not covered
 
 - Model and tool calls themselves (chat completions, MCP, A2A). Point an OpenAI or Anthropic SDK at the access point URL instead.
-- Budget administration (create, update, delete), usage feedback, usage record ingestion, quota administration and QuotaPlex plans, agent and client registrations, identity providers, skills, runs, dashboards, deployment plans, model routes and providers, catalog, instances, and the Go SDK's other administrative resources.
+- Usage record ingestion, quota administration and QuotaPlex plans, agent and client registrations, identity providers, skills, runs, tool connection auth catalogue and the read-modify-write helpers of the Go SDK (`UpdateToolConnection`), model operation catalogues, batches, dashboards, deployment plans, model routes and providers, catalog, instances, and the Go SDK's other administrative resources.
 - Asynchronous client, automatic retries, streaming responses.
+- Writes take typed specifications (`Budget`, `ModelSurfaceSpec`, `ToolConnectionSpec`, `HookPolicy`) and send `If-Match` with the revision you pass; a stale revision raises `AiplexError` with `is_revision_conflict` true. The client checks only argument shapes: the server validates specifications (hook regular expressions, sidecar endpoints, secret references). Specification types keep the JSON they were read from in `raw` and write it back, so a read-modify-write does not drop fields this version does not model.
+- Secrets are references: `auth.secret_ref`, `client_secret_ref` and `auth_secret_ref` name tenant secrets; no method accepts or returns a secret value.
+- The administration methods are covered by the in-process fake server in `tests/test_admin.py` and were exercised once by hand against `aiplex dev --quota`. They have not been run against any other deployment.
 - Typed models cover the documented fields. Every model keeps the full JSON in `raw`, so newer server fields are available there.
 
 ## Tests

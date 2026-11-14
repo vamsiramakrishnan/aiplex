@@ -5,7 +5,7 @@ import Permissions from '../pages/Permissions'
 import { authenticatedRequest, listInstances } from '../api/client'
 vi.mock('../api/client', () => ({ authenticatedRequest: vi.fn(), listInstances: vi.fn() }))
 const principal = 'principal-' + 'a'.repeat(64)
-vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { sub: 'principal-' + 'a'.repeat(64) } }) }))
+vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { sub: 'principal-' + 'a'.repeat(64) } }), useOptionalAuth: () => null }))
 function show() { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); return render(<QueryClientProvider client={client}><Permissions /></QueryClientProvider>) }
 beforeEach(() => { vi.resetAllMocks(); vi.mocked(listInstances).mockResolvedValue([]); vi.mocked(authenticatedRequest).mockResolvedValue({ user_id: principal, scopes: ['llm:model:current-model'], by_plane: {}, revision: 3 }) })
 describe('Canonical user permissions', () => {

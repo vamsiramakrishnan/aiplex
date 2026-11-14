@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,13 +8,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/vamsiramakrishnan/aiplex/pkg/mcpdiscover"
 	"github.com/vamsiramakrishnan/aiplex/pkg/resources"
 	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
@@ -50,7 +48,7 @@ func mcpConnectionsCmd() *cobra.Command {
 		Example: `  aiplex mcp connections list
   aiplex mcp connections test local-tools`,
 	}
-	cmd.AddCommand(mcpConnListCmd(), mcpConnGetCmd(), mcpConnAddCmd(), mcpConnDeleteCmd(), mcpConnTestCmd(), mcpConnRulesCmd())
+	cmd.AddCommand(mcpConnListCmd(), mcpConnGetCmd(), mcpConnAddCmd(), mcpConnDeleteCmd(), mcpConnTestCmd(), mcpConnCallCmd(), mcpConnRulesCmd())
 	registerLister("mcp connections", func(ctx context.Context, c *aiplex.Client) ([]string, error) {
 		return resourceIDs(ctx, c, aiplex.ToolConnections)
 	})
@@ -118,7 +116,6 @@ func (v toolConnView) authLabel() string {
 func mcpConnListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
-		Aliases: []string{"ls"},
 		Short:   "List MCP tool connections",
 		Example: "  aiplex mcp connections list\n  aiplex mcp connections list -o json",
 		Args:    cobra.NoArgs,
@@ -160,7 +157,6 @@ func toolCountCell(v toolConnView) string {
 func mcpConnGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "get <id>",
-		Aliases: []string{"show", "describe"},
 		Short:   "Show one MCP tool connection",
 		Example: "  aiplex mcp connections get local-tools\n  aiplex mcp connections get local-tools -o yaml",
 		Args:    cobra.ExactArgs(1),
@@ -420,8 +416,8 @@ func buildToolConnectionSpec(ctx context.Context, id string, f mcpAddFlags, out 
 	return raw, err
 }
 
-// discoverMCPTools calls initialize and tools/list on an MCP server directly
-// (no credential), accepting JSON or SSE responses.
+// discoverMCPTools lists the tools of an MCP server directly (no credential)
+// through the shared SDK-based client.
 func discoverMCPTools(ctx context.Context, endpoint, version string) ([]string, error) {
 	return discoverMCPToolsWith(ctx, endpoint, version, false)
 }
@@ -433,110 +429,14 @@ func discoverMCPToolsWith(ctx context.Context, endpoint, version string, noRedir
 	if noRedirect {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
-	session := ""
-	call := func(id int, method string, params any) (json.RawMessage, error) {
-		msg := map[string]any{"jsonrpc": "2.0", "method": method}
-		if id > 0 {
-			msg["id"] = id
+	tools, err := mcpdiscover.ListTools(ctx, client, endpoint, mcpdiscover.Options{ProtocolVersion: version})
+	if err != nil {
+		if errors.Is(err, mcpdiscover.ErrCredentialRequired) {
+			return nil, fmt.Errorf("the server requires a credential; pass --tools and --auth")
 		}
-		if params != nil {
-			msg["params"] = params
-		}
-		body, _ := json.Marshal(msg)
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json, text/event-stream")
-		req.Header.Set("MCP-Protocol-Version", version)
-		if session != "" {
-			req.Header.Set("Mcp-Session-Id", session)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer resp.Body.Close()
-		if s := resp.Header.Get("Mcp-Session-Id"); s != "" {
-			session = s
-		}
-		if id == 0 {
-			return nil, nil
-		}
-		if resp.StatusCode == 401 || resp.StatusCode == 403 {
-			return nil, fmt.Errorf("the server requires a credential (HTTP %d); pass --tools and --auth", resp.StatusCode)
-		}
-		if resp.StatusCode/100 != 2 {
-			return nil, fmt.Errorf("%s answered HTTP %d", method, resp.StatusCode)
-		}
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-		if err != nil {
-			return nil, err
-		}
-		if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
-			raw = lastSSEData(raw)
-		}
-		var envelope struct {
-			Result json.RawMessage `json:"result"`
-			Error  *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if err := json.Unmarshal(raw, &envelope); err != nil {
-			return nil, fmt.Errorf("%s: response is not JSON-RPC", method)
-		}
-		if envelope.Error != nil {
-			return nil, fmt.Errorf("%s: %s", method, envelope.Error.Message)
-		}
-		return envelope.Result, nil
-	}
-	if _, err := call(1, "initialize", map[string]any{"protocolVersion": version, "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "aiplex-cli", "version": version}}); err != nil {
 		return nil, err
 	}
-	_, _ = call(0, "notifications/initialized", nil)
-	var names []string
-	cursor := ""
-	for page := 0; page < 20; page++ {
-		var params any
-		if cursor != "" {
-			params = map[string]any{"cursor": cursor}
-		}
-		result, err := call(page+2, "tools/list", params)
-		if err != nil {
-			return nil, err
-		}
-		var listed struct {
-			Tools []struct {
-				Name string `json:"name"`
-			} `json:"tools"`
-			NextCursor string `json:"nextCursor"`
-		}
-		if err := json.Unmarshal(result, &listed); err != nil {
-			return nil, fmt.Errorf("tools/list: unexpected result")
-		}
-		for _, t := range listed.Tools {
-			names = append(names, t.Name)
-		}
-		if listed.NextCursor == "" {
-			break
-		}
-		cursor = listed.NextCursor
-	}
-	return names, nil
-}
-
-func lastSSEData(raw []byte) []byte {
-	var last []byte
-	sc := bufio.NewScanner(bytes.NewReader(raw))
-	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.HasPrefix(line, "data:") {
-			last = []byte(strings.TrimSpace(strings.TrimPrefix(line, "data:")))
-		}
-	}
-	return last
+	return mcpdiscover.Names(tools), nil
 }
 
 func mcpConnTestCmd() *cobra.Command {
@@ -561,6 +461,123 @@ can see. A failure here is what a client would hit.`,
 			return printConnectionTools(cmd.Context(), cmd.OutOrStdout(), c, args[0])
 		},
 	}
+}
+
+func mcpConnCallCmd() *cobra.Command {
+	var argsJSON, argsFile string
+	cmd := &cobra.Command{
+		Use:   "call <id> <tool> [--args JSON | --args-file <file>|-]",
+		Short: "Call one tool through the gateway and print the result",
+		Long: `Sends one tools/call through the gateway with the connection's credential and
+policy rules applied, and the caller's mcp:tools:<tool> grant checked, exactly
+as a client's call would be. Text content prints as text; other content prints
+as its type. -o json prints the raw result.
+
+Arguments are a JSON (or YAML) object from --args, or from --args-file (use -
+for stdin). A policy denial exits 3 and names the rule. A tool that ran and
+reported a failure prints its text and exits 1, as does a tool server error.
+
+Calls are real: a tool with side effects runs.`,
+		Example: `  aiplex mcp connections call local-tools echo --args '{"text":"hi"}'
+  aiplex mcp connections call search query --args-file query.json -o json
+  echo '{"a":1,"b":2}' | aiplex mcp connections call local-tools add --args-file -`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, tool := args[0], args[1]
+			if err := aiplex.ValidateToolConnectionID(id); err != nil {
+				return usageError(fmt.Sprintf("%q is not a valid connection ID", id))
+			}
+			if argsJSON != "" && argsFile != "" {
+				return usageError("--args and --args-file cannot be combined")
+			}
+			if argsFile != "" {
+				raw, err := spReadSpec(argsFile, cmd.InOrStdin())
+				if err != nil {
+					return usageError(err.Error())
+				}
+				argsJSON = string(raw)
+			}
+			var arguments json.RawMessage
+			if argsJSON != "" {
+				var object map[string]json.RawMessage
+				if err := json.Unmarshal([]byte(argsJSON), &object); err != nil || object == nil {
+					return usageError("the tool arguments must be a JSON object", `Example: --args '{"text":"hi"}'`)
+				}
+				arguments = json.RawMessage(argsJSON)
+			}
+			result, err := newClient().CallConnectionTool(cmd.Context(), id, tool, arguments)
+			if err != nil {
+				return explainToolCall(id, tool, err)
+			}
+			if machineOutput() {
+				var raw any
+				if json.Unmarshal(result.Raw, &raw) != nil {
+					return fmt.Errorf("call tool %s: the result cannot be read", tool)
+				}
+				spStructured(cmd, raw)
+			} else {
+				out := cmd.OutOrStdout()
+				if len(result.Content) == 0 {
+					fmt.Fprintln(out, "(the tool returned no content)")
+				}
+				for _, item := range result.Content {
+					if item.Type == "text" {
+						fmt.Fprintln(out, item.Text)
+						continue
+					}
+					fmt.Fprintf(out, "[%s content%s not shown; use -o json]\n", spDash(item.Type), mimeSuffix(item.MimeType))
+				}
+			}
+			if result.IsError {
+				return newCLIError(exitError, "the tool ran and reported an error ("+tool+" on "+id+")")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&argsJSON, "args", "", "Tool arguments as a JSON object")
+	cmd.Flags().StringVar(&argsFile, "args-file", "", "Read the tool arguments from a JSON or YAML file ('-' for stdin)")
+	return cmd
+}
+
+func mimeSuffix(mime string) string {
+	if mime == "" {
+		return ""
+	}
+	return " " + mime
+}
+
+// explainToolCall phrases a failed tools/call. A policy denial (HTTP 403 with
+// a JSON-RPC error) is shown as a denial and exits 3; the tool server's own
+// error and an unreachable upstream exit 1.
+func explainToolCall(id, tool string, err error) error {
+	var rpc *aiplex.ToolCallError
+	if errors.As(err, &rpc) {
+		switch rpc.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			hints := []string{}
+			if rpc.Rule != "" {
+				hints = append(hints, "Rule: "+rpc.Rule)
+			}
+			if rpc.Reason != "" {
+				hints = append(hints, "Reason: "+rpc.Reason)
+			}
+			hints = append(hints, "See the connection's rules with: aiplex mcp connections rules list "+id)
+			return newCLIError(exitAuth, fmt.Sprintf("call to %s on %s was denied: %s", tool, id, rpc.Message), hints...)
+		case http.StatusBadRequest, http.StatusUnprocessableEntity:
+			return newCLIError(exitUsage, fmt.Sprintf("call to %s on %s was refused: %s", tool, id, rpc.Message))
+		}
+		return newCLIError(exitError, fmt.Sprintf("the tool server answered %s on %s with an error (%d): %s", tool, id, rpc.Code, rpc.Message),
+			"List the tools the caller can see with: aiplex mcp connections test "+id)
+	}
+	var apiErr *aiplex.Error
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusServiceUnavailable {
+		return explainGateway503("tools/call "+tool, id, apiErr)
+	}
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadGateway {
+		return newCLIError(exitError, "the gateway could not get a valid answer from the tool server: "+apiErr.Message,
+			"Check the connection with: aiplex mcp connections test "+id)
+	}
+	return fmt.Errorf("call tool %s on %s: %w", tool, id, err)
 }
 
 func printConnectionTools(ctx context.Context, out io.Writer, c *aiplex.Client, id string) error {
@@ -591,6 +608,29 @@ func printConnectionTools(ctx context.Context, out io.Writer, c *aiplex.Client, 
 	return nil
 }
 
+// explainGateway503 reports a 503 from the connection's invoke route with the
+// server's own code and message first. The gateway answers a plain-text
+// "... credential unavailable" (which the SDK reports with code "unknown" and
+// the text as the message) when it cannot get the credential the connection
+// names, a secret reference or an identity; only then is the credential
+// explained. Other 503s (TOOL_CONFIGURATION_UNAVAILABLE, QUOTA_UNAVAILABLE,
+// TOOL_EXECUTION_UNAVAILABLE, ...) are shown as the server said them.
+func explainGateway503(what, id string, apiErr *aiplex.Error) error {
+	detail := apiErr.Message
+	if apiErr.Code != "" && apiErr.Code != "unknown" {
+		detail = apiErr.Code + ": " + detail
+	}
+	msg := fmt.Sprintf("%s through the gateway failed (503): %s", what, detail)
+	if apiErr.Code != "unknown" || !strings.Contains(apiErr.Message, "credential unavailable") {
+		return newCLIError(exitError, msg, "The gateway could not serve the call; retry, and check the API log if it persists.")
+	}
+	hints := []string{"The gateway could not get the connection's credential: its secret reference has no readable value, or its identity profile could not produce a token. Check the connection's auth with: aiplex mcp connections get " + id}
+	if isLoopbackURL(resolveAPIURL()) {
+		hints = append(hints, "With aiplex dev, a secret reference NAME is read from the variable AIPLEX_TOOL_SECRET_<NAME> (upper case, - as _) in the environment aiplex dev started with.")
+	}
+	return newCLIError(exitError, msg, hints...)
+}
+
 func explainToolTest(id string, err error) error {
 	var rpc *aiplex.ToolListError
 	if errors.As(err, &rpc) {
@@ -599,6 +639,9 @@ func explainToolTest(id string, err error) error {
 			"Change it with: aiplex tools set-auth "+id+" --auth-type ...")
 	}
 	var apiErr *aiplex.Error
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusServiceUnavailable {
+		return explainGateway503("tools/list", id, apiErr)
+	}
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusBadGateway {
 		hints := []string{"The gateway could not get a valid answer from the server at the connection's URL."}
 		if isLoopbackURL(resolveAPIURL()) {
@@ -613,7 +656,6 @@ func mcpConnDeleteCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "delete <id>",
-		Aliases: []string{"remove", "rm"},
 		Short:   "Delete an MCP tool connection",
 		Example: "  aiplex mcp connections delete docs --yes",
 		Args:    cobra.ExactArgs(1),
@@ -633,35 +675,8 @@ func mcpConnDeleteCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &yes)
 	return cmd
-}
-
-// confirm guards a destructive change. On a terminal (stdin, and stderr where
-// the question is written) it asks; --yes skips the question. With no
-// terminal there is nobody to ask, so the command refuses (exit 2) unless
-// --yes was given: a script that deletes something must say so.
-func confirm(cmd *cobra.Command, yes bool, question string) error {
-	return confirmWith(cmd, yes, question, "this is destructive", "cancelled; nothing was deleted")
-}
-
-// confirmWith is confirm with its own wording: what is risky about the
-// action (for the no-terminal refusal) and what to say when declined.
-func confirmWith(cmd *cobra.Command, yes bool, question, risk, cancelled string) error {
-	if yes {
-		return nil
-	}
-	if !stdinIsTerminal() || !stderrIsTerminal() {
-		return usageError("refusing to proceed: "+risk+" and there is no terminal to ask for confirmation. "+question,
-			"Add --yes (-y) to run it non-interactively")
-	}
-	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)
-	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	switch strings.ToLower(strings.TrimSpace(answer)) {
-	case "y", "yes":
-		return nil
-	}
-	return newCLIError(exitError, cancelled)
 }
 
 // confirmDestructive gives every delete/undeploy command without its own
@@ -674,7 +689,7 @@ func confirmDestructive(c *cobra.Command) {
 		return
 	}
 	var yes bool
-	c.Flags().BoolVarP(&yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(c, &yes)
 	run := c.RunE
 	c.RunE = func(cmd *cobra.Command, args []string) error {
 		what := strings.TrimPrefix(strings.TrimPrefix(cmd.Parent().CommandPath(), "aiplex"), " ")

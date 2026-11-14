@@ -11,7 +11,7 @@ An invocation report does not execute a skill or prove authorization. The record
 
 ```bash
 aiplex skills servers                     # running SkillsPlex servers
-aiplex skills invocations                 # recent invocations
+aiplex skills invocations --limit 20     # recent invocations (default 100, at most 1000)
 aiplex skills record-invocation --help    # record an invocation audit event
 ```
 

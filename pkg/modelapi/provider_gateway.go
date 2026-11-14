@@ -64,6 +64,29 @@ func (g *Gateway) serveProvider(w http.ResponseWriter, r *http.Request) {
 	if g.serveProviderExtended(w, r, trusted, owner, op, params) {
 		return
 	}
+	if bedrockInvoke(op) {
+		// The model id (path) selects the InvokeModel body family.
+		r = r.WithContext(withInvokeModel(r.Context(), params["model"]))
+	}
+	if op.ID == geminiLiveOperation {
+		// Gemini Live on the Developer API: the Vertex Live relay with the
+		// surface credential. As on the Google Cloud path, the operation is
+		// authorized before the upgrade and the model after the setup.
+		metadata := Metadata{Resource: Resource{op.ResourceKind, ""}, Transport: WebSocket}
+		if _, e = g.providerRequestHeaders(r.Header); e != nil {
+			writeProviderRequestError(w, e)
+			return
+		}
+		if e = g.options.Authorize(r.Context(), trusted, g.Surface(), op, metadata); e != nil {
+			http.Error(w, "operation denied", http.StatusForbidden)
+			return
+		}
+		if !g.sessionHooks(w, r, op, metadata) {
+			return
+		}
+		g.serveLive(w, r, trusted, owner, op)
+		return
+	}
 	if op.Transport == WebSocket {
 		g.serveProviderWebSocket(w, r, trusted, owner, op)
 		return
@@ -295,6 +318,21 @@ func (g *Gateway) providerRequestHeaders(in http.Header) (http.Header, error) {
 		if len(betas) > 0 {
 			out.Set("Anthropic-Beta", strings.Join(betas, ","))
 		}
+	case ProviderBedrock:
+		if !g.surface.BedrockMantle() {
+			break
+		}
+		// Mantle Messages: the documented anthropic-version header, pinned.
+		// Beta features are not enabled on this surface.
+		for _, version := range in.Values("Anthropic-Version") {
+			if strings.TrimSpace(version) != BedrockMantleAnthropicVersion {
+				return nil, badRequest("anthropic-version is pinned to %s on bedrock-mantle", BedrockMantleAnthropicVersion)
+			}
+		}
+		if len(in.Values("Anthropic-Beta")) > 0 {
+			return nil, badRequest("anthropic-beta is not enabled on this surface")
+		}
+		out.Set("Anthropic-Version", BedrockMantleAnthropicVersion)
 	}
 	return out, nil
 }

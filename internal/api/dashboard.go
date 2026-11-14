@@ -187,10 +187,15 @@ func (h *DashboardHandler) ledgerUsage(r *http.Request, tenant string) (models.D
 	return out, nil
 }
 
-// ListPolicyDenials returns recent authorization denials.
-// GET /api/v1/dashboard/denials?limit=50
+// ListPolicyDenials returns recent authorization denials, newest first.
+// GET /api/v1/dashboard/denials?limit=50 (default 50, at most 1000)
 func (h *DashboardHandler) ListPolicyDenials(w http.ResponseWriter, r *http.Request) {
-	denials, err := h.store.ListPolicyDenials(r.Context(), 50)
+	limit, err := telemetryLimit(r, 50)
+	if err != nil {
+		Error(w, r, http.StatusBadRequest, "INVALID_LIMIT", err.Error())
+		return
+	}
+	denials, err := h.store.ListPolicyDenials(r.Context(), limit)
 	if err != nil {
 		Error(w, r, http.StatusInternalServerError, "STORE_ERROR", err.Error())
 		return

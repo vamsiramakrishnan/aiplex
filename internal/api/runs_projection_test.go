@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,6 +108,7 @@ func TestRunsHealth_ReturnsState(t *testing.T) {
 
 	h := api.NewRunsHandler(store)
 	r := chi.NewRouter()
+	r.Use(api.RunsTestCaller(&models.ResolvedAccess{Scopes: []string{"aiplex:runs:read:cross_tenant"}}, false))
 	r.Get("/api/v1/runs/_health", h.Health)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/_health", nil)
@@ -156,13 +158,13 @@ func TestListOperatorAudit_ReturnsAppendedRows(t *testing.T) {
 	}
 }
 
-// Multi-tenant filter. Without a tenant context the
-// caller-supplied query value is used as-is (legacy behaviour).
-// With a tenant context, cross-tenant requests return empty rather
-// than 403 (silent denial — see TestTenantFromContext_FromScope
-// for the empty-context flow).
+// Multi-tenant filter. A verified caller with no tenant is refused by
+// default; with the single-tenant opt-out (AIPLEX_REQUIRE_TENANT=0) the
+// caller-supplied query value is used as-is. With a tenant context,
+// requests for another tenant return empty rather than 403 (see
+// runs_tenant_test.go).
 
-func TestList_NoTenantContext_HonoursQuery(t *testing.T) {
+func TestList_NoTenantContext_HonoursQueryOnlyWithOptOut(t *testing.T) {
 	store := registry.NewMemoryStore()
 	ctx := context.Background()
 	_ = store.UpsertExecutionRun(ctx, &models.ExecutionRun{RunID: "r-a", TenantID: "acme"})
@@ -170,16 +172,26 @@ func TestList_NoTenantContext_HonoursQuery(t *testing.T) {
 
 	h := api.NewRunsHandler(store)
 	r := chi.NewRouter()
+	r.Use(api.RunsTestCaller(&models.ResolvedAccess{Scopes: []string{"aiplex:runs:read"}}, false))
 	r.Get("/api/v1/runs", h.List)
 
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/runs?tenant_id=acme", nil))
-	var resp struct {
-		Runs []models.ExecutionRun `json:"runs"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-	if len(resp.Runs) != 1 || resp.Runs[0].RunID != "r-a" {
-		t.Errorf("expected just r-a (acme), got %+v", resp.Runs)
+	for _, setting := range []string{"", "1", "0"} {
+		t.Setenv("AIPLEX_REQUIRE_TENANT", setting)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/runs?tenant_id=acme", nil))
+		if setting != "0" {
+			if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "TENANT_REQUIRED") {
+				t.Errorf("setting %q: expected 403 TENANT_REQUIRED, got %d %s", setting, rec.Code, rec.Body)
+			}
+			continue
+		}
+		var resp struct {
+			Runs []models.ExecutionRun `json:"runs"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		if len(resp.Runs) != 1 || resp.Runs[0].RunID != "r-a" {
+			t.Errorf("expected just r-a (acme), got %+v", resp.Runs)
+		}
 	}
 }
 

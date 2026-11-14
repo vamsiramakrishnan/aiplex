@@ -40,6 +40,10 @@ It contains no token or monetary enforcement claim.
 JSON `time.Duration` fields use integer **nanoseconds**: `1000000000` is one
 second; `300000000000` is five minutes. `recovery_interval` instead uses a Go
 duration string and must be between `1s` and `1h`; its default is `5s`.
+`unknown_warn_after` is also a Go duration string, between `1m` and `720h`
+(default `1h`): the age of the oldest attempt in the `unknown` state at which
+the recovery worker logs a warning (see
+[quota administration](quotaplex-administration.md#attempts-in-the-unknown-state)).
 
 Each tenant supplies `host.tenants[].policy`, `activate` and, for an upgrade,
 `expected_digest`. First activation uses revision 1 and no previous digest.
@@ -79,6 +83,90 @@ map `tool_calls` to a distinct `calls` meter. The request costs one accepted cal
 HTTP errors do not imply a refund. An incomplete transport retains exposure.
 With explicit per-call prices, monetary caps can enforce that configured tariff;
 they do not measure an LLM provider's token-based bill. The example has no prices.
+
+### Tool response size and duration (`tool-usage`)
+
+A tool binding may also meter a call's response size and duration. It opts in
+with `profile: "tool-usage"` and maps `requests`, optionally `tool_calls`
+(unit `calls`), and at least one of:
+
+| Native counter | Meter unit | What is measured |
+| --- | --- | --- |
+| `tool_response_bytes` | `bytes` | The upstream response body as the gateway read it (after HTTP transfer decoding), for a complete response only. A request hook that rewrites the response afterwards does not change it. |
+| `tool_duration_milliseconds` | `milliseconds` | The gateway's monotonic clock from the first dispatch (a transport retry is included) to the end of the response body, in whole milliseconds rounded up, at least 1 for a call that ran. Wall-clock time is not used. |
+
+The binding must be a managed MCP `tools/call` operation (`plane: "mcplex"`,
+`provider: "mcp"`). A deployment action, a model or agent operation, a meter
+of another unit, or a binding that maps neither counter is refused at API
+start. A binding with `profile: "request-count"` is unchanged: it admits,
+settles and stores exactly what it did before these meters existed (a golden
+of its stored state is checked in `TestToolCallOptOutStoredStateIsUnchanged`).
+
+**Bounds.** Admission reserves the connection's own bounds:
+`execution.max_response_bytes` (1 to 67108864) and
+`execution.max_duration_seconds` (1 to 1800, reserved as milliseconds). The
+gateway's defaults (8 MiB, 5 minutes) are not a configured bound. A mapped
+meter whose bound the connection does not set is refused with `503
+QUOTA_BOUNDS_UNAVAILABLE` before the tool server sees anything. Saving such a
+connection is also refused while a loaded binding meters it. The binding comes
+from the quota deployment file loaded at API start, so a binding added later
+is caught at admission. The bounds apply to every call on the connection,
+metered or not.
+
+**Settlement**, by ending (every meter of a call settles together, or none
+does, as for the token profiles):
+
+| Ending | Ledger record | Quota settlement (`tool-usage`) |
+| --- | --- | --- |
+| Complete response (JSON, or finite SSE in `stateless-streamable-http` mode) | Exact bytes and duration | Requests, calls, bytes and duration as observed |
+| HTTP 200 carrying a JSON-RPC error (the tool's own error result) | Exact bytes and duration | Complete: requests, calls, bytes and duration as observed |
+| Body larger than `max_response_bytes` (the gateway stops reading at the bound; the caller gets 502) | Bytes and duration unknown; the record's status is unknown as today | Unknown, holding the whole reservation. The true size is only known to exceed the bound, so nothing is charged as a total. |
+| Connection reset mid-body | Unknown | Unknown, holding the reservation |
+| Timeout at `max_duration_seconds` | Unknown | Unknown, holding the reservation |
+| Upstream error status with a body (for example 500) | Unknown | Unknown, holding the reservation |
+| Refused before processing: a complete response with 400, 401, 403, 404 or 429 | Unknown | One request; calls, bytes and duration 0 |
+| Not sent: the dispatch failed before a connection was obtained | Unknown | Zero |
+
+A refusal before processing settles one request and zero tool calls, zero
+bytes and zero duration: the tool did not run. "Not sent" includes a
+credential that could not be resolved for the send and an endpoint-policy
+refusal at the dial. Refusals before dispatch (a policy rule or hook denial,
+argument validation, a missing or revoked grant, a credential that cannot be
+resolved before the claim, a connection changed after admission) never claim
+the attempt: the reservation is released and nothing appears in the unknown
+report.
+
+A compressed response is measured, and bounded, by its decompressed size: the
+HTTP client decodes the transfer encoding before the gateway counts the body
+against `max_response_bytes`. The duration of a call retried after a transport
+failure (read-only tools only) runs from the first try's dispatch, so it covers
+both attempts and the pause between them.
+
+The last two rows follow the never-started rule shared with model exchanges
+and seconds-metered sessions (`pkg/execution` `ConnectionTrace` and
+`RejectedBeforeProcessing`). They apply only to `tool-usage` bindings. A
+request-count tool binding keeps every such ending unknown, as before.
+
+A complete response can never exceed the reserved bytes, because the gateway
+does not read beyond the bound. Duration cannot exceed the bound either: the
+call's deadline is `max_duration_seconds` from when the gateway received the
+request, before dispatch, so a body read completely ended before it. A
+measurement above the bound can only be the delay between the last byte and
+the clock read, and it is settled at the bound. It is never a usage overrun
+and never quarantines the binding.
+
+A cost budget with `include_tool_calls` draws priced byte and duration meters
+as money, like the per-call price. Unpriced ones follow `on_unknown_cost`,
+and deployment actions stay excluded ([budgets](budgets.md)). An unknown call
+appears in `aiplex quota unknown` with its held `bytes` and `milliseconds`.
+
+**Not validated against a real tool server.** These rules are exercised
+against fake MCP servers in the tests and the dev stack's mock MCP server.
+Three things are assumptions, not observations:
+* how real servers use HTTP 4xx (taken here as refusals before processing),
+* whether a provider bills by decoded bytes, and
+* how the gateway-measured duration compares with a tool provider's own
+  billing clock.
 
 Request/s buckets debit accepted calls; token-exposure/s buckets debit the full
 admitted bound. Their burst must fit the supported single-request demand, and

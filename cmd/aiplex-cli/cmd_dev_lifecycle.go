@@ -182,6 +182,9 @@ func devStatusCmd() *cobra.Command {
 			} else {
 				fmt.Fprintf(out, "  Model          %s\n", st.Model)
 			}
+			if st.Federation {
+				fmt.Fprintln(out, "  Identity       federation on; stand-in providers on loopback: aiplex dev token --issuer idp|workload|unconfigured")
+			}
 			fmt.Fprintf(out, "  CLI context    %s\n", st.Context)
 			switch {
 			case st.Console != "":

@@ -53,7 +53,7 @@ func clientsCmd() *cobra.Command {
 		}
 		t.render(cmd.OutOrStdout())
 		return nil
-	}}, &cobra.Command{Use: "get <id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	}}, &cobra.Command{Use: "get <id>", Short: "Show one registered client", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		result, e := newClient().GetClientRegistration(cmd.Context(), args[0])
 		if e != nil {
 			return e
@@ -119,7 +119,7 @@ func clientsCmd() *cobra.Command {
 	put.Flags().Uint64Var(&expected, "expected-revision", 0, "Expected revision; zero creates a new registration")
 	command.AddCommand(put)
 	var deleteRevision uint64
-	remove := &cobra.Command{Use: "delete <id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	remove := &cobra.Command{Use: "delete <id>", Short: "Delete a client registration (needs its current revision)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		return newClient().DeleteClientRegistration(cmd.Context(), args[0], deleteRevision)
 	}}
 	remove.Flags().Uint64Var(&deleteRevision, "expected-revision", 0, "Required current revision")

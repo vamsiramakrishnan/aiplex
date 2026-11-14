@@ -34,6 +34,11 @@ type quotaHostModelFixture struct {
 	identity  *models.WIFIdentity
 	now       time.Time
 	calls     atomic.Int32
+	// upstream records how each upstream request arrived (URI and headers).
+	upstream struct {
+		sync.Mutex
+		requests []*http.Request
+	}
 }
 
 func quotaHostModelConfig(now time.Time, gemini bool) QuotaHostConfig {
@@ -69,6 +74,9 @@ func quotaHostModelNew(t *testing.T, gemini bool, upstreamHandler http.HandlerFu
 	f := &quotaHostModelFixture{now: time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), store: quotaplex.NewMemoryStore(), resources: resources.NewMemoryStore()}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.calls.Add(1)
+		f.upstream.Lock()
+		f.upstream.requests = append(f.upstream.requests, r.Clone(context.Background()))
+		f.upstream.Unlock()
 		upstreamHandler(w, r)
 	}))
 	t.Cleanup(upstream.Close)

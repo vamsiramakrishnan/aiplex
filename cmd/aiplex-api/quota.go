@@ -23,6 +23,7 @@ import (
 	"github.com/vamsiramakrishnan/aiplex/internal/registry"
 	"github.com/vamsiramakrishnan/aiplex/pkg/modules"
 	"github.com/vamsiramakrishnan/aiplex/pkg/quotaplex"
+	"github.com/vamsiramakrishnan/aiplex/pkg/telemetry"
 )
 
 type quotaDeploymentFile struct {
@@ -34,7 +35,13 @@ type quotaDeploymentFile struct {
 	ProviderLimits      []providerLimitEvidence     `json:"provider_limits,omitempty"`
 	Actors              []quotaplex.Subject         `json:"actors,omitempty"`
 	RecoveryInterval    string                      `json:"recovery_interval,omitempty"`
+	// UnknownWarnAfter is the age after which an attempt still in the
+	// unknown state is logged as a warning. Go duration, 1m to 720h.
+	UnknownWarnAfter string `json:"unknown_warn_after,omitempty"`
 }
+
+// defaultUnknownWarnAfter is the documented default of unknown_warn_after.
+const defaultUnknownWarnAfter = time.Hour
 
 func firestoreConfiguration(cfg *config.Config) (string, string) {
 	project, database := cfg.GCPProject, cfg.FirestoreDB
@@ -267,6 +274,14 @@ type quotaWorker struct {
 	tenant   string
 	recovery quotaRecoveryRunner
 	cursors  [3]string
+	// scan accumulates the unknown-attempt summary of the current attempts
+	// scan across pages; broken records that a page of it failed. unknown is
+	// the last complete scan (guarded by quotaRuntime.unknownMu).
+	scan    *quotaplex.UnknownExposure
+	broken  bool
+	unknown *quotaplex.UnknownExposure
+	// completedAt is when unknown was published (guarded by unknownMu).
+	completedAt time.Time
 }
 type quotaRuntime struct {
 	mu             sync.Mutex
@@ -277,6 +292,29 @@ type quotaRuntime struct {
 	done           chan struct{}
 	running        bool
 	administration api.QuotaAdminOptions
+	warnAfter      time.Duration
+	unknownMu      sync.Mutex
+	// clock is time.Now unless a test replaces it.
+	clock func() time.Time
+}
+
+func (m *quotaRuntime) now() time.Time {
+	if m.clock != nil {
+		return m.clock()
+	}
+	return time.Now()
+}
+
+// lastCompleteScanAge is how long ago the tenant's figures were published,
+// or "never". The caller holds no lock.
+func (m *quotaRuntime) lastCompleteScanAge(w *quotaWorker) string {
+	m.unknownMu.Lock()
+	at := w.completedAt
+	m.unknownMu.Unlock()
+	if at.IsZero() {
+		return "never"
+	}
+	return m.now().Sub(at).Round(time.Second).String()
 }
 
 func configureQuota(ctx context.Context, cfg *config.Config, store registry.Store, h *api.ConnectedHandler) (*quotaRuntime, error) {
@@ -304,6 +342,13 @@ func configureQuota(ctx context.Context, cfg *config.Config, store registry.Stor
 		interval, err = time.ParseDuration(spec.RecoveryInterval)
 		if err != nil || interval < time.Second || interval > time.Hour {
 			return nil, fmt.Errorf("quota recovery interval must be between 1s and 1h")
+		}
+	}
+	warnAfter := defaultUnknownWarnAfter
+	if spec.UnknownWarnAfter != "" {
+		warnAfter, err = time.ParseDuration(spec.UnknownWarnAfter)
+		if err != nil || warnAfter < time.Minute || warnAfter > 720*time.Hour {
+			return nil, fmt.Errorf("quota unknown_warn_after must be between 1m and 720h")
 		}
 	}
 	var quotaStore quotaplex.Store
@@ -347,7 +392,7 @@ func configureQuota(ctx context.Context, cfg *config.Config, store registry.Stor
 			return nil, err
 		}
 	}
-	runtime := &quotaRuntime{host: host, interval: interval, administration: spec.Administration}
+	runtime := &quotaRuntime{host: host, interval: interval, administration: spec.Administration, warnAfter: warnAfter}
 	engines := host.Engines()
 	names := make([]string, 0, len(engines))
 	for tenant := range engines {
@@ -363,6 +408,7 @@ func configureQuota(ctx context.Context, cfg *config.Config, store registry.Stor
 	}
 	h.Quota = host
 	h.AttachBudgets()
+	telemetry.Metrics().ObserveQuotaUnknown(runtime.unknownMetrics)
 	return runtime, nil
 }
 
@@ -450,6 +496,9 @@ func (m *quotaRuntime) pass(ctx context.Context) {
 			} else if report.Scanned > 0 && report.NextAfterID != "" && quotaplex.ValidateStoreCoordinate(w.tenant, "checkpoint", report.NextAfterID) == nil {
 				w.cursors[kind] = report.NextAfterID
 			}
+			if kind == 1 {
+				m.observeUnknown(w, report, err)
+			}
 			if err != nil {
 				log.Error().Str("tenant", w.tenant).Int("kind", kind).Msg("quota recovery pass failed")
 				continue
@@ -459,6 +508,96 @@ func (m *quotaRuntime) pass(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// observeUnknown accumulates one attempts page into the tenant's scan. When
+// the scan completes it becomes the tenant's published summary and, if the
+// oldest unknown attempt is older than warnAfter (or its age or some records
+// cannot be read), one warning is logged. A scan with a failed page is not
+// published: its figures could be understated, and the previous ones stay.
+func (m *quotaRuntime) observeUnknown(w *quotaWorker, report quotaplex.RecoveryReport, err error) {
+	if err != nil || report.Unknown == nil {
+		w.broken = true
+		// One warning per failed page, that is at most one per tenant and
+		// pass, so a scan that never completes is not silent.
+		log.Warn().Str("tenant", w.tenant).Str("last_complete_scan", m.lastCompleteScanAge(w)).Msg("quota unknown-attempt scan page failed; the published figures are from the last complete scan")
+	} else if w.scan == nil {
+		summary := *report.Unknown
+		w.scan = &summary
+	} else {
+		w.scan.Merge(*report.Unknown)
+	}
+	if !report.Done {
+		return
+	}
+	scan, broken := w.scan, w.broken
+	w.scan, w.broken = nil, false
+	if broken || scan == nil {
+		if err == nil && report.Unknown != nil {
+			log.Warn().Str("tenant", w.tenant).Str("last_complete_scan", m.lastCompleteScanAge(w)).Msg("quota unknown-attempt scan did not complete; the previous summary is kept")
+		}
+		return
+	}
+	m.unknownMu.Lock()
+	w.unknown, w.completedAt = scan, m.now()
+	m.unknownMu.Unlock()
+	age, known := scan.OldestAge()
+	switch {
+	case scan.Attempts > 0 && (!known || age > m.warnAfter):
+		oldest := "unknown"
+		if known {
+			oldest = age.Round(time.Second).String()
+		}
+		exposure := make([]string, 0, len(scan.Exposure))
+		for _, e := range scan.Exposure {
+			exposure = append(exposure, e.String())
+		}
+		log.Warn().Str("tenant", w.tenant).Int("attempts", scan.Attempts).Str("oldest_age", oldest).Str("threshold", m.warnAfter.String()).Int("undated", scan.UndatedAttempts).Int("unreadable", scan.Unreadable).Bool("exposure_complete", scan.Complete()).Strs("exposure", exposure).Msg("quota attempts in the unknown state are older than the warning threshold and still hold budget")
+	case scan.Unreadable > 0:
+		log.Warn().Str("tenant", w.tenant).Int("unreadable", scan.Unreadable).Int("attempts", scan.Attempts).Msg("quota attempt records could not be read; unknown attempts and their exposure may be understated")
+	}
+}
+
+// unknownMetrics sums the last complete scan of every tenant. It reports
+// nothing until every tenant has completed one, so a missing tenant is never
+// shown as zero.
+func (m *quotaRuntime) unknownMetrics() (telemetry.QuotaUnknown, bool) {
+	m.unknownMu.Lock()
+	defer m.unknownMu.Unlock()
+	if len(m.workers) == 0 {
+		return telemetry.QuotaUnknown{}, false
+	}
+	var total quotaplex.UnknownExposure
+	for i := range m.workers {
+		if m.workers[i].unknown == nil {
+			return telemetry.QuotaUnknown{}, false
+		}
+		total.Merge(*m.workers[i].unknown)
+	}
+	out := telemetry.QuotaUnknown{Attempts: int64(total.Attempts), Undated: int64(total.UndatedAttempts), Unreadable: int64(total.Unreadable)}
+	// Each tenant's age is taken at its own scan; the oldest is the largest.
+	for i := range m.workers {
+		if age, ok := m.workers[i].unknown.OldestAge(); ok && age > out.OldestAge {
+			out.OldestAge = age
+		}
+	}
+	out.OldestAgeKnown = total.Attempts > 0 && total.UndatedAttempts == 0
+	// The stalest tenant decides how old the figures are.
+	now := m.now()
+	for i := range m.workers {
+		if age := now.Sub(m.workers[i].completedAt); age > out.ScanAge {
+			out.ScanAge = age
+		}
+	}
+	for _, e := range total.Exposure {
+		known := int64(e.Attempts - e.UncomputedAttempts)
+		if known == 0 && e.KnownPart > 0 {
+			// A flagged cost can carry a known lower bound (see attemptExposure).
+			known = 1
+		}
+		out.Exposure = append(out.Exposure, telemetry.QuotaExposure{Meter: e.MeterID, Unit: e.Unit, Currency: e.Currency, Scale: int(e.Scale), KnownPart: e.KnownPart, KnownAttempts: known, Complete: e.Quantity != nil, Uncomputed: int64(e.UncomputedAttempts)})
+	}
+	return out, true
 }
 
 func (m *quotaRuntime) mount(r chi.Router, h *api.ConnectedHandler) {

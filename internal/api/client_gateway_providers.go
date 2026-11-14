@@ -65,6 +65,14 @@ func providerClientNativePath(s modelapi.Surface, r *http.Request, path string) 
 			return path, nil, nil
 		}
 	case modelapi.ProviderBedrock:
+		if s.BedrockMantle() {
+			// Anthropic SDK: base_url …/gateway/{id}/anthropic (the documented
+			// Mantle base) or …/gateway/{id} (the Messages wire).
+			if path == "/anthropic/v1/messages" || path == "/v1/messages" {
+				return "/anthropic/v1/messages", nil, nil
+			}
+			break
+		}
 		if bedrockClientPath.MatchString(path) {
 			return path, nil, nil
 		}

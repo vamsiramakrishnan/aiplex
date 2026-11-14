@@ -75,6 +75,14 @@ type Budget struct {
 	// whose cost cannot be computed; allow_and_flag admits it and counts it as
 	// unknown cost.
 	OnUnknownCost string `json:"on_unknown_cost,omitempty"`
+	// IncludeToolCalls makes a cost budget also count managed tool calls
+	// (the mcplex plane) at the price the quota policy's price book gives
+	// them. Off by default: without it a cost budget counts model calls only,
+	// as budgets saved before the field existed do. It is refused on request
+	// budgets (they already count every plane) and token budgets (tool calls
+	// have no token meters). It is not part of the draw's shape, so turning it
+	// on or off keeps the budget's counter.
+	IncludeToolCalls bool `json:"include_tool_calls,omitempty"`
 	// Thresholds are percentages of the limit that are recorded as events when
 	// consumption crosses them. Default 50, 80, 100.
 	Thresholds []int `json:"thresholds,omitempty"`
@@ -250,6 +258,14 @@ func (b Budget) Validate() error {
 		}
 	default:
 		return fieldErr("on_unknown_cost", "on_unknown_cost must be deny or allow_and_flag")
+	}
+	if b.IncludeToolCalls {
+		switch b.Limit.Unit {
+		case UnitRequests:
+			return fieldErr("include_tool_calls", "include_tool_calls applies only to cost limits: a requests budget already counts tool calls, as it counts every plane")
+		case UnitTokens:
+			return fieldErr("include_tool_calls", "include_tool_calls applies only to cost limits: tool calls have no token meters, so a tokens budget cannot count them")
+		}
 	}
 	if len(b.Thresholds) > MaxThresholds {
 		return fieldErr("thresholds", "at most %d thresholds", MaxThresholds)
@@ -590,13 +606,47 @@ func (t *Tree) Resolve(f Facts) []Match {
 }
 
 // Applies reports whether the budget can be drawn by a request on the plane:
-// token and cost budgets count model traffic only; request budgets count
-// every plane.
+// request budgets count every plane; token budgets count model traffic only;
+// cost budgets count model traffic, and tool calls (mcplex) too when they set
+// IncludeToolCalls.
 func (b Budget) Applies(plane string) bool {
-	if b.Limit.Unit == UnitRequests {
+	switch {
+	case b.Limit.Unit == UnitRequests:
 		return true
+	case plane == PlaneModels:
+		return true
+	case plane == PlaneTools:
+		return b.Limit.Unit == UnitCost && b.IncludeToolCalls
 	}
-	return plane == "llmplex"
+	return false
+}
+
+// AppliesToDeploymentAction reports whether the budget counts a managed
+// deployment action. Deployment actions run on the tool plane, but only
+// request budgets (which count every plane) count them: include_tool_calls
+// is about tool calls and never charges, or refuses, a deployment.
+func (b Budget) AppliesToDeploymentAction() bool {
+	return b.Limit.Unit == UnitRequests
+}
+
+// Planes a budget may count beyond requests.
+const (
+	PlaneModels = "llmplex"
+	PlaneTools  = "mcplex"
+)
+
+// NotApplied explains why the budget does not count a request on the plane,
+// or returns "" when it does.
+func (b Budget) NotApplied(plane string) string {
+	switch {
+	case b.Applies(plane):
+		return ""
+	case plane == PlaneTools && b.Limit.Unit == UnitCost:
+		return "this cost budget counts model traffic only; set include_tool_calls to count tool calls"
+	case b.Limit.Unit == UnitCost && b.IncludeToolCalls:
+		return fmt.Sprintf("cost budgets count model and tool traffic only; this request is on %s", plane)
+	}
+	return fmt.Sprintf("%s budgets count model traffic only; this request is on %s", b.Limit.Unit, plane)
 }
 
 // Contains reports whether the facts make the caller a member of the budget

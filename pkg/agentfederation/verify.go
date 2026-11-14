@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -176,12 +177,12 @@ func parseToken(token string) (parsedToken, string) {
 	if json.Unmarshal(rawHeader, &header) != nil {
 		return parsedToken{}, "JWT header is not a JSON object"
 	}
-	if header.Alg != "RS256" && header.Alg != "ES256" {
+	if !slices.Contains(supportedAlgorithms, header.Alg) {
 		alg := header.Alg
 		if len(alg) > 16 {
 			alg = alg[:16]
 		}
-		return parsedToken{}, fmt.Sprintf("JWT algorithm %q is not supported; request an RS256 or ES256 token", alg)
+		return parsedToken{}, fmt.Sprintf("JWT algorithm %q is not supported; request an RS256, ES256 or ES384 token", alg)
 	}
 	if header.Kid == "" {
 		return parsedToken{}, "JWT header has no key ID (kid)"
@@ -367,7 +368,7 @@ func (e *Engine) Evaluate(ctx context.Context, in Input) *Result {
 
 	// 4. Audience.
 	auds := audiences(claims["aud"])
-	if contains(auds, reference.Audience) {
+	if slices.Contains(auds, reference.Audience) {
 		add(CheckAudience, StatusPass, fmt.Sprintf("audience includes %q", reference.Audience)+unverified)
 	} else if len(auds) == 0 {
 		add(CheckAudience, StatusFail, fmt.Sprintf("token has no aud claim; request it with audience %q", reference.Audience)+unverified)

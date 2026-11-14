@@ -297,7 +297,7 @@ Use --dry-run to see everything above without creating anything.`,
 	fl.BoolVar(&f.probe, "probe", false, "Discover the tools by sending tools/list to the server from this machine (no credential is sent)")
 	fl.BoolVar(&f.readWrite, "read-write", false, "Do not restrict the connection to tools annotated readOnlyHint=true")
 	fl.BoolVar(&f.dryRun, "dry-run", false, "Show the proposed connection, origin and secrets; create nothing")
-	fl.BoolVarP(&f.yes, "yes", "y", false, "Do not ask for confirmation (required when there is no terminal)")
+	addYesFlag(cmd, &f.yes)
 	fl.BoolVar(&f.update, "update", false, "Replace the connection if it exists")
 	return cmd
 }

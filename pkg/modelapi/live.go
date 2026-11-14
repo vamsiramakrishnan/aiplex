@@ -53,10 +53,12 @@ func websocketEndpoint(origin, path, rawQuery string) string {
 	return endpoint
 }
 
-// serveLive relays a Gemini Live (BidiGenerateContent) session. Client
-// authentication has already succeeded. Only the bounded initial setup is read
-// before quota admission, server credentials or the upstream socket. A quota
-// lease must use the request-count profile: one session is one admitted
+// serveLive relays a Gemini Live (BidiGenerateContent) session: Vertex Live
+// (live.connect) or Live on the Gemini Developer API (gemini.live.connect),
+// which differ only in the upstream credential (liveUpstreamHeaders) and the
+// spelling of the setup model. Client authentication has already succeeded.
+// Only the bounded initial setup is read before quota admission, server
+// credentials or the upstream socket. A quota lease must use the request-count profile: one session is one admitted
 // exchange, observed usage is advisory, and token-metered leases are refused
 // before credentials are acquired.
 func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted contracts.RequestContext, owner Owner, op Operation) {
@@ -75,7 +77,7 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 	if pinned := r.URL.Query()["model"]; e == nil && len(pinned) > 0 {
 		// A routing selector (e.g. an access point's ?model=) pins the
 		// session: the setup must name the same model.
-		if len(pinned) != 1 || g.normalizeModel(pinned[0]) != g.normalizeModel(metadata.Model) {
+		if len(pinned) != 1 || g.liveModelName(pinned[0]) != g.liveModelName(metadata.Model) {
 			e = fmt.Errorf("setup model differs from the selected model")
 		}
 	}
@@ -89,6 +91,14 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 	}
 	var gate *liveWindowGate
 	var run *executionRun
+	if g.surface.WebSocket.tokenMetering() && op.ID == geminiLiveOperation {
+		// Developer API Live usage is advisory (snapshots not documented as
+		// cumulative): no allowance window may settle from it. Validate
+		// refuses this at save time; the relay refuses it again here,
+		// before admission, credentials or the dial.
+		closeWebSocket(connection, websocket.ClosePolicyViolation, "token-metered sessions are not supported for this operation")
+		return
+	}
 	if g.surface.WebSocket.tokenMetering() && g.options.Execution != nil {
 		// Renewable allowance: the first window is admitted and claimed
 		// before credentials and the dial (see session_metering.go).
@@ -109,7 +119,7 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 			closeWebSocketForExecution(connection, err)
 			return
 		}
-		gate = &liveWindowGate{gateway: g, admit: admit, allowance: g.surface.SessionAllowance(), current: first}
+		gate = &liveWindowGate{gateway: g, operation: op.ID, admit: admit, allowance: g.surface.SessionAllowance(), current: first}
 		defer func() {
 			if gate.current != nil {
 				gate.current.close()
@@ -133,15 +143,15 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 	if gate != nil {
 		sessionGate = gate
 	}
-	token, e := g.options.TokenSource.Token(r.Context())
-	if e != nil || token == "" {
+	headers, e := g.liveUpstreamHeaders(r)
+	if e != nil {
 		_ = run.finish(execution.Result{Err: fmt.Errorf("upstream identity unavailable")})
 		closeWebSocket(connection, websocket.CloseTryAgainLater, "upstream identity unavailable")
 		return
 	}
-	headers := forwardRequestHeaders(r.Header)
-	applyTrustedHeaders(headers, g.options.UpstreamHeaders)
-	headers.Set("Authorization", "Bearer "+token)
+	// The upstream URL is the surface origin and the operation path, with no
+	// query: caller parameters (key=, access_token=, the ?model= selector)
+	// never cross, and no credential is ever placed in it.
 	upstream, response, e := g.options.LiveDialer.DialContext(r.Context(), websocketEndpoint(g.surface.Origin, r.URL.EscapedPath(), ""), headers)
 	if e != nil && response != nil && response.Body != nil {
 		response.Body.Close()
@@ -161,6 +171,56 @@ func (g *Gateway) serveLive(w http.ResponseWriter, r *http.Request, trusted cont
 	g.pumpWebSocket(r.Context(), connection, upstream, owner, op, &liveAdapter{gateway: g, owner: owner, resumed: resumed}, run, sessionGate)
 }
 
+// liveUpstreamHeaders returns the handshake headers of the upstream dial.
+//
+// Google Cloud (Vertex Live): the protocol headers, the operator's trusted
+// headers and the Google OAuth token. Gemini Developer API: the provider
+// protocol headers (no caller credential or billing claim) and the surface
+// credential, a secret-reference API key applied in the x-goog-api-key
+// header. The credential is applied to a request for the HTTPS form of the
+// upstream URL and only its headers are kept; a credential that changed the
+// URL (a key in the query) is refused, so the key reaches the provider in a
+// header or not at all. Errors never carry the credential.
+func (g *Gateway) liveUpstreamHeaders(r *http.Request) (http.Header, error) {
+	if g.surface.Provider == nil {
+		token, err := g.options.TokenSource.Token(r.Context())
+		if err != nil || token == "" {
+			return nil, fmt.Errorf("upstream identity unavailable")
+		}
+		headers := forwardRequestHeaders(r.Header)
+		applyTrustedHeaders(headers, g.options.UpstreamHeaders)
+		headers.Set("Authorization", "Bearer "+token)
+		return headers, nil
+	}
+	headers, err := g.providerRequestHeaders(r.Header)
+	if err != nil {
+		return nil, err
+	}
+	headers.Del("Content-Type")
+	target := strings.TrimSuffix(g.surface.Origin, "/") + r.URL.EscapedPath()
+	signing, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid upstream request")
+	}
+	signing.Header = headers
+	if g.options.Credential.Authenticate(r.Context(), signing) != nil {
+		return nil, fmt.Errorf("upstream identity unavailable")
+	}
+	if signing.URL.String() != target {
+		return nil, fmt.Errorf("the upstream credential must be a request header")
+	}
+	return signing.Header, nil
+}
+
+// liveModelName is the comparable model name of a Live setup or selector.
+// The Developer API names the model models/{model}.
+func (g *Gateway) liveModelName(model string) string {
+	if g.surface.Provider != nil {
+		return geminiModelName(model)
+	}
+	return g.normalizeModel(model)
+}
+
 func (g *Gateway) validateLiveSetup(ctx context.Context, owner Owner, payload []byte) (Metadata, error) {
 	metadata, _, err := g.validateLiveSetupResumption(ctx, owner, payload)
 	return metadata, err
@@ -178,7 +238,15 @@ func (g *Gateway) validateLiveSetupResumption(ctx context.Context, owner Owner, 
 			} `json:"sessionResumption"`
 		} `json:"setup"`
 	}
-	if e := json.Unmarshal(payload, &doc); e != nil || doc.Setup.Model == "" || !g.allowedModel(doc.Setup.Model) {
+	if e := json.Unmarshal(payload, &doc); e != nil || doc.Setup.Model == "" {
+		return Metadata{}, false, fmt.Errorf("Live setup model denied")
+	}
+	model := doc.Setup.Model
+	if g.surface.Provider != nil {
+		// Developer API: models/{model}; the allowlist holds bare names.
+		model = geminiModelName(model)
+	}
+	if model == "" || !g.allowedModel(model) {
 		return Metadata{}, false, fmt.Errorf("Live setup model denied")
 	}
 	handle := doc.Setup.SessionResumption.Handle
@@ -190,7 +258,7 @@ func (g *Gateway) validateLiveSetupResumption(ctx context.Context, owner Owner, 
 			return Metadata{}, false, e
 		}
 	}
-	return Metadata{Model: doc.Setup.Model, Transport: WebSocket}, handle != "", nil
+	return Metadata{Model: model, Transport: WebSocket}, handle != "", nil
 }
 
 // liveAdapter observes Gemini Live server messages.

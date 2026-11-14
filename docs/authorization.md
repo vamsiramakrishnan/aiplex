@@ -107,6 +107,72 @@ The built-in scope defaults apply when a role binding names no scopes:
 | `viewer` | None. The code comment says viewers read and do not execute. |
 | `agent` | None by default. Scopes are set per agent at registration. |
 
+### Managing role bindings
+
+A role binding maps an identity-provider group to a role, optionally restricted to one issuer (`provider`)
+and pool (`pool_id`). All of `/api/v1/iam/role-bindings` and `POST /api/v1/iam/validate-principal` are
+`admin` routes; `GET /api/v1/iam/roles` is open to any authenticated caller. The Go SDK
+(`sdk/aiplex/iam.go`) and the CLI reach all of them:
+
+| Route | CLI | Go SDK |
+| --- | --- | --- |
+| `GET /api/v1/iam/roles` | `aiplex iam roles` | `ListRoles` |
+| `GET /api/v1/iam/role-bindings` (`?group=`) | `aiplex iam role-bindings list [--group g]` | `ListRoleBindings` |
+| `GET /api/v1/iam/role-bindings/{id}` | `aiplex iam role-bindings get <id>` | `GetRoleBinding` |
+| `POST /api/v1/iam/role-bindings` | `aiplex iam role-bindings apply -f binding.yaml` (new binding) | `CreateRoleBinding` |
+| `PUT /api/v1/iam/role-bindings/{id}` | `aiplex iam role-bindings apply -f binding.yaml` (id exists) | `UpdateRoleBinding` |
+| `DELETE /api/v1/iam/role-bindings/{id}` | `aiplex iam role-bindings delete <id> [--yes]` | `DeleteRoleBinding` |
+| `POST /api/v1/iam/validate-principal` | `aiplex iam validate-principal <principal>` | `ValidatePrincipal` |
+| `POST /api/v1/identity/user-providers/{id}/membership/invalidate` | `aiplex identity user-providers invalidate-membership <id> --subject <s>` | `InvalidateUserMembership` |
+
+The Console reaches the same routes from the Permissions page, Role bindings tab (admins only; other
+roles see no write controls and the tab makes no request). Edits and deletes send the revision the page
+read and a conflict is reported with a reload, never overwritten. An edit always sends the scopes the
+form shows, so it cannot widen or clear them by omission. Changing the role in the edit form resets the
+selection to the new role's default scopes (shown, with a notice, and adjustable before saving); changing
+it back restores nothing but that role's defaults; if the roles list could not be loaded no defaults are
+guessed and scopes must be stated before Save. A binding whose stored scopes read back as
+unknown cannot be saved until scopes are stated (the form offers "Grant no scopes" for none). On create, scopes are the role's defaults unless the
+form is told to choose them (an empty choice grants none). The tab is covered by unit tests with the API
+mocked; it has not been exercised against a running server.
+
+```yaml
+id: platform-admins        # optional on create; the server derives one from provider, pool, group and role
+group: platform-eng
+role: admin                # admin, deployer, viewer or agent
+provider: https://idp.example.com
+pool_id: workforce
+description: Platform engineers
+scopes: [mcp:tools:*]      # on create, omitted = the role's default scopes; on update it must be stated
+```
+
+Concurrency follows the handler, not the other configuration resources:
+
+- Create sends `If-Match: 0`. An existing ID is `409 CONFLICT`; nothing is overwritten.
+- Update and delete need the stored revision in `If-Match`. A missing header is `428`, a stale one is
+  `412 REVISION_CONFLICT`. The CLI exits with code 5 for both (see [the CLI exit codes](cli.md)).
+  `apply` reads the current revision and sends it, so a concurrent change between the read and the write
+  is still refused. A file written by `get -o yaml` carries its `revision`; `apply` refuses it (exit 5)
+  when the binding has moved on.
+- Update replaces `group`, `role`, `provider`, `pool_id` and `description` with the file's values, so
+  leaving one out clears it. The ID cannot change. The API itself keeps the stored scopes when `scopes`
+  is omitted from an update (or takes the new role's defaults when the role changes), so the CLI does not
+  rely on that: `apply` of an existing binding must state `scopes`, as a list or `[]` for none, and
+  refuses a file that omits it or writes `null` (exit 2) instead of keeping scopes the file does not
+  show. On create, omitting `scopes` gives the role's default scopes and `scopes: []` grants none.
+  `get` prints a binding with no stored scopes as `scopes: []`, so `get -o yaml | apply -f -` works for
+  bindings from the bootstrap file too.
+- Input the client refuses (unknown field, unknown role, bad ID) exits 2, as input the server rejects does.
+- `apply` without an `id` always creates, so applying the same file twice is a conflict the second time.
+- `delete` asks for confirmation on a terminal and refuses without `--yes` when there is none. People who
+  held a role only through the binding lose it on their next request, which can include you; the
+  bootstrap role bindings file is the way back.
+
+The client refuses what the server would refuse (blank or over-long group, unknown role, control
+characters, an ID with a path separator), but scope syntax is checked by the server only. The SDK and CLI
+were checked against the real API with `aiplex dev` and `tests/e2e/iam_test.go`; they were not run against
+a deployment backed by Firestore.
+
 ## What each caller can do
 
 | Caller | Public and internal routes | Authenticated routes | Operator routes | Admin routes |
@@ -125,6 +191,7 @@ Other codes a caller can see:
 | Code | Source |
 | --- | --- |
 | `403 TENANT_REQUIRED` | No tenant can be resolved, or the identity holds more than one tenant grant on a tenant route. See [tenant rules](#tenant-rules). |
+| `403 TENANT_AMBIGUOUS` | A runs route, for an identity whose scopes or domain mapping name more than one tenant. |
 | `403 RUNS_SCOPE_REQUIRED` | A runs route without its `aiplex:runs:*` grant. |
 | `403 FORBIDDEN`, `ADMIN_REQUIRED`, `RESOURCE_FORBIDDEN` | Handler-level checks, after the route class passed. |
 | `404 NOT_FOUND` | A record that exists but is not visible to the caller. The response does not say which. |
@@ -144,13 +211,43 @@ caller has exactly one tenant scope and it equals the deployment's home tenant. 
 `AIPLEX_TENANT_ID`, or `development` in development mode when that variable is empty. Any other caller
 gets `403 DEPLOYMENT_SCOPE_REQUIRED`.
 
-The runs API resolves the tenant differently (`internal/api/middleware.go`, `internal/api/runs_access.go`):
+The runs API resolves the tenant from the verified identity only (`TenantFromContext` in
+`internal/api/middleware.go`, `runsTenant` in `internal/api/runs_access.go`). The same decision is made
+on every runs route: `/api/v1/runs`, `/api/v1/runs/_health`, every `/api/v1/runs/{run_id}` read and
+action, and the per-run mode of `GET /events/stream?run_id=`.
 
-- The tenant comes from an `aiplex:tenant:<id>` scope. If there is none, it comes from the identity's
-  domain, through `AIPLEX_DOMAIN_TENANT_MAP` (a comma-separated list of `domain=tenant`).
-- `AIPLEX_REQUIRE_TENANT=1` makes `/api/v1/runs` refuse callers that have neither a tenant nor the
-  cross-tenant grant, with `403 TENANT_REQUIRED`. Any other value leaves this check off.
-- A run outside the caller's tenant is answered as `404 NOT_FOUND`, as if it did not exist.
+- The tenant comes from the `aiplex:tenant:<id>` scopes. If there are none, it comes from the identity's
+  domain (`hd` claim), through `AIPLEX_DOMAIN_TENANT_MAP` (a comma-separated list of `domain=tenant`).
+  Repeats of the same tenant count as one.
+- **Two tenants are always refused.** Scopes that name more than one distinct tenant, or a domain that
+  the map sends to more than one tenant, get `403 TENANT_AMBIGUOUS`, whatever the configuration and
+  even with the cross-tenant grant. Neither tenant is chosen. (An identity with two tenant scopes is
+  usually stopped one step earlier by the route policy with `403 DEPLOYMENT_SCOPE_REQUIRED`, because
+  the runs routes are deployment-wide; either way it sees no run.)
+- `aiplex:runs:read:cross_tenant` sees the runs of every tenant.
+- **A caller with no tenant is refused by default.** A verified caller with neither a tenant nor the
+  cross-tenant grant gets `403 TENANT_REQUIRED`. No setting is needed for this.
+- **The one opt-out** is `AIPLEX_REQUIRE_TENANT=0`, exactly. It is for single-tenant deployments: a
+  verified caller with no tenant then sees every run. The server logs a warning at startup when it is
+  set. It never admits an unauthenticated request and never resolves two tenants. Any other value,
+  including the former `1`, an empty value, `true` or `yes`, means a tenant is required.
+- **Development mode** (`AIPLEX_DEV_MODE=true`, loopback only) serves the local developer every run,
+  with or without a token, as before. Ambiguous identities are refused there too.
+- A run outside the caller's tenant is answered as `404 NOT_FOUND`, as if it did not exist, and an
+  operator action on it does nothing. The list is filtered to the caller's tenant; a `tenant_id`
+  query for another tenant returns an empty list. `GET /api/v1/runs/_health` reports `has_runs` for
+  the caller's tenant only. Its `last_ingest_at` and `tape_instances_count` describe every tenant's
+  ingestion pipeline, so they are returned only to the all-tenants view (development mode, the
+  cross-tenant grant, or the opt-out with no tenant) and omitted, as unknown, for a confined caller.
+- No header, query parameter or body field can name or widen the tenant.
+
+**This is a change of default.** Before, a caller with no tenant saw every tenant's runs unless the
+operator set `AIPLEX_REQUIRE_TENANT=1`, and an identity with two tenant scopes was resolved to the last
+one. A deployment whose run readers have no tenant grant must now give them an `aiplex:tenant:<id>`
+scope or the cross-tenant grant, or set `AIPLEX_REQUIRE_TENANT=0` if it serves one tenant.
+
+`cmd/aiplex-api/runs_tenant_test.go` walks every mounted `/api/v1/runs` route of the production router;
+a runs route it cannot classify fails the test.
 
 ## Grants
 
@@ -163,7 +260,7 @@ A grant is a scope in the verified access. A grant `X:*` matches any scope that 
 | `aiplex:quota:*` | Other quota operations. The list is in [QuotaPlex administration](quotaplex-administration.md). |
 | `aiplex:runs:read` | Listing and reading runs, and the runs event stream. |
 | `aiplex:runs:read:cross_tenant` | Seeing runs of every tenant. |
-| `aiplex:runs:redrive`, `reconcile`, `cancel`, `signal`, `compensate`, `compact` | The matching run action. Each action is idempotent: a repeat with the same `Idempotency-Key` within 5 minutes returns the cached answer. |
+| `aiplex:runs:redrive`, `reconcile`, `cancel`, `signal`, `compensate`, `compact` | The matching run action. Each action is idempotent per caller, run and action, keyed by `Idempotency-Key` (or a hash of the body when absent). A repeat that arrives while the first is still running waits and gets the same response; a repeat within 5 minutes of a 2xx answer gets that answer replayed (`X-Idempotent-Replay: true`). Non-2xx answers are not kept. The action runs to completion even if its client disconnects. The cache is held in memory per API instance and capped at 10,000 answers; when full, the oldest is dropped early. |
 | Handler action grants (for example on the invocation routes) | Checked by each handler before a provider or tool credential is used. |
 
 Quota grants are checked again at the point of the operation, not only on the access that arrived with
@@ -258,5 +355,10 @@ Some access point and MCP authorization responses set `no-store` themselves.
 - **The route class is not the whole check.** A route classed `authenticated` depends on its handler for
   scoping and grants. The route table shows the class; it does not prove each handler is correct.
 - **Two tenant grants are not resolved.** On tenant routes an identity with two `aiplex:tenant:<id>` scopes
-  is refused with `403 TENANT_REQUIRED`. The runs API does not refuse; it takes one of the two. Do not
-  grant two tenant scopes to one identity.
+  is refused with `403 TENANT_REQUIRED`; on the runs API it is refused with `403 TENANT_AMBIGUOUS` (or
+  earlier by the route policy). There is no way to choose between two grants: do not grant two tenant
+  scopes to one identity.
+- **Runs routes are deployment-wide in the route policy.** A caller bound to a tenant other than the
+  home tenant (`AIPLEX_TENANT_ID`) through a scope is refused with `403 DEPLOYMENT_SCOPE_REQUIRED` before
+  the runs tenant filter applies; one bound through the domain map reaches the filter. The tenant
+  filter itself is tested against the production router, not against a live identity provider.

@@ -28,6 +28,7 @@ attempts, and therefore exposes subject/group/account metadata to that operator.
 | `POST /api/v1/quota/policy/validate` | `{policy, expected_digest}` → validated policy export |
 | `POST /api/v1/quota/preview` | Full typed `Demand` → explanatory admission decision and plan |
 | `GET /api/v1/quota/inventory?kind=...&limit=20&after=...` | Bounded administration inventory |
+| `GET /api/v1/quota/inventory?kind=attempts&older_than=1h` | Attempts in the `unknown` state dispatched at least that long ago, with a count, oldest dispatch time and exposure summary ([details](#attempts-in-the-unknown-state)) |
 | `GET /api/v1/quota/balances/{key}` | Committed accounting balance with its limit-policy provenance |
 | `GET /api/v1/quota/loans/{id}` | Original loan terms, windows, returned/outstanding quantities |
 | `GET /api/v1/quota/evidence/{event}` | Original immutable terminal producer facts and acknowledgement/resolution state |
@@ -61,6 +62,102 @@ constraints. Its result is explicitly `state: "validated-export"` and
 replace host bindings. Deploy the reviewed policy, bounds, membership authority
 and binding configuration together using the existing configuration-generation
 checks; old replicas must not silently continue under replaced bindings.
+
+## Attempts in the unknown state
+
+An attempt enters the `unknown` state when it was dispatched and QuotaPlex never
+learned how it ended (a lost upstream response, a stream cut before final
+usage, a batch whose results are pending). It keeps its budget holds and
+concurrency permits until terminal evidence or a reviewed reconciliation
+settles it. Nothing resolves it by age.
+
+**What is reported.** For each tenant, a summary gives:
+
+- `attempts`: how many attempts are in the `unknown` state;
+- `oldest_dispatch_at`: the earliest dispatch time among them, and so the age
+  of the oldest one;
+- `exposure`: per meter, the attempts' admitted bounds (the most each may
+  have consumed, which their budget holds reserve). Each entry names the
+  meter, its unit and, for money, its currency and scale. Meters are never
+  converted or added into one cost.
+
+Unknown stays unknown:
+
+- When an amount cannot be computed, the entry's `quantity` is `null`,
+  `uncomputed_attempts` says how many attempts it is missing, and `known_part`
+  is only a lower bound. This happens for a cost that was admitted unpriced
+  under `on_unknown_cost: allow_and_flag` (even when the plan also holds a money
+  bound, which then counts only toward `known_part`), a bound on a meter the plan does not
+  declare, a plan without bounds, and a sum that would overflow (`overflow`).
+  A meter or unit the plan does not identify is shown as `meter_id: ""` /
+  `unit: ""` ("unknown meter").
+- `undated_attempts` counts unknown attempts without a valid dispatch time;
+  their age is unknown, so the oldest age is unknown too.
+- `unreadable` counts attempt records that could not be decoded or validated.
+  While it is nonzero, the count and exposure may be understated.
+
+**Asking for it.** `GET /api/v1/quota/inventory?kind=attempts&older_than=1h`
+(scope `aiplex:quota:read`) returns, from the scanned page, the attempts in
+the `unknown` state dispatched at least that long ago, plus that page's
+summary in `unknown`. `older_than=0s` selects all of them. An undated unknown
+attempt is always included, since it cannot be shown to be younger. An
+unreadable record is returned and counted, not skipped. Paging is over scanned
+attempt records, so a page can hold no match and still not be `done`; continue
+with `next_after_id` and merge the summaries. `older_than` must be one Go
+duration that is not negative, and only `kind=attempts` accepts it; anything
+else answers `400 QUOTA_INVALID_REQUEST`, as a malformed `limit` does.
+
+```sh
+aiplex quota unknown --older-than 1h          # walks every page and sums them
+aiplex quota unknown --older-than 1h -o json  # oldest_age_seconds is null when unknown; -o yaml has the same keys
+aiplex quota inventory attempts --older-than 1h --limit 64   # one raw page
+```
+
+`aiplex quota unknown` prints the count, the oldest age and dispatch time, and
+one line per meter, for example `usd: unknown (known part 150 USD minor units
+(scale 6); 1 attempt(s) not computable)`. It stops after 1024 pages (65,536
+attempt records) and then says the figures are lower bounds. A malformed or
+negative `--older-than` exits with the usage code 2, as does a `400` from the
+server.
+
+**The recovery worker.** The API's quota worker scans every tenant's attempts
+in pages of 32, one page per recovery interval. When a scan completes, its
+summary becomes that tenant's current figures, exported as the
+`aiplex.quota.unknown.*` metrics (see [observability](observability.md#quotaplex-unknown-attempts)),
+and the worker logs **one warning** for the tenant when the oldest unknown
+attempt is older than `unknown_warn_after`, or when its age is unknown:
+
+```text
+quota attempts in the unknown state are older than the warning threshold and still hold budget
+  tenant=... attempts=2 oldest_age=3h0m0s threshold=1h0m0s exposure_complete=false
+  exposure=["tokens: 30 tokens", "usd: unknown (...)"]
+```
+
+A separate warning says when attempt records could not be read. A scan with a
+failed page is not published; the previous figures stay. Every failed page logs
+`quota unknown-attempt scan page failed` with `last_complete_scan` (how old the
+kept figures are, or `never`), at most once per tenant and pass, so a store
+that keeps failing is not silent; the `aiplex.quota.unknown.scan_age` gauge
+grows meanwhile. A full scan takes about (attempt records ÷ 32) recovery
+intervals, so the figures and the warning lag by that much; the inventory
+query reads the store directly.
+
+`unknown_warn_after` is set in the quota configuration file next to
+`recovery_interval`, as a Go duration between `1m` and `720h`. The default is
+`1h`.
+
+What the warning means: provider work may have run and not been charged yet,
+and the budget it holds is unavailable to other requests. Investigate the
+attempt (`aiplex quota attempt <id>`), and settle it from complete provider
+evidence through [reviewed reconciliation](#reviewed-terminal-reconciliation).
+
+**Limits.** This reports and warns; it does not page anyone, deliver
+notifications, or resolve, abort or expire attempts. Only the `unknown` state
+is counted: an attempt left in `dispatching` (for example, a replica stopped
+mid-request before it recorded the outcome) is not included. The metrics and
+the warning come from the recovery scan described above; they are per process,
+and every replica scans and reports the same shared store. This has not been
+run against a live provider or a production store.
 
 ## Audited allocation loans
 
@@ -135,13 +232,14 @@ writes, historical repricing and implicit currency conversion are not supported.
 ## SDK and CLI
 
 The Go SDK provides `GetQuotaPolicy`, `ValidateQuotaPolicy`, `PreviewQuota`,
-`GetQuotaInventory`, `GetQuotaBalance`, `GetQuotaLoan`, `GrantQuotaLoan`,
+`GetQuotaInventory`, `GetQuotaUnknownAttempts`, `GetQuotaBalance`, `GetQuotaLoan`, `GrantQuotaLoan`,
 `ReturnQuotaLoan`, `GetQuotaEvidence`, `PlanQuotaReconciliation`,
 `GetQuotaReconciliation` and `ApplyQuotaReconciliation`.
 
 ```sh
 aiplex quota policy
 aiplex quota inventory terminal-work --limit 20
+aiplex quota unknown --older-than 1h
 aiplex quota balance <budget-key>
 aiplex quota policy-validate policy.json --expected-digest <active-digest>
 aiplex quota preview demand.json

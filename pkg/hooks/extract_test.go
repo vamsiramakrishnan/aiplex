@@ -125,6 +125,11 @@ func TestResponseExtractorsOnProviderFixtures(t *testing.T) {
 		{FormatOpenAIChat, "google/vertex-openai-chat.sse", "text/event-stream", ""},
 		{FormatAnthropicMessages, "anthropic/messages.sse", "text/event-stream", ""},
 		{FormatAnthropicMessages, "google/vertex-claude-streamrawpredict.sse", "text/event-stream", ""},
+		{FormatOpenAIResponses, "openai/responses.sse", "text/event-stream", "Hello"},
+		{FormatOpenAIResponses, "azure-openai/responses.sse", "text/event-stream", "Hi"},
+		{FormatGemini, "google/gemini-generate.sse", "text/event-stream", "The quick brown fox."},
+		{FormatGemini, "google/vertex-generate.sse", "text/event-stream", "Synthetic text."},
+		{FormatGemini, "google/vertex-generate-cumulative.sse", "text/event-stream", "Synthetic text."},
 	} {
 		t.Run(c.path, func(t *testing.T) {
 			body := fixture(t, c.path)
@@ -163,7 +168,7 @@ func TestResponseExtractorsOnProviderFixtures(t *testing.T) {
 					t.Fatalf("event count %d -> %d", len(before.events), len(after.events))
 				}
 				for i := range before.events {
-					if !bytes.Contains(before.events[i].data(), []byte(`"content"`)) && !bytes.Contains(before.events[i].data(), []byte(`"text"`)) && !bytes.Equal(before.events[i].raw, after.events[i].raw) {
+					if !bytes.Contains(before.events[i].data(), []byte(`"content"`)) && !bytes.Contains(before.events[i].data(), []byte(`"text"`)) && !bytes.Contains(before.events[i].data(), []byte(`"delta"`)) && !bytes.Equal(before.events[i].raw, after.events[i].raw) {
 						t.Fatalf("non-text event %d changed", i)
 					}
 				}
@@ -173,8 +178,11 @@ func TestResponseExtractorsOnProviderFixtures(t *testing.T) {
 }
 
 func TestStreamsWithoutBufferSupportAreUninspectable(t *testing.T) {
-	if _, err := ExtractResponse(FormatGemini, "text/event-stream", fixture(t, "google/gemini-generate.sse")); err == nil {
-		t.Fatal("gemini SSE accepted for buffering")
+	if _, err := ExtractResponse(FormatBedrockConverse, "text/event-stream", fixture(t, "google/gemini-generate.sse")); err == nil {
+		t.Fatal("bedrock stream accepted for buffering")
+	}
+	if StreamBufferable(FormatBedrockConverse) || StreamBufferable(FormatOpenAIEmbeddings) || StreamBufferable("") {
+		t.Fatal("a format without a stream assembler is bufferable")
 	}
 	if _, err := ExtractResponse(FormatOpenAIChat, "image/png", []byte("x")); err == nil {
 		t.Fatal("binary accepted")

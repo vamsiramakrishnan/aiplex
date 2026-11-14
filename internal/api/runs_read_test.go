@@ -92,6 +92,9 @@ func runsReadSetup(t *testing.T) (chi.Router, *registry.MemoryStore) {
 
 	runs := api.NewRunsHandler(store)
 	r := chi.NewRouter()
+	// A verified caller with the cross-tenant scope sees both tenants, so the
+	// query filters below are what narrows the result.
+	r.Use(api.RunsTestCaller(&models.ResolvedAccess{Scopes: []string{"aiplex:runs:read:cross_tenant"}}, false))
 	r.Route("/api/v1/runs", func(r chi.Router) {
 		r.Get("/", runs.List)
 		r.Get("/{run_id}", runs.Get)

@@ -28,12 +28,19 @@ export interface UsageCounters extends UnitUsage {
  */
 export const MODALITY_COUNTERS = ['input_text_tokens', 'input_audio_tokens', 'input_image_tokens', 'input_video_tokens', 'output_text_tokens', 'output_audio_tokens', 'output_image_tokens'] as const
 export type ModalityCounter = (typeof MODALITY_COUNTERS)[number]
-/** Non-token units: milliseconds of audio or video, and a count of generated images. Never tokens. */
-export const UNIT_COUNTERS = ['audio_input_milliseconds', 'voice_session_milliseconds', 'video_output_milliseconds', 'generated_images'] as const
+/**
+ * Non-token units: milliseconds of audio or video, a count of generated images,
+ * and a managed tool call's response size in bytes and duration in milliseconds.
+ * Never tokens.
+ */
+export const UNIT_COUNTERS = ['audio_input_milliseconds', 'voice_session_milliseconds', 'video_output_milliseconds', 'generated_images', 'tool_response_bytes', 'tool_duration_milliseconds'] as const
 export type UnitCounter = (typeof UNIT_COUNTERS)[number]
 export const UNIT_LABEL: Record<UnitCounter, string> = {
   audio_input_milliseconds: 'Audio input', voice_session_milliseconds: 'Voice session', video_output_milliseconds: 'Video output', generated_images: 'Generated images',
+  tool_response_bytes: 'Tool response', tool_duration_milliseconds: 'Tool duration',
 }
+/** Units shown per record and per group but never totalled here: the Console does no arithmetic on them. */
+const UNTOTALLED_UNITS: readonly UnitCounter[] = ['tool_response_bytes', 'tool_duration_milliseconds']
 export const MODALITY_LABEL: Record<ModalityCounter, string> = {
   input_text_tokens: 'Input text', input_audio_tokens: 'Input audio', input_image_tokens: 'Input image', input_video_tokens: 'Input video',
   output_text_tokens: 'Output text', output_audio_tokens: 'Output audio', output_image_tokens: 'Output image',
@@ -210,8 +217,8 @@ export interface UsageConfig { trace_url_template: string; feedback: boolean; fe
 export const PRICE_METERS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'requests'] as const
 /** Modality meters price a split at its own rate and remove it from its parent token total. */
 export const MODALITY_METERS = MODALITY_COUNTERS
-/** Unit meters price independent quantities (milliseconds, image counts). */
-export const UNIT_METERS = UNIT_COUNTERS
+/** Unit meters price independent quantities (milliseconds, image counts). The tool-call counters are shown, not offered as price meters here. */
+export const UNIT_METERS = ['audio_input_milliseconds', 'voice_session_milliseconds', 'video_output_milliseconds', 'generated_images'] as const
 export const ALL_PRICE_METERS = [...PRICE_METERS, ...MODALITY_METERS, ...UNIT_METERS] as const
 export type PriceMeter = (typeof ALL_PRICE_METERS)[number]
 export interface PriceRate { numerator: number; denominator: number }
@@ -324,7 +331,7 @@ export const USAGE_BOUND_TEXT: Record<UsageBound, string> = {
   partial: 'Partial: the provider also reported non-token usage (such as audio seconds) that this ledger cannot represent, so the token counters do not cover everything.',
 }
 /** Operations that are WebSocket sessions: metered as one request, with advisory usage. */
-export const SESSION_OPERATIONS: readonly string[] = ['live.connect', 'openai.v1.realtime', 'openai.v1.responses-websocket']
+export const SESSION_OPERATIONS: readonly string[] = ['live.connect', 'gemini.live.connect', 'openai.v1.live', 'openai.v1.realtime', 'openai.v1.responses-websocket']
 export const isSessionOperation = (operation: string | undefined) => !!operation && SESSION_OPERATIONS.includes(operation)
 /**
  * Whether a record is a WebSocket session. The server's `session` flag wins;
@@ -402,6 +409,12 @@ export function formatUnit(name: UnitCounter, value: Count | null | undefined, s
     const dims = [size, quality].filter(Boolean).join(' ')
     return `${formatCount(value)} ${String(value) === '1' ? 'image' : 'images'}${dims ? ` (${dims})` : ''}`
   }
+  if (name === 'tool_response_bytes' || name === 'tool_duration_milliseconds') {
+    // The stored unit as sent: bytes, or milliseconds without conversion to a duration.
+    const count = formatCount(value)
+    if (count === UNKNOWN) return UNKNOWN
+    return `${count} ${name === 'tool_response_bytes' ? 'bytes' : 'ms'}`
+  }
   return formatDuration(value)
 }
 
@@ -410,6 +423,7 @@ export interface UnitHeadline { total: bigint; records: bigint }
 export function unitHeadlines(groups: readonly SummaryGroup[]): Partial<Record<UnitCounter, UnitHeadline>> {
   const out: Partial<Record<UnitCounter, UnitHeadline>> = {}
   for (const name of UNIT_COUNTERS) {
+    if (UNTOTALLED_UNITS.includes(name)) continue
     const reported = groups.filter((g) => g.units?.[name] !== undefined)
     if (reported.length) out[name] = { total: sumCounts(reported.map((g) => g.units![name])), records: sumCounts(reported.map((g) => g.unit_records?.[name])) }
   }

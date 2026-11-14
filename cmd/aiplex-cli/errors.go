@@ -151,6 +151,11 @@ func explain(cmd *cobra.Command, args []string, err error) *cliError {
 	}
 
 	var apiErr *aiplex.Error
+	var inputErr *aiplex.InputError
+	if errors.As(err, &inputErr) {
+		// The SDK refused before sending (docs/cli.md: invalid input is exit 2).
+		return &cliError{msg: strings.TrimSuffix(msg, inputErr.Error()) + inputErr.Message, code: exitUsage, err: err}
+	}
 	if !errors.As(err, &apiErr) {
 		return &cliError{msg: msg, code: exitError, err: err}
 	}
@@ -160,6 +165,13 @@ func explain(cmd *cobra.Command, args []string, err error) *cliError {
 			return action + ": " + m
 		}
 		return m
+	}
+	if apiErr.Code == aiplex.RedirectRefusedCode {
+		return &cliError{msg: what(apiErr.Message), code: exitError, err: err, hints: []string{
+			"The API is at " + t.URL + " (from " + t.URLSource + "). Check it with: aiplex config show",
+			"If a proxy or load balancer sits in front of the API, make it forward requests instead of redirecting them.",
+			"Nothing was sent to the redirect target.",
+		}}
 	}
 	switch apiErr.StatusCode {
 	case 401:
@@ -209,6 +221,14 @@ func explain(cmd *cobra.Command, args []string, err error) *cliError {
 		}
 		if apiErr.TraceID != "" {
 			hints = append(hints, "Trace ID: "+apiErr.TraceID)
+		}
+		if apiErr.Code == "AGENT_CREDENTIAL_REJECTED" {
+			// The runtime refused the gateway's credential for the connection,
+			// not the caller's token.
+			hints = append(hints, "Your token was accepted; the agent runtime refused the credential the API holds for this connection. Check its identity profile with: aiplex a2a connections get <id>")
+			if local {
+				hints = append(hints, "With aiplex dev, that credential is the mock agent's token in the API's environment; restart aiplex dev to get a matching pair.")
+			}
 		}
 		if local {
 			if p, e := devLogPath(); e == nil {

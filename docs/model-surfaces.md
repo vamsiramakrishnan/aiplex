@@ -96,7 +96,8 @@ usage does not manufacture a completion or refund.
 of the same interaction is not additional spend. An accounting consumer must
 reconcile/deduplicate cumulative snapshots by resource and event semantics rather
 than summing every observation. `Observe` is telemetry; it is not a quota ledger
-or reservation protocol. QuotaPlex remains a separate future accounting module.
+or reservation protocol. Admission, budgets and settlement are the job of
+[QuotaPlex](quotaplex-core.md), a separate, opt-in module.
 
 ## Primary references
 

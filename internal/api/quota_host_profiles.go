@@ -162,8 +162,10 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 			return true
 		case "compat.chat-completions":
 			// Generic compatible servers carry no provider usage contract;
-			// the surface must declare OpenAI usage semantics (checked when
-			// the invocation is prepared).
+			// the surface must declare OpenAI or DeepSeek usage semantics
+			// (checked when the invocation is prepared). Both settle as
+			// uncached and cached input; DeepSeek's cache hit is the cached
+			// part.
 			return true
 		}
 		return false
@@ -175,6 +177,9 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 			return binding.Provider == "anthropic"
 		case "bedrock.invoke", "bedrock.invoke-stream":
 			// Anthropic Messages bodies on Bedrock InvokeModel.
+			return binding.Provider == "bedrock"
+		case "bedrock-mantle.messages":
+			// The Messages API on the bedrock-mantle endpoint.
 			return binding.Provider == "bedrock"
 		}
 		return false
@@ -199,6 +204,9 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 	case quotaProfileRealtime:
 		return binding.OperationID == "openai.v1.realtime"
 	case quotaProfileLiveAllowance:
+		// Vertex Live only. Developer API Live (gemini.live.connect) has no
+		// token profile: its usageMetadata snapshots are not documented as
+		// session-cumulative, so no hold may be settled from them.
 		return binding.Provider == "google" && binding.OperationID == "live.connect"
 	}
 	return binding.Profile == quotaProfileRequests

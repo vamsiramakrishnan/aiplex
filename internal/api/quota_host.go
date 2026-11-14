@@ -155,6 +155,19 @@ type QuotaInvocation struct {
 	// UsageSemantics is the saved surface's declaration of a generic
 	// compatible server's usage contract (provider.usage_semantics).
 	UsageSemantics string
+	// SessionMaxSeconds is the saved surface's maximum session length when
+	// it meters OpenAI Live voice by seconds (websocket.metering "seconds");
+	// 0 otherwise. A voice-seconds binding reserves it.
+	SessionMaxSeconds int64
+	// ToolMaxResponseBytes and ToolMaxDurationMilliseconds are the saved
+	// tool connection's own bounds (0 when it sets none). A tool-usage
+	// binding reserves them (quota_tool.go).
+	ToolMaxResponseBytes        int64
+	ToolMaxDurationMilliseconds int64
+	// DeploymentAction is set by the managed deployment path (never from a
+	// request). A deployment action runs on the tool plane but is not a tool
+	// call for budgets: a cost budget's include_tool_calls does not count it.
+	DeploymentAction bool
 }
 
 // Prepare builds one typed, admitted execution lease shared by native model and

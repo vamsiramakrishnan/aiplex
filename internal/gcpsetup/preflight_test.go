@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -337,7 +338,7 @@ func TestFeatureRolesGrantEveryPermissionWithoutRedundantRoles(t *testing.T) {
 			}
 		}
 		for _, roles := range byLevel {
-			if contains(roles, "roles/container.viewer") && contains(roles, "roles/container.developer") {
+			if slices.Contains(roles, "roles/container.viewer") && slices.Contains(roles, "roles/container.developer") {
 				t.Errorf("%s: redundant roles/container.viewer next to roles/container.developer", f.ID)
 			}
 		}
@@ -346,7 +347,7 @@ func TestFeatureRolesGrantEveryPermissionWithoutRedundantRoles(t *testing.T) {
 
 func grantedBy(roles []string, perm string) bool {
 	for _, role := range roles {
-		if contains(roleGrants[role], perm) {
+		if slices.Contains(roleGrants[role], perm) {
 			return true
 		}
 	}

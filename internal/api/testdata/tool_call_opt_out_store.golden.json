@@ -1,0 +1,520 @@
+{
+  "attempt": [
+    {
+      "kind": "attempt",
+      "id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+      "value": {
+        "fingerprint": "f9f7709fb1d27d39002926dc38bca45023e9a7b935de38b27f4780123babff59",
+        "demand": {
+          "version": "v1",
+          "context": {
+            "version": "v1",
+            "tenant_id": "tenant",
+            "request_id": "request-1",
+            "principal_id": "principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+            "membership_snapshot_ref": {
+              "id": "claims-principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+              "version": "f2e093969dfbc86aa725be54ff7a30cee09f3fed036c0d1bc81a93fe11c38244"
+            },
+            "resource_id": "surface",
+            "purpose": "native-execution"
+          },
+          "principal": {
+            "id": "principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+            "kind": "human",
+            "membership": {
+              "ref": {
+                "id": "claims-principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+                "version": "f2e093969dfbc86aa725be54ff7a30cee09f3fed036c0d1bc81a93fe11c38244"
+              },
+              "tenant_id": "tenant",
+              "subject_id": "principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+              "groups": [],
+              "issued_at": "2026-11-08T23:59:00Z",
+              "expires_at": "2026-11-09T00:04:00Z"
+            }
+          },
+          "logical_operation_id": "operation-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+          "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+          "payload_digest": "efc441fa5212f237ca9d3410495de5fa8c9009e0c17bf37950c6517b72a1f0ee",
+          "target": {
+            "plane": "mcplex",
+            "provider": "mcp",
+            "resource_id": "surface",
+            "operation": "tools/call:search",
+            "configuration_digest": "fdf08433a406338e117e015a3f33a110a04800233533ae145f31e9616c40e7d5"
+          },
+          "funding_account_id": "team",
+          "bounds": {
+            "calls": 1,
+            "requests": 1
+          }
+        },
+        "plan": {
+          "policy": {
+            "id": "tool-policy",
+            "revision": 1,
+            "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+          },
+          "payer_id": "team",
+          "bounds": {
+            "calls": 1,
+            "requests": 1
+          },
+          "meters": {
+            "calls": {
+              "id": "calls",
+              "unit": "calls",
+              "billable": false
+            },
+            "requests": {
+              "id": "requests",
+              "unit": "requests",
+              "billable": false
+            }
+          },
+          "budgets": [
+            {
+              "key": "932f9aaf102fd37123842a3abeee8ec378c616e497f5f3482a2ecd99cbddf1bd",
+              "lineage_key": "ef51fa8c9c681957ab0842aaa2788cbdb6b6774e3e0a812f15f62d149ddfc5bf",
+              "shape": "4376f53daac1f049c70da09936527d4adb02b3c2929201703808b606324f4614",
+              "rule_id": "team-calls",
+              "meter_id": "calls",
+              "window": {
+                "start": "2026-11-08T23:00:00Z",
+                "end": "2026-11-09T01:00:00Z"
+              },
+              "limit": 1,
+              "demand": 1
+            }
+          ],
+          "concurrency": [
+            {
+              "key": "6a6316bd65623bf3d5fc3bb8ed6dbf0f14c09b912cf25c1403e5b6c1f8836a6b",
+              "lineage_key": "68e452d54dbd2a4a7552a3266793ed4c722ac4834f01d2a15262840afda2d8ff",
+              "shape": "5a51cac63214485645308e6c48f9bfbb4aec813a933f4f7cd4c4dd3afe577147",
+              "rule_id": "active",
+              "limit": 1,
+              "demand": 1
+            }
+          ]
+        },
+        "decision": {
+          "tenant_id": "tenant",
+          "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+          "allowed": true,
+          "state": "settled",
+          "reason": "settled",
+          "policy": {
+            "id": "tool-policy",
+            "revision": 1,
+            "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+          },
+          "payer_id": "team"
+        },
+        "admitted_at": "2026-11-09T00:00:00Z",
+        "dispatch_claim": {
+          "tenant_id": "tenant",
+          "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+          "fence": 1
+        },
+        "dispatch_at": "2026-11-09T00:00:00Z",
+        "settlement_digest": "f158cdf0c83d5894ce66c7ae50d467ab77836d37cc0e798dc8e877dc1a90c350",
+        "actual": {
+          "calls": 1,
+          "requests": 1
+        }
+      }
+    },
+    {
+      "kind": "attempt",
+      "id": "attempt-f1f5eb2c5a7ab5a0115377fd0e0d71e07c8e33cd3e65e5e9f428b065cf951fbb",
+      "value": {
+        "fingerprint": "8726a592f3d79baef00aa337ba7f08f2c2b04f1d454856af66159a0228074875",
+        "demand": {
+          "version": "v1",
+          "context": {
+            "version": "v1",
+            "tenant_id": "tenant",
+            "request_id": "request-1",
+            "principal_id": "principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+            "membership_snapshot_ref": {
+              "id": "claims-principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+              "version": "f2e093969dfbc86aa725be54ff7a30cee09f3fed036c0d1bc81a93fe11c38244"
+            },
+            "resource_id": "surface",
+            "purpose": "native-execution"
+          },
+          "principal": {
+            "id": "principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+            "kind": "human",
+            "membership": {
+              "ref": {
+                "id": "claims-principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+                "version": "f2e093969dfbc86aa725be54ff7a30cee09f3fed036c0d1bc81a93fe11c38244"
+              },
+              "tenant_id": "tenant",
+              "subject_id": "principal-fcd3eead4d6864653028ac6f79efa1b2b7ed0d269bc1dab6689ce42f7af2e429",
+              "groups": [],
+              "issued_at": "2026-11-08T23:59:00Z",
+              "expires_at": "2026-11-09T00:04:00Z"
+            }
+          },
+          "logical_operation_id": "operation-f1f5eb2c5a7ab5a0115377fd0e0d71e07c8e33cd3e65e5e9f428b065cf951fbb",
+          "attempt_id": "attempt-f1f5eb2c5a7ab5a0115377fd0e0d71e07c8e33cd3e65e5e9f428b065cf951fbb",
+          "payload_digest": "efc441fa5212f237ca9d3410495de5fa8c9009e0c17bf37950c6517b72a1f0ee",
+          "target": {
+            "plane": "mcplex",
+            "provider": "mcp",
+            "resource_id": "surface",
+            "operation": "tools/call:search",
+            "configuration_digest": "fdf08433a406338e117e015a3f33a110a04800233533ae145f31e9616c40e7d5"
+          },
+          "funding_account_id": "team",
+          "bounds": {
+            "calls": 1,
+            "requests": 1
+          }
+        },
+        "plan": {
+          "policy": {
+            "id": "",
+            "revision": 0,
+            "digest": ""
+          },
+          "payer_id": "",
+          "bounds": null,
+          "meters": null
+        },
+        "decision": {
+          "tenant_id": "tenant",
+          "attempt_id": "attempt-f1f5eb2c5a7ab5a0115377fd0e0d71e07c8e33cd3e65e5e9f428b065cf951fbb",
+          "allowed": false,
+          "state": "denied",
+          "reason": "budget_exhausted",
+          "policy": {
+            "id": "tool-policy",
+            "revision": 1,
+            "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+          },
+          "payer_id": "team",
+          "retry_after": 3600000000000
+        },
+        "admitted_at": "0001-01-01T00:00:00Z",
+        "dispatch_claim": {
+          "tenant_id": "",
+          "attempt_id": "",
+          "fence": 0
+        },
+        "dispatch_at": "0001-01-01T00:00:00Z"
+      }
+    }
+  ],
+  "budget": [
+    {
+      "kind": "budget",
+      "id": "932f9aaf102fd37123842a3abeee8ec378c616e497f5f3482a2ecd99cbddf1bd",
+      "value": {
+        "key": "932f9aaf102fd37123842a3abeee8ec378c616e497f5f3482a2ecd99cbddf1bd",
+        "rule_id": "team-calls",
+        "meter_id": "calls",
+        "window": {
+          "start": "2026-11-08T23:00:00Z",
+          "end": "2026-11-09T01:00:00Z"
+        },
+        "shape": "4376f53daac1f049c70da09936527d4adb02b3c2929201703808b606324f4614",
+        "limit": 1,
+        "limit_policy": {
+          "id": "tool-policy",
+          "revision": 1,
+          "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+        },
+        "held": 0,
+        "consumed": 1,
+        "credited": 0,
+        "debited": 0
+      }
+    }
+  ],
+  "concurrency": [
+    {
+      "kind": "concurrency",
+      "id": "6a6316bd65623bf3d5fc3bb8ed6dbf0f14c09b912cf25c1403e5b6c1f8836a6b",
+      "value": {
+        "shape": "5a51cac63214485645308e6c48f9bfbb4aec813a933f4f7cd4c4dd3afe577147",
+        "active": 0
+      }
+    }
+  ],
+  "ledger": [
+    {
+      "kind": "ledger",
+      "id": "2aade8cb405b6fef4a360cc4535d4bdede94b326bf84d0021058cd07d07224e0",
+      "value": {
+        "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+        "action": "dispatch",
+        "at": "2026-11-09T00:00:00Z",
+        "policy": {
+          "id": "tool-policy",
+          "revision": 1,
+          "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+        }
+      }
+    },
+    {
+      "kind": "ledger",
+      "id": "99ece3acbb4da760c6c0d87dad471becd1e518c33a6b427baec492b37c85c039",
+      "value": {
+        "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+        "action": "hold",
+        "at": "2026-11-09T00:00:00Z",
+        "policy": {
+          "id": "tool-policy",
+          "revision": 1,
+          "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+        },
+        "budgets": [
+          {
+            "key": "932f9aaf102fd37123842a3abeee8ec378c616e497f5f3482a2ecd99cbddf1bd",
+            "meter_id": "calls",
+            "held": 1,
+            "consumed": 0
+          }
+        ]
+      }
+    },
+    {
+      "kind": "ledger",
+      "id": "fc00c6ff2d02a1040c724819c52f701f76c88f7f86eb539238bb7c91845524fb",
+      "value": {
+        "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+        "action": "consume",
+        "at": "2026-11-09T00:00:00Z",
+        "policy": {
+          "id": "tool-policy",
+          "revision": 1,
+          "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+        },
+        "budgets": [
+          {
+            "key": "932f9aaf102fd37123842a3abeee8ec378c616e497f5f3482a2ecd99cbddf1bd",
+            "meter_id": "calls",
+            "held": -1,
+            "consumed": 1
+          }
+        ],
+        "usage": {
+          "calls": 1,
+          "requests": 1
+        },
+        "event_id": "7632bf93fed1eea13ca9c686311fa48b4654d07c2ffd81fcbd6f5fe497903b29"
+      }
+    }
+  ],
+  "lineage": [
+    {
+      "kind": "lineage",
+      "id": "358b7781321152e31a111c4ee973a6551d2934bd8a39a0099f89c6b411720a19",
+      "value": {
+        "shape": "cd1ca2539a197db64e163efed8262437604ee69cf4d06e9143ea4d0236c178c7"
+      }
+    },
+    {
+      "kind": "lineage",
+      "id": "68c3c5a00235631bbb5a157315dcdede913234b7e9a66ecf4d9b30a8d7f9e962",
+      "value": {
+        "shape": "1c23dde33661e2ea1fc59c4d497bda5353b3eaf11b7910110266dce8424a197a"
+      }
+    },
+    {
+      "kind": "lineage",
+      "id": "68e452d54dbd2a4a7552a3266793ed4c722ac4834f01d2a15262840afda2d8ff",
+      "value": {
+        "shape": "5a51cac63214485645308e6c48f9bfbb4aec813a933f4f7cd4c4dd3afe577147"
+      }
+    },
+    {
+      "kind": "lineage",
+      "id": "ef51fa8c9c681957ab0842aaa2788cbdb6b6774e3e0a812f15f62d149ddfc5bf",
+      "value": {
+        "shape": "4376f53daac1f049c70da09936527d4adb02b3c2929201703808b606324f4614"
+      }
+    }
+  ],
+  "policy": [
+    {
+      "kind": "policy",
+      "id": "0a2aef084a6d8d7ab6f27e36fb2735d194ae876bcaf7d5e0d3c32c015b0f75eb",
+      "value": {
+        "reference": {
+          "id": "tool-policy",
+          "revision": 1,
+          "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+        },
+        "policy": {
+          "version": "v1",
+          "tenant_id": "tenant",
+          "id": "tool-policy",
+          "revision": 1,
+          "effective_at": "2026-11-08T23:00:00Z",
+          "expires_at": "0001-01-01T00:00:00Z",
+          "meters": {
+            "calls": {
+              "id": "calls",
+              "unit": "calls",
+              "billable": false
+            },
+            "requests": {
+              "id": "requests",
+              "unit": "requests",
+              "billable": false
+            }
+          },
+          "accounts": [
+            {
+              "id": "team",
+              "priority": 0,
+              "tenant_wide": true
+            }
+          ],
+          "budgets": [
+            {
+              "id": "team-calls",
+              "scope": {
+                "kind": "account",
+                "id": "team"
+              },
+              "match": {},
+              "meter_id": "calls",
+              "limit": 1,
+              "period": {
+                "kind": "fixed",
+                "start": "2026-11-08T23:00:00Z",
+                "end": "2026-11-09T01:00:00Z",
+                "anchor": "0001-01-01T00:00:00Z"
+              }
+            }
+          ],
+          "concurrency": [
+            {
+              "id": "active",
+              "scope": {
+                "kind": "tenant"
+              },
+              "match": {},
+              "limit": 1
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "policy-head": [
+    {
+      "kind": "policy-head",
+      "id": "active",
+      "value": {
+        "id": "tool-policy",
+        "revision": 1,
+        "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+      }
+    }
+  ],
+  "quota-host-config": [
+    {
+      "kind": "quota-host-config",
+      "id": "active",
+      "value": {
+        "policy": {
+          "id": "tool-policy",
+          "revision": 1,
+          "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+        },
+        "configuration_digest": "0406d346511bd42a4a77a7a7198a0f2d72395d5ae28ca5a365ae63fd020e4974",
+        "configured_at": "2026-11-09T00:00:00Z"
+      }
+    }
+  ],
+  "terminal-attempt": [
+    {
+      "kind": "terminal-attempt",
+      "id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+      "value": {
+        "event_id": "7632bf93fed1eea13ca9c686311fa48b4654d07c2ffd81fcbd6f5fe497903b29",
+        "digest": "2b184ac546027b32f1e7d0597e6ef09ba4ab4b1f597dd0e96749dbc8ebe722e9"
+      }
+    }
+  ],
+  "terminal-evidence": [
+    {
+      "kind": "terminal-evidence",
+      "id": "7632bf93fed1eea13ca9c686311fa48b4654d07c2ffd81fcbd6f5fe497903b29",
+      "value": {
+        "evidence": {
+          "version": "v1",
+          "producer_id": "native-tool",
+          "configuration_digest": "fdf08433a406338e117e015a3f33a110a04800233533ae145f31e9616c40e7d5",
+          "settlement": {
+            "tenant_id": "tenant",
+            "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+            "event_id": "7632bf93fed1eea13ca9c686311fa48b4654d07c2ffd81fcbd6f5fe497903b29",
+            "claim": {
+              "tenant_id": "tenant",
+              "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+              "fence": 1
+            },
+            "usage": {
+              "calls": 1,
+              "requests": 1
+            }
+          }
+        },
+        "digest": "2b184ac546027b32f1e7d0597e6ef09ba4ab4b1f597dd0e96749dbc8ebe722e9"
+      }
+    }
+  ],
+  "terminal-work": [
+    {
+      "kind": "terminal-work",
+      "id": "7632bf93fed1eea13ca9c686311fa48b4654d07c2ffd81fcbd6f5fe497903b29",
+      "value": {
+        "ack": {
+          "tenant_id": "tenant",
+          "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+          "event_id": "7632bf93fed1eea13ca9c686311fa48b4654d07c2ffd81fcbd6f5fe497903b29",
+          "evidence_digest": "2b184ac546027b32f1e7d0597e6ef09ba4ab4b1f597dd0e96749dbc8ebe722e9",
+          "status": "settled",
+          "accepted_at": "2026-11-09T00:00:00Z",
+          "settled_at": "2026-11-09T00:00:00Z",
+          "next_attempt_at": "0001-01-01T00:00:00Z",
+          "attempts": 1,
+          "decision": {
+            "tenant_id": "tenant",
+            "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+            "allowed": true,
+            "state": "settled",
+            "reason": "settled",
+            "policy": {
+              "id": "tool-policy",
+              "revision": 1,
+              "digest": "dd4422d315504999a0a556b6e7c42c008bcbbee86c4b74ec8449188160f4f18a"
+            },
+            "payer_id": "team"
+          }
+        },
+        "lease_until": "0001-01-01T00:00:00Z",
+        "generation": 1
+      }
+    }
+  ],
+  "usage": [
+    {
+      "kind": "usage",
+      "id": "7632bf93fed1eea13ca9c686311fa48b4654d07c2ffd81fcbd6f5fe497903b29",
+      "value": {
+        "attempt_id": "attempt-cda15ff2009871c992f26a8161efb8035e0728f23f3b3d03f560c0613fb9458b",
+        "digest": "50403af0b96968a98b1e1932922b785af1dbf9dbf8a67a566a6a2fc30d4730e8"
+      }
+    }
+  ]
+}

@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math"
+	"math/big"
+	"strconv"
 	"strings"
 )
 
@@ -47,13 +48,33 @@ func cloneDimensions(in map[string]string) map[string]string {
 }
 
 // secondsToMilliseconds converts a provider-reported (possibly fractional)
-// number of seconds, rounding up so no billed fraction is lost.
+// number of seconds to milliseconds, rounding up so no billed fraction is
+// lost. The ceiling is computed exactly from the decimal text of the JSON
+// number (no floating point): 1.0000000001 s is 1001 ms, and any positive
+// length is at least 1 ms. The number is bounded (0 to 1e9 seconds, at most
+// 64 characters, exponent within ±64).
 func secondsToMilliseconds(raw json.RawMessage) (int64, error) {
-	var seconds float64
-	if raw == nil || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || json.Unmarshal(raw, &seconds) != nil || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 || seconds > 1e9 {
-		return 0, fmt.Errorf("invalid provider duration")
+	invalid := fmt.Errorf("invalid provider duration")
+	text := strings.TrimSpace(string(raw))
+	var number json.Number
+	if raw == nil || text == "" || text == "null" || len(text) > 64 || (text[0] != '-' && (text[0] < '0' || text[0] > '9')) || json.Unmarshal(raw, &number) != nil {
+		return 0, invalid
 	}
-	return int64(math.Ceil(seconds*1000 - 1e-6)), nil
+	if _, exponent, found := strings.Cut(strings.ToLower(number.String()), "e"); found {
+		if e, err := strconv.Atoi(exponent); err != nil || e < -64 || e > 64 {
+			return 0, invalid
+		}
+	}
+	seconds, ok := new(big.Rat).SetString(number.String())
+	if !ok || seconds.Sign() < 0 || seconds.Cmp(big.NewRat(1e9, 1)) > 0 {
+		return 0, invalid
+	}
+	ms := new(big.Rat).Mul(seconds, big.NewRat(1000, 1))
+	whole := new(big.Int).Quo(ms.Num(), ms.Denom())
+	if new(big.Rat).SetInt(whole).Cmp(ms) < 0 {
+		whole.Add(whole, big.NewInt(1))
+	}
+	return whole.Int64(), nil
 }
 
 func nonNegativeCounter(raw json.RawMessage) (int64, bool, error) {

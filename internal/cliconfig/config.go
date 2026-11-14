@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 )
 
 // Config is the top-level CLI configuration stored in ~/.aiplex/config.json.
@@ -61,13 +62,26 @@ var (
 	ErrNotFound  = errors.New("context not found")
 )
 
-// Dir returns the ~/.aiplex directory path, creating it if needed.
+var noCreateDir atomic.Bool
+
+// SetReadOnly makes Dir stop creating ~/.aiplex, for callers that must not
+// touch the disk (shell completion). It returns a function that undoes it.
+func SetReadOnly() (restore func()) {
+	was := noCreateDir.Swap(true)
+	return func() { noCreateDir.Store(was) }
+}
+
+// Dir returns the ~/.aiplex directory path, creating it if needed (unless
+// SetReadOnly is in effect).
 func Dir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("home dir: %w", err)
 	}
 	dir := filepath.Join(home, ".aiplex")
+	if noCreateDir.Load() {
+		return dir, nil
+	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}

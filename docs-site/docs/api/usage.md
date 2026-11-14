@@ -14,8 +14,8 @@ The usage API reads the tenant's usage ledger: one append-only record per manage
 | GET | `/api/v1/usage/records/{id}/feedback` | Read a record's feedback history, newest first | The record's principal or actor, or an operator (`admin` or `deployer`) |
 | POST | `/api/v1/usage/records/{id}/feedback` | Add feedback to a record (append-only) | Same as the history route |
 | GET | `/api/v1/usage/config` | Read the deployment's usage settings | Verified identity and tenant |
-| GET | `/api/v1/usage/prices` | List the tenant's model-price resources | Verified identity and tenant |
-| GET | `/api/v1/usage/prices/{id}` | Read one model-price resource | Verified identity and tenant |
+| GET | `/api/v1/usage/prices` | List the tenant's model-price resources | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
+| GET | `/api/v1/usage/prices/{id}` | Read one model-price resource | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
 | PUT | `/api/v1/usage/prices/{id}` | Create or update a model-price resource | `admin` role (outside development mode) |
 | DELETE | `/api/v1/usage/prices/{id}` | Delete a model-price resource | `admin` role (outside development mode) |
 | POST | `/api/v1/usage/backfill` | Price records whose cost was unknown when written | `admin` role (outside development mode) |
@@ -135,7 +135,7 @@ The response is a page object.
 | `voice_session_milliseconds` | Milliseconds of a voice session |
 | `video_output_milliseconds` | Milliseconds of generated video |
 | `generated_images` | Count of generated images |
-| `cache_write_1h_tokens` | The part of `cache_write_tokens` written with the one-hour TTL. A subset, never added to it. |
+| `cache_write_5m_tokens`, `cache_write_1h_tokens`, `cache_write_30m_tokens`, `cache_write_12h_tokens` | The parts of `cache_write_tokens` written with each TTL (Anthropic and Bedrock report 5m and 1h; OpenAI Responses reports 30m and 12h). Subsets, never added to it. |
 | `tool_use_prompt_tokens` | Gemini tool-use prompt tokens. Not part of `input_tokens`. |
 
 ### Status codes and errors
@@ -256,7 +256,7 @@ Aggregates the visible records that match the filters. It accepts every filter p
 | `partial_usage_records` | integer | Omitted when zero |
 | `cost` | array of object | Exact totals per currency and basis. Each entry has `currency`, `basis`, `amount` (decimal string), `amount_decimal` (the same amount as an exact decimal string), `scale` and `records`. Estimated costs are added by their unrounded `exact` value and the total is rounded up once. |
 | `unknown_cost_records` | integer | Records with no amount |
-| `modality_tokens` | object of integer | Omitted when empty. Sums of the per-modality token splits and of `cache_write_1h_tokens` over records that reported them. |
+| `modality_tokens` | object of integer | Omitted when empty. Sums of the per-modality token splits and of the per-TTL cache writes over records that reported them. |
 | `units` | object of integer | Omitted when empty. Sums of the unit fields. |
 | `unit_records` | object of integer | Omitted when empty. Number of records that reported each unit. Records that did not report a unit are not counted as zero. |
 | `batch_records` | integer | Omitted when zero. Records of provider batch exchanges. |
@@ -381,7 +381,7 @@ The spec is decoded strictly: unknown fields are rejected.
 | `tiers` | array | No | Context-length overrides, at most 8: each `{"above_input_tokens": n, "meters": {...}}` with `n` positive and strictly increasing. When the record's `input_tokens` (total input, cache included) is greater than `n`, the whole request is priced at that tier's `meters`, which must name exactly the base meters. An unknown `input_tokens` makes the cost unknown. |
 | `source` | object | No | Provenance of a price imported from the bundled catalogue: `catalog` (required), `commit`, `retrieved_at`, `source_url`. It is a label only; it never changes matching or cost. |
 
-Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `requests`, the modality splits `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens`, `output_text_tokens`, `output_audio_tokens`, `output_image_tokens`, the unit meters `audio_input_milliseconds`, `voice_session_milliseconds`, `video_output_milliseconds`, `generated_images`, `tool_use_prompt_tokens`, `cache_write_1h_tokens` (which requires `cache_write_tokens` to be priced too), and per-call server-tool meters named `server_tool.<kind>` with a lowercase kind such as `server_tool.web_search`. Any other name is rejected.
+Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `requests`, the modality splits `input_text_tokens`, `input_audio_tokens`, `input_image_tokens`, `input_video_tokens`, `output_text_tokens`, `output_audio_tokens`, `output_image_tokens`, the unit meters `audio_input_milliseconds`, `voice_session_milliseconds`, `video_output_milliseconds`, `generated_images`, `tool_use_prompt_tokens`, the per-TTL cache-write meters `cache_write_5m_tokens`, `cache_write_1h_tokens`, `cache_write_30m_tokens` and `cache_write_12h_tokens` (each requires `cache_write_tokens` to be priced too), and per-call server-tool meters named `server_tool.<kind>` with a lowercase kind such as `server_tool.web_search`. Any other name is rejected.
 
 ### Status codes and errors
 
@@ -389,6 +389,7 @@ Allowed meter names are `input_tokens`, `output_tokens`, `cache_read_tokens`, `c
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
 
@@ -435,7 +436,7 @@ All fields are optional. Unknown fields are rejected.
 | 200 | none | Batch processed |
 | 400 | `INVALID_REQUEST` | Malformed body, unknown field, `limit` out of range, malformed `cursor`, `until` not after `since` |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks the `admin` role |
+| 403 | `ROLE_REQUIRED` | Caller lacks the `admin` role |
 | 501 | `NOT_IMPLEMENTED` | The ledger store cannot back-estimate |
 | 503 | `PRICES_UNAVAILABLE` | Model prices could not be read |
 
@@ -468,6 +469,7 @@ Returns one resource envelope. The response carries an `ETag` header whose value
 |---|---|---|
 | 200 | none | Envelope returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No price with this identifier |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -496,7 +498,7 @@ Successful responses return the envelope with the new revision and an `ETag` hea
 | 400 | `INVALID_REVISION` | `If-Match` is not a revision number |
 | 400 | `INVALID_SPEC` | Body is not valid, unknown fields, `id` does not match, currency or scale invalid, unknown meter, negative numerator, non-positive denominator, or body over 1 MiB |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks the `admin` role outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks the `admin` role outside development mode |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision, or create was sent while a live price exists |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -537,7 +539,7 @@ Deletes a price. `If-Match` is required and must carry the current revision. Wit
 |---|---|---|
 | 204 | none | Price deleted |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks the `admin` role outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks the `admin` role outside development mode |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No live price with this identifier |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |

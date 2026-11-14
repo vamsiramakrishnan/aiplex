@@ -36,20 +36,26 @@ console.log(summary.recordsScanned, summary.truncated);
 
 Errors throw `AiplexError` with `statusCode`, `code`, `message`, `details`, `requestId` and `traceId`. The token is never included in an error message, `String(client)` or `JSON.stringify(client)`.
 
+The client does not follow redirects: every request is sent with `redirect: "manual"`. Node's `fetch` follows redirects by default; Node 22 drops `Authorization` when the target is another origin (another host or port) but still sends the request there (a 307 or 308 repeats the method and body), and other runtimes differ. The API never redirects, so a 301, 302, 303, 307 or 308 answer (or a browser's opaque redirect) is a wrong `AIPLEX_URL` or a proxy that rewrites requests; it throws `AiplexError` with code `redirect_refused`, the status (`null` for an opaque redirect), and only the scheme and host of the `Location` (never its path or query). A 304 is not a redirect and throws the usual `unknown` error. A `fetch` you pass in is called as given, with `redirect: "manual"` in its init; if it ignores that and follows redirects, its redirect policy is yours, and the SDK cannot tell.
+
 ## Covered operations
 
 - `whoami()`
 - Access points: `listAccessPoints()`, `getAccessPoint(id)`, `putAccessPoint(spec, revision)` (revision 0 creates), `deleteAccessPoint(id, revision)`, `connectAccessPoint(id, client?)`
-- Budgets: `getBudgetStatus(id)` (counters in the current window; operators and members only)
-- Usage: `listUsageRecords(filter, options)`, `iterUsageRecords(filter, options)`, `getUsageRecord(id)`, `addUsageFeedback(recordId, {score, label?, comment?})`, `usageSummary(filter, options)`, `listPrices()`, `getPrice(id)`, `putPrice(price, revision)`, `deletePrice(id, revision)`
-- Model surfaces: `listModelSurfaces()`, `getModelSurface(id)`
-- Tool connections: `listToolConnections()`, `getToolConnection(id)`
+- Budgets: `listBudgets()`, `getBudget(id)`, `putBudget(spec, revision)` (revision 0 creates), `deleteBudget(id, revision)`, `previewBudget({subject, accessPoint?, plane?, draft?})` (dry run, changes nothing), `getBudgetStatus(id)` (counters in the current window; operators and members). Definitions, writes and previews are for operators and administrators; budgets need the QuotaPlex module, otherwise a write fails with 409 `QUOTAPLEX_REQUIRED`.
+- Usage: `listUsageRecords(filter, options)`, `iterUsageRecords(filter, options)`, `getUsageRecord(id)`, `addUsageFeedback(recordId, {score, label?, comment?})`, `listUsageFeedback(recordId)` (newest first), `getUsageConfig()` (trace link template, feedback and comment switches, allowed tag keys), `usageSummary(filter, options)`, `listPrices()`, `getPrice(id)`, `putPrice(price, revision)`, `deletePrice(id, revision)`
+- Model surfaces: `listModelSurfaces()`, `getModelSurface(id)`, `putModelSurface(id, spec, revision)`, `deleteModelSurface(id, revision)`, `getModelSurfaceCapacity(id)` (last provider limit observation on the replica that answered, and the capacity policy state; advisory, administrators only)
+- Tool connections: `listToolConnections()`, `getToolConnection(id)`, `putToolConnection(id, spec, revision)`, `deleteToolConnection(id, revision)`
+- Hook policies: `listHookPolicies()`, `getHookPolicy(id)`, `putHookPolicy(policy, revision)`, `deleteHookPolicy(id, revision)`, `testHookPolicy(id, {texts, phase?, plane?})` (dry run; the sample is not stored)
+
+Writes take the revision you read (0 creates) and send it as `If-Match`; a stale revision throws `AiplexError` with status 409 and code `REVISION_CONFLICT`. Deletes need a positive revision. The specifications you write (`BudgetSpec`, `ModelSurfaceSpec`, `ToolConnectionSpec`, `HookPolicySpec`) use the stored JSON field names (snake_case), so reading a record's `spec`, changing it and writing it back keeps every field, including ones this SDK version does not know. Credentials in them are references (`secret_ref`, `auth_secret_ref`, `identity_ref`), never values. An absent optional number in a result (a limit window's `remaining`, a policy's `headroomFraction`) is `undefined`, never `0`. The SDK does not validate these specifications beyond their required fields; the server does.
 - Overview: `listOverviewAccessPoints()` / `iterOverviewAccessPoints()`, `getOverviewAccessPoint(id)`, `listOverviewSubjects(kind)` / `iterOverviewSubjects(kind)`, `getOverviewSubject(kind, id)`
 
 ## Not covered
 
 - Model and tool calls themselves (chat completions, MCP, A2A). Point an OpenAI or Anthropic SDK at the access point URL instead.
-- Budget administration (create, update, delete), usage record ingestion, quota administration and QuotaPlex plans, agent and client registrations, identity providers, skills, runs, dashboards, deployment plans, model routes and providers, catalog, instances, and the Go SDK's other administrative resources.
+- Usage record ingestion, quota administration and QuotaPlex plans, agent and client registrations, identity providers, skills, runs, dashboards, deployment plans, model routes and providers, model batches, tool connection auth catalogs and tool rule dry runs, the model operation catalog, catalog, instances, and the Go SDK's other administrative resources.
+- Budget writes could not be run against `aiplex dev` (it does not enable QuotaPlex); they are covered by the unit tests against a canned server only. Model surface, tool connection and hook policy writes, the capacity read, usage configuration and feedback listing were run against `aiplex dev`.
 - Automatic retries and streaming responses.
 - Typed models cover the documented fields. Every model keeps the full JSON in `raw`, so newer server fields are available there.
 

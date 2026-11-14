@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vamsiramakrishnan/aiplex/pkg/modelapi"
+	"github.com/vamsiramakrishnan/aiplex/sdk/aiplex"
 )
 
 // Names of the resources Seed creates.
@@ -22,7 +23,12 @@ const (
 	// routing: list it as a second backend of mock-gpt.
 	SeedSurfaceB   = "local-models-b"
 	SeedConnection = "local-tools"
-	MockModel      = "mock-gpt"
+	// SeedKeyedConnection is the tool connection to the keyed MCP server: its
+	// upstream refuses requests without an API key, and the connection holds
+	// the key only as the secret reference KeyedSecretRef. It is not on access
+	// point "local"; add it with: aiplex access-points create team --tool local-tools-keyed
+	SeedKeyedConnection = "local-tools-keyed"
+	MockModel           = "mock-gpt"
 	// MockSecretRef is the secret reference the extra mock surfaces use. Their
 	// providers require a credential scheme, so the stack gives the API process
 	// a throwaway value under this reference (the mock ignores it).
@@ -65,7 +71,12 @@ type Seeded struct {
 	// Models lists every model on the access point, the primary one first.
 	Models     []SeededModel
 	Connection string // empty when no tool connection was seeded
-	Tools      []string
+	// KeyedConnection is the tool connection that authenticates to its upstream
+	// with an API key held as a secret reference; empty when no tools were seeded.
+	KeyedConnection string
+	// AgentConnection is the agent connection to the mock agent runtime.
+	AgentConnection string
+	Tools           []string
 }
 
 // DefaultModel is the model wired for each provider unless overridden.
@@ -223,7 +234,8 @@ func (a API) Do(ctx context.Context, method, path string, headers map[string]str
 	}
 	client := a.HTTP
 	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
+		// The request carries the developer token: never follow a redirect.
+		client = aiplex.NewNoRedirectHTTPClient(30 * time.Second)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -318,9 +330,22 @@ func (s *Stack) Seed(ctx context.Context, o SeedOptions) (*Seeded, error) {
 		if err = api.Create(ctx, "/api/v1/mcp/connections/"+SeedConnection, ToolConnectionSpec(SeedConnection, s.MCPURL, MockTools, nil, nil)); err != nil {
 			return nil, fmt.Errorf("create tool connection: %w", err)
 		}
+		keyedAuth := map[string]any{"type": "api_key", "in": "header", "name": KeyedMCPHeader, "secret_ref": KeyedSecretRef}
+		if err = api.Create(ctx, "/api/v1/mcp/connections/"+SeedKeyedConnection, ToolConnectionSpec(SeedKeyedConnection, s.KeyedMCPURL, MockTools, keyedAuth, nil)); err != nil {
+			return nil, fmt.Errorf("create tool connection %s: %w", SeedKeyedConnection, err)
+		}
+		out.KeyedConnection = SeedKeyedConnection
 		ap["tools"] = []map[string]any{{"connection_ref": SeedConnection}}
 		out.Connection, out.Tools = SeedConnection, append([]string(nil), MockTools...)
 	}
+	agent := map[string]any{
+		"id": SeedAgentConnection, "tenant_id": DevTenant, "provider": "google-agent-runtime", "endpoint": s.AgentURL,
+		"resource_id": MockAgentResource, "identity_ref": AgentIdentityRef, "governance_mode": "invocation",
+	}
+	if err = api.Create(ctx, "/api/v1/a2a/connections/"+SeedAgentConnection, agent); err != nil {
+		return nil, fmt.Errorf("create agent connection: %w", err)
+	}
+	out.AgentConnection = SeedAgentConnection
 	if err = api.Create(ctx, "/api/v1/access-points/"+SeedAccessPoint, ap); err != nil {
 		return nil, fmt.Errorf("create access point: %w", err)
 	}

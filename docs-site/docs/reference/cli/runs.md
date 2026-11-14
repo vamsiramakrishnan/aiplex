@@ -1,7 +1,7 @@
 ---
 title: aiplex runs
 sidebar_label: runs
-description: "Inspect and operate durable agent runs"
+description: "Inspect and operate agent runs"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.
@@ -22,15 +22,19 @@ Examples:
 
 Available Commands:
   list        List the most recent runs
-  inspect     Show the projected summary for one run
+  inspect     Show the summary of one run
   events      Show the ordered timeline for a run
+  effects     Show each action a run took on a tool, and how it ended
+  obligations Show the follow-up work a run owes, such as undoing an action
+  budgets     Show the budget charges recorded on a run
+  health      Check that run events are arriving, and when the last one came in
   audit       Show the operator-action audit trail for a run
-  redrive     Re-drive a stuck or terminal run via the Tape admin RPC
-  reconcile   Kick the reconciler to resolve UNKNOWN effects on this run
+  redrive     Re-drive a stuck or finished run: ask it to continue
+  reconcile   Re-check the actions of a run whose outcome is unknown
   cancel      Cancel a run (cooperative — agent checks at next boundary)
   signal      Send a signal to a parked run (releases the named gate)
-  compensate  Kick the compensator to drain pending obligations on this run
-  compact     Compact this run now — zero bulky payloads, keep the audit envelope
+  compensate  Carry out the follow-up work a run still owes
+  compact     Clear a settled run's stored payloads now, keeping its audit summary
 
 Flags:
   -h, --help   help for runs
@@ -62,6 +66,9 @@ List the most recent runs
 
 Usage:
   aiplex runs list [flags]
+
+Aliases:
+  list, ls
 
 Examples:
   aiplex runs list --limit 20
@@ -96,7 +103,7 @@ Exit codes:
 ### `aiplex runs inspect`
 
 ```text
-Show the projected summary for one run
+Show the summary of one run
 
 Usage:
   aiplex runs inspect <run_id> [flags]
@@ -128,16 +135,160 @@ Exit codes:
 ### `aiplex runs events`
 
 ```text
-Show the ordered timeline for a run
+Show a run's journal events in sequence order, one page at a time.
+--from-seq is inclusive. When a page is full the command prints the exact
+command for the next page.
 
 Usage:
   aiplex runs events <run_id> [flags]
 
 Examples:
-  aiplex runs events run-0123
+  aiplex runs events RUN_ID
+  aiplex runs events RUN_ID --from-seq 1000 --limit 500
 
 Flags:
-  -h, --help   help for events
+      --from-seq int   first sequence number to return (inclusive)
+  -h, --help           help for events
+      --limit int      page size (default 1000)
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex runs effects`
+
+```text
+Show the run's effect events: started, confirmed, failed, duplicate, or
+unknown. An unknown outcome means the backend could not tell whether the
+effect happened; it is neither success nor failure. Resolve it with
+'aiplex runs reconcile'. The API reads at most the first 10000 events of
+the run for this view.
+
+Usage:
+  aiplex runs effects <run_id> [flags]
+
+Examples:
+  aiplex runs effects RUN_ID
+  aiplex runs effects RUN_ID -o json
+
+Flags:
+  -h, --help   help for effects
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex runs obligations`
+
+```text
+Show the run's obligation events: follow-up work the run owes, such as
+an undo for an effect. Drain them with 'aiplex runs compensate'. The API
+reads at most the first 10000 events of the run for this view.
+
+Usage:
+  aiplex runs obligations <run_id> [flags]
+
+Examples:
+  aiplex runs obligations RUN_ID
+
+Flags:
+  -h, --help   help for obligations
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex runs budgets`
+
+```text
+Show the run's budget charge events. A charge whose amount is missing
+from the event is shown as unknown, and the total says how many it leaves
+out. The API reads at most the first 10000 events of the run for this view.
+
+Usage:
+  aiplex runs budgets <run_id> [flags]
+
+Examples:
+  aiplex runs budgets RUN_ID
+
+Flags:
+  -h, --help   help for budgets
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex runs health`
+
+```text
+Show when the API last ingested a run event, whether any run is known,
+and how many agent instances use the Tape runtime. Runs need the durable-run
+backend (Tape); with none connected the last ingest reads "none recorded".
+
+Usage:
+  aiplex runs health [flags]
+
+Examples:
+  aiplex runs health
+
+Flags:
+  -h, --help   help for health
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
@@ -192,7 +343,7 @@ Exit codes:
 ### `aiplex runs redrive`
 
 ```text
-Re-drive a stuck or terminal run via the Tape admin RPC
+Re-drive a stuck or finished run: ask it to continue
 
 Usage:
   aiplex runs redrive <run_id> [flags]
@@ -224,7 +375,7 @@ Exit codes:
 ### `aiplex runs reconcile`
 
 ```text
-Kick the reconciler to resolve UNKNOWN effects on this run
+Re-check the actions of a run whose outcome is unknown
 
 Usage:
   aiplex runs reconcile <run_id> [flags]
@@ -323,7 +474,7 @@ Exit codes:
 ### `aiplex runs compensate`
 
 ```text
-Kick the compensator to drain pending obligations on this run
+Carry out the follow-up work a run still owes
 
 Usage:
   aiplex runs compensate <run_id> [flags]

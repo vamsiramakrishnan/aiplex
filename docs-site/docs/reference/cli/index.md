@@ -45,6 +45,7 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex skills`](./skills.md) | Inspect skill servers and skill invocations |
 | [`aiplex agents`](./agents.md) | Register agents, bind their cloud identities and set their permissions |
 | [`aiplex identity`](./identity.md) | Let people sign in with your corporate identity provider |
+| [`aiplex iam`](./iam.md) | Map identity-provider groups to roles (admin, deployer, viewer) with role bindings |
 | [`aiplex a2a`](./a2a.md) | Discover agents and delegate tasks between them (A2A) |
 | [`aiplex usage`](./usage.md) | See what each request cost: records, totals and model prices |
 | [`aiplex quota`](./quota.md) | Inspect quota policy, balances, loans and admission decisions |
@@ -65,7 +66,7 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex list`](./list.md) | List instances, agents, delegations or policy denials |
 | [`aiplex get`](./get.md) | Show one instance, agent or delegation |
 | [`aiplex logs`](./logs.md) | Stream logs from a deployed instance |
-| [`aiplex runs`](./runs.md) | Inspect and operate durable agent runs |
+| [`aiplex runs`](./runs.md) | Inspect and operate agent runs |
 | [`aiplex console`](./console.md) | Serve the Console locally against the current context |
 | [`aiplex tui`](./tui.md) | Open an interactive terminal dashboard |
 
@@ -115,6 +116,7 @@ Tools:
 Agents and identity:
   agents        Register agents, bind their cloud identities and set their permissions
   identity      Let people sign in with your corporate identity provider
+  iam           Map identity-provider groups to roles (admin, deployer, viewer) with role bindings
   a2a           Discover agents and delegate tasks between them (A2A)
 
 Usage and quota:
@@ -139,7 +141,7 @@ Operate:
   list          List instances, agents, delegations or policy denials
   get           Show one instance, agent or delegation
   logs          Stream logs from a deployed instance
-  runs          Inspect and operate durable agent runs
+  runs          Inspect and operate agent runs
   console       Serve the Console locally against the current context
   tui           Open an interactive terminal dashboard
 

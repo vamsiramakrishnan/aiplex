@@ -49,7 +49,7 @@ profile is request-count metered for quota.
 | `openai` | `openai.v1.batches-create` | `POST /v1/batches` | `openai-batch` | HTTP | Request count, or `batch-usage` binding | exact (batch object is a cross-check only) |
 | `openai` | `openai.v1.batches-get`, `openai.v1.batches-cancel` | `GET /v1/batches/{id}`, `POST /v1/batches/{id}/cancel` | `openai-batch` | HTTP | Request count (asynchronous) | exact (batch object is a cross-check only) |
 | `openai` | `openai.v1.batches-list` | `GET /v1/batches` | `openai-batch` | HTTP | Request count (asynchronous) | see matrix |
-| `openai-compatible` | `compat.chat-completions` | `POST {base}/chat/completions`, `base` defaults to `/v1` | `openai-chat` | SSE | Request count. `openai-text` only with `provider.usage_semantics: "openai"`. | exact in the matrix. Token settlement needs `usage_semantics`. |
+| `openai-compatible` | `compat.chat-completions` | `POST {base}/chat/completions`, `base` defaults to `/v1` | `openai-chat` | SSE | Request count. `openai-text` only with `provider.usage_semantics: "openai"` or `"deepseek"`. | exact in the matrix (DeepSeek rows from its documentation, not recorded live). Token settlement needs `usage_semantics`. |
 
 ### Azure OpenAI
 
@@ -84,18 +84,113 @@ Bedrock rows appear under the `anthropic` provider in the coverage matrix.
 | --- | --- | --- | --- | --- | --- | --- |
 | `bedrock` | `bedrock.converse` | `POST /model/{model}/converse` | `bedrock-converse` | HTTP | Request count, or `bedrock-converse-text` token profile | exact in the matrix |
 | `bedrock` | `bedrock.converse-stream` | `POST /model/{model}/converse-stream` | `bedrock-converse` | AWS event stream | Request count, or `bedrock-converse-text` token profile | exact in the matrix |
-| `bedrock` | `bedrock.invoke` | `POST /model/{model}/invoke` | `bedrock-invoke` | HTTP | Request count, or `anthropic-text` token profile (Messages-shaped bodies only) | exact for Messages-shaped bodies. Other InvokeModel bodies are not observed. |
+| `bedrock` | `bedrock.invoke` | `POST /model/{model}/invoke` | `bedrock-invoke` | HTTP | Request count, or `anthropic-text` token profile (Messages-shaped bodies only) | exact for Messages-shaped bodies; advisory for the documented families below; other bodies are not observed. |
 | `bedrock` | `bedrock.invoke-stream` | `POST /model/{model}/invoke-with-response-stream` | `bedrock-invoke` | AWS event stream | Request count, or `anthropic-text` token profile (Messages-shaped chunks only) | exact for Messages-shaped chunks. Other chunks are not observed. |
+| `bedrock` | `bedrock-mantle.messages` | `POST /anthropic/v1/messages` on `bedrock-mantle.{region}.api.aws` | `anthropic-messages` | HTTP, SSE (`"stream": true`) | Request count, or `anthropic-text` token profile | exact in the matrix (`bedrock-mantle-messages`). See [Bedrock Mantle Messages](#bedrock-mantle-messages). |
 
 The matrix holds the level for each Bedrock row. The `anthropic-text` profile is admitted
 for Bedrock InvokeModel only when the body is Messages-shaped.
 
+#### InvokeModel bodies of other model families
+
+InvokeModel carries each model family's own body. Usage is read for these families, chosen
+only by the model id in the request path, never by the body. Every field name is taken from
+AWS's model-parameter reference (read 2026-11-14):
+
+| Family | Model ids | Fields read (non-streaming `bedrock.invoke`) | Streaming (`bedrock.invoke-stream`) | Source |
+| --- | --- | --- | --- | --- |
+| Amazon Nova (v1 understanding) | `amazon.nova-micro-v1…`, `amazon.nova-lite-v1…`, `amazon.nova-pro-v1…` | `usage.inputTokens`, `usage.outputTokens`, `usage.totalTokens`; `stopReason` marks the end | Not observed: the stream chunk is not documented | [Nova response structure](https://docs.aws.amazon.com/nova/latest/userguide/complete-request-schema-response.html) |
+| Amazon Titan Text | `amazon.titan-text-express-v1`, `amazon.titan-text-lite-v1`, `amazon.titan-text-premier-v1…` | `inputTextTokenCount`; the one `results` item's `tokenCount`; `completionReason` marks the end | Not observed: the chunk fields are documented, but not which chunk is final or whether `totalOutputTextTokenCount` is cumulative | [Titan Text models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-titan-text.html) |
+| Meta Llama 3 Instruct (3, 3.1, 3.2, 3.3) | `meta.llama3-…` | `prompt_token_count`, `generation_token_count`; `stop_reason` marks the end | Not observed: the stream chunk is not documented | [Meta Llama models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-meta.html) |
+
+- **Model id rule.** An id in AWS's `vendor.model` form (optionally behind a cross-Region
+  prefix, or embedded in a `foundation-model/` or `inference-profile/` ARN) that names a vendor
+  other than `anthropic` is read only by the family parser that claims it, and otherwise its
+  usage is unknown: it never reaches the Anthropic Messages parser. An id that names no vendor
+  (an ARN without an embedded model id, such as a provisioned model or an application
+  inference profile, or a name without a dot) is read as Messages only when the body is
+  Messages-shaped, as before.
+- **Ids and prefixes.** A family is selected by the documented id prefix, after removing a
+  cross-Region prefix. The accepted prefixes are those AWS shows: `us.`, `eu.`, `apac.`, `in.`
+  ([geographic cross-Region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/geographic-cross-region-inference.html)),
+  `ca.` (the Nova Lite model card), `jp.` (the Nova 2 Lite model card) and `global.`
+  ([global cross-Region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html)).
+  Any other prefix leaves the id unrecognised and its usage unknown. The id forms are from the
+  [InvokeModel API reference](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html).
+  A surface refuses a path model that contains `/`, so ARNs cannot be relayed today.
+- **Not covered.** Nova Premier, Nova 2, Llama 4, Llama 2, Cohere, Mistral, AI21, DeepSeek,
+  Writer and the other families: no InvokeModel response shape for them was read from AWS's
+  documentation, so their usage is unknown.
+- **No fallback.** A body is read only by its own family's parser. A body of another shape,
+  including an Anthropic Messages body under a family's id, gives unknown usage. Missing,
+  null, negative, fractional or non-numeric counts are unknown, never 0; an undocumented
+  member in Nova's `usage`, or a Nova `totalTokens` that is not `inputTokens` plus
+  `outputTokens`, makes the whole report unknown. A Titan `inputTextTokenCount` without the
+  result's `tokenCount` records input only.
+- **End marker.** A family's counts are read only when its documented end marker
+  (`stopReason`, `completionReason`, `stop_reason`) is a non-empty string; otherwise the
+  usage is unknown. AWS's documented complete responses always carry it, so a body without it
+  does not match the documented shape.
+- **Advisory only.** These counts are ledger telemetry. They are not a token profile: a
+  token-metered lease is never settled from them, so a hard token limit keeps refusing these
+  bodies exactly as before. AWS documents no invocation-metrics trailer for
+  `InvokeModelWithResponseStream`, so none is read.
+- **Not validated live.** The fixtures are built from AWS's documented response shapes with
+  synthetic values; none was recorded from, or tested against, live AWS.
+
+#### Bedrock Mantle Messages
+
+`bedrock-mantle.messages` is the Anthropic Messages API on Bedrock's `bedrock-mantle`
+endpoint. The endpoint, signing name and request shape are taken from AWS's
+[Messages API page](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-messages-api.html)
+and [count tokens page](https://docs.aws.amazon.com/bedrock/latest/userguide/count-tokens.html)
+(read 2026-11-14).
+
+- **Endpoint.** `POST https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages`. The
+  model (an `anthropic.`-prefixed id) is in the body and must be in the surface's `models`.
+  Streaming is `"stream": true`, answered as Server-Sent Events.
+- **Surface.** Provider `bedrock` with `region`, protocol `anthropic-messages` (required), and
+  only this operation: Mantle and Bedrock Runtime are different hosts, so they are separate
+  surfaces. The origin must be exactly `https://bedrock-mantle.{region}.api.aws` for the
+  surface's `region`, with no port. Plain `http` is accepted only on a loopback host (tests and
+  local proxies). A different region, a suffixed host, a port, plain `http` to any other host,
+  or a region that is empty or contains anything but the AWS region form (letters, digits and
+  hyphens) is refused at save time, before anything is signed or sent. A `bedrock` surface
+  with protocol `anthropic-messages` must install this operation.
+- **Credentials.** Identity type `aws-default` signs with SigV4 for service `bedrock-mantle`
+  in the surface's region, or `auth` is an Amazon Bedrock API key as a secret reference in
+  header `x-api-key` (`api_key`, no prefix). A bearer `auth` is refused for Mantle. Missing or
+  expired AWS credentials refuse the request with `503 upstream identity unavailable`; it is
+  never sent unsigned. Caller credentials and `X-Amz-*` headers are not forwarded.
+- **Headers.** `anthropic-version` is pinned to the documented `2023-06-01`; a caller value
+  that differs is refused with `400`. `anthropic-beta` is not enabled on Mantle surfaces and
+  is refused with `400`. The outbound headers are built from an allowlist, so caller
+  `Authorization` and `X-Amz-*` headers never reach AWS or change the signature.
+- **Errors.** A `401` or `403` from Mantle (the gateway's credential refused) is answered as a
+  `502` in the Anthropic error shape (`{"type":"error","error":{"type":"api_error","code":"upstream_credential_rejected",…}}`),
+  since this wire's clients are Anthropic SDKs, not in the Bedrock Runtime shape.
+- **Usage.** The response is read by the Anthropic Messages observer, the same as for the
+  Claude API. A test feeds one Messages response through Mantle, through Bedrock
+  InvokeModel and through the Claude API, streaming and not, and finds the same final usage,
+  including the 5-minute and 1-hour cache-write counters, and the same settlement.
+- **Client paths.** The facade maps `/anthropic/v1/messages` (Anthropic SDK with
+  `base_url …/gateway/{id}/anthropic`) and `/v1/messages`; access points serve it on the
+  Messages wire. On the facade's `/anthropic/v1/messages` the SDK's `x-api-key` header
+  carries the caller's AIPlex token.
+- **SigV4 service name.** `bedrock-mantle` is named on AWS's count tokens page; the Messages
+  page says only "AWS SigV4 credentials".
+- **Not validated live.** Tested against a fixture built from AWS's documented Messages
+  format (`bedrock-mantle.sse`, not recorded from a live response) and fake upstreams only;
+  never against live AWS. Mantle's
+  `count_tokens`, the OpenAI-compatible APIs on the same host, Workspaces and cross-Region
+  model ids are not served.
+
 ### Gemini Developer API
 
 Provider `gemini-developer` serves the Google GenAI wire (`google-genai`) on
-`generativelanguage.googleapis.com`. The matrix has no `gemini-developer` rows, so usage
-levels for these operations are not stated here. The
-[coverage matrix](reference/usage-formats/coverage.md) lists the Vertex (`google`) rows.
+`generativelanguage.googleapis.com`. The
+[coverage matrix](reference/usage-formats/coverage.md) lists these operations under provider
+`google`, in the `gemini-*` rows; the `vertex-*` rows are the Google Cloud surfaces.
 
 | Operation IDs | Native method and path | Transport | Quota metering |
 | --- | --- | --- | --- |
@@ -107,9 +202,9 @@ levels for these operations are not stated here. The
 | `gemini.interactions.get`, `.cancel`, `.delete` | `GET`, `POST …/{id}/cancel`, `DELETE` on `/v1beta/interactions/{id}` | HTTP | Request count (asynchronous) |
 | `gemini.models.batchGenerateContent`, `gemini.batches.get`, `gemini.batches.cancel` | `POST /v1beta/models/{model}:batchGenerateContent`, `GET /v1beta/batches/{id}`, `POST /v1beta/batches/{id}:cancel` | HTTP | Request count, or `batch-usage` binding (create). Get and cancel are asynchronous. |
 | `gemini.models.predictLongRunning`, `gemini.operations.get` | `POST /v1beta/models/{model}:predictLongRunning`, `GET /v1beta/models/{model}/operations/{id}` | HTTP | Request count (asynchronous). The done result reports no usage or duration. |
+| `gemini.live.connect` | `GET /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` (WebSocket) | WebSocket | Session: request count only. Token metering is refused at save time. See [Gemini Live on the Developer API](#gemini-live-on-the-developer-api). |
 
-Usage observation for Gemini Developer operations is not stated in the matrix. Generation
-and interactions responses that carry usage are read by the observers. Cached contents,
+Generation and interactions responses that carry usage are read by the observers. Cached contents,
 their list, and the operations that return no usage are never read for usage. The batch
 rules are in [model batches](model-batches.md).
 
@@ -144,23 +239,27 @@ output-inclusive token profile:
   observation that reports positive cache writes, and the exposure is retained.
 
 For the OpenAI and Anthropic token profiles, reasoning tokens are diagnostic and already
-included in `output_tokens`, so they are not added again. The one-hour cache-write part and the
-server-tool request counts are in the usage ledger record (`cache_write_1h_tokens`,
-`server_tools`); the other per-TTL counters are not. See [usage ledger](usage-ledger.md#limits).
+included in `output_tokens`, so they are not added again. The per-TTL cache-write parts and the
+server-tool request counts are in the usage ledger record (`cache_write_5m_tokens`,
+`cache_write_1h_tokens`, `cache_write_30m_tokens`, `cache_write_12h_tokens`, `server_tools`).
+See [usage ledger](usage-ledger.md#limits).
 
 ## WebSocket sessions
 
-Four session operations are implemented as WebSocket relays:
+Five session operations are implemented as WebSocket relays:
 
 | Operation ID | Native path | Provider | Client protocol | Default metering (`session`) | Token metering (`token`) |
 | --- | --- | --- | --- | --- | --- |
 | `openai.v1.realtime` | `GET /v1/realtime?model=…` | `openai` | `openai-realtime` | One request-count admission per session | One `openai-realtime` admission per `response.create` |
 | `openai.v1.responses-websocket` | `GET /v1/responses` | `openai` | `openai-responses` | One request-count admission per session | One `openai-text` admission per `response.create` |
-| `openai.v1.live` | `GET /v1/live/sessions?model=…` | `openai` | `openai-live` | One request-count admission per session | Not available. Refused at save time. |
+| `openai.v1.live` | `GET /v1/live/sessions?model=…` | `openai` | `openai-live` | One request-count admission per session | Not available. Refused at save time. Seconds metering (`seconds`) instead: one `voice-seconds` admission per session, see below. |
 | `live.connect` | `GET /ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent` | Google Cloud (Vertex Live) | `google-genai` | One request-count admission per session | `gemini-live-allowance` windows |
+| `gemini.live.connect` | `GET /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` | `gemini-developer` | `google-genai` | One request-count admission per session | Not available. Refused at save time. |
 
-The model is chosen at connect time by the `model` query parameter for Realtime, Live
-voice and Live. For Responses WebSocket mode, it is chosen per `response.create` event, and
+The model is chosen at connect time by the `model` query parameter for Realtime and Live
+voice. For both Live operations it is the first client message's `setup.model` (on the
+Developer API spelled `models/{model}`); an optional `?model=` selector must name the same
+model. For Responses WebSocket mode, it is chosen per `response.create` event, and
 the connect request must not carry `model`.
 
 ### The `websocket` block
@@ -169,13 +268,40 @@ The block is part of the `surface` object of the model-surface spec.
 
 | Field | Values | Default | Meaning |
 | --- | --- | --- | --- |
-| `surface.websocket.metering` | `session`, `token` | `session` | How sessions are admitted. See below. |
-| `surface.websocket.max_session_seconds` | 60 to 86400 | the gateway's `MaxStreamDuration`, 30 minutes unless configured | Duration bound. Both sockets close when it elapses. Applies to every WebSocket session on the surface. |
+| `surface.websocket.metering` | `session`, `token`, `seconds` | `session` | How sessions are admitted. See below. `seconds` is for `openai.v1.live` only. |
+| `surface.websocket.max_session_seconds` | 60 to 86400 | the gateway's `MaxStreamDuration`, 30 minutes unless configured; no default with `seconds` (required) | Duration bound. Both sockets close when it elapses. Applies to every WebSocket session on the surface. |
 | `surface.websocket.token_allowance` | 1024 to 4194304, with `token` only | 32768 | Gemini Live allowance window, held per mapped meter. |
 
-`metering: "token"` is refused at save time for a surface that includes `openai.v1.live`.
-Live voice is billed by session seconds, which no token path observes, so it keeps session
-metering.
+`metering: "token"` is refused at save time for a surface that includes `openai.v1.live`
+or `gemini.live.connect`. Live voice is billed by session seconds, which no token path
+observes. Developer API Live usage snapshots are not documented as session-cumulative, and
+allowance windows settle on snapshot deltas, which needs them to be. Both keep session
+metering; OpenAI Live voice may instead opt in to seconds metering.
+
+### Seconds metering (`seconds`, OpenAI Live voice)
+
+`metering: "seconds"` needs `max_session_seconds` and a surface that includes
+`openai.v1.live`; saving it otherwise is refused. The other WebSocket operations of the
+surface keep session metering. With a quota binding of profile `voice-seconds` (meters
+`requests` and `voice_session_seconds`, unit `seconds`):
+
+- **Admission** reserves one request and `max_session_seconds` seconds, before credentials
+  and the dial. Without a configured maximum, or when a budget cannot cover the maximum,
+  the session is refused and no upstream connection is made.
+- **Settlement** uses `session.closed`'s `usage.seconds` after a clean close, rounded up
+  to whole seconds (100 ms is 1 second; a positive length is never 0).
+- **No confirmed length** (no `session.closed`, a drop, a disconnect, the session cut at
+  its maximum): the attempt stays unknown and keeps the whole reservation; it is never
+  settled at the last snapshot or at zero.
+- **Only a `voice-seconds` binding** admits these sessions. A surface saved with
+  `seconds` over a binding of another profile is refused at save; if the binding changes
+  later, each session is refused before the dial (`501 UNSUPPORTED_EXECUTION_TRANSPORT`).
+- **A session that never started**: a dial that failed before connecting settles at zero;
+  a handshake answered 400, 401, 403, 404 or 429 (OpenAI also 413, 422) settles one
+  request and zero seconds; any other failure after the handshake was sent stays unknown.
+- The usage ledger still records `voice_session_milliseconds` as observed.
+
+See [seconds metering](model-metering-profiles.md#websocket-sessions) for the full rules.
 
 ### Session metering (default)
 
@@ -228,7 +354,8 @@ not per session.
   `session.update` that disables automatic responses (`turn_detection` null, or
   `create_response: false`). Any other event before that is refused. A response the gateway
   did not admit closes the session with a policy-violation close.
-- **Gemini Live (renewable allowance).** Live `usageMetadata` messages are
+- **Gemini Live (renewable allowance).** This applies to Vertex Live (`live.connect`) only.
+  Live `usageMetadata` messages are
   session-cumulative snapshots whose composition Google does not fully document. The first
   window lease holds `token_allowance` per mapped meter at setup, before the dial. When any
   mapped counter has consumed half of the window, the window settles exactly on the snapshot
@@ -243,6 +370,42 @@ not per session.
   generated between that snapshot and the close has no hold and reaches the ledger only as
   `lower_bound` telemetry. The `gemini-live-allowance` profile uses the surface allowance as
   its exposure bound.
+
+### Gemini Live on the Developer API
+
+`gemini.live.connect` is served by the same relay and usage observer as Vertex Live. The
+upstream credential and the setup model's spelling differ, and it has session metering only.
+
+- **Endpoint.** `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`,
+  from the [Live API reference](https://aistudio.google.com/api-reference/live/bidi-generate-content).
+  The surface origin must be `https://generativelanguage.googleapis.com`, as for the other
+  `gemini-developer` operations.
+- **API key.** The surface's `auth` (`api_key` in header `x-goog-api-key`, a secret
+  reference) is resolved per session and sent only in the `x-goog-api-key` handshake header.
+  The upstream URL never carries a query: the caller's `?model=`, `key=` and
+  `access_token=` parameters are not forwarded, and a credential that would change the URL
+  is refused (the session closes with `upstream identity unavailable`). The key is not
+  logged, not written to the usage ledger and not in any close reason.
+- **Not validated live.** This operation was tested against recorded Live fixtures and a
+  fake upstream only, never against the live Developer API. Sending the key in
+  `x-goog-api-key` on the WebSocket handshake is what Google's
+  [API reference](https://aistudio.google.com/api-reference) documents for the API, and what
+  the google-genai SDK does by our reading of its source, but it has not been observed
+  working (Google's WebSocket guide shows a `?key=` query parameter instead). If the live
+  endpoint accepts the key only as a query parameter, sessions fail to connect
+  (`upstream unavailable`); the key is never put in a URL.
+- **Usage is advisory.** `usageMetadata` is read with the Vertex rules above and recorded as
+  ledger telemetry. The Developer API reference does not say whether snapshots are
+  session-cumulative or per turn. AIPlex reads them as cumulative, as Vertex documents. If
+  they were per-turn counts that never decrease, the session would be recorded as the last
+  one, an under-count; a snapshot that goes down is never summed and labels the session
+  `ambiguous`. For that reason no token profile is offered: the session is one request
+  against request budgets and rates, and `websocket.metering: "token"` is refused at save
+  time. The matrix lists the rows as `advisory`.
+- **Not covered.** Ephemeral tokens (`BidiGenerateContentConstrained?access_token=…`) and the
+  `v1alpha` path are not served. Access points do not route to this operation: their
+  `google-live` wire is the Vertex path. Use `/api/v1/llm/native/{id}/…` or the client
+  facade.
 
 ### Live voice
 
@@ -347,13 +510,14 @@ only.
 | `openai` | `auth.type: bearer`, or identity type `bearer-env` |
 | `anthropic` | `auth.type: api_key` in header `x-api-key`, with no prefix |
 | `azure-openai` | `auth.type: api_key` in header `api-key`, with no prefix, or identity type `azure-default` (Entra) |
-| `bedrock` | `auth.type: bearer` (Bedrock API key), or identity type `aws-default` (SigV4) |
+| `bedrock` | `auth.type: bearer` (Bedrock API key), or identity type `aws-default` (SigV4, service `bedrock`). A Mantle surface: `auth.type: api_key` in header `x-api-key` with no prefix, or `aws-default` (SigV4, service `bedrock-mantle`) |
 | `openai-compatible` | `auth.type: bearer` or `none`, or identity type `bearer-env` |
 | `gemini-developer` | `auth.type: api_key` in header `x-goog-api-key`, with no prefix |
 
 Origins are checked at save time, for `https` origins. An `https` `gemini-developer` origin
 must be `generativelanguage.googleapis.com`. An `https` `bedrock` origin must be the Bedrock
-Runtime endpoint of its signing region. An `https` `azure-openai` origin must be an Azure
+Runtime endpoint of its signing region, or for a Mantle surface exactly
+`bedrock-mantle.{region}.api.aws`. An `https` `azure-openai` origin must be an Azure
 OpenAI or Foundry resource endpoint.
 
 ### Stream usage
@@ -372,8 +536,25 @@ Chat Completions streams report usage only when the request asks for it. The
 A generic compatible server has no known usage contract. `usage_semantics: "openai"` is
 the operator's declaration that the server follows OpenAI Chat Completions semantics:
 `prompt_tokens` includes cached tokens and cache writes, `completion_tokens` includes
-reasoning, and `total_tokens` equals prompt plus completion. It is accepted only on
-`openai-compatible` surfaces, and no other value is accepted.
+reasoning, and `total_tokens` equals prompt plus completion. `usage_semantics: "deepseek"`
+declares DeepSeek's Chat Completions usage: the same, plus its context-cache fields. Both are
+accepted only on `openai-compatible` surfaces, and no other value is accepted.
+
+With `"deepseek"`, the gateway reads `prompt_cache_hit_tokens` and `prompt_cache_miss_tokens`
+as documented in DeepSeek's API reference
+(<https://api-docs.deepseek.com/api/create-chat-completion>, read 2026-11-14): `prompt_tokens`
+equals hit plus miss, and `prompt_tokens_details.cached_tokens` is "Same as
+prompt_cache_hit_tokens". When hit, miss and `prompt_tokens` are all present as non-negative
+integers, add up, agree with `cached_tokens` (when reported) and no positive cache write is
+reported, the hit is recorded as cached input (`cache_read_tokens` in the ledger, `cached_tokens`
+in the profile), the miss is the uncached input, and cache writes are recorded as 0, because
+DeepSeek bills input only as cache hit or cache miss. Anything else (a field missing, null,
+negative or not an integer, or a sum that does not match) leaves the cache split unknown: the
+cached and cache-write counts are not recorded, input and output stay as reported, an
+`openai-text` binding refuses to settle the exchange, and a price that rates cached input leaves
+the cost `unknown`. JSON responses and streams are both read; in a stream the usage arrives on
+the last content chunk, beside `finish_reason`. This follows DeepSeek's documentation and the
+fixtures built from it; it has not been validated against the live DeepSeek service.
 
 - With the declaration, `compat.chat-completions` can carry an `openai-text` token profile.
 - Without it, a token-profile binding on `compat.chat-completions` is refused with
@@ -391,8 +572,8 @@ No other credential type is accepted.
 | Header | Accepted on | Wire |
 | --- | --- | --- |
 | `Authorization: Bearer <token>` | All model routes, including the access point and facade routes below | Any |
-| `x-api-key` | `/ap/{id}/v1/messages`, `/ap/{id}/v1/messages/count_tokens`, `/ap/{id}/v1/models` (only when the request carries `anthropic-version`), `/api/v1/llm/gateway/{id}/v1/messages`, `/api/v1/llm/gateway/{id}/v1/messages/count_tokens` | Anthropic Messages |
-| `x-goog-api-key` | `/ap/{id}/v1beta/…`, `/ap/{id}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`, `/api/v1/llm/gateway/{id}/v1beta/…`, the same Live path on the facade, and facade paths ending in `:generateContent`, `:streamGenerateContent`, `:countTokens`, `:embedContent` or `:batchEmbedContents` | Google GenAI |
+| `x-api-key` | `/ap/{id}/v1/messages`, `/ap/{id}/v1/messages/count_tokens`, `/ap/{id}/v1/models` (only when the request carries `anthropic-version`), `/api/v1/llm/gateway/{id}/v1/messages`, `/api/v1/llm/gateway/{id}/v1/messages/count_tokens`, `/api/v1/llm/gateway/{id}/anthropic/v1/messages` (Bedrock Mantle) | Anthropic Messages |
+| `x-goog-api-key` | `/ap/{id}/v1beta/…`, `/ap/{id}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`, `/api/v1/llm/gateway/{id}/v1beta/…`, the same Live path and the Developer API Live path (`/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`) on the facade, and facade paths ending in `:generateContent`, `:streamGenerateContent`, `:countTokens`, `:embedContent` or `:batchEmbedContents` | Google GenAI |
 | `api-key` | `/ap/{id}/v1/…` (other than the Anthropic paths above, so this includes `/v1/models` without `anthropic-version`), `/ap/{id}/openai/…` (Azure OpenAI shapes), `/api/v1/llm/gateway/{id}/openai/…` | OpenAI and Azure OpenAI |
 
 Rules:
@@ -441,9 +622,9 @@ closed.
 | `anthropic` | `base_url` `…/gateway/{id}` | `/v1/messages`, `/v1/messages/count_tokens`; `/v1/messages/batches`, `/v1/messages/batches/{id}`, `…/{id}/cancel`, `…/{id}/results` |
 | `azure-openai` (v1) | `base_url` `…/gateway/{id}/openai/v1` | `/openai/v1/chat/completions`, `/openai/v1/responses`, `/openai/v1/embeddings`, `/openai/v1/responses/{id}` (GET, DELETE) and `…/{id}/cancel` |
 | `azure-openai` (deployments) | `azure_endpoint` `…/gateway/{id}` | `/openai/deployments/{deployment}/chat/completions`, `/openai/deployments/{deployment}/embeddings` |
-| `bedrock` | `endpoint_url` `…/gateway/{id}` | `/model/{model}/converse`, `converse-stream`, `invoke`, `invoke-with-response-stream` |
+| `bedrock` | `endpoint_url` `…/gateway/{id}` | `/model/{model}/converse`, `converse-stream`, `invoke`, `invoke-with-response-stream`. A Mantle surface (Anthropic SDK `base_url` `…/gateway/{id}/anthropic`): `/anthropic/v1/messages` and `/v1/messages` |
 | `openai-compatible` | `base_url` `…/gateway/{id}{base}` | `{base}/chat/completions` |
-| `gemini-developer` | Google GenAI paths under `…/gateway/{id}` | `/v1beta/models/{model}:{generateContent, streamGenerateContent, countTokens, embedContent, batchEmbedContents, batchGenerateContent, predictLongRunning}`; `/v1beta/cachedContents[/{id}]`; `/v1beta/interactions[/{id}[/cancel]]`; `/v1beta/batches/{id}[:cancel]`; `/v1beta/models/{model}/operations/{id}` |
+| `gemini-developer` | Google GenAI paths under `…/gateway/{id}` | `/v1beta/models/{model}:{generateContent, streamGenerateContent, countTokens, embedContent, batchEmbedContents, batchGenerateContent, predictLongRunning}`; `/v1beta/cachedContents[/{id}]`; `/v1beta/interactions[/{id}[/cancel]]`; `/v1beta/batches/{id}[:cancel]`; `/v1beta/models/{model}/operations/{id}`; `/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` (GET upgrade for `gemini.live.connect`) |
 
 ## Provider rejections
 
@@ -571,8 +752,9 @@ Limits of this gate:
   work, cached-content retention or internal tool or agent work.
 - Token quota applies only to operations with a token profile, and only when the quota
   binding selects it. Advisory usage is recorded but does not bound or settle quota.
-- Bedrock InvokeModel usage is observed only when the body has the Messages shape. Other
-  InvokeModel bodies are model-specific and are not observed.
+- Bedrock InvokeModel usage is observed when the body has the Messages shape, and as advisory
+  telemetry for the documented Nova, Titan Text and Llama 3 bodies (non-streaming only). Other
+  InvokeModel bodies, and those families' streams, are not observed.
 - Anthropic token metering fails closed for server-tool calls, and for cache writes when the
   binding maps no cache-write meter.
 - A provider's `401` or `403` is the **gateway's** credential being refused, since a caller never
@@ -582,6 +764,8 @@ Limits of this gate:
   surface id in the error details; other callers do not. This also covers the Gemini Developer API's
   `400` with reason `API_KEY_INVALID`. The quota hold is released as for any rejection before processing.
 - WebSocket sessions on the default `session` metering are bounded by time, not by tokens.
+  OpenAI Live voice with `seconds` metering reserves and settles the session's length;
+  Gemini Live audio has no observable duration and is not metered by seconds.
   A session can run until `max_session_seconds` even when quota has no token headroom left.
   Token metering bounds each admitted response or allowance window instead.
 - Provider credentials are references. Values are resolved at dispatch and are not

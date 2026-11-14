@@ -61,6 +61,15 @@ describe("metering fields", () => {
     expect(bare.serviceTier).toBeNull();
     expect(bare.serverTools).toEqual({});
     expect(parseUsageCounters({ input_tokens: 1 }).cacheWrite1hTokens).toBeNull();
+    // Every cache-write TTL the ledger records is read; absent ones stay null.
+    const ttl = parseUsageCounters({
+      cache_write_tokens: 30,
+      cache_write_5m_tokens: 10,
+      cache_write_30m_tokens: 0,
+      cache_write_12h_tokens: 20,
+    });
+    expect([ttl.cacheWrite5mTokens, ttl.cacheWrite30mTokens, ttl.cacheWrite12hTokens]).toEqual([10, 0, 20]);
+    expect(ttl.cacheWrite1hTokens).toBeNull();
     expect(() => parseUsageRecord({ id: "x", server_tools: { web_search: 1.5 } })).toThrow();
   });
 
@@ -81,5 +90,19 @@ describe("metering fields", () => {
     const plain = toWireModelPrice(parseModelPrice({ id: "q", meters: {} }));
     expect(plain).not.toHaveProperty("tiers");
     expect(plain).not.toHaveProperty("service_tier");
+  });
+
+  it("reads tool response bytes and duration; zero is 0, absent and null are null", () => {
+    const present = parseUsageCounters({ tool_response_bytes: 2048, tool_duration_milliseconds: 350 });
+    expect([present.toolResponseBytes, present.toolDurationMilliseconds]).toEqual([2048, 350]);
+    const zero = parseUsageCounters({ tool_response_bytes: 0, tool_duration_milliseconds: 0 });
+    expect([zero.toolResponseBytes, zero.toolDurationMilliseconds]).toEqual([0, 0]);
+    const absent = parseUsageCounters({ input_tokens: 1 });
+    expect([absent.toolResponseBytes, absent.toolDurationMilliseconds]).toEqual([null, null]);
+    const nulled = parseUsageCounters({ tool_response_bytes: null, tool_duration_milliseconds: null });
+    expect([nulled.toolResponseBytes, nulled.toolDurationMilliseconds]).toEqual([null, null]);
+    const rec = parseUsageRecord({ id: "ul_3", usage: { tool_response_bytes: 7, tool_duration_milliseconds: 0 } });
+    expect([rec.usage?.toolResponseBytes, rec.usage?.toolDurationMilliseconds]).toEqual([7, 0]);
+    expect(rec.usage?.raw["tool_response_bytes"]).toBe(7);
   });
 });

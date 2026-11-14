@@ -29,7 +29,19 @@ import (
 //     SigV4, bearer-env for an operator environment token).
 //
 // Google surfaces keep identity_ref only; auth is rejected for them.
-func providerAuthAllowed(provider string, auth toolcredential.Auth) error {
+func providerAuthAllowed(surface modelapi.Surface, auth toolcredential.Auth) error {
+	if surface.Provider == nil {
+		return fmt.Errorf("auth applies only to provider surfaces")
+	}
+	provider := surface.Provider.ID
+	if surface.BedrockMantle() {
+		// bedrock-mantle documents an Amazon Bedrock API key in x-api-key
+		// (inference-messages-api.html, count-tokens.html), not a bearer.
+		if auth.Type == toolcredential.APIKey && auth.In == toolcredential.InHeader && strings.EqualFold(auth.Name, modelapi.BedrockMantleAPIKeyHeader) && auth.Prefix == "" {
+			return nil
+		}
+		return fmt.Errorf("bedrock-mantle requires auth type api_key in header %s without prefix, or identity_ref aws-default (SigV4)", modelapi.BedrockMantleAPIKeyHeader)
+	}
 	switch provider {
 	case modelapi.ProviderOpenAI:
 		if auth.Type == toolcredential.Bearer {
@@ -82,7 +94,7 @@ func (h *ConnectedHandler) validateProviderConnection(ctx context.Context, tenan
 		if e := c.Auth.Validate(); e != nil {
 			return e
 		}
-		if e := providerAuthAllowed(provider, *c.Auth); e != nil {
+		if e := providerAuthAllowed(c.Surface, *c.Auth); e != nil {
 			return e
 		}
 		if refs := c.Auth.SecretRefs(); len(refs) > 0 {
@@ -148,6 +160,9 @@ func originBound(origin string, inner modelapi.Credential) modelapi.Credential {
 }
 
 func (h *ConnectedHandler) providerCredential(r *http.Request, tenant string, record resources.Record, c ModelConnection) (modelapi.Credential, error) {
+	if c.Surface.Provider == nil {
+		return nil, fmt.Errorf("provider credential requires a provider surface")
+	}
 	origin := c.Surface.Origin
 	if c.Auth != nil {
 		credentials, err := h.toolCredentials()
@@ -173,13 +188,15 @@ func (h *ConnectedHandler) providerCredential(r *http.Request, tenant string, re
 	}
 	switch identity.Type {
 	case "aws-default":
-		region := c.Surface.Provider.Region
+		// The signing service follows the endpoint: bedrock (Runtime) or
+		// bedrock-mantle; the region is the surface's validated region.
+		region, service := c.Surface.Provider.Region, c.Surface.BedrockSigningService()
 		return originBound(origin, modelapi.CredentialFunc(func(ctx context.Context, req *http.Request) error {
 			cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 			if err != nil {
 				return fmt.Errorf("AWS credential chain unavailable")
 			}
-			return (cloudagents.SigV4Credentials{Source: cfg.Credentials, Region: region, Service: "bedrock"}).Authenticate(ctx, req)
+			return (cloudagents.SigV4Credentials{Source: cfg.Credentials, Region: region, Service: service}).Authenticate(ctx, req)
 		})), nil
 	default: // azure-default (Entra) and bearer-env
 		ref := c.IdentityRef

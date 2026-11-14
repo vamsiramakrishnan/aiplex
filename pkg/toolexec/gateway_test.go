@@ -115,7 +115,7 @@ func TestGatewayBindsValidatedBytesAndAcknowledgesBeforeForwarding(t *testing.T)
 	if !reflect.DeepEqual(events, []string{"claim", "dispatch", "observe", "finish"}) || lease.aborts != 0 || len(lease.results) != 1 || !lease.results[0].Terminal || !lease.results[0].ResponseComplete {
 		t.Fatalf("lifecycle mismatch %+v %+v", events, lease)
 	}
-	if len(lease.observations) != 1 || !reflect.DeepEqual(lease.observations[0].Counters, map[string]int64{"requests": 1, "tool_calls": 1}) || !lease.observations[0].Terminal {
+	if len(lease.observations) != 1 || lease.observations[0].Counters["requests"] != 1 || lease.observations[0].Counters["tool_calls"] != 1 || lease.observations[0].Counters[CounterToolResponseBytes] != int64(len(toolResult)) || !lease.observations[0].Terminal {
 		t.Fatal(lease.observations)
 	}
 }

@@ -13,9 +13,9 @@ The IAM API maps identity-provider groups to AIPlex roles and scopes, reports th
 | GET | `/api/v1/iam/roles` | List the AIPlex roles and their default scopes | Verified identity |
 | GET | `/api/v1/iam/whoami` | Resolve the caller's identity, roles and scopes | Verified identity |
 | POST | `/api/v1/iam/validate-principal` | Check the form of a workforce principal string | `admin` outside development mode |
-| GET | `/api/v1/iam/role-bindings` | List role bindings, optionally by group | Verified identity |
+| GET | `/api/v1/iam/role-bindings` | List role bindings, optionally by group | `admin` outside development mode |
 | POST | `/api/v1/iam/role-bindings` | Create a role binding | `admin` outside development mode |
-| GET | `/api/v1/iam/role-bindings/{id}` | Read one role binding | Verified identity |
+| GET | `/api/v1/iam/role-bindings/{id}` | Read one role binding | `admin` outside development mode |
 | PUT | `/api/v1/iam/role-bindings/{id}` | Update a role binding | `admin` outside development mode |
 | DELETE | `/api/v1/iam/role-bindings/{id}` | Delete a role binding | `admin` outside development mode |
 | GET | `/api/v1/iam/native/providers` | List native governance providers of the tenant | Grant `aiplex:governance:providers:read` |
@@ -148,7 +148,7 @@ The check always returns `200` when the body decodes. A principal that fails the
 | 200 | none | Check completed. See `valid`. |
 | 400 | `BAD_REQUEST` | Body does not decode or has unknown fields |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` outside development mode |
 
 ### Example
 
@@ -190,6 +190,7 @@ Returns the role bindings as a JSON array. Without a filter, every binding is re
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` role |
 | 500 | `STORE_ERROR` | Store read failed |
 
 ### Example
@@ -218,7 +219,7 @@ Rules:
 | 201 | none | Binding created. Body is the binding. |
 | 400 | `BAD_REQUEST` | Body does not decode, has unknown fields, or fails a rule above |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` outside development mode |
 | 409 | `CONFLICT` | A binding with this `id` already exists |
 | 412 | `REVISION_CONFLICT` | `If-Match` is present and is not `"0"` |
 | 400 | `INVALID_PRECONDITION` | `If-Match` is malformed |
@@ -258,6 +259,7 @@ Returns one role binding. The response carries an `ETag` header with the revisio
 |---|---|---|
 | 200 | none | Binding returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` role |
 | 404 | `NOT_FOUND` | No binding with this identifier |
 | 500 | `STORE_ERROR` | Store read failed |
 
@@ -281,7 +283,7 @@ If `scopes` is not sent and `role` changes, the scopes are replaced with the def
 | 400 | `BAD_REQUEST` | Body does not decode, carries an unknown field, or fails validation |
 | 400 | `INVALID_PRECONDITION` | `If-Match` is malformed or repeated |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` outside development mode |
 | 404 | `NOT_FOUND` | No binding with this identifier |
 | 412 | `REVISION_CONFLICT` | `If-Match` does not match the current revision, or a configuration dependency changed |
 | 428 | `PRECONDITION_REQUIRED` | `If-Match` is missing |
@@ -310,7 +312,7 @@ Deletes a role binding. `If-Match` is required and must carry the current revisi
 | 204 | none | Binding deleted |
 | 400 | `INVALID_PRECONDITION` | `If-Match` is malformed |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` outside development mode |
 | 404 | `NOT_FOUND` | No binding with this identifier |
 | 412 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
 | 428 | `PRECONDITION_REQUIRED` | `If-Match` is missing |
@@ -352,6 +354,7 @@ Returns the native governance providers of the tenant as a JSON array. The list 
 | 200 | none | Array returned |
 | 403 | `ACTION_DENIED` | Grant `aiplex:governance:providers:read` is missing |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 
 ### Native bindings
 
@@ -413,6 +416,7 @@ The response is the plan. Its fields are `version`, `id`, `revision`, `tenant_id
 | 400 | `INVALID_SPEC` | Body does not decode, or `ttl_seconds` is outside 0 to 900 |
 | 400 | `NATIVE_GOVERNANCE_REFUSED` | The controller refused the plan |
 | 401 | `IDENTITY_REQUIRED` | No verified identity |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` role |
 | 403 | `ACTION_DENIED` | A required grant or approval is missing |
 | 404 | `NOT_FOUND` | Binding not found |
 | 409 | `GOVERNANCE_CONFLICT` | A stale or already-attempted binding or plan, or a revision conflict |
@@ -426,6 +430,7 @@ Returns the saved plan with the fields listed above. The caller needs the grant 
 |---|---|---|
 | 200 | none | Plan returned |
 | 403 | `ACTION_DENIED` | No tenant binding, or the read grant is missing |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `NOT_FOUND` | No plan with this identifier in the tenant |
 
 ### POST `/api/v1/iam/native/plans/{id}/apply`
@@ -445,6 +450,7 @@ The caller must match the plan's principal and actor, and must hold `aiplex:gove
 | 400 | `INVALID_SPEC` | Body does not decode or contains restricted fields |
 | 400 | `NATIVE_GOVERNANCE_REFUSED` | The controller refused the apply |
 | 401 | `IDENTITY_REQUIRED` | No verified identity |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` role |
 | 403 | `ACTION_DENIED` | The approval, the caller's identity, or the apply grant does not match |
 | 404 | `NOT_FOUND` | No plan with this identifier |
 | 409 | `APPLY_DISABLED` | Apply is disabled for this provider |
@@ -459,6 +465,7 @@ Returns the saved receipt. The caller needs the grant `aiplex:governance:read:{b
 | 200 | none | Receipt returned |
 | 403 | `ACTION_DENIED` | The read grant is missing |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `NOT_FOUND` | No receipt with this identifier in the tenant |
 
 ## Behaviour notes

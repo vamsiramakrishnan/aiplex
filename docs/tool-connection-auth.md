@@ -16,6 +16,7 @@ The delegated OAuth flow that `oauth_user` uses is described in
 | `GET /api/v1/mcp/auth-types` | Describes each auth type: its fields, which are required, which are secret references, and the tools-policy fields. Drives CLI and console forms. |
 | `GET /api/v1/mcp/connections/{id}` | Read a connection, with its `auth` and `tools` blocks. |
 | `PUT /api/v1/mcp/connections/{id}` | Create or replace a connection. Updates send the current revision in `If-Match`. |
+| `POST /api/v1/mcp/connections/{id}/registration` | Register the connection's OAuth client (`oauth_user`). Operators only. CLI: `aiplex tool-auth register`. |
 | `POST /api/v1/mcp/connections/{id}/invoke` | Invoke one `tools/call` (JSON-RPC body). Subject to the checks below. |
 
 The `auth` and `tools` blocks are optional fields on the connection. A connection with
@@ -37,7 +38,7 @@ aiplex mcp connections test search
 aiplex access-points create team --tool search --allow-groups eng
 ```
 
-`--tools` lists the tools callers may use. Without it, `create` discovers them by calling `tools/list` on the
+`--tools` lists the tools callers may use. Without it, `create` discovers them by an MCP Streamable HTTP handshake (`initialize`, then `tools/list`, following pages) against the
 server from this machine, which works only with `--auth none`. `--allow` and `--deny` set the tools policy,
 and `--update` replaces an existing connection. Delete with `aiplex mcp connections delete <id>`, which asks
 first on a terminal (see [the CLI page](cli.md#confirmation-prompts-and---yes)).
@@ -73,6 +74,51 @@ Next: expose it to callers on an access point:
 
 The URL in the first output is the built-in server's address on the machine, and it changes each time `aiplex dev`
 starts. The auth types, their fields and the tools policy are described in the sections below.
+
+### Call one tool
+
+`aiplex mcp connections call <id> <tool>` sends one `tools/call` through the gateway, with the connection's
+credential, tools policy and rules applied and the caller's `mcp:tools:{name}` grant checked, so a rule or a
+credential can be tried end to end. It is the CLI form of the `invoke` request. The call is real: a tool with side
+effects runs.
+
+```sh
+aiplex mcp connections call local-tools echo --args '{"text":"hi"}'
+aiplex mcp connections call search query --args-file query.yaml     # JSON or YAML; '-' reads stdin
+aiplex mcp connections call local-tools echo --args '{"text":"hi"}' -o json   # the raw result
+```
+
+Text content prints as text. Other content (an image, say) prints as its type and MIME type, without the payload;
+`-o json` prints the whole result. Arguments must be a JSON object. Exit codes follow [the CLI page](cli.md#exit-codes):
+
+| Outcome | Exit |
+| --- | --- |
+| Result printed | 0 |
+| Arguments not an object, unreadable file, `--args` with `--args-file`, bad connection ID | 2, before anything is sent |
+| Policy denial (`tool_policy_denied` or `tool_policy_error`) or a missing grant, shown with the rule ID | 3 |
+| Unknown connection | 4 |
+| The tool server answered a JSON-RPC error, the gateway could not reach it, or the tool ran and reported `isError` (its text is printed first) | 1 |
+
+Nothing secret is printed: the connection's credential never reaches the client, and the CLI prints no token. The
+arguments are not echoed in errors. A denial is shown with its rule ID and message, which an operator wrote.
+
+### Register the OAuth client for `oauth_user`
+
+A connection that uses per-user OAuth needs its OAuth client registered with the upstream authorization server before
+callers can authorize. Registration was only possible with `POST /api/v1/mcp/connections/{id}/registration`; the CLI
+now has it:
+
+```sh
+aiplex tool-auth register search      # admin or deployer; the client profile and issuer come from the connection
+aiplex tool-auth start search --redirect-uri https://app.example.com/callback
+```
+
+The request has no body and the command has no secret flag. A client secret held by the registration is a
+credential reference in secure credential storage, never a value on the command line or in the output; the command
+prints the registration mode, client ID, issuer and the credential reference. A value the API did not return is shown as
+`unknown`. `-o json` prints the stored `oauth-registration` envelope. Exit codes are as above (3 not permitted, 4 no such
+connection, 5 `CONNECTION_CHANGED`). The upstream registration and the `start` and `complete` steps were not validated
+against a live authorization server in this change; the end-to-end test reaches the route on the dev stack only.
 
 ## Auth types
 
@@ -223,3 +269,69 @@ The `--allow` and `--deny` flags replace their lists. Pass `''` to empty one.
   dispatch.
 - The tools policy is connection-level. It does not replace the access point's own
   `expose` list, which is applied on top of it for access-point traffic.
+
+## In the Console
+
+MCPlex, tab Tool connections. Who may do what is decided per route by `cmd/aiplex-api/route_policy.go`:
+
+| Route | Who |
+| --- | --- |
+| `GET /api/v1/mcp/auth-types` (line 65) | any verified identity |
+| `POST /api/v1/mcp/connections/{id}/invoke` (line 115), used by List tools | any verified identity at the route; the handler checks the caller's per-tool grant |
+| `GET`, `POST`, `DELETE /api/v1/mcp/connections/{id}/authorization` and `POST .../authorization/complete` (lines 118 and 119) | any verified identity (not used by the Console) |
+| `POST /api/v1/mcp/connections/{id}/rules/test` (line 117), the dry run | operators |
+| everything else under `/api/v1/mcp/` (the `tenantPrefix` at line 135): list, read, create, replace and delete of connections | operators |
+
+Separately, the Console shows its MCPlex page to operators only (`admin` or `deployer`): its route is wrapped in
+`RequireRole need="operator"` (`console/src/App.tsx`, line 63). The screens therefore have no read-only mode for other
+users; the server stays the authority, and a refusal is shown with its message and code.
+
+- **Add**: a guided form for `none`, `api_key`, `bearer`, `basic` and `oauth_client_credentials` (fields from the
+  auth-type catalog), or a pasted full specification for every other type. There is no field for a secret value:
+  credentials are references. One list of checks applies in the guided form and in a pasted specification, before any
+  request is made:
+  - a reference field must match the catalog's reference pattern and must not have the shape of a known credential (a
+    token prefix such as `sk-`, `ghp_`, `xox`, `AKIA`, `AIza`, `ya29.`, a bearer scheme followed by a token, or a JWT). A long or mixed
+    name that fits the pattern is accepted: the Console cannot tell it from a value, and only the server checks that
+    the reference exists;
+  - in a pasted specification every string value (descriptions included) and every member name is checked against the
+    same shapes, credential-named members (`password`, `token`, `client_secret`, ...) are refused, and so are members
+    the auth type does not define. A name with the shape of a credential is refused without being shown;
+  - every URL (the server URL, `auth.token_endpoint`, any value written as an http(s) URL) must be http or https with
+    no user name or password and no credential-like query parameter (`client_secret`, `api_key`, `token`, `key`,
+    `password`, ...).
+
+  Text that is not JSON is reported as "Not valid JSON", never quoted. The Console cannot discover tools from a
+  server, so the allowed tools are typed in. A create refused as a conflict says nothing was saved and keeps the form.
+- **Delete**: asks first and sends the revision it read; a conflict is shown and nothing is retried.
+- **List tools**: the same `tools/list` through the gateway as `aiplex mcp connections test`. An answer without a tool
+  list is an error. An empty list means the server listed no tools: the connection's tools policy may be hiding them, or
+  the server may have none; the answer does not say which. This is the only request of these screens that shows the
+  gateway's plain-text refusal reason (for example "current tool grant required"), as one line of at most 300
+  characters, because the gateway's invoke route answers some refusals in plain text (`pkg/toolexec/gateway.go`,
+  `http.Error`, for example line 162). Every other request shows the status text for a non-JSON error body, because
+  an error or proxy page may echo the request: that includes the dry run and rule writes, whose bodies carry sample
+  arguments and rules.
+- **Rules**: list, add (at a position), remove and replace the whole set, each written with the revision read.
+  Replacing a rule through Add keeps the members of the stored rule the Console does not model. Expressions are
+  compiled and evaluated only by the server, whose error is shown unchanged with its code. The dry run posts a sample
+  call and shows which rule decided; a result field the server did not send is shown as "not reported".
+- **What is kept on a write**: a rules write sends the stored connection with only the rules changed, so every other
+  member survives. The auth editor keeps unknown top-level members, unknown members of `tools` and the rules. It keeps
+  unknown members of the `auth` block only while the auth type stays the same; changing the type replaces the auth block
+  with the new type's fields, so unknown members of the old block are dropped. `execution.credential_mode` and
+  `identity_ref` are re-aligned as the gateway requires.
+- A failed refresh of the list keeps the rows on screen marked as possibly out of date, and Add, Edit auth, Delete and
+  rule changes are disabled until a reload succeeds, as they are for a row whose revision is unknown.
+
+What the Console checks do not do: they recognise known token shapes (the prefixes `sk-`, `pk-`, `rk-`, `ghp_` and
+its siblings, `github_pat_`, `xox`, `AKIA`, `AIza` and `ya29.`, a JWT, and a `Bearer` scheme followed by a token-like
+string) and URLs that carry credentials. A secret with no recognisable shape typed into a free-text field, such as a
+description of a pasted specification, is not caught, and the server stores what it is sent. A URL with a query
+parameter named like a credential (`key`, `sig`, `signature`, `token`, `secret`, `password`, `auth`, `apikey` and the
+other names the check lists) is refused even when the parameter is not secret; to proceed, remove it from the URL and
+supply the credential through a secret reference.
+
+Limits: the screens were tested against a mocked API only, not a live deployment or `aiplex dev`. One tool call
+(`aiplex mcp connections call`), per-user OAuth authorization and registry import are not in the Console. The dry run's
+sample arguments are free text that is sent to the server (not stored), so use sample values.

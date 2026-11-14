@@ -25,10 +25,15 @@ import (
 //	gemini-developer  POST /v1beta/models/{m}:{generateContent|streamGenerateContent|
 //	                       countTokens|embedContent|batchEmbedContents}
 //	                  /v1beta/cachedContents[/{id}], /v1beta/interactions[/{id}[/cancel]]
+//	                  GET geminiDeveloperLivePath (Live WebSocket)
 const (
 	WireOpenAIEmbeddings  = "openai-embeddings"
 	WireOpenAIModerations = "openai-moderations"
 )
+
+// geminiDeveloperLivePath is the Gemini Developer API Live (BidiGenerateContent)
+// WebSocket path, the path the Google GenAI SDK opens with an API key.
+const geminiDeveloperLivePath = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 var (
 	utilityID          = `[A-Za-z0-9][A-Za-z0-9._@-]*`
@@ -70,7 +75,7 @@ func utilityNativePath(s modelapi.Surface, path string) (string, bool) {
 			return path, true
 		}
 	case modelapi.ProviderGeminiDeveloper:
-		if geminiModelPath.MatchString(path) || geminiCachePath.MatchString(path) || geminiInteractions.MatchString(path) {
+		if geminiModelPath.MatchString(path) || geminiCachePath.MatchString(path) || geminiInteractions.MatchString(path) || path == geminiDeveloperLivePath {
 			return path, true
 		}
 	}

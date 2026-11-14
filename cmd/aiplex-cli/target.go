@@ -31,7 +31,12 @@ const defaultAPIURL = "http://localhost:8080"
 // contextFlag is the global --context flag.
 var contextFlag string
 
-func resolveTarget() target {
+func resolveTarget() target { return resolveTargetOpts(true) }
+
+// resolveTargetOpts is resolveTarget; refresh says whether an expired token may
+// be refreshed, which contacts the API and rewrites the stored credentials.
+// Shell completion passes false: it must never write a file.
+func resolveTargetOpts(refresh bool) target {
 	var t target
 	cfg, _ := cliconfig.Load()
 	var ctx *cliconfig.Context
@@ -68,7 +73,7 @@ func resolveTarget() target {
 			t.ExpiresAt = exp
 		}
 		// Refresh a token that has expired or expires within five minutes.
-		if entry.RefreshToken != "" && !t.ExpiresAt.IsZero() && time.Now().After(t.ExpiresAt.Add(-5*time.Minute)) && ctx != nil && ctx.URL != "" {
+		if refresh && entry.RefreshToken != "" && !t.ExpiresAt.IsZero() && time.Now().After(t.ExpiresAt.Add(-5*time.Minute)) && ctx != nil && ctx.URL != "" {
 			if tr, err := refreshToken(ctx.URL, entry.RefreshToken); err == nil && tr.AccessToken != "" {
 				_ = storeToken(t.Context, tr.AccessToken, tr.RefreshToken)
 				t.Token, t.ExpiresAt = tr.AccessToken, time.Time{}

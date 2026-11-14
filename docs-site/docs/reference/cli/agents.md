@@ -20,8 +20,8 @@ Examples:
 Available Commands:
   register    Register a new agent
   delete      Delete a registered agent
-  permissions Show agent permissions across all planes
-  user-scopes Manage user scopes (Dimension B)
+  permissions Show the scopes an agent may be granted, grouped by module
+  user-scopes Show or replace the scopes granted to a user
   identity    Bind external cloud workload identities to an agent
 
 Flags:
@@ -68,7 +68,7 @@ Flags:
       --grants strings       Grant types (default derives from --auth)
   -h, --help                 help for register
   -n, --name string          Display name
-      --scopes strings       Allowed scopes (Dimension A)
+      --scopes strings       Scopes this agent may ever request
 
 Global Flags:
       --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
@@ -95,6 +95,9 @@ Delete a registered agent
 
 Usage:
   aiplex agents delete <client-id> [flags]
+
+Aliases:
+  delete, rm, remove
 
 Examples:
   aiplex agents delete tutor-agent
@@ -124,7 +127,7 @@ Exit codes:
 ### `aiplex agents permissions`
 
 ```text
-Show agent permissions across all planes
+Show the scopes an agent may be granted, grouped by module
 
 Usage:
   aiplex agents permissions <client-id> [flags]
@@ -156,7 +159,7 @@ Exit codes:
 ### `aiplex agents user-scopes`
 
 ```text
-Manage user scopes (Dimension B)
+Show or replace the scopes granted to a user
 
 Usage:
   aiplex agents user-scopes [flags]
@@ -200,6 +203,9 @@ Get user scopes
 
 Usage:
   aiplex agents user-scopes get <principal-id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex agents user-scopes get principal-0123abcd
@@ -367,6 +373,9 @@ List identity bindings of an agent
 Usage:
   aiplex agents identity list <agent> [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex agents identity list tutor-agent
 
@@ -398,6 +407,9 @@ Show one identity binding
 
 Usage:
   aiplex agents identity get <agent> <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex agents identity get tutor-agent ci
@@ -488,6 +500,9 @@ Remove an identity binding
 
 Usage:
   aiplex agents identity delete <agent> <id> [flags]
+
+Aliases:
+  delete, rm, remove
 
 Examples:
   aiplex agents identity delete tutor-agent ci

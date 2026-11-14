@@ -6,6 +6,14 @@
 //	c.SetToken("eyJhbGci...")
 //
 //	instances, err := c.ListInstances(ctx, &aiplex.ListInstancesOpts{Plane: "mcplex"})
+//
+// The default client does not follow redirects, because a followed redirect
+// could carry the token to the redirect target. The API never redirects, so a
+// 301, 302, 303, 307 or 308 answer is a wrong URL or a proxy that rewrites
+// requests, and returns an *Error with code "redirect_refused" (RedirectRefusedCode),
+// the status, and only the scheme and host of the Location. A 304 is not a
+// redirect and returns the usual error. If you replace Client.HTTPClient, its
+// redirect policy (CheckRedirect) is yours: the SDK does not change it.
 package aiplex
 
 import (
@@ -19,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Client is an AIPlex API client.
@@ -32,12 +41,101 @@ type Client struct {
 // NewClient creates a new AIPlex SDK client.
 func NewClient(baseURL string) *Client {
 	return &Client{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		HTTPClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		userAgent: "aiplex-sdk-go/0.1.0",
+		BaseURL:    strings.TrimRight(baseURL, "/"),
+		HTTPClient: NewNoRedirectHTTPClient(30 * time.Second),
+		userAgent:  "aiplex-sdk-go/0.1.0",
 	}
+}
+
+// NoFollowRedirects is the CheckRedirect function of the default client. It
+// returns the redirect answer itself instead of following it: Go keeps the
+// Authorization header when a redirect goes to another port or subdomain of
+// the same host, and the API never redirects, so a redirect means the client
+// is aimed at the wrong place. The CLI's health probes use it too.
+func NoFollowRedirects(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
+// NewNoRedirectHTTPClient returns an HTTP client for requests that carry a
+// credential: it never follows a redirect, and it never fails with an error
+// that quotes an unparseable Location. The SDK's default client and the CLI's
+// sign-in, token and health requests all use it, so there is one
+// implementation of the rule.
+func NewNoRedirectHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, CheckRedirect: NoFollowRedirects, Transport: redirectGuard{}}
+}
+
+// redirectGuard drops a Location header that does not parse. net/http would
+// otherwise fail the request with an error quoting the whole Location, query
+// included, before CheckRedirect is consulted.
+type redirectGuard struct{ base http.RoundTripper }
+
+func (g redirectGuard) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := g.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	resp, err := base.RoundTrip(req)
+	if err == nil && isRedirectStatus(resp.StatusCode) {
+		if loc := resp.Header.Get("Location"); loc != "" {
+			if _, perr := url.Parse(loc); perr != nil {
+				resp.Header.Del("Location")
+			}
+		}
+	}
+	return resp, err
+}
+
+// RedirectRefusedCode is the Error.Code of a redirect the client refused. The
+// Python and TypeScript SDKs use the same string.
+const RedirectRefusedCode = "redirect_refused"
+
+func isRedirectStatus(code int) bool {
+	switch code {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return true
+	}
+	return false
+}
+
+// maxHostLength is the longest DNS name; a longer "host" is not shown.
+const maxHostLength = 253
+
+// RefusedRedirect returns the error for a redirect answer (301, 302, 303, 307
+// or 308), or nil when resp is not one. A 304 or other 3xx is not a redirect
+// to follow. The error names only the scheme and host of the Location, never
+// its path or query, which can carry a token; a missing, unparseable or
+// host-less Location, or a host longer than a DNS name, is reported as "no
+// usable Location". requested resolves a relative Location and may be nil.
+func RefusedRedirect(requested *url.URL, resp *http.Response) error {
+	if !isRedirectStatus(resp.StatusCode) {
+		return nil
+	}
+	return redirectRefused(requested, resp)
+}
+
+// redirectRefused builds the error for a redirect answer.
+func redirectRefused(requested *url.URL, resp *http.Response) error {
+	msg := fmt.Sprintf("the API answered %d with a redirect and the client does not follow redirects, because it would send the credentials to the redirect target", resp.StatusCode)
+	target := ""
+	if loc := resp.Header.Get("Location"); loc != "" {
+		if u, err := url.Parse(loc); err == nil {
+			if requested != nil {
+				u = requested.ResolveReference(u)
+			}
+			if u.Scheme != "" && u.Host != "" && len(u.Host) <= maxHostLength {
+				target = u.Scheme + "://" + u.Host
+			}
+		}
+	}
+	if target != "" {
+		msg += " to " + target
+	} else {
+		msg += " (the answer has no usable Location)"
+	}
+	msg += ". The likely cause is a wrong AIPLEX_URL or a proxy that rewrites requests; point the client at the API's own address"
+	return &Error{Code: RedirectRefusedCode, Message: msg, StatusCode: resp.StatusCode}
 }
 
 // SetToken sets the bearer token for authentication.
@@ -112,10 +210,14 @@ func (c *Client) doWithHeaders(ctx context.Context, method, path string, body, o
 	}
 	defer resp.Body.Close()
 
+	if isRedirectStatus(resp.StatusCode) {
+		return redirectRefused(req.URL, resp)
+	}
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		var apiErr Error
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
-			return &Error{Code: "unknown", Message: resp.Status, StatusCode: resp.StatusCode}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err := json.Unmarshal(raw, &apiErr); err != nil {
+			return &Error{Code: "unknown", Message: plainErrorText(raw, resp.Status), StatusCode: resp.StatusCode}
 		}
 		apiErr.StatusCode = resp.StatusCode
 		return &apiErr
@@ -178,18 +280,31 @@ type Pricing struct {
 // ListCatalogOpts are options for listing catalog templates.
 type ListCatalogOpts struct {
 	Plane string
-	Page  int
+	// Page is zero-based. PageSize zero leaves the server's default (20);
+	// the server accepts 1 to 100.
+	Page     int
+	PageSize int
 }
 
 // ListCatalog returns a paginated catalog listing.
 func (c *Client) ListCatalog(ctx context.Context, opts *ListCatalogOpts) (*CatalogPage, error) {
 	q := url.Values{}
 	if opts != nil {
+		// Zero means not set; a negative value would silently become the server's default.
+		if opts.Page < 0 {
+			return nil, fmt.Errorf("aiplex: catalog page must be 0 or more")
+		}
+		if opts.PageSize < 0 {
+			return nil, fmt.Errorf("aiplex: catalog page size must be 0 or more")
+		}
 		if opts.Plane != "" {
 			q.Set("plane", opts.Plane)
 		}
 		if opts.Page > 0 {
 			q.Set("page", fmt.Sprintf("%d", opts.Page))
+		}
+		if opts.PageSize > 0 {
+			q.Set("page_size", fmt.Sprintf("%d", opts.PageSize))
 		}
 	}
 	path := "/api/v1/catalog"
@@ -616,22 +731,37 @@ func (c *Client) ListDelegations(ctx context.Context) ([]Delegation, error) {
 
 // GetDelegation returns a single delegation.
 func (c *Client) GetDelegation(ctx context.Context, id string) (*Delegation, error) {
+	path, err := delegationPath(id)
+	if err != nil {
+		return nil, err
+	}
 	var d Delegation
-	err := c.do(ctx, "GET", "/api/v1/a2a/delegations/"+url.PathEscape(id), nil, &d)
+	err = c.do(ctx, "GET", path, nil, &d)
 	return &d, err
 }
 
 // UpdateDelegation updates the status of a delegation.
 func (c *Client) UpdateDelegation(ctx context.Context, id string, req *UpdateDelegationRequest) (*Delegation, error) {
+	path, err := delegationPath(id)
+	if err != nil {
+		return nil, err
+	}
+	if err = req.Validate(); err != nil {
+		return nil, err
+	}
 	var d Delegation
-	err := c.do(ctx, "PATCH", "/api/v1/a2a/delegations/"+url.PathEscape(id), req, &d)
+	err = c.do(ctx, "PATCH", path, req, &d)
 	return &d, err
 }
 
 // GetDelegationChain returns the full call chain for a delegation.
 func (c *Client) GetDelegationChain(ctx context.Context, id string) (*DelegationChain, error) {
+	path, err := delegationPath(id)
+	if err != nil {
+		return nil, err
+	}
 	var chain DelegationChain
-	err := c.do(ctx, "GET", "/api/v1/a2a/delegations/"+url.PathEscape(id)+"/chain", nil, &chain)
+	err = c.do(ctx, "GET", path+"/chain", nil, &chain)
 	return &chain, err
 }
 
@@ -694,14 +824,34 @@ func (c *Client) RecordSkillInvocation(ctx context.Context, req *RecordSkillInvo
 	return &inv, err
 }
 
-// ListSkillInvocations returns recent invocations, optionally filtered.
-func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName string) ([]SkillInvocation, error) {
+// ListSkillInvocationsOpts bounds a ListSkillInvocations call. Limit zero
+// leaves the server's default (100); the server accepts 1 to 1000.
+type ListSkillInvocationsOpts struct {
+	Limit int
+}
+
+// ListSkillInvocations returns recent invocations, optionally filtered. Pass at
+// most one ListSkillInvocationsOpts to set the limit; without one the server's
+// default applies.
+func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName string, opts ...ListSkillInvocationsOpts) ([]SkillInvocation, error) {
+	if len(opts) > 1 {
+		return nil, fmt.Errorf("at most one ListSkillInvocationsOpts")
+	}
 	q := url.Values{}
 	if agentID != "" {
 		q.Set("agent_id", agentID)
 	}
 	if skillName != "" {
 		q.Set("skill", skillName)
+	}
+	if len(opts) == 1 {
+		// Zero means not set; a negative value would silently become the server's default.
+		if opts[0].Limit < 0 {
+			return nil, fmt.Errorf("aiplex: skill invocation limit must be 0 or more")
+		}
+		if opts[0].Limit > 0 {
+			q.Set("limit", strconv.Itoa(opts[0].Limit))
+		}
 	}
 	path := "/api/v1/skills/invocations"
 	if encoded := q.Encode(); encoded != "" {
@@ -833,6 +983,9 @@ type ExecutionRun struct {
 	Obligations      int64      `json:"obligations"`
 	PolicyViolations int64      `json:"policy_violations"`
 	BudgetUSDCharged float64    `json:"budget_usd_charged"`
+	Compacted        bool       `json:"compacted"`
+	CompactedAt      *time.Time `json:"compacted_at,omitempty"`
+	RetainedUntil    *time.Time `json:"retained_until,omitempty"`
 }
 
 // ExecutionEvent is one journaled row in a run's timeline.
@@ -915,12 +1068,37 @@ func (c *Client) GetRun(ctx context.Context, runID string) (*ExecutionRun, error
 	return &run, nil
 }
 
-// ListRunEvents returns the ordered timeline for a run.
-func (c *Client) ListRunEvents(ctx context.Context, runID string) ([]ExecutionEvent, error) {
+// ListRunEventsOpts pages a run's timeline. FromSeq is inclusive (the
+// server returns events with seq >= FromSeq); zero values use the server
+// defaults (from the start, 1000 events).
+type ListRunEventsOpts struct {
+	FromSeq int64
+	Limit   int
+}
+
+// ListRunEvents returns the ordered timeline for a run. Pass at most one
+// ListRunEventsOpts to page it; without one the server's defaults apply.
+func (c *Client) ListRunEvents(ctx context.Context, runID string, opts ...ListRunEventsOpts) ([]ExecutionEvent, error) {
+	if len(opts) > 1 {
+		return nil, fmt.Errorf("at most one ListRunEventsOpts")
+	}
+	path := "/api/v1/runs/" + url.PathEscape(runID) + "/events"
+	if len(opts) == 1 {
+		q := url.Values{}
+		if opts[0].FromSeq > 0 {
+			q.Set("from_seq", strconv.FormatInt(opts[0].FromSeq, 10))
+		}
+		if opts[0].Limit > 0 {
+			q.Set("limit", strconv.Itoa(opts[0].Limit))
+		}
+		if s := q.Encode(); s != "" {
+			path += "?" + s
+		}
+	}
 	var resp struct {
 		Events []ExecutionEvent `json:"events"`
 	}
-	if err := c.do(ctx, "GET", "/api/v1/runs/"+url.PathEscape(runID)+"/events", nil, &resp); err != nil {
+	if err := c.do(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Events, nil
@@ -995,4 +1173,32 @@ func (c *Client) SetUserScopesAtRevision(ctx context.Context, id string, scopes 
 		return nil, err
 	}
 	return c.GetUserScopes(ctx, id)
+}
+
+// plainErrorText is the first line of a non-JSON error body (for example the
+// gateway's "operator tool credential unavailable"), trimmed and cut at 300
+// characters; fallback when it has none. The text may come from a proxy in
+// front of the API and is printed to a terminal, so only printable characters
+// are kept: control characters (C0 and C1, which include terminal escapes) and
+// format characters (bidirectional overrides, zero-width marks) are dropped,
+// and any other white space becomes a plain space.
+func plainErrorText(body []byte, fallback string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(string(body)), "\n")
+	line = strings.TrimSpace(strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsPrint(r):
+			return r
+		case unicode.IsSpace(r):
+			return ' '
+		default:
+			return -1
+		}
+	}, line))
+	if line == "" {
+		return fallback
+	}
+	if r := []rune(line); len(r) > 300 {
+		line = string(r[:300])
+	}
+	return line
 }

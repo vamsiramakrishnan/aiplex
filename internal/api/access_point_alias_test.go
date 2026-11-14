@@ -1,9 +1,6 @@
 package api
 
 import (
-	"bytes"
-	"encoding/json"
-	"mime/multipart"
 	"strings"
 	"testing"
 
@@ -139,26 +136,5 @@ func TestAccessPointAliasStillRejectsAmbiguousOrUnnamedBodies(t *testing.T) {
 	}
 	if len(f.upstreamCalls()) != before {
 		t.Fatal("a refused request reached the upstream")
-	}
-}
-
-// Multipart uploads keep aliases unsupported: the form is not re-encoded.
-func TestAccessPointAliasMultipartStaysUnsupported(t *testing.T) {
-	f := newDirectAPFixture(t, "alias", aliasRows())
-	var form bytes.Buffer
-	mw := multipart.NewWriter(&form)
-	_ = mw.WriteField("model", "chat-friendly")
-	part, _ := mw.CreateFormFile("file", "a.wav")
-	_, _ = part.Write([]byte("RIFF"))
-	_ = mw.Close()
-	before := len(f.upstreamCalls())
-	w := f.do("POST", "/ap/alias/v1/audio/transcriptions", form.String(), "Content-Type", mw.FormDataContentType())
-	var body struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
-	}
-	if w.Code != 503 || json.Unmarshal(w.Body.Bytes(), &body) != nil || body.Error.Code != "model_alias_unsupported" || len(f.upstreamCalls()) != before {
-		t.Fatalf("multipart alias: %d %s", w.Code, w.Body.String())
 	}
 }

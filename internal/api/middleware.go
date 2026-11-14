@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -13,14 +14,17 @@ import (
 	"net/netip"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/singleflight"
 	"golang.org/x/time/rate"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/auth"
@@ -603,26 +607,50 @@ func RefuseProxiedAnonymousInDevelopment(development bool) func(http.Handler) ht
 	}
 }
 
-// Idempotency caches operator-action responses keyed by Idempotency-Key
-// header (RFC 8235) or, when absent, by sha256(run_id, action, body).
-// Second call with the same key returns the cached response without
-// invoking the underlying handler — so a double-clicked redrive
-// doesn't drive Tape twice. 5-minute TTL.
+// Default limits of the Idempotency middleware.
+const (
+	idempotencyTTL        = 5 * time.Minute
+	idempotencyMaxEntries = 10000
+)
+
+// Idempotency dedupes operator-action requests keyed by the Idempotency-Key
+// header or, when absent, by sha256 of the body; the key is always scoped to
+// the verified caller, the run_id route parameter and the action, so a reply
+// never crosses callers or targets. A double-clicked redrive drives Tape
+// once:
 //
-// Implementation notes:
-//   - sync.Map for the table; entries expire via time.AfterFunc so
-//     there's no scanning goroutine.
-//   - Caches the full response body + status code; replays bit-exact.
-//   - Body is read once via io.ReadAll, then replayed downstream via
-//     bytes.NewReader so handlers see the original request shape.
+//   - While a request is running, an identical request waits for it
+//     (singleflight) and receives the same recorded response, whatever its
+//     status, with X-Idempotent-Replay: true. It never runs the handler.
+//   - After it completes, a 2xx response is kept for 5 minutes and replayed
+//     to identical requests. A non-2xx response is not kept, so the
+//     operator can retry once the first attempt has finished.
+//
+// The handler runs on a context detached from the first caller's
+// cancellation (the deadline, if any, still applies): once an operator
+// action starts it runs to completion even if that client disconnects, so
+// waiters and a later retry see its real outcome rather than a cancellation
+// error, and a retry is answered from the cache instead of acting twice.
+// If the handler panics, the first caller re-panics with the original value
+// and waiters get a 500 without the handler running again (fail closed).
 func Idempotency(actionFromPath func(*http.Request) string) func(http.Handler) http.Handler {
-	const ttl = 5 * time.Minute
-	type cached struct {
-		status int
-		hdrs   http.Header
-		body   []byte
+	return IdempotencyWithLimits(actionFromPath, idempotencyMaxEntries, idempotencyTTL)
+}
+
+// IdempotencyWithLimits is Idempotency with an explicit cap on the number of
+// cached replies and their lifetime.
+//
+// The cache is a size-capped expiring LRU. Lookups use Peek, so a replay does
+// not refresh an entry and eviction is in insertion order: when the cap is
+// reached the oldest reply is dropped before its TTL. That shortens replay
+// protection for that key only: a repeat of it afterwards runs the handler
+// again (in-flight dedupe is unaffected, it does not depend on the cache).
+func IdempotencyWithLimits(actionFromPath func(*http.Request) string, maxEntries int, ttl time.Duration) func(http.Handler) http.Handler {
+	if maxEntries < 1 {
+		maxEntries = 1
 	}
-	var cache sync.Map // string → *cached
+	cache := expirable.NewLRU[string, *idempotentReply](maxEntries, nil, ttl)
+	var inflight singleflight.Group
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -644,40 +672,81 @@ func Idempotency(actionFromPath func(*http.Request) string) func(http.Handler) h
 			keyed := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s", extractOwner(r), chi.URLParam(r, "run_id"), actionFromPath(r), request)))
 			key := hex.EncodeToString(keyed[:])
 
-			if v, ok := cache.Load(key); ok {
-				c := v.(*cached)
-				for k, vv := range c.hdrs {
-					w.Header()[k] = vv
-				}
-				w.Header().Set("X-Idempotent-Replay", "true")
-				w.WriteHeader(c.status)
-				_, _ = w.Write(c.body)
+			if c, ok := cache.Peek(key); ok {
+				c.replay(w)
 				return
 			}
 
-			// Capture the downstream response.
-			rec := &responseRecorder{ResponseWriter: w, status: 200, body: &bytes.Buffer{}}
-			next.ServeHTTP(rec, r)
-
-			// Cache only success-ish responses (2xx). Errors should
-			// fail loudly on each click so the operator can retry.
-			if rec.status >= 200 && rec.status < 300 {
-				c := &cached{
-					status: rec.status,
-					hdrs:   rec.Header().Clone(),
-					body:   rec.body.Bytes(),
+			leader := false
+			var panicked any
+			v, err, _ := inflight.Do(key, func() (any, error) {
+				// A call that finished between the lookup above and Do has
+				// already stored its reply; serve it rather than run again.
+				if c, ok := cache.Peek(key); ok {
+					return c, nil
 				}
-				cache.Store(key, c)
-				time.AfterFunc(ttl, func() { cache.Delete(key) })
+				leader = true
+				rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK, body: &bytes.Buffer{}}
+				ctx := context.WithoutCancel(r.Context())
+				if deadline, ok := r.Context().Deadline(); ok {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithDeadline(ctx, deadline)
+					defer cancel()
+				}
+				func() {
+					defer func() { panicked = recover() }()
+					next.ServeHTTP(rec, r.WithContext(ctx))
+				}()
+				if panicked != nil {
+					return nil, errIdempotentHandlerPanicked
+				}
+				c := &idempotentReply{status: rec.status, hdrs: rec.Header().Clone(), body: rec.body.Bytes()}
+				// Cache only success-ish responses (2xx), before the in-flight
+				// call is released so no identical request can slip between.
+				// Errors fail loudly on each click so the operator can retry.
+				if c.status >= 200 && c.status < 300 {
+					cache.Add(key, c)
+				}
+				return c, nil
+			})
+			if leader {
+				if panicked != nil {
+					panic(panicked)
+				}
+				return // the response was written as the handler ran
 			}
+			if err != nil {
+				Error(w, r, http.StatusInternalServerError, "IDEMPOTENT_REQUEST_FAILED",
+					"an identical request was being processed and did not complete; it was not run again, check the run before retrying")
+				return
+			}
+			v.(*idempotentReply).replay(w)
 		})
 	}
 }
 
+var errIdempotentHandlerPanicked = errors.New("idempotent handler panicked")
+
+// idempotentReply is a recorded response, replayed bit-exact.
+type idempotentReply struct {
+	status int
+	hdrs   http.Header
+	body   []byte
+}
+
+func (c *idempotentReply) replay(w http.ResponseWriter) {
+	for k, vv := range c.hdrs {
+		w.Header()[k] = slices.Clone(vv)
+	}
+	w.Header().Set("X-Idempotent-Replay", "true")
+	w.WriteHeader(c.status)
+	_, _ = w.Write(c.body)
+}
+
 // responseRecorder tees the downstream handler's response into a
 // buffer + the real writer simultaneously. Avoids the "buffer then
-// flush" pattern that breaks SSE; here we just need bytes for the
-// cache and the body has already been written when AfterFunc fires.
+// flush" pattern that breaks SSE; the bytes are kept for the cache
+// and for identical requests waiting on this one.
 type responseRecorder struct {
 	http.ResponseWriter
 	status int
@@ -702,6 +771,9 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 	return r.ResponseWriter.Write(b)
 }
 
+// Unwrap lets http.NewResponseController reach the underlying writer.
+func (r *responseRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
 // TenantFromContext returns the caller's tenant id and a flag
 // indicating whether they have the cross-tenant scope. Sources:
 //
@@ -710,49 +782,57 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 //  2. WIFIdentity.Domain — the workforce identity's `hd` claim,
 //     mapped via env AIPLEX_DOMAIN_TENANT_MAP (k=v,k=v).
 //
-// Returns ("", false) when no tenant info is available; callers
-// decide whether to deny or fall through (the AIPLEX_REQUIRE_TENANT
-// env var, when "1", flips that to "deny by default").
-func TenantFromContext(ctx context.Context) (tenantID string, crossTenant bool) {
+// The domain map is consulted only when no tenant scope is present. Repeats
+// of one tenant count as one. More than one distinct tenant, from the scopes
+// or from the domain map, returns ErrAmbiguousTenant: no grant is ever
+// preferred over another. Returns ("", false, nil) when no tenant info is
+// available; the runs routes then refuse unless the operator opted out
+// (see RequireTenant).
+func TenantFromContext(ctx context.Context) (tenantID string, crossTenant bool, err error) {
 	access := GetWIFAccess(ctx)
 	if access == nil {
-		return "", false
+		return "", false, nil
 	}
+	tenants := map[string]bool{}
 	for _, scope := range access.Scopes {
 		switch {
 		case scope == "aiplex:runs:read:cross_tenant":
 			crossTenant = true
 		case strings.HasPrefix(scope, "aiplex:tenant:"):
-			tenantID = scope[len("aiplex:tenant:"):]
+			if id := scope[len("aiplex:tenant:"):]; id != "" {
+				tenants[id] = true
+			}
 		}
 	}
-	if tenantID == "" && access.Identity.Domain != "" {
+	if len(tenants) == 0 && access.Identity.Domain != "" {
 		// Optional convention: map workforce domain → tenant via env.
 		for _, pair := range strings.Split(os.Getenv("AIPLEX_DOMAIN_TENANT_MAP"), ",") {
 			if i := strings.IndexByte(pair, '='); i > 0 {
 				d, t := strings.TrimSpace(pair[:i]), strings.TrimSpace(pair[i+1:])
 				if d == access.Identity.Domain && t != "" {
-					tenantID = t
-					break
+					tenants[t] = true
 				}
 			}
 		}
 	}
-	return tenantID, crossTenant
+	if len(tenants) > 1 {
+		return "", crossTenant, ErrAmbiguousTenant
+	}
+	for id := range tenants {
+		tenantID = id
+	}
+	return tenantID, crossTenant, nil
 }
 
-// RequireTenant returns 403 unless the caller has either a tenant
-// claim OR the cross-tenant scope. Wired on /api/v1/runs* in main.go.
+// RequireTenant guards every /api/v1/runs route (wired in
+// cmd/aiplex-api/server.go). It refuses an identity that names more than one
+// tenant (403 TENANT_AMBIGUOUS) and, by default, a caller with neither a
+// tenant nor the cross-tenant scope (403 TENANT_REQUIRED). The only opt-out
+// for tenantless callers is AIPLEX_REQUIRE_TENANT=0; loopback-only
+// development mode keeps serving the local developer every run.
 func RequireTenant(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if os.Getenv("AIPLEX_REQUIRE_TENANT") != "1" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		tenant, cross := TenantFromContext(r.Context())
-		if tenant == "" && !cross {
-			Error(w, r, http.StatusForbidden, "TENANT_REQUIRED",
-				"caller has no tenant claim and no cross-tenant scope")
+		if _, ok := runsTenant(w, r); !ok {
 			return
 		}
 		next.ServeHTTP(w, r)

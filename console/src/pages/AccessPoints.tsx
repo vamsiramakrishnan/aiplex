@@ -12,6 +12,7 @@ import AccessPointSummaryCard from '../components/AccessPointSummaryCard'
 import AccessPointUsagePanel from '../components/AccessPointUsagePanel'
 import EndpointList from '../components/EndpointList'
 import QuotaPlanPanel from '../components/QuotaPlanPanel'
+import AccessPointRoutingPanel from '../components/AccessPointRoutingPanel'
 import { useAccess, ADMIN_REASON } from '../hooks/useAccess'
 import { ForbiddenNotice } from '../components/Forbidden'
 import { YourAccessPoints, endpointLabel } from '../components/YourAccess'
@@ -322,6 +323,8 @@ function OperatorDetail() {
         )}
       </section>
 
+      {/* Keyed by access point: switching to another one remounts the panel, so no success message or open confirmation carries over. */}
+      <AccessPointRoutingPanel key={spec.id} accessPointId={spec.id} isAdmin={access.isAdmin} />
       <EndpointList spec={spec} connect={connect.data} connectLoading={connect.isLoading} connectError={connect.isError ? connectErrorMessage(connect.error) : undefined} />
       <QuotaPlanPanel spec={spec} />
       <AccessPointUsagePanel accessPointId={spec.id} />
