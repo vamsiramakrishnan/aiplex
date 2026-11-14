@@ -93,9 +93,9 @@ for Bedrock InvokeModel only when the body is Messages-shaped.
 ### Gemini Developer API
 
 Provider `gemini-developer` serves the Google GenAI wire (`google-genai`) on
-`generativelanguage.googleapis.com`. The matrix has no `gemini-developer` rows, so usage
-levels for these operations are not stated here. The
-[coverage matrix](reference/usage-formats/coverage.md) lists the Vertex (`google`) rows.
+`generativelanguage.googleapis.com`. The
+[coverage matrix](reference/usage-formats/coverage.md) lists these operations under provider
+`google`, in the `gemini-*` rows; the `vertex-*` rows are the Google Cloud surfaces.
 
 | Operation IDs | Native method and path | Transport | Quota metering |
 | --- | --- | --- | --- |
@@ -107,9 +107,9 @@ levels for these operations are not stated here. The
 | `gemini.interactions.get`, `.cancel`, `.delete` | `GET`, `POST …/{id}/cancel`, `DELETE` on `/v1beta/interactions/{id}` | HTTP | Request count (asynchronous) |
 | `gemini.models.batchGenerateContent`, `gemini.batches.get`, `gemini.batches.cancel` | `POST /v1beta/models/{model}:batchGenerateContent`, `GET /v1beta/batches/{id}`, `POST /v1beta/batches/{id}:cancel` | HTTP | Request count, or `batch-usage` binding (create). Get and cancel are asynchronous. |
 | `gemini.models.predictLongRunning`, `gemini.operations.get` | `POST /v1beta/models/{model}:predictLongRunning`, `GET /v1beta/models/{model}/operations/{id}` | HTTP | Request count (asynchronous). The done result reports no usage or duration. |
+| `gemini.live.connect` | `GET /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` (WebSocket) | WebSocket | Session: request count only. Token metering is refused at save time. See [Gemini Live on the Developer API](#gemini-live-on-the-developer-api). |
 
-Usage observation for Gemini Developer operations is not stated in the matrix. Generation
-and interactions responses that carry usage are read by the observers. Cached contents,
+Generation and interactions responses that carry usage are read by the observers. Cached contents,
 their list, and the operations that return no usage are never read for usage. The batch
 rules are in [model batches](model-batches.md).
 
@@ -151,7 +151,7 @@ See [usage ledger](usage-ledger.md#limits).
 
 ## WebSocket sessions
 
-Four session operations are implemented as WebSocket relays:
+Five session operations are implemented as WebSocket relays:
 
 | Operation ID | Native path | Provider | Client protocol | Default metering (`session`) | Token metering (`token`) |
 | --- | --- | --- | --- | --- | --- |
@@ -159,9 +159,12 @@ Four session operations are implemented as WebSocket relays:
 | `openai.v1.responses-websocket` | `GET /v1/responses` | `openai` | `openai-responses` | One request-count admission per session | One `openai-text` admission per `response.create` |
 | `openai.v1.live` | `GET /v1/live/sessions?model=…` | `openai` | `openai-live` | One request-count admission per session | Not available. Refused at save time. |
 | `live.connect` | `GET /ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent` | Google Cloud (Vertex Live) | `google-genai` | One request-count admission per session | `gemini-live-allowance` windows |
+| `gemini.live.connect` | `GET /ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` | `gemini-developer` | `google-genai` | One request-count admission per session | Not available. Refused at save time. |
 
-The model is chosen at connect time by the `model` query parameter for Realtime, Live
-voice and Live. For Responses WebSocket mode, it is chosen per `response.create` event, and
+The model is chosen at connect time by the `model` query parameter for Realtime and Live
+voice. For both Live operations it is the first client message's `setup.model` (on the
+Developer API spelled `models/{model}`); an optional `?model=` selector must name the same
+model. For Responses WebSocket mode, it is chosen per `response.create` event, and
 the connect request must not carry `model`.
 
 ### The `websocket` block
@@ -174,8 +177,10 @@ The block is part of the `surface` object of the model-surface spec.
 | `surface.websocket.max_session_seconds` | 60 to 86400 | the gateway's `MaxStreamDuration`, 30 minutes unless configured | Duration bound. Both sockets close when it elapses. Applies to every WebSocket session on the surface. |
 | `surface.websocket.token_allowance` | 1024 to 4194304, with `token` only | 32768 | Gemini Live allowance window, held per mapped meter. |
 
-`metering: "token"` is refused at save time for a surface that includes `openai.v1.live`.
-Live voice is billed by session seconds, which no token path observes, so it keeps session
+`metering: "token"` is refused at save time for a surface that includes `openai.v1.live`
+or `gemini.live.connect`. Live voice is billed by session seconds, which no token path
+observes. Developer API Live usage snapshots are not documented as session-cumulative, and
+allowance windows settle on snapshot deltas, which needs them to be. Both keep session
 metering.
 
 ### Session metering (default)
@@ -229,7 +234,8 @@ not per session.
   `session.update` that disables automatic responses (`turn_detection` null, or
   `create_response: false`). Any other event before that is refused. A response the gateway
   did not admit closes the session with a policy-violation close.
-- **Gemini Live (renewable allowance).** Live `usageMetadata` messages are
+- **Gemini Live (renewable allowance).** This applies to Vertex Live (`live.connect`) only.
+  Live `usageMetadata` messages are
   session-cumulative snapshots whose composition Google does not fully document. The first
   window lease holds `token_allowance` per mapped meter at setup, before the dial. When any
   mapped counter has consumed half of the window, the window settles exactly on the snapshot
@@ -244,6 +250,42 @@ not per session.
   generated between that snapshot and the close has no hold and reaches the ledger only as
   `lower_bound` telemetry. The `gemini-live-allowance` profile uses the surface allowance as
   its exposure bound.
+
+### Gemini Live on the Developer API
+
+`gemini.live.connect` is served by the same relay and usage observer as Vertex Live. The
+upstream credential and the setup model's spelling differ, and it has session metering only.
+
+- **Endpoint.** `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`,
+  from the [Live API reference](https://aistudio.google.com/api-reference/live/bidi-generate-content).
+  The surface origin must be `https://generativelanguage.googleapis.com`, as for the other
+  `gemini-developer` operations.
+- **API key.** The surface's `auth` (`api_key` in header `x-goog-api-key`, a secret
+  reference) is resolved per session and sent only in the `x-goog-api-key` handshake header.
+  The upstream URL never carries a query: the caller's `?model=`, `key=` and
+  `access_token=` parameters are not forwarded, and a credential that would change the URL
+  is refused (the session closes with `upstream identity unavailable`). The key is not
+  logged, not written to the usage ledger and not in any close reason.
+- **Not validated live.** This operation was tested against recorded Live fixtures and a
+  fake upstream only, never against the live Developer API. Sending the key in
+  `x-goog-api-key` on the WebSocket handshake is what Google's
+  [API reference](https://aistudio.google.com/api-reference) documents for the API, and what
+  the google-genai SDK does by our reading of its source, but it has not been observed
+  working (Google's WebSocket guide shows a `?key=` query parameter instead). If the live
+  endpoint accepts the key only as a query parameter, sessions fail to connect
+  (`upstream unavailable`); the key is never put in a URL.
+- **Usage is advisory.** `usageMetadata` is read with the Vertex rules above and recorded as
+  ledger telemetry. The Developer API reference does not say whether snapshots are
+  session-cumulative or per turn. AIPlex reads them as cumulative, as Vertex documents. If
+  they were per-turn counts that never decrease, the session would be recorded as the last
+  one, an under-count; a snapshot that goes down is never summed and labels the session
+  `ambiguous`. For that reason no token profile is offered: the session is one request
+  against request budgets and rates, and `websocket.metering: "token"` is refused at save
+  time. The matrix lists the rows as `advisory`.
+- **Not covered.** Ephemeral tokens (`BidiGenerateContentConstrained?access_token=…`) and the
+  `v1alpha` path are not served. Access points do not route to this operation: their
+  `google-live` wire is the Vertex path. Use `/api/v1/llm/native/{id}/…` or the client
+  facade.
 
 ### Live voice
 
@@ -410,7 +452,7 @@ No other credential type is accepted.
 | --- | --- | --- |
 | `Authorization: Bearer <token>` | All model routes, including the access point and facade routes below | Any |
 | `x-api-key` | `/ap/{id}/v1/messages`, `/ap/{id}/v1/messages/count_tokens`, `/ap/{id}/v1/models` (only when the request carries `anthropic-version`), `/api/v1/llm/gateway/{id}/v1/messages`, `/api/v1/llm/gateway/{id}/v1/messages/count_tokens` | Anthropic Messages |
-| `x-goog-api-key` | `/ap/{id}/v1beta/…`, `/ap/{id}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`, `/api/v1/llm/gateway/{id}/v1beta/…`, the same Live path on the facade, and facade paths ending in `:generateContent`, `:streamGenerateContent`, `:countTokens`, `:embedContent` or `:batchEmbedContents` | Google GenAI |
+| `x-goog-api-key` | `/ap/{id}/v1beta/…`, `/ap/{id}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`, `/api/v1/llm/gateway/{id}/v1beta/…`, the same Live path and the Developer API Live path (`/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`) on the facade, and facade paths ending in `:generateContent`, `:streamGenerateContent`, `:countTokens`, `:embedContent` or `:batchEmbedContents` | Google GenAI |
 | `api-key` | `/ap/{id}/v1/…` (other than the Anthropic paths above, so this includes `/v1/models` without `anthropic-version`), `/ap/{id}/openai/…` (Azure OpenAI shapes), `/api/v1/llm/gateway/{id}/openai/…` | OpenAI and Azure OpenAI |
 
 Rules:
@@ -461,7 +503,7 @@ closed.
 | `azure-openai` (deployments) | `azure_endpoint` `…/gateway/{id}` | `/openai/deployments/{deployment}/chat/completions`, `/openai/deployments/{deployment}/embeddings` |
 | `bedrock` | `endpoint_url` `…/gateway/{id}` | `/model/{model}/converse`, `converse-stream`, `invoke`, `invoke-with-response-stream` |
 | `openai-compatible` | `base_url` `…/gateway/{id}{base}` | `{base}/chat/completions` |
-| `gemini-developer` | Google GenAI paths under `…/gateway/{id}` | `/v1beta/models/{model}:{generateContent, streamGenerateContent, countTokens, embedContent, batchEmbedContents, batchGenerateContent, predictLongRunning}`; `/v1beta/cachedContents[/{id}]`; `/v1beta/interactions[/{id}[/cancel]]`; `/v1beta/batches/{id}[:cancel]`; `/v1beta/models/{model}/operations/{id}` |
+| `gemini-developer` | Google GenAI paths under `…/gateway/{id}` | `/v1beta/models/{model}:{generateContent, streamGenerateContent, countTokens, embedContent, batchEmbedContents, batchGenerateContent, predictLongRunning}`; `/v1beta/cachedContents[/{id}]`; `/v1beta/interactions[/{id}[/cancel]]`; `/v1beta/batches/{id}[:cancel]`; `/v1beta/models/{model}/operations/{id}`; `/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` (GET upgrade for `gemini.live.connect`) |
 
 ## Provider rejections
 

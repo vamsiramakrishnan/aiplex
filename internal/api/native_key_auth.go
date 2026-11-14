@@ -104,7 +104,7 @@ func nativeKeyRoute(r *http.Request) (model bool, kind nativeKeyKind, errWire st
 		switch {
 		case rest == "/v1/messages" || rest == "/v1/messages/count_tokens":
 			return true, nativeKeyAnthropic, WireAnthropic
-		case strings.HasPrefix(rest, "/v1beta/") || rest == geminiLivePath || genaiMethodSuffix.MatchString(rest):
+		case strings.HasPrefix(rest, "/v1beta/") || rest == geminiLivePath || rest == geminiDeveloperLivePath || genaiMethodSuffix.MatchString(rest):
 			return true, nativeKeyGenAI, WireGenAI
 		case strings.HasPrefix(rest, "/openai/"):
 			return true, nativeKeyAzure, WireOpenAIChat

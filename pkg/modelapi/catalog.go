@@ -80,6 +80,11 @@ func (s Surface) Validate() error {
 				// observe them. It keeps session (request-count) metering.
 				return fmt.Errorf("websocket.metering %q is not supported for %s (billed by session seconds); use %q", SessionMeteringToken, openAILiveOperation, SessionMeteringSession)
 			}
+			if o.ID == geminiLiveOperation {
+				// Allowance windows settle on snapshot deltas, which needs
+				// cumulative snapshots; the Developer API does not document them.
+				return fmt.Errorf("websocket.metering %q is not supported for %s (usage snapshots are not documented as cumulative); use %q", SessionMeteringToken, geminiLiveOperation, SessionMeteringSession)
+			}
 		}
 	}
 	if s.Provider != nil {

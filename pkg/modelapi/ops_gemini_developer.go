@@ -24,6 +24,23 @@ package modelapi
 //     GET /v1beta/interactions/{id}, POST /v1beta/interactions/{id}/cancel,
 //     DELETE /v1beta/interactions/{id}; the Api-Revision header pins the
 //     revision (https://aistudio.google.com/api-reference/interactions).
+//   - Live: a WebSocket at
+//     wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent
+//     (https://aistudio.google.com/api-reference/live/bidi-generate-content).
+//     The first client message is the setup; setup.model is models/{model}.
+//     The WebSocket guide shows the key as a ?key= query parameter, but the
+//     API reference lists x-goog-api-key as the authentication for the API,
+//     WebSocket base included (https://aistudio.google.com/api-reference,
+//     "Base URL and authentication"), and Google's GenAI SDK opens Live with
+//     the key in that header and no query. The relay sends the key only in
+//     the header: the upstream URL never carries a query (live.go).
+//     usageMetadata is "the total number of consumed tokens"
+//     (https://aistudio.google.com/docs/live-api/capabilities, Token count);
+//     whether snapshots are session-cumulative is not stated. The Vertex
+//     reading (cumulative) is applied for observation and a regressing
+//     snapshot is never summed (live.go), but the usage is advisory: the
+//     operation is request-count only and token metering is refused
+//     (Coverage, Surface.Validate).
 //
 // Not documented by the provider's reference: whether GET /interactions/{id} accepts a
 // stream/last_event_id resume query on the Developer API (documented for
@@ -40,6 +57,14 @@ import (
 )
 
 const geminiRef = "https://aistudio.google.com/api-reference/"
+
+// geminiLiveOperation is Gemini Live on the Developer API. It is served by the
+// Vertex Live relay (serveLive) with the surface credential instead of the
+// Google OAuth token.
+const geminiLiveOperation = "gemini.live.connect"
+
+// geminiLivePath is the Developer API Live WebSocket path (v1beta).
+const geminiLivePath = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 func geminiDeveloperOps() []utilityOp {
 	sseQuery := map[string]func(string) bool{"alt": queryEquals("sse")}
@@ -66,6 +91,9 @@ func geminiDeveloperOps() []utilityOp {
 		op("gemini.interactions.get", "GET", "/v1beta/interactions/{id}", HTTP, Read, "interaction", true, "interactions", utilitySpec{kind: utilNoUsage, noBody: true, asynchronous: true}),
 		op("gemini.interactions.cancel", "POST", "/v1beta/interactions/{id}/cancel", HTTP, Cancel, "interaction", true, "interactions", utilitySpec{kind: utilNoUsage, noBody: true, asynchronous: true}),
 		op("gemini.interactions.delete", "DELETE", "/v1beta/interactions/{id}", HTTP, Delete, "interaction", true, "interactions", utilitySpec{kind: utilNoUsage, noBody: true, asynchronous: true}),
+		// Live sessions: relayed by serveLive, never by the HTTP utility path
+		// (no body, query or header rules of this table apply to it).
+		op(geminiLiveOperation, "GET", geminiLivePath, WebSocket, Invoke, "live-session", true, "live/bidi-generate-content", utilitySpec{kind: utilStandard, cumulative: true}),
 	}
 }
 

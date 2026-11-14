@@ -324,7 +324,7 @@ export const USAGE_BOUND_TEXT: Record<UsageBound, string> = {
   partial: 'Partial: the provider also reported non-token usage (such as audio seconds) that this ledger cannot represent, so the token counters do not cover everything.',
 }
 /** Operations that are WebSocket sessions: metered as one request, with advisory usage. */
-export const SESSION_OPERATIONS: readonly string[] = ['live.connect', 'openai.v1.realtime', 'openai.v1.responses-websocket']
+export const SESSION_OPERATIONS: readonly string[] = ['live.connect', 'gemini.live.connect', 'openai.v1.live', 'openai.v1.realtime', 'openai.v1.responses-websocket']
 export const isSessionOperation = (operation: string | undefined) => !!operation && SESSION_OPERATIONS.includes(operation)
 /**
  * Whether a record is a WebSocket session. The server's `session` flag wins;

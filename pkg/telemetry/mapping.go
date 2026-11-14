@@ -45,7 +45,7 @@ func ModelOperationName(operationID string) string {
 		last = id[i+1:]
 	}
 	switch {
-	case strings.Contains(id, "realtime") || strings.HasPrefix(id, "live") || strings.HasSuffix(id, ".live"):
+	case strings.Contains(id, "realtime") || strings.HasPrefix(id, "live") || strings.HasSuffix(id, ".live") || strings.HasSuffix(id, ".live.connect"):
 		return OpRealtime
 	case strings.Contains(id, "responses-retrieve"):
 		return OpFetchResponse

@@ -201,6 +201,9 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 	case quotaProfileRealtime:
 		return binding.OperationID == "openai.v1.realtime"
 	case quotaProfileLiveAllowance:
+		// Vertex Live only. Developer API Live (gemini.live.connect) has no
+		// token profile: its usageMetadata snapshots are not documented as
+		// session-cumulative, so no hold may be settled from them.
 		return binding.Provider == "google" && binding.OperationID == "live.connect"
 	}
 	return binding.Profile == quotaProfileRequests

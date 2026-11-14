@@ -66,7 +66,7 @@ interrupted session leaves its open lease unsettled.
 | --- | --- | --- | --- |
 | anthropic | 9 | 1 | 3 |
 | azure-openai | 5 | 0 | 0 |
-| google | 18 | 4 | 2 |
+| google | 18 | 5 | 1 |
 | openai | 13 | 4 | 0 |
 | openai-compatible | 4 | 0 | 0 |
 
@@ -99,7 +99,7 @@ interrupted session leaves its open lease unsettled.
 | google | gemini-generateContent | json | exact | `gemini-generate-error-429.json`<br>`gemini-generate-grounded.json`<br>`gemini-generate-tooluse.json`<br>`gemini-generate.json` | observation exact; strict settlement fails closed for this fixture: toolUsePromptTokenCount is positive: Gemini tool-use prompt tokens are outside the gemini-text profile (fail closed) |
 | google | gemini-interactions | json | exact | `gemini-interactions.json` |  |
 | google | gemini-interactions | sse | exact | `gemini-interactions-interrupted.sse`<br>`gemini-interactions.sse` |  |
-| google | gemini-live | websocket | unsupported | `gemini-live-interrupted.ws.jsonl (format-checked)`<br>`gemini-live.ws.jsonl (format-checked)` | no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it (Live messages replayed through the Vertex Live relay) |
+| google | gemini-live | websocket | advisory | `gemini-live-interrupted.ws.jsonl`<br>`gemini-live.ws.jsonl` | WebSocket session: one request-count admission and one settlement per session (token-metered surfaces refused at save time). usageMetadata snapshots are read as session-cumulative, as Vertex documents; the Developer API reference does not say cumulative or per-turn (UNCONFIRMED): per-turn counts that never decrease would be under-recorded as the last one, so usage is advisory. A decreasing snapshot is never summed and labels the session ambiguous |
 | google | gemini-predictLongRunning | json | advisory | `gemini-veo-operation.json` | predictLongRunning and the operation poll are request-count exchanges; the done result reports no usage and no duration, so video_output_milliseconds stays unknown (billed per output second by the provider) |
 | google | gemini-streamGenerateContent | json-array | exact | `gemini-generate.stream.json` |  |
 | google | gemini-streamGenerateContent | sse | exact | `gemini-generate-interrupted.sse`<br>`gemini-generate.sse` |  |

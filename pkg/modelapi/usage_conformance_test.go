@@ -342,6 +342,8 @@ func usageRoutes() []fixtureRoute {
 		return r
 	}
 	const noDA = "no Gemini Developer API (generativelanguage.googleapis.com) surface; body format is shared with the Vertex operation and checked through it"
+	// Developer API Live: observed like Vertex Live, but request-count only.
+	const daLive = "WebSocket session: one request-count admission and one settlement per session (token-metered surfaces refused at save time). usageMetadata snapshots are read as session-cumulative, as Vertex documents; the Developer API reference does not say cumulative or per-turn (UNCONFIRMED): per-turn counts that never decrease would be under-recorded as the last one, so usage is advisory. A decreasing snapshot is never summed and labels the session ambiguous"
 	const cwRefuse = "positive cache writes are outside the output-inclusive token profile (fail closed)"
 	const toolRefuse = "server-tool quantities are outside the output-inclusive token profile (fail closed)"
 	const noCached = "openai-text requires a cached-input breakdown that this endpoint does not report (fail closed)"
@@ -419,8 +421,10 @@ func usageRoutes() []fixtureRoute {
 		formatOnly(exact("google", "gemini-interactions.json", "gemini-interactions", "json", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),
 		formatOnly(exact("google", "gemini-interactions-interrupted.sse", "gemini-interactions", "sse", callInteraction, convGemini, natGemini, false, strictNotApplicable, ""), statusUnsupported, noDA),
-		formatOnly(advisory("google", "gemini-live.ws.jsonl", "gemini-live", "websocket", callLive, convGemini, natGemini, true, ""), statusUnsupported, noDA+" (Live messages replayed through the Vertex Live relay)"),
-		formatOnly(advisory("google", "gemini-live-interrupted.ws.jsonl", "gemini-live", "websocket", callLive, convGemini, natGemini, false, ""), statusUnsupported, noDA+" (Live messages replayed through the Vertex Live relay)"),
+		// Developer API Live (gemini.live.connect): the Vertex Live relay and
+		// observer behind the surface's x-goog-api-key credential.
+		advisory("google", "gemini-live.ws.jsonl", "gemini-live", "websocket", callDALive, convGemini, natGemini, true, daLive),
+		advisory("google", "gemini-live-interrupted.ws.jsonl", "gemini-live", "websocket", callDALive, convGemini, natGemini, false, daLive),
 		exact("google", "vertex-generate.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-flex.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
 		exact("google", "vertex-generate-image.json", "vertex-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictSettles, ""),
