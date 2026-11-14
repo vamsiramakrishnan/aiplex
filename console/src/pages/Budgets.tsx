@@ -82,11 +82,23 @@ function thresholdsReached(s: BudgetStatus): string {
   return fullView(s) ? 'none' : 'unknown'
 }
 
+// The ledger's token counters overlap: total_tokens covers input and output, and
+// cache and reasoning counts can be subsets of those. They are shown side by
+// side, total first, and never added together.
+const TOKEN_COUNTER_LABELS: [string, string][] = [['total_tokens', 'total'], ['input_tokens', 'input'], ['output_tokens', 'output'], ['cache_read_tokens', 'cache read'], ['cache_write_tokens', 'cache write'], ['reasoning_tokens', 'reasoning']]
+
+function tokenCountersText(tokens: Record<string, number> | null | undefined): string {
+  if (!tokens || typeof tokens !== 'object') return 'tokens unknown'
+  const known = TOKEN_COUNTER_LABELS.map(([key]) => key)
+  const parts = TOKEN_COUNTER_LABELS.filter(([key]) => typeof tokens[key] === 'number').map(([key, label]) => `${label} ${tokens[key]}`)
+  for (const key of Object.keys(tokens).sort()) if (!known.includes(key) && typeof tokens[key] === 'number') parts.push(`${key} ${tokens[key]}`)
+  return parts.length ? `tokens: ${parts.join(', ')}` : 'tokens unknown'
+}
+
 function spenderText(p: NonNullable<BudgetStatus['top_spenders']>[number], unit: string | undefined, currency: string | undefined): string {
   const parts: string[] = []
   if (unit === 'tokens') {
-    const t = p.tokens && typeof p.tokens === 'object' ? Object.values(p.tokens).filter((v): v is number => typeof v === 'number') : []
-    parts.push(p.tokens && typeof p.tokens === 'object' ? `${t.reduce((a, b) => a + b, 0)} tokens` : 'tokens unknown')
+    parts.push(tokenCountersText(p.tokens))
   } else if (unit === 'cost') {
     const c = isList(p.cost) ? p.cost.find((x) => x && x.currency === currency) : undefined
     const amt = c ? [c.amount_decimal, c.amount].find((x) => typeof x === 'string' && x !== '') : undefined

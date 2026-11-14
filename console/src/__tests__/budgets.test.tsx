@@ -581,7 +581,7 @@ describe('review round 1', () => {
   it('5: a top spender is shown in the budget unit, with unknown distinct from 0', async () => {
     vi.mocked(api.listBudgets).mockResolvedValue([team, tokens, { id: 'req', revision: 1, spec: { id: 'req', limit: { unit: 'requests', amount: '9' }, window: { kind: 'tumbling', hours: 1 } } }])
     vi.mocked(api.getBudgetStatus).mockImplementation(async (id) => {
-      if (id === 'tok') return { id, unit: 'tokens', limit: '1000', spent: '5', reserved: '0', remaining: '995', thresholds: [50], top_spenders: [{ principal_id: 'u1', requests: 2, tokens: { input: 30, output: 12 } }, { principal_id: 'u2', requests: 1 }] }
+      if (id === 'tok') return { id, unit: 'tokens', limit: '1000', spent: '5', reserved: '0', remaining: '995', thresholds: [50], top_spenders: [{ principal_id: 'u1', requests: 2, tokens: { input_tokens: 100, output_tokens: 20, cache_read_tokens: 40, total_tokens: 120 } }, { principal_id: 'u2', requests: 1 }, { principal_id: 'u4', requests: 1, tokens: {} }] }
       if (id === 'req') return { id, unit: 'requests', limit: '9', spent: '2', reserved: '0', remaining: '7', thresholds: [50], top_spenders: [{ principal_id: 'u3', requests: 2 }] }
       return status({ top_spenders: [
         { principal_id: 'c1', requests: 1, cost: [{ currency: 'USD', basis: 'settled', amount: '3', amount_decimal: '' }], unknown_cost_records: 0 },
@@ -594,8 +594,12 @@ describe('review round 1', () => {
     expect(screen.getByText(/c2: 4.00 USD \(settled\), records of unknown cost: unknown/)).toBeInTheDocument()
     expect(screen.getByText(/c3: cost unknown, 2 records of unknown cost/)).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Show details of tok'))
-    expect(await screen.findByText(/u1: 42 tokens, 2 requests/)).toBeInTheDocument()
+    // The ledger's counters overlap (the total covers input and output; cache reads can be part of input): shown side by side, never summed.
+    const u1 = await screen.findByText(/u1: tokens: total 120, input 100, output 20, cache read 40, 2 requests/)
+    expect(u1).toBeInTheDocument()
+    expect(u1.textContent).not.toMatch(/280|240|160/)
     expect(screen.getByText(/u2: tokens unknown, 1 requests/)).toBeInTheDocument()
+    expect(screen.getByText(/u4: tokens unknown, 1 requests/)).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Show details of req'))
     expect(await screen.findByText(/u3: 2 requests/)).toBeInTheDocument()
   })

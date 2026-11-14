@@ -443,6 +443,18 @@ func (h *ConnectedHandler) budgetStatus(ctx context.Context, tenant string, tree
 	return st, nil
 }
 
+// spenderTokenRank orders token spenders. The ledger's token counters overlap
+// (total_tokens covers input and output; cache and reasoning counts can be
+// subsets of those), so they are never added together: the rank is the known
+// total, or input plus output where no total was recorded. It is an ordering
+// over ledger records, not the budget's own count.
+func spenderTokenRank(tokens map[string]int64) int64 {
+	if total := tokens[usageledger.CounterTotal]; total > 0 {
+		return total
+	}
+	return tokens[usageledger.CounterInput] + tokens[usageledger.CounterOutput]
+}
+
 // budgetSpenders ranks principals by their ledger usage under the budget in
 // its current window. The ledger is a separate record from the budget's
 // counters; see docs/budgets.md for how the two relate.
@@ -464,11 +476,7 @@ func (h *ConnectedHandler) budgetSpenders(ctx context.Context, tenant string, b 
 			}
 			return newBigRank("0", 0)
 		case budgets.UnitTokens:
-			var sum int64
-			for _, v := range g.Tokens {
-				sum += v
-			}
-			return newBigRank(fmt.Sprint(sum), 0)
+			return newBigRank(fmt.Sprint(spenderTokenRank(g.Tokens)), 0)
 		}
 		return newBigRank(fmt.Sprint(g.Requests), 0)
 	}
