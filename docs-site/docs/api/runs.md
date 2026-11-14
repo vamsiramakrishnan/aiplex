@@ -10,14 +10,14 @@ The runs API is the read side of the AIPlex and Tape integration. Tape records e
 
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
-| GET | `/api/v1/runs` | List projected runs, optionally filtered | Verified identity. Tenant filter as described under Tenant scope. |
-| GET | `/api/v1/runs/_health` | Report whether the run pipeline is receiving data | Verified identity |
-| GET | `/api/v1/runs/{run_id}` | Read one run summary | Verified identity |
-| GET | `/api/v1/runs/{run_id}/events` | Read the ordered event timeline of one run | Verified identity |
-| GET | `/api/v1/runs/{run_id}/effects` | Read the effect events of one run | Verified identity |
-| GET | `/api/v1/runs/{run_id}/obligations` | Read the obligation events of one run | Verified identity |
-| GET | `/api/v1/runs/{run_id}/budgets` | Read the budget events of one run | Verified identity |
-| GET | `/api/v1/runs/{run_id}/operator-audit` | Read the operator actions taken on one run | Verified identity |
+| GET | `/api/v1/runs` | List projected runs, optionally filtered | `admin` or `deployer` outside development mode. Tenant filter as described under Tenant scope. |
+| GET | `/api/v1/runs/_health` | Report whether the run pipeline is receiving data | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}` | Read one run summary | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/events` | Read the ordered event timeline of one run | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/effects` | Read the effect events of one run | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/obligations` | Read the obligation events of one run | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/budgets` | Read the budget events of one run | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/runs/{run_id}/operator-audit` | Read the operator actions taken on one run | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/runs/{run_id}/redrive` | Ask Tape to resume a run | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/runs/{run_id}/reconcile` | Ask Tape to reconcile a run | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/runs/{run_id}/cancel` | Ask Tape to cancel a run | `admin` or `deployer` outside development mode |
@@ -69,6 +69,7 @@ The run objects are described under [Run summary fields](#run-summary-fields).
 |---|---|---|
 | 200 | `{"runs": [...]}` | Runs returned |
 | 401 | `UNAUTHENTICATED` (AIPlex shape) | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` (AIPlex shape) | Tenant check enabled and no tenant claim or cross-tenant scope |
 | 500 | plain text | Store read failed |
 
@@ -118,6 +119,7 @@ Returns one run summary as a JSON object.
 | Status | Body | When |
 |---|---|---|
 | 200 | run summary | Run returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | plain text | No run with this identifier |
 | 500 | plain text | Store read failed |
 
@@ -143,6 +145,7 @@ Returns the ordered event timeline of one run as `{"events": [...]}`.
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"events": [...]}` | Events returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | plain text | Store read failed |
 
 ### Example
@@ -161,6 +164,7 @@ Returns the effect events of one run as `{"effects": [...]}`. The handler reads 
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"effects": [...]}` | Effects returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | plain text | Store read failed |
 
 ### Example
@@ -178,6 +182,7 @@ Returns the `obligation.created` events of one run as `{"obligations": [...]}`. 
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"obligations": [...]}` | Obligations returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | plain text | Store read failed |
 
 ### Example
@@ -195,6 +200,7 @@ Returns the `budget.charged` events of one run as `{"budgets": [...]}`. Like eff
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"budgets": [...]}` | Budget events returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | plain text | Store read failed |
 
 ### Example
@@ -233,6 +239,7 @@ Returns the operator actions recorded for one run as `{"audit": [...]}`. Each en
 | Status | Body | When |
 |---|---|---|
 | 200 | `{"audit": [...]}` | Rows returned |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | plain text | Store read failed |
 
 ### Example

@@ -8,8 +8,8 @@ A model surface is a saved connection from AIPlex to one model backend: a Google
 
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
-| GET | `/api/v1/llm/surfaces` | List the tenant's model surfaces | Verified identity and tenant |
-| GET | `/api/v1/llm/surfaces/{id}` | Read one surface | Verified identity and tenant |
+| GET | `/api/v1/llm/surfaces` | List the tenant's model surfaces | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
+| GET | `/api/v1/llm/surfaces/{id}` | Read one surface | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
 | PUT | `/api/v1/llm/surfaces/{id}` | Create or replace a surface | `admin` or `deployer` |
 | DELETE | `/api/v1/llm/surfaces/{id}` | Delete a surface. `If-Match` required. | `admin` or `deployer` |
 | GET | `/api/v1/llm/surfaces/{id}/capacity` | Last observed provider limits and capacity policy state | `admin` |
@@ -126,6 +126,7 @@ Returns a JSON array of resource envelopes: `tenant_id`, `kind` (`model-surface`
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
 
@@ -145,6 +146,7 @@ Returns one envelope with an `ETag` header holding the revision in quotes.
 |---|---|---|
 | 200 | none | Envelope returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No surface with this identifier |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -169,7 +171,7 @@ The save validates the surface and the connection together. The check resolves e
 | 400 | `INVALID_REVISION` | `If-Match` is not a revision number |
 | 400 | `INVALID_SPEC` | Body is not valid JSON for this resource, has unknown fields, is over 1 MiB, the `surface.id` does not match, the surface or connection fails validation, `auth` is used on a Google surface, `capacity_policy` is set on a Google surface, a provider credential does not match the provider's rules, or a network profile does not resolve. The `message` says which rule failed. |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision, or creation was sent while a live surface exists |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -220,7 +222,7 @@ Deletes a surface. `If-Match` is required and must carry the current revision. O
 |---|---|---|
 | 204 | none | Deleted |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No live surface with this identifier |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
@@ -258,6 +260,7 @@ The `limits` object has `provider`, `observed_at`, and optionally `http_status`,
 | 200 | none | Report returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks the `admin` role (refused by route policy, before the handler) |
 | 403 | `ADMIN_REQUIRED` | Caller lacks the `admin` role |
 | 404 | `NOT_FOUND` | No surface with this identifier in the tenant |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |

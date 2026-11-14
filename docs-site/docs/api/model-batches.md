@@ -58,6 +58,7 @@ An `open` batch keeps the quota exposure and the concurrency slot that it was ad
 | 400 | `INVALID_QUERY` | `state` is not `open` or `settled`, or `limit` is not an integer from 1 to 500 |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks the `admin` role (refused by route policy, before the handler) |
 | 403 | `ADMIN_REQUIRED` | The caller lacks the `admin` role |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
 

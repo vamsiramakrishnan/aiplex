@@ -45,7 +45,7 @@ Validation errors answer `400 INVALID_SPEC` with `details.field` naming the spec
 | 409 | `QUOTAPLEX_REQUIRED` | QuotaPlex is not enabled for the tenant |
 | 409 | `BUDGET_HAS_CHILDREN` | Delete refused while another budget names this one as `parent` |
 | 428 | `REVISION_REQUIRED` | Delete without `If-Match` |
-| 403 | `FORBIDDEN` | The caller lacks the role |
+| 403 | `ROLE_REQUIRED` | The caller lacks the role |
 
 ## GET /api/v1/budgets/{id}/status
 

@@ -10,9 +10,9 @@ The skills API covers SkillsPlex, the plane that publishes skill servers and rec
 
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
-| GET | `/api/v1/skills/servers` | List running skill server instances and the skills each one advertises | Verified identity |
+| GET | `/api/v1/skills/servers` | List running skill server instances and the skills each one advertises | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/skills/invocations` | Record a reported skill invocation | `admin` or `deployer` outside development mode |
-| GET | `/api/v1/skills/invocations` | List recorded skill invocations | Verified identity |
+| GET | `/api/v1/skills/invocations` | List recorded skill invocations | `admin` or `deployer` outside development mode |
 | GET | `/skills/{instanceId}/.well-known/skills.json` | Read the merged skills manifest of one skill server | Verified identity |
 
 The `/api/v1` routes are served by the `skillsplex` module, which is enabled by default. The manifest route sits outside `/api/v1`, and it is mounted only when the `skillsplex` module is enabled. All routes require a verified identity. Requests and responses are JSON. Errors use this shape:
@@ -54,6 +54,7 @@ When the instance carries a scope list, a skill appears in `skills` only when th
 |---|---|---|
 | 200 | none | Array returned. An empty array when no instance is running. |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | `STORE_ERROR` | Registry store failed |
 | 503 | `TEMPLATE_UNAVAILABLE` | A running instance has a template that cannot be read |
 
@@ -169,7 +170,7 @@ The `reported_by` and `reported_at` fields are set by the server. They are not a
 | 400 | `INVALID_ID` | `id` does not match the identifier pattern |
 | 400 | `TRACE_CONTEXT` | The `traceparent` header is invalid, disagrees with the body, or a trace or span identifier is invalid |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 409 | `ALREADY_EXISTS` | A record with this `id` already exists |
 | 500 | `STORE_ERROR` | Registry store failed |
 
@@ -236,6 +237,7 @@ Returns recorded skill invocations as a JSON array, filtered by the query parame
 | 200 | none | Array returned |
 | 400 | `INVALID_LIMIT` | `limit` is not an integer from 1 to 1000 |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | `STORE_ERROR` | Registry store failed |
 
 ### Example

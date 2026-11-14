@@ -10,15 +10,15 @@ The A2A connections API manages the agent runtimes that a tenant can call: Googl
 
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
-| GET | `/api/v1/a2a/connections` | List the tenant's agent connections | Verified identity and tenant |
-| GET | `/api/v1/a2a/connections/{id}` | Read one agent connection | Verified identity and tenant |
+| GET | `/api/v1/a2a/connections` | List the tenant's agent connections | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
+| GET | `/api/v1/a2a/connections/{id}` | Read one agent connection | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
 | PUT | `/api/v1/a2a/connections/{id}` | Create or replace an agent connection | `admin` or `deployer` outside development mode |
 | DELETE | `/api/v1/a2a/connections/{id}` | Delete an agent connection | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/a2a/connections/{id}/invoke` | Invoke a native agent through a connection | Verified identity, tenant and a per-operation grant `a2a:agent:{id}:{operation}` |
-| GET | `/api/v1/a2a/agents` | List Agent Cards of running A2APlex agent instances | Verified identity |
-| GET | `/api/v1/a2a/delegations` | List recent reported delegations | Verified identity |
-| GET | `/api/v1/a2a/delegations/{id}` | Read one reported delegation | Verified identity |
-| GET | `/api/v1/a2a/delegations/{id}/chain` | Read a delegation and its descendants | Verified identity |
+| GET | `/api/v1/a2a/agents` | List Agent Cards of running A2APlex agent instances | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/a2a/delegations` | List recent reported delegations | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/a2a/delegations/{id}` | Read one reported delegation | `admin` or `deployer` outside development mode |
+| GET | `/api/v1/a2a/delegations/{id}/chain` | Read a delegation and its descendants | `admin` or `deployer` outside development mode |
 
 The connection routes are mounted under `/api/v1/a2a` by the `a2aplex` module, which is enabled by default. The agent and delegation routes are part of the same module. All routes require a verified identity. Requests and responses are JSON, except the invoke route, which returns the upstream agent response. Errors use this shape:
 
@@ -93,6 +93,7 @@ Returns every agent connection of the tenant as a JSON array of resource envelop
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
 
@@ -112,6 +113,7 @@ Returns one resource envelope. The response carries an `ETag` header whose value
 |---|---|---|
 | 200 | none | Envelope returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No connection with this identifier in the tenant |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -136,7 +138,7 @@ The body is checked against the connection rules above. Validation also resolves
 | 400 | `INVALID_REVISION` | `If-Match` is not a revision number |
 | 400 | `INVALID_SPEC` | Body does not decode, has unknown fields, or fails a validation rule |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | Store reports the resource as missing |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision, or no `If-Match` was sent for an existing connection |
@@ -161,7 +163,7 @@ Deletes a connection. `If-Match` is required and must carry the current revision
 |---|---|---|
 | 204 | none | Connection deleted |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | Store reports the resource as missing |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
@@ -241,6 +243,7 @@ Returns the Agent Cards of A2APlex agent instances that are running. Instances t
 |---|---|---|
 | 200 | none | Array returned. An empty array when no instance is running. |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | `STORE_ERROR` | Registry store failed |
 | 503 | `TEMPLATE_UNAVAILABLE` | A running instance has a template that cannot be read |
 
@@ -309,6 +312,7 @@ The identity fields describe reported history. They are not authenticated proof 
 | 200 | none | Array returned |
 | 400 | `INVALID_LIMIT` | `limit` is not an integer from 1 to 1000 |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 500 | `STORE_ERROR` | Registry store failed |
 
 ### Example
@@ -328,6 +332,7 @@ Returns one delegation object as described above.
 |---|---|---|
 | 200 | none | Delegation returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `NOT_FOUND` | No delegation with this identifier |
 | 500 | `STORE_ERROR` | Registry store failed |
 
@@ -358,6 +363,7 @@ When the root has a `trace_id` and the registry supports trace lookup, the desce
 |---|---|---|
 | 200 | none | Chain returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 404 | `NOT_FOUND` | No delegation with this identifier |
 | 422 | `CHAIN_LIMIT` | The bounded scan found more than 10000 delegations |
 | 422 | `INVALID_CHAIN` | The graph contains a cycle, or it is deeper than 100 levels |

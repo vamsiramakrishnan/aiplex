@@ -107,7 +107,7 @@ The roll-up has the same meaning as the usage API summary groups. See the usage 
 | 200 | none | Page returned |
 | 400 | `INVALID_QUERY` | Unknown or repeated parameter, missing or unknown `kind`, bad `since`, bad `limit`, malformed `cursor` |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 503 | `OVERVIEW_UNAVAILABLE` | Tenant configuration could not be read |
 | 503 | `USAGE_LEDGER_UNAVAILABLE` | The ledger scan failed |
@@ -198,7 +198,7 @@ A `role-binding` reason is always conditional. Group membership is not stored, s
 | 200 | none | Detail returned |
 | 400 | `INVALID_QUERY` | Unknown or repeated parameter, bad `since`, or unknown `kind` |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | Empty id, or the subject is not known from any source in this tenant |
 | 503 | `OVERVIEW_UNAVAILABLE` | Tenant configuration could not be read |
@@ -256,7 +256,7 @@ Row fields:
 | 200 | none | Page returned |
 | 400 | `INVALID_QUERY` | Unknown or repeated parameter, bad `limit`, malformed `cursor` |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 503 | `OVERVIEW_UNAVAILABLE` | Saved access points could not be listed |
 
@@ -331,7 +331,7 @@ Each resource says whether it resolved in the tenant:
 | 200 | none | Detail returned |
 | 400 | `INVALID_QUERY` | Unknown or repeated parameter, bad `since` |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No access point with this identifier |
 | 409 | `ACCESS_POINT_INVALID` | The saved access point cannot be decoded, or the store read failed |

@@ -10,12 +10,12 @@ The network API describes how an agent's runtime reaches its network and how inf
 
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
-| GET | `/api/v1/network/profiles` | List network profiles of the tenant | Verified identity and tenant |
-| GET | `/api/v1/network/profiles/{id}` | Read one network profile | Verified identity and tenant |
+| GET | `/api/v1/network/profiles` | List network profiles of the tenant | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
+| GET | `/api/v1/network/profiles/{id}` | Read one network profile | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
 | PUT | `/api/v1/network/profiles/{id}` | Create or replace a network profile | `admin` or `deployer` outside development mode |
 | DELETE | `/api/v1/network/profiles/{id}` | Delete a network profile | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/network/profiles/{id}/plan` | Render the reviewed configuration for a network profile | `admin` or `deployer` outside development mode |
-| GET | `/api/v1/network/deployment-providers/{provider}/bindings` | List the approved bindings of a deployment provider | Verified identity and tenant |
+| GET | `/api/v1/network/deployment-providers/{provider}/bindings` | List the approved bindings of a deployment provider | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
 | POST | `/api/v1/network/deployment-providers/{provider}/bindings/{binding}/plan` | Prepare a deployment plan from the saved intent | `admin` or `deployer` and grant `aiplex:deployment:plan:{resource_id}` |
 | GET | `/api/v1/network/deployment-intents` | List deployment intents | `admin` or `deployer` outside development mode |
 | GET | `/api/v1/network/deployment-intents/{id}` | Read one deployment intent | `admin` or `deployer` outside development mode |
@@ -26,9 +26,9 @@ The network API describes how an agent's runtime reaches its network and how inf
 | GET | `/api/v1/network/plans/{id}` | Read one deployment plan | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/network/plans/{id}/approve` | Approve a deployment plan | `admin` or `deployer` and grant `aiplex:deployment:approve:{resource_id}` |
 | POST | `/api/v1/network/plans/{id}/execute` | Execute an approved deployment plan | `admin` or `deployer`, grant `aiplex:deployment:execute:{resource_id}`, and the original executor |
-| GET | `/api/v1/network/plans/{id}/receipt` | Read the receipt of a deployment plan | Verified identity and the original executor |
+| GET | `/api/v1/network/plans/{id}/receipt` | Read the receipt of a deployment plan | `admin` or `deployer` outside development mode; only the original executor |
 | POST | `/api/v1/network/plans/{id}/observe` | Observe the native state of an executed deployment | `admin` or `deployer` and grant `aiplex:deployment:observe:{resource_id}` |
-| GET | `/api/v1/network/plans/{id}/observation` | Read a stored observation | Verified identity and the original executor |
+| GET | `/api/v1/network/plans/{id}/observation` | Read a stored observation | `admin` or `deployer` outside development mode; only the original executor |
 
 The routes are mounted under `/api/v1` by the `networking` module, which is enabled by default. All routes require a verified identity. Outside development mode, the `/api/v1` group requires the `admin` or `deployer` role for every non-GET method. Development mode skips the role checks on the GET routes that name a role below.
 
@@ -92,6 +92,7 @@ List returns a JSON array of resource envelopes. Read returns one envelope with 
 |---|---|---|
 | 200 | none | Array or envelope returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
 | 404 | `NOT_FOUND` | Read of a profile that does not exist in the tenant |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -105,7 +106,7 @@ Creates a profile when no `If-Match` is sent. Replaces it when `If-Match` carrie
 | 200 | none | Profile stored. Body is the envelope with an `ETag` header. |
 | 400 | `INVALID_REVISION` | `If-Match` is not a revision number |
 | 400 | `INVALID_SPEC` | Body does not decode, has unknown fields, the identity does not match, or the kind rules fail |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
 
@@ -116,7 +117,7 @@ Creates a profile when no `If-Match` is sent. Replaces it when `If-Match` carrie
 | Status | Code | When |
 |---|---|---|
 | 204 | none | Profile deleted |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 404 | `NOT_FOUND` | No profile with this identifier |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
 | 428 | `REVISION_REQUIRED` | `If-Match` is missing or not a positive revision |
@@ -140,7 +141,7 @@ The response is a plan with these fields:
 |---|---|---|
 | 200 | none | Plan returned |
 | 400 | `INVALID_PLAN` | The saved profile cannot be rendered |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 404 | `NOT_FOUND` | No profile with this identifier |
 
 ## Deployment bindings
@@ -163,6 +164,7 @@ Returns the tenant's bindings of the provider as a JSON array, sorted by `id`.
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
 | 404 | `PROVIDER_NOT_FOUND` | The provider is not configured |
 

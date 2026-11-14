@@ -9,8 +9,8 @@ An MCP connection is a saved, managed connection from AIPlex to one upstream MCP
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
 | GET | `/api/v1/mcp/auth-types` | Credential type catalogue, tool policy fields and secret reference rules | Verified identity |
-| GET | `/api/v1/mcp/connections` | List the tenant's MCP connections | Verified identity and tenant |
-| GET | `/api/v1/mcp/connections/{id}` | Read one connection | Verified identity and tenant |
+| GET | `/api/v1/mcp/connections` | List the tenant's MCP connections | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
+| GET | `/api/v1/mcp/connections/{id}` | Read one connection | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
 | PUT | `/api/v1/mcp/connections/{id}` | Create or replace a connection | `admin` or `deployer` |
 | DELETE | `/api/v1/mcp/connections/{id}` | Delete a connection. `If-Match` required. | `admin` or `deployer` |
 | POST | `/api/v1/mcp/connections/{id}/registration` | Register the OAuth client with the upstream authorization server | `admin` or `deployer` |
@@ -159,6 +159,7 @@ Returns a JSON array of resource envelopes: `tenant_id`, `kind` (`tool-connectio
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
 
@@ -178,6 +179,7 @@ Returns one envelope with an `ETag` header holding the revision in quotes.
 |---|---|---|
 | 200 | none | Envelope returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No connection with this identifier |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -202,7 +204,7 @@ Validation runs on save. It checks the id and endpoint, the credential type and 
 | 400 | `INVALID_REVISION` | `If-Match` is not a revision number |
 | 400 | `INVALID_SPEC` | Body is not valid for this resource, has unknown fields, is over 1 MiB, the `id` does not match, the execution identity or endpoint does not match the connection, delegated OAuth lacks an issuer, a credential type does not fit the credential mode, `tools` is invalid, or a referenced record does not resolve. The `message` says which rule failed. |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision, or creation was sent while a live connection exists |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -226,7 +228,7 @@ Deletes a connection. `If-Match` is required and must carry the current revision
 |---|---|---|
 | 204 | none | Deleted |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No live connection with this identifier |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
@@ -303,7 +305,7 @@ The registration step reads the connection's current revision and fails with `40
 |---|---|---|
 | 200 | none | Registration stored. Body is the `oauth-registration` envelope. |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No connection with this identifier |
 | 409 | `CONNECTION_UNAVAILABLE` | The saved connection's references do not resolve |

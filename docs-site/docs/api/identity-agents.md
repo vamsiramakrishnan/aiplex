@@ -133,7 +133,7 @@ Returns a JSON array of binding views for the agent in the tenant.
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 500 | `RESOURCE_ERROR` | Binding store unavailable |
 
@@ -153,7 +153,7 @@ Returns one binding view with an `ETag` header holding the revision in quotes.
 |---|---|---|
 | 200 | none | Binding returned |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No such binding in this tenant |
 | 500 | `RESOURCE_ERROR` | Binding store unavailable |
@@ -190,7 +190,7 @@ A successful create returns `201 Created`. A successful replace returns `200 OK`
 | 400 | `INVALID_REVISION` | `If-Match` is not a revision number |
 | 400 | `INVALID_BINDING` | Body is not valid JSON for the request, has unknown fields, is over 64 KiB, has an invalid binding id, display name or agent id, or fails preset derivation. Also returned when the JWKS URL is rejected by the outbound endpoint policy. |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is not `admin` |
+| 403 | `ROLE_REQUIRED` | Role is not `admin` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `AGENT_NOT_FOUND` | The agent is not registered. Register it first. |
 | 404 | `NOT_FOUND` | Store reported the binding missing |
@@ -240,7 +240,7 @@ Deletes a binding. `If-Match` is required and must carry the current revision. O
 |---|---|---|
 | 204 | none | Deleted |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is not `admin` |
+| 403 | `ROLE_REQUIRED` | Role is not `admin` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No such binding |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
@@ -282,7 +282,7 @@ A step has `title`, `description`, and optionally `language` (`bash`, `yaml`, `j
 | 200 | none | Plan returned |
 | 400 | `INVALID_PLAN` | The binding cannot be rendered |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No such binding |
 | 500 | `RESOURCE_ERROR` | Store unavailable |
@@ -336,7 +336,7 @@ The response never contains the token, its claims or its signature. Claims are k
 | 200 | none | Evaluation completed. A failed token is still `200` with `valid` set to `false`. |
 | 400 | `INVALID_REQUEST` | Body is not valid for this request, `client_id` and `binding_id` are not supplied together, or the body is over 80 KiB |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | A pinned binding does not exist |
 | 500 | `RESOURCE_ERROR` | Store unavailable |

@@ -11,13 +11,13 @@ The clients API registers developer clients, such as coding CLIs and desktop app
 | Method | Path | Purpose | Authorization |
 |---|---|---|---|
 | GET | `/api/v1/clients/profiles` | List the built-in client profiles | Verified identity |
-| GET | `/api/v1/clients/registrations` | List the tenant's client registrations | Verified identity and tenant |
-| GET | `/api/v1/clients/registrations/{id}` | Read one registration | Verified identity and tenant |
+| GET | `/api/v1/clients/registrations` | List the tenant's client registrations | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
+| GET | `/api/v1/clients/registrations/{id}` | Read one registration | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
 | PUT | `/api/v1/clients/registrations/{id}` | Create or replace a registration | `admin` or `deployer` outside development mode |
 | DELETE | `/api/v1/clients/registrations/{id}` | Delete a registration | `admin` or `deployer` outside development mode |
 | POST | `/api/v1/clients/registrations/{id}/plan` | Render the configuration plan for a saved registration | `admin` or `deployer` outside development mode |
-| GET | `/api/v1/clients/destinations` | List the tenant's client destinations | Verified identity and tenant |
-| GET | `/api/v1/clients/destinations/{id}` | Read one client destination | Verified identity and tenant |
+| GET | `/api/v1/clients/destinations` | List the tenant's client destinations | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
+| GET | `/api/v1/clients/destinations/{id}` | Read one client destination | `admin` or `deployer` outside development mode; the tenant comes from the verified identity |
 | PUT | `/api/v1/clients/destinations/{id}` | Create or replace a client destination | `admin` or `deployer` outside development mode |
 | DELETE | `/api/v1/clients/destinations/{id}` | Delete a client destination | `admin` or `deployer` outside development mode |
 
@@ -101,6 +101,7 @@ Returns every client registration of the tenant as a JSON array of resource enve
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
 | 500 | `CLIENT_STORE_ERROR` | Registration store unavailable |
 | 503 | `TENANT_UNAVAILABLE` | The tenant resolver is not configured |
@@ -121,6 +122,7 @@ Returns one resource envelope. The response carries an `ETag` header whose value
 |---|---|---|
 | 200 | none | Envelope returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 403 | `ROLE_REQUIRED` | The caller is signed in but lacks `admin` or `deployer` role |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
 | 404 | `NOT_FOUND` | No registration with this identifier in the tenant |
 | 500 | `CLIENT_STORE_ERROR` | Registration store unavailable |
@@ -187,7 +189,7 @@ On create the response is `201 Created`. On replace it is `200 OK`. The body is 
 | 400 | `INVALID_REFERENCE` | `network_profile_ref` is not a network profile in the tenant |
 | 400 | `INVALID_REVISION` | `If-Match` is not a positive revision |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision, or no `If-Match` was sent for an existing registration |
 | 500 | `CLIENT_STORE_ERROR` | Registration store unavailable |
@@ -233,7 +235,7 @@ Deletes a registration. `If-Match` is required and must carry the current revisi
 |---|---|---|
 | 204 | none | Registration deleted |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
 | 404 | `NOT_FOUND` | No registration with this identifier in the tenant |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
@@ -277,7 +279,7 @@ Renders the configuration plan for a saved registration. The request has no body
 |---|---|---|
 | 200 | none | Plan returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks `admin` or `deployer` outside development mode |
+| 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
 | 404 | `NOT_FOUND` | No registration with this identifier in the tenant |
 | 409 | `CLIENT_PLAN_UNAVAILABLE` | A saved reference no longer resolves, or the registration cannot produce a plan |

@@ -129,7 +129,7 @@ Principal ids are the canonical id of the issuer, the principal pool and the sub
 |---|---|---|
 | 200 | none | Array returned. An empty tenant returns `[]`. |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 500 | `RESOURCE_ERROR` | Provider store unavailable |
 
@@ -149,7 +149,7 @@ Returns one provider view with an `ETag` header holding the revision in quotes.
 |---|---|---|
 | 200 | none | Provider returned |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No such provider in this tenant |
 | 500 | `RESOURCE_ERROR` | Provider store unavailable |
@@ -175,7 +175,7 @@ A new provider's `issuer` and `audience` pair may be used by only one provider i
 | 400 | `INVALID_REVISION` | `If-Match` is not a revision number |
 | 400 | `INVALID_PROVIDER` | Body is invalid JSON for this request, has unknown fields or is over 64 KiB. Also returned for an invalid id, an unknown preset, invalid inputs, an invalid directory block, or a JWKS URL refused by the outbound endpoint policy. |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is not `admin` |
+| 403 | `ROLE_REQUIRED` | Role is not `admin` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 409 | `SOURCE_ALREADY_CONFIGURED` | Another provider in the tenant already trusts this issuer and audience. The message names it. |
 | 409 | `IDENTITY_OVERLAPS_AGENT_BINDING` | An agent identity binding trusts the same issuer and audience. Send `acknowledge_overlap` to save anyway. `details.conflict` names the binding. |
@@ -201,7 +201,7 @@ Deletes a provider. `If-Match` is required and must carry the current revision. 
 |---|---|---|
 | 204 | none | Deleted |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is not `admin` |
+| 403 | `ROLE_REQUIRED` | Role is not `admin` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No such provider |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
@@ -249,7 +249,7 @@ A step has `title`, `description`, and optionally `language` and `content`. The 
 | 200 | none | Plan returned |
 | 400 | `INVALID_PLAN` | The provider cannot be rendered |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No such provider |
 | 500 | `RESOURCE_ERROR` | Store unavailable |
@@ -305,7 +305,7 @@ The response never contains the token, its claims or its signature.
 | 200 | none | Evaluation completed. A failed token is still `200` with `valid` set to `false`. |
 | 400 | `INVALID_REQUEST` | Body is not valid for this request, or is over 80 KiB. The message does not echo the body. |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is neither `admin` nor `deployer` |
+| 403 | `ROLE_REQUIRED` | Role is neither `admin` nor `deployer` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | A pinned `provider_id` does not exist |
 | 500 | `RESOURCE_ERROR` | Store unavailable |
@@ -340,7 +340,7 @@ The body is `{"subject": "<verified subject claim value>"}`. The subject is the 
 | 200 | none | Invalidated |
 | 400 | `INVALID_REQUEST` | Body is invalid, or `subject` is missing or not valid text |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Role is not `admin` |
+| 403 | `ROLE_REQUIRED` | Role is not `admin` |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No such provider |
 | 409 | `DIRECTORY_NOT_CONFIGURED` | The provider has no `directory` block, so there is no cached membership |

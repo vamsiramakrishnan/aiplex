@@ -152,7 +152,7 @@ The specification is validated before it is stored. Validation resolves every re
 | 400 | `INVALID_REVISION` | `If-Match` is not a revision number |
 | 400 | `INVALID_SPEC` | Body fails strict decoding or any validation rule, including unresolved references. The `message` says which rule failed. |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks the `admin` role. The message is `access point changes require the admin role`. |
+| 403 | `ROLE_REQUIRED` | Caller lacks the `admin` role. The message is `access point changes require the admin role`. |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
 | 500 | `RESOURCE_ERROR` | Resource store unavailable |
@@ -176,7 +176,7 @@ Deletes an access point. `If-Match` is required and must carry the current revis
 |---|---|---|
 | 204 | none | Deleted |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks the `admin` role |
+| 403 | `ROLE_REQUIRED` | Caller lacks the `admin` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No live access point with this identifier |
 | 409 | `REVISION_CONFLICT` | `If-Match` does not match the current revision |
@@ -217,7 +217,7 @@ The request has no body.
 | 200 | none | Plan rendered. A failed validation is still `200` with `validation.valid` set to `false`. |
 | 400 | `NO_QOS` | The access point has no `qos` block |
 | 401 | `UNAUTHENTICATED` | No verified role context outside development mode |
-| 403 | `FORBIDDEN` | Caller lacks the `admin` role |
+| 403 | `ROLE_REQUIRED` | Caller lacks the `admin` role |
 | 403 | `TENANT_REQUIRED` | No verified tenant binding |
 | 404 | `NOT_FOUND` | No access point with this identifier |
 | 409 | `ACCESS_POINT_INVALID` | The saved access point fails validation |
