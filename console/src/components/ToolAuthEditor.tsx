@@ -23,7 +23,7 @@ interface Props {
 
 const inputClass = 'w-full border rounded px-3 py-2 text-sm'
 
-function FieldInput({ field, value, error, onChange, pattern, namespace }: {
+export function FieldInput({ field, value, error, onChange, pattern, namespace }: {
   field: ToolAuthField
   value: string
   error?: string
@@ -106,7 +106,7 @@ export default function ToolAuthEditor({ record, catalog, onSaved, onReload, onC
       onSaved(await putToolConnection(record.id, next, record.revision))
     } catch (e) {
       if (isRevisionConflict(e)) setConflict(true)
-      else setFailure(e instanceof Error ? e.message : 'Could not save the connection')
+      else setFailure(e instanceof Error ? `${e.message}${(e as { code?: string }).code ? ` (code ${(e as { code?: string }).code})` : ''}` : 'Could not save the connection')
     } finally {
       setSaving(false)
     }

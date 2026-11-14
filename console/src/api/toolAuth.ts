@@ -37,7 +37,7 @@ export interface ToolPolicy {
   allow?: string[]
   deny?: string[]
   read_only?: boolean
-  // Policy rules are edited with the CLI (aiplex mcp connections rules). The
+  // Policy rules are edited in the rules panel (toolConnections.ts). The auth
   // editor keeps them as they are when it saves the other members.
   rules?: Record<string, unknown>[]
 }
@@ -144,22 +144,94 @@ export function buildAuthBlock(type: ToolAuthType, values: AuthValues): ToolAuth
   return auth
 }
 
-function secretPattern(catalog: ToolAuthCatalog): RegExp | null {
-  try { return new RegExp(catalog.secret_references.pattern) } catch { return null }
+// The reference shape the CLI checks (aiplex.ValidToolSecretRef): a name, never a
+// value. The catalog's pattern is authoritative; this is its fallback.
+const REFERENCE_SHAPE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/
+export const NOT_A_REFERENCE = 'Enter the name of a stored secret (a reference), not the secret value'
+
+function secretPattern(catalog: ToolAuthCatalog): RegExp {
+  // An empty, missing or invalid catalog pattern falls back to the built-in shape: it never matches everything.
+  const source = catalog.secret_references?.pattern
+  if (typeof source !== 'string' || source.trim() === '') return REFERENCE_SHAPE
+  try { return new RegExp(source) } catch { return REFERENCE_SHAPE }
+}
+
+// The one list of credential shapes, used for every reference field and for every
+// key and string value of a pasted specification. Only high-precision shapes: a
+// known token prefix or a JWT. A long name that fits the reference pattern is a
+// legitimate reference and is never refused for its length or its characters.
+const TOKEN_SHAPES: RegExp[] = [
+  /^(sk|pk|rk)-[A-Za-z0-9_-]{20,}$/i,
+  /^(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/,
+  /^github_pat_/,
+  /^xox[abprs]-/,
+  /^AKIA[0-9A-Z]{12,}/,
+  /^AIza[0-9A-Za-z_-]{20,}/,
+  /^ya29\./,
+  /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+/,
+]
+
+// The word "bearer", white space, then at least 16 characters of the token alphabet, anywhere in the text.
+const BEARER_TOKEN = /\bbearer\s+[A-Za-z0-9._~+/-]{16,}=*/i
+
+/** True when text, or any word of it, has the shape of a known credential. */
+export function looksLikeSecretValue(text: string): boolean {
+  const t = text.trim()
+  if (BEARER_TOKEN.test(t)) return true
+  if (TOKEN_SHAPES.some((re) => re.test(t))) return true
+  return t.split(/[\s"'=,;:]+/).some((w) => w !== '' && TOKEN_SHAPES.some((re) => re.test(w)))
+}
+
+export const LOOKS_LIKE_CREDENTIAL = 'This has the shape of a credential, not a reference name. Enter the name of a stored secret, not the secret value.'
+
+/** Undefined when value is acceptable as a secret reference; otherwise the reason it is refused. Nothing is sent before this passes. */
+export function checkSecretReference(catalog: ToolAuthCatalog, value: string): string | undefined {
+  const v = value.trim()
+  if (looksLikeSecretValue(v)) return LOOKS_LIKE_CREDENTIAL
+  if (!secretPattern(catalog).test(v)) return NOT_A_REFERENCE
+  return undefined
+}
+
+const URL_SECRET_KEY = /^(.*[-_])?(token|key|apikey|secret|password|passwd|sig|signature|auth|authorization|credential|credentials)$/i
+
+/** An http(s) URL with no credentials in it. Credentials are secret references in the auth settings, never part of the URL. */
+export function validateServerUrl(text: string): string | undefined {
+  const raw = text.trim()
+  if (!raw) return 'Required'
+  let u: URL
+  try { u = new URL(raw) } catch { return 'Not a URL' }
+  if ((u.protocol !== 'https:' && u.protocol !== 'http:') || !u.hostname) return 'Must be an http or https URL'
+  if (u.username || u.password) return 'A URL with a user name or password is refused: credentials are secret references in the auth settings'
+  for (const key of u.searchParams.keys()) {
+    if (URL_SECRET_KEY.test(key) || looksLikeSecretValue(key)) return 'A query parameter looks like a credential. Credentials are secret references in the auth settings, never part of the URL'
+  }
+  for (const value of u.searchParams.values()) {
+    if (looksLikeSecretValue(value)) return 'A query value has the shape of a credential. Credentials are secret references, never part of the URL'
+  }
+  return undefined
+}
+
+/** A catalog field that holds a URL: by name, or because the value is written as an http(s) URL. */
+export function isUrlField(name: string, value: string): boolean {
+  return /(^|_)(url|uri|endpoint)$/.test(name) || /^https?:\/\//i.test(value.trim())
 }
 
 // Returns field name -> message. Server-side validation remains authoritative.
 export function validateAuthValues(catalog: ToolAuthCatalog, type: ToolAuthType, values: AuthValues): Record<string, string> {
   const errors: Record<string, string> = {}
-  const pattern = secretPattern(catalog)
   for (const field of type.fields) {
     const raw = (values[field.name] ?? '').trim()
     if (!raw) {
       if (field.required) errors[field.name] = 'Required'
       continue
     }
-    if (field.secret_reference && pattern && !pattern.test(raw)) {
-      errors[field.name] = 'Enter the name of a stored secret (a reference), not the secret value'
+    if (field.secret_reference) {
+      const refusal = checkSecretReference(catalog, raw)
+      if (refusal) errors[field.name] = refusal
+    }
+    if (!field.secret_reference && isUrlField(field.name, raw)) {
+      const refusal = validateServerUrl(raw)
+      if (refusal) errors[field.name] = refusal
     }
     if (field.enum && !field.enum.includes(raw)) errors[field.name] = `Must be one of: ${field.enum.join(', ')}`
   }
@@ -187,6 +259,11 @@ export function applySelection(spec: ToolConnectionSpec, catalog: ToolAuthCatalo
     const type = catalog.types.find((t) => t.type === selection.authType)
     if (!type) throw new Error(`Unknown auth type ${selection.authType}`)
     next.auth = buildAuthBlock(type, selection.values)
+    // Members of the stored auth block this client does not know are kept while the type stays the same.
+    if (spec.auth?.type === type.type) {
+      const known = new Set(['type', ...type.fields.map((f) => f.name)])
+      for (const [k, v] of Object.entries(spec.auth)) if (!known.has(k)) next.auth[k] = v
+    }
     if (next.execution) {
       next.execution = {
         ...next.execution,
@@ -195,15 +272,30 @@ export function applySelection(spec: ToolConnectionSpec, catalog: ToolAuthCatalo
       }
     }
   }
-  const policy: ToolPolicy = {}
+  // Start from the stored block so members this client does not know (and the rules) survive the edit.
+  const policy: ToolPolicy = { ...((spec.tools as ToolPolicy | null | undefined) ?? {}) }
+  delete policy.allow
+  delete policy.deny
+  delete policy.read_only
   const allow = splitList(selection.allow, /[\n,]+/)
   const deny = splitList(selection.deny, /[\n,]+/)
   if (allow.length) policy.allow = allow
   if (deny.length) policy.deny = deny
   if (selection.readOnly) policy.read_only = true
-  const rules = (spec.tools as ToolPolicy | undefined)?.rules
-  if (rules?.length) policy.rules = rules
+  if (!policy.rules?.length) delete policy.rules
   if (Object.keys(policy).length) next.tools = policy
   else delete next.tools
   return next
+}
+
+/** A fixed message for text that is not JSON, with line and column when the parser reports a position. It never quotes the input. */
+export function notValidJson(text: string): string {
+  try { JSON.parse(text); return 'Not valid JSON' } catch (e) {
+    const m = /position (\d+)/.exec(e instanceof Error ? e.message : '')
+    if (!m) return 'Not valid JSON'
+    const upTo = text.slice(0, Number(m[1]))
+    const line = upTo.split('\n').length
+    const col = upTo.length - upTo.lastIndexOf('\n')
+    return `Not valid JSON (line ${line}, column ${col})`
+  }
 }

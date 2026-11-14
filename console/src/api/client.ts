@@ -1,9 +1,51 @@
 const BASE = '/api/v1'
 const TOKEN_KEY = 'aiplex_token'
 
+
+const MAX_ERROR_TEXT = 300
+
+/**
+ * The message, code and details of a non-2xx answer. A JSON body keeps its
+ * `message` and `code`; without a `message`, a JSON-RPC `error.message` and
+ * `error.code` stand in. A body that is not JSON is the status text, unless the
+ * caller opted in with `plainTextErrors` (for routes known to answer a refusal in
+ * plain text, such as the tool gateway's invoke route): then it is one trimmed
+ * line of at most 300 characters, shown as text. It is never read by default,
+ * because an error or proxy page may echo the request.
+ */
+async function readErrorBody(res: Response, plainText: boolean): Promise<{ message?: string; code?: string; details?: unknown }> {
+  let raw: string | undefined
+  if (typeof res.text === 'function') raw = await res.text().catch(() => undefined)
+  let body: unknown
+  let parsed = false
+  if (raw !== undefined) {
+    try { body = JSON.parse(raw); parsed = true } catch { /* not JSON */ }
+  } else {
+    try { body = await res.json(); parsed = true } catch { /* not JSON */ }
+  }
+  if (!parsed) {
+    if (!plainText) return { message: res.statusText || undefined }
+    const line = (raw ?? '').replace(/\s+/g, ' ').trim()
+    const text = line.length > MAX_ERROR_TEXT ? `${line.slice(0, MAX_ERROR_TEXT - 1)}…` : line
+    return { message: text || res.statusText || undefined }
+  }
+  const err = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as { message?: unknown; code?: unknown; details?: unknown; error?: unknown }
+  const text = (v: unknown): string | undefined => (typeof v === 'string' || typeof v === 'number' ? String(v) : undefined)
+  const topCode = typeof err.code === 'string' ? err.code : undefined
+  if (text(err.message) !== undefined) return { message: text(err.message), code: topCode, details: err.details }
+  // A JSON-RPC envelope: error is an object with message and code, or a bare string.
+  const rpc = err.error && typeof err.error === 'object' && !Array.isArray(err.error) ? err.error as { message?: unknown; code?: unknown } : undefined
+  const rpcMessage = typeof err.error === 'string' ? err.error : text(rpc?.message)
+  if (rpcMessage !== undefined) return { message: rpcMessage, code: topCode ?? text(rpc?.code), details: err.details }
+  return { message: res.statusText || undefined, code: topCode, details: err.details }
+}
+
 // Shared transport for API and authentication endpoints. Credentials stay in
 // headers; callers get consistent non-2xx handling.
-export async function authenticatedRequest<T>(path: string, init?: RequestInit, decode?: (response: Response) => Promise<T>): Promise<T> {
+export type RequestOptions = RequestInit & { plainTextErrors?: boolean }
+
+export async function authenticatedRequest<T>(path: string, options?: RequestOptions, decode?: (response: Response) => Promise<T>): Promise<T> {
+  const { plainTextErrors, ...init } = options ?? {}
   const token = (() => {
     try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
   })()
@@ -21,9 +63,9 @@ export async function authenticatedRequest<T>(path: string, init?: RequestInit, 
     headers,
   })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }))
+    const err = await readErrorBody(res, plainTextErrors === true)
     if (res.status === 401) window.dispatchEvent(new CustomEvent('aiplex:session-invalid', { detail: { token } }))
-    throw Object.assign(new Error(err.message ?? `HTTP ${res.status}`), { status: res.status, code: typeof err.code === 'string' ? err.code : undefined, details: err.details })
+    throw Object.assign(new Error(err.message ?? `HTTP ${res.status}`), { status: res.status, code: err.code, details: err.details })
   }
   if (res.status === 204) return undefined as T
   return decode ? decode(res) : res.json()
