@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -172,7 +173,7 @@ func getDelegationCmd() *cobra.Command {
 			if chain {
 				ch, err := c.GetDelegationChain(ctx, args[0])
 				if err != nil {
-					return fmt.Errorf("get chain: %w", err)
+					return a2aErr("get chain", err)
 				}
 				if output == "json" {
 					printJSON(ch)
@@ -184,7 +185,7 @@ func getDelegationCmd() *cobra.Command {
 
 			d, err := c.GetDelegation(ctx, args[0])
 			if err != nil {
-				return fmt.Errorf("get delegation: %w", err)
+				return a2aErr("get delegation", err)
 			}
 
 			if output == "json" {
@@ -192,22 +193,7 @@ func getDelegationCmd() *cobra.Command {
 				return nil
 			}
 
-			fmt.Printf("Delegation: %s\n", d.ID)
-			fmt.Printf("  Caller:  %s\n", d.CallerAgentID)
-			fmt.Printf("  Callee:  %s\n", d.CalleeAgentID)
-			fmt.Printf("  Task:    %s\n", d.TaskType)
-			fmt.Printf("  Status:  %s\n", d.Status)
-			fmt.Printf("  User:    %s\n", d.UserID)
-			fmt.Printf("  Started: %s\n", d.StartedAt.Format("2006-01-02 15:04:05"))
-			if d.CompletedAt != nil {
-				fmt.Printf("  Ended:   %s\n", d.CompletedAt.Format("2006-01-02 15:04:05"))
-			}
-			if d.DurationMs > 0 {
-				fmt.Printf("  Duration: %dms\n", d.DurationMs)
-			}
-			if d.Error != "" {
-				fmt.Printf("  Error:   %s\n", d.Error)
-			}
+			writeDelegation(os.Stdout, d)
 
 			return nil
 		},
@@ -218,13 +204,5 @@ func getDelegationCmd() *cobra.Command {
 }
 
 func printDelegationChain(ch *aiplex.DelegationChain, depth int) {
-	indent := strings.Repeat("  ", depth)
-	root := ch.RootDelegation
-	fmt.Printf("%s%s → %s [%s] (%s)\n", indent, root.CallerAgentID, root.CalleeAgentID, root.TaskType, root.Status)
-	for _, child := range ch.Children {
-		fmt.Printf("%s  └─ %s → %s [%s] (%s)\n", indent, child.CallerAgentID, child.CalleeAgentID, child.TaskType, child.Status)
-	}
-	if ch.TotalDurationMs > 0 {
-		fmt.Printf("%sTotal: %dms (depth: %d)\n", indent, ch.TotalDurationMs, ch.Depth)
-	}
+	writeDelegationChain(os.Stdout, ch, depth)
 }

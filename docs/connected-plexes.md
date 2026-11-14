@@ -128,6 +128,50 @@ immutable secret versions prevent cross-host client/secret confusion. Owner-boun
 feed managed execution through the optional runtime. See
 [MCP runtime authorization](mcp-runtime-authorization.md).
 
+## Invoking agents and reading delegations from the CLI
+
+Create an agent connection with the generic resource command (the spec carries
+references, never credentials), then use the guided commands:
+
+```bash
+aiplex resources apply agent-connection bedrock -f connection.yaml
+aiplex a2a connections list
+aiplex a2a connections get bedrock
+aiplex a2a invoke bedrock --operation invoke --session s-1 --payload '{"input":"hello"}'
+aiplex a2a invoke bedrock --operation invoke --payload-file request.json -o json
+aiplex a2a connections delete bedrock --yes
+
+aiplex a2a delegations list --agent research-agent --limit 20
+aiplex a2a delegations get d-1
+aiplex a2a delegations chain d-1
+aiplex a2a delegations update d-1 --status failed --error 'upstream timeout'
+```
+
+`invoke` requires `--operation` (the provider's: `invoke` for Google and
+AgentCore runtimes, `agent-responses` for Foundry, `start-conversation` and
+others for Copilot Studio) and the grant `a2a:agent:<connection>:<operation>`.
+The reply is the provider's own bytes, written to stdout as they arrive, so a
+streamed reply appears incrementally; `-o json|yaml` waits for the whole reply
+(up to 32 MiB) and prints `{status, content_type, request_id, body}`. The
+payload (at most 1 MiB, valid JSON) is sent as given and is not logged or
+repeated in errors. The Go SDK has `InvokeAgent`, which returns the unbuffered
+body and is not bound by the client's HTTP timeout, and
+`ListDelegationsWithOptions` (agent and limit filters).
+
+`delegations update` replaces the record's error text, so a record that already
+has one is refused (exit 2) until you pass `--error` or `--clear-error`. A
+completed or failed record is final (exit 5). A delegation is reported history:
+it is not proof that a call was authorized or that the reporter is who it
+says. The `aiplex list delegations` and `aiplex get delegation` commands still
+work and show the same fields.
+
+Limits: `aiplex a2a invoke` has been tested against local HTTP servers and the
+real API for refusals only. No connected cloud agent (Google, AWS, Foundry,
+Copilot Studio) is reachable locally, and creating an agent connection needs a
+configured native identity and an HTTPS cloud origin, so a successful invoke was
+not exercised end to end. The CLI does not create connections itself; use
+`resources apply`.
+
 ## Native networking and Anvil fallback
 
 `POST .../network/profiles/{id}/plan` renders validated executable native artifacts

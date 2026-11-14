@@ -151,6 +151,11 @@ func explain(cmd *cobra.Command, args []string, err error) *cliError {
 	}
 
 	var apiErr *aiplex.Error
+	var inputErr *aiplex.InputError
+	if errors.As(err, &inputErr) {
+		// The SDK refused before sending (docs/cli.md: invalid input is exit 2).
+		return &cliError{msg: strings.TrimSuffix(msg, inputErr.Error()) + inputErr.Message, code: exitUsage, err: err}
+	}
 	if !errors.As(err, &apiErr) {
 		return &cliError{msg: msg, code: exitError, err: err}
 	}

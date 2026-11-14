@@ -629,22 +629,37 @@ func (c *Client) ListDelegations(ctx context.Context) ([]Delegation, error) {
 
 // GetDelegation returns a single delegation.
 func (c *Client) GetDelegation(ctx context.Context, id string) (*Delegation, error) {
+	path, err := delegationPath(id)
+	if err != nil {
+		return nil, err
+	}
 	var d Delegation
-	err := c.do(ctx, "GET", "/api/v1/a2a/delegations/"+url.PathEscape(id), nil, &d)
+	err = c.do(ctx, "GET", path, nil, &d)
 	return &d, err
 }
 
 // UpdateDelegation updates the status of a delegation.
 func (c *Client) UpdateDelegation(ctx context.Context, id string, req *UpdateDelegationRequest) (*Delegation, error) {
+	path, err := delegationPath(id)
+	if err != nil {
+		return nil, err
+	}
+	if err = req.Validate(); err != nil {
+		return nil, err
+	}
 	var d Delegation
-	err := c.do(ctx, "PATCH", "/api/v1/a2a/delegations/"+url.PathEscape(id), req, &d)
+	err = c.do(ctx, "PATCH", path, req, &d)
 	return &d, err
 }
 
 // GetDelegationChain returns the full call chain for a delegation.
 func (c *Client) GetDelegationChain(ctx context.Context, id string) (*DelegationChain, error) {
+	path, err := delegationPath(id)
+	if err != nil {
+		return nil, err
+	}
 	var chain DelegationChain
-	err := c.do(ctx, "GET", "/api/v1/a2a/delegations/"+url.PathEscape(id)+"/chain", nil, &chain)
+	err = c.do(ctx, "GET", path+"/chain", nil, &chain)
 	return &chain, err
 }
 
