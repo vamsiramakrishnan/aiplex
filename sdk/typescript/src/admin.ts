@@ -102,6 +102,8 @@ export interface BudgetSpec {
   /** deny (default) or allow_and_flag. */
   on_unknown_cost?: string;
   thresholds?: number[];
+  /** Cost budgets only: also count priced managed tool calls. Absent means the server default (not counted). */
+  include_tool_calls?: boolean;
 }
 
 /** A stored budget with the revision to pass to {@link AiplexClient.putBudget} and `deleteBudget`. */

@@ -143,6 +143,16 @@ def test_budget_roundtrip_keeps_unknown_fields() -> None:
     assert b.to_wire() == wire
 
 
+def test_budget_include_tool_calls_is_absent_or_explicit() -> None:
+    # Absent stays None (not False); an explicit value round-trips.
+    assert Budget.from_wire(BUDGET_SPEC).include_tool_calls is None
+    on = Budget.from_wire({**BUDGET_SPEC, "include_tool_calls": True})
+    assert on.include_tool_calls is True and on.to_wire()["include_tool_calls"] is True
+    off = Budget.from_wire({**BUDGET_SPEC, "include_tool_calls": False})
+    assert off.include_tool_calls is False
+    assert "include_tool_calls" not in Budget.from_wire(BUDGET_SPEC).to_wire()
+
+
 def test_delete_budget(fake_api: FakeAPI, client: Client) -> None:
     fake_api.route("DELETE", "/api/v1/budgets/team", status=204)
     assert client.delete_budget("team", 3) is None

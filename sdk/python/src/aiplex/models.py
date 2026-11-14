@@ -1754,6 +1754,9 @@ class Budget(_WireModel):
     #: ``deny`` (server default) or ``allow_and_flag``.
     on_unknown_cost: str | None = None
     thresholds: list[int] = field(default_factory=list)
+    #: Cost budgets only: also count priced managed tool calls. ``None`` when
+    #: the server did not send it (the server default is not to count them).
+    include_tool_calls: bool | None = None
     raw: dict[str, Any] = _raw_field()
     _FIELDS = {
         "id": ("id", "str"),
@@ -1764,6 +1767,7 @@ class Budget(_WireModel):
         "members": ("members", BudgetMembers),
         "on_unknown_cost": ("on_unknown_cost", "str"),
         "thresholds": ("thresholds", "ints"),
+        "include_tool_calls": ("include_tool_calls", "bool"),
     }
 
 
