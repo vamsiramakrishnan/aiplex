@@ -440,6 +440,13 @@ func (h *OverviewHandler) profileSnippets(ctx context.Context, tenant string, pr
 		}
 	}
 	sort.Strings(allowed)
+	if !strings.HasPrefix(profile.ID, "antigravity") {
+		// Only Antigravity renders allowed_models (into the client's model list).
+		// For the other profiles it would be checked against nothing here, since
+		// the resolver below declares no model ids; the access point itself
+		// refuses any model outside its list.
+		allowed = nil
+	}
 	envName := overviewTokenEnv
 	registration := clientplex.Registration{
 		ID: "access-point-connect", ProfileID: profile.ID, Mode: "gateway", Protocol: protocol,

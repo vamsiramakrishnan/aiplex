@@ -50,7 +50,7 @@ Returns the built-in client profiles as a JSON array, sorted by `id`. This route
 | `protocols` | array of string | Native protocols the profile supports |
 | `sources` | array of string | Documentation references for the profile |
 
-The built-in profiles are `antigravity`, `antigravity-acp`, `codex`, `claude-code` and `claude-desktop`.
+The built-in profiles are `antigravity`, `antigravity-acp`, `codex`, `claude-code`, `claude-desktop` and `gemini-cli`.
 
 ### Status codes and errors
 
@@ -148,7 +148,7 @@ Before storing, the handler checks the body in this order:
 1. The body decodes into the registration fields below, with no unknown fields.
 2. The body's `id` matches the path, when present.
 3. A `network_profile_ref`, when set, names a network profile in the tenant.
-4. The registration produces a plan. This validates the profile, mode, protocol, auth mode and, for gateway modes, the destination reference, which must resolve in the tenant.
+4. The registration produces a plan. This validates the profile, mode, protocol, auth mode, the fields that are refused for that profile and mode (see [Fields that have no effect, and fields that are refused](#fields-that-have-no-effect-and-fields-that-are-refused) below) and, for gateway modes, the destination reference, which must resolve in the tenant.
 5. The `If-Match` header parses as a positive revision, when present.
 
 ### Registration fields
@@ -162,18 +162,37 @@ Before storing, the handler checks the body in this order:
 | `principal_binding` | string | Required. Up to 1024 characters. |
 | `network_profile_ref` | string | Optional network profile identifier, resolved in the tenant |
 | `destination_ref` | string | Gateway destination identifier. Required outside `direct` mode and rejected in `direct` mode. |
-| `project_id` | string | Google Cloud project for `direct` mode |
+| `project_id` | string | Google Cloud project for `direct` mode, and for the `vertex-anthropic` gateway protocol |
 | `location` | string | Google Cloud location for `direct` mode |
 | `model_id` | string | Optional model identifier, up to 256 characters |
-| `allowed_models` | array of string | Optional. Up to 100 unique identifiers, each up to 256 characters. |
+| `allowed_models` | array of string | Optional. Up to 100 unique identifiers, each up to 256 characters. Checked against the destination's declared model ids when the registration is saved or planned. **Not enforced by the client configuration:** the destination's own model list decides what is served. Refused in `direct` mode. |
 | `auth_mode` | string | `adc` for direct mode, or `workforce` for the Antigravity profiles in direct mode. `gateway-key`, `token-helper` or `oidc` for gateway modes. |
-| `credential_env` | string | Environment variable name for a gateway key. Matches `^[A-Z][A-Z0-9_]{0,127}$`. |
+| `credential_env` | string | Environment variable name where the launcher holds the gateway credential. Matches `^[A-Z][A-Z0-9_]{0,127}$`. For Codex it is the key variable. For Claude Code and Gemini CLI, which read one fixed variable (`ANTHROPIC_AUTH_TOKEN`, `GEMINI_API_KEY`), a different name makes the plan bind `credential_ref` to this variable and add a `workstation shell` artifact that copies it into the client's own. |
 | `credential_ref` | string | Opaque credential reference. The value is never returned. |
 | `credential_file` | string | Absolute path, supported only for the Codex direct profile |
-| `token_helper` | object | Token helper settings for `token-helper` auth. Fields: `command` (absolute path), `args` (up to 32 strings), `timeout_ms` (0 to 30000), `refresh_interval_ms`. |
+| `token_helper` | object | Token helper settings for `token-helper` auth. Fields: `command` (absolute path), `args` (up to 32 strings), `timeout_ms` (0 to 30000), `refresh_interval_ms`. Supported for Codex and Claude Code (Messages protocol; no timing fields, no `credential_ref`). Refused for Gemini CLI, which has no credential helper setting. |
 | `gateway_server` | object | Gateway server settings. Valid only in `claude-apps-gateway` mode. Its fields are validated by the gateway server spec and are not listed here. |
-| `managed` | boolean | Optional flag. Stored as sent. |
-| `platform` | string | Optional. `linux`, `darwin` or `windows`. |
+| `managed` | boolean | Optional. Moves the settings fragment to the client's managed (MDM) target for Claude Code and Antigravity. Accepted without effect, and without a warning, for Claude Desktop and Antigravity ACP, whose plan is already the managed configuration. Refused (`400`, and `409` on a plan) for Codex, Gemini CLI and Antigravity in direct mode, which have no managed configuration that the plan renders. |
+
+`platform` is not a registration field. It was validated and never read, and it was removed. A body that carries it is refused with `400 INVALID_REGISTRATION` and the message "platform is no longer a registration field and must be removed from the document"; every other unknown member keeps the decoder's generic message.
+
+### Fields that have no effect, and fields that are refused
+
+One rule applies to every profile, Antigravity included:
+
+- A field the plan for the chosen profile, mode and auth mode uses is accepted.
+- A field that promises control over the client, where the plan would not deliver it and nothing else enforces it, is **refused**: `400 INVALID_REGISTRATION` on a write, and `409 CLIENT_PLAN_UNAVAILABLE` for a stored registration. The message names every refused field and what to remove. These are `allowed_models` in direct mode (the client calls Google Cloud itself, so no gateway restricts its models) and `managed` for Codex, Gemini CLI and Antigravity in direct mode.
+- Any other field with no effect in that profile and mode is **accepted**, and the plan carries one warning for it that names the field, for example `Registration field project_id has no effect for profile codex in gateway mode...`. Examples: `project_id` and `location` on a gateway registration that is not Vertex, `credential_env` and `credential_ref` in direct mode, and `model_id`, `credential_env`, `credential_ref`, `project_id` and `location` in the native `claude-apps-gateway` mode.
+- `allowed_models` in a gateway mode is accepted. The plan warns that it is not enforced by the client configuration: it is only checked against the destination's declared model ids, and the destination's own model list decides what is served. An Aiplex access point answers `404 MODEL_NOT_FOUND` for a model outside its list, and a model surface refuses one outside its allowlist. Antigravity renders the list into the client's model list, so it is used there and carries no such warning.
+- The `gemini-cli` profile and the Claude Code `token-helper` are new, so no stored registration can carry their unused fields. Those stay strict: `project_id`, `location` and `managed` for Gemini CLI, and `credential_env` and `credential_ref` for the Claude Code helper are refused.
+
+#### Upgrade note
+
+Registrations stored before this change are not rewritten, and every one of them still reads (`GET`, list). What changes is the plan:
+
+- It gains a warning for each field that has no effect. Nothing needs to be done.
+- A stored registration that carries `allowed_models` in direct mode, or `managed` on a profile with no managed configuration, no longer produces a plan: `POST .../plan` returns `409 CLIENT_PLAN_UNAVAILABLE` and a `PUT` that keeps the field returns `400`, each naming the field. Remove the field (or move the registration to a gateway mode and enforce the list at the destination) and `PUT` the document with the current `If-Match` revision.
+- A document read back from the API that still holds `platform` must have that member deleted before it is written again.
 
 ### Response
 
@@ -185,7 +204,7 @@ On create the response is `201 Created`. On replace it is `200 OK`. The body is 
 |---|---|---|
 | 200 | none | Registration replaced. Body is the envelope. |
 | 201 | none | Registration created. Body is the envelope. |
-| 400 | `INVALID_REGISTRATION` | Body does not decode, has unknown fields, `id` differs from the path, or the profile, mode, protocol, auth or destination rules fail, or the destination does not resolve |
+| 400 | `INVALID_REGISTRATION` | Body does not decode, has unknown fields (for `platform`, a message that it is no longer a field and must be removed), `id` differs from the path, or the profile, mode, protocol, auth or destination rules fail (including a refused field, named in the message), or the destination does not resolve |
 | 400 | `INVALID_REFERENCE` | `network_profile_ref` is not a network profile in the tenant |
 | 400 | `INVALID_REVISION` | `If-Match` is not a positive revision |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
@@ -267,10 +286,10 @@ Renders the configuration plan for a saved registration. The request has no body
 | `commands` | array of array of string | Omitted when empty. Commands the operator reviews. |
 | `version_requirements` | array of string | Omitted when empty |
 | `credential_bindings` | array of object | Omitted when empty. Each has `reference` and `environment`. The credential value is never included. |
-| `artifacts` | array of object | Configuration fragments. Each has `target`, `format`, `merge_strategy` and `content`. |
+| `artifacts` | array of object | Configuration fragments. Each has `target`, `format`, `merge_strategy` and `content`. A `workstation shell` artifact holds the line that copies the launcher's credential variable into the one the client reads. |
 | `services` | array of object | Endpoints the client calls. Each has `host`, `purpose` and `required`. |
 | `preserve_headers` | array of string | Omitted when empty |
-| `warnings` | array of string | Advisory messages |
+| `warnings` | array of string | Advisory messages, including one per registration field that has no effect in this profile and mode |
 | `sources` | array of string | Documentation references for the profile |
 
 ### Status codes and errors
@@ -282,7 +301,7 @@ Renders the configuration plan for a saved registration. The request has no body
 | 403 | `ROLE_REQUIRED` | Caller lacks `admin` or `deployer` outside development mode |
 | 403 | `TENANT_REQUIRED` | No trusted tenant binding |
 | 404 | `NOT_FOUND` | No registration with this identifier in the tenant |
-| 409 | `CLIENT_PLAN_UNAVAILABLE` | A saved reference no longer resolves, or the registration cannot produce a plan |
+| 409 | `CLIENT_PLAN_UNAVAILABLE` | A saved reference no longer resolves, or the registration cannot produce a plan, including a stored registration that carries a now-refused field (named in the message) |
 | 500 | `CLIENT_STORE_ERROR` | Stored registration cannot be read or decoded |
 | 503 | `TENANT_UNAVAILABLE` | The tenant resolver is not configured |
 

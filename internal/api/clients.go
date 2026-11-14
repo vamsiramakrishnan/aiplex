@@ -172,6 +172,9 @@ func clientReadJSON(r *http.Request, v any) error {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, (1<<20)+1))
 	decoder.DisallowUnknownFields()
 	if e := decoder.Decode(v); e != nil {
+		if strings.Contains(e.Error(), `unknown field "platform"`) {
+			return fmt.Errorf(`platform is no longer a registration field and must be removed from the document; it never changed a plan`)
+		}
 		return e
 	}
 	if e := decoder.Decode(new(any)); e != io.EOF {

@@ -69,7 +69,7 @@ func TestAntigravityACPCannotUseChatProtocol(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if len(p.PreserveHeaders) != 2 || p.CredentialBindings[0].Environment != "AGY_LLM_GATEWAY_API_KEY" {
+	if len(p.PreserveHeaders) != 2 || p.CredentialBindings[0].Environment != "AIPLEX_TOKEN" || p.Artifacts[len(p.Artifacts)-1].Content != "export AGY_LLM_GATEWAY_API_KEY=\"$AIPLEX_TOKEN\"\n" {
 		t.Fatal(p)
 	}
 	if !strings.Contains(strings.Join(p.Warnings, " "), "PAYG") {

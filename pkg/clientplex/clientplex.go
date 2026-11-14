@@ -38,6 +38,7 @@ var builtin = []Profile{
 	{"antigravity-acp", "Antigravity ACP", "acp", []string{"direct", "gateway"}, []string{GenAI}, []string{"https://docs.cloud.google.com/gemini/enterprise/docs/ai-developer-tools/deploy-enterprise-gateway"}},
 	{"codex", "Codex", "cli", []string{"direct", "gateway"}, []string{Responses}, []string{"https://learn.chatgpt.com/docs/config-file/config-advanced", "https://learn.chatgpt.com/docs/enterprise/connect-to-a-gateway"}},
 	{"claude-code", "Claude Code", "cli", []string{"direct", "gateway", "claude-apps-gateway"}, []string{Messages, VertexAnthropic, ClaudeApps}, []string{"https://code.claude.com/docs/en/google-vertex-ai", "https://code.claude.com/docs/en/llm-gateway-connect", "https://code.claude.com/docs/en/claude-apps-gateway"}},
+	{"gemini-cli", "Gemini CLI", "cli", []string{"gateway"}, []string{GenAI}, []string{"https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/configuration.md"}},
 	{"claude-desktop", "Claude Desktop", "desktop", []string{"claude-apps-gateway"}, []string{ClaudeApps}, []string{"https://code.claude.com/docs/en/claude-apps-gateway"}},
 }
 
@@ -70,7 +71,6 @@ type Registration struct {
 	CredentialFile    string             `json:"credential_file,omitempty"`
 	TokenHelper       *TokenHelper       `json:"token_helper,omitempty"`
 	Managed           bool               `json:"managed,omitempty"`
-	Platform          string             `json:"platform,omitempty"`
 }
 
 type Destination struct {
@@ -140,16 +140,25 @@ func (r Registration) validateProfile(p Profile) error {
 		if !idPattern.MatchString(r.DestinationRef) {
 			return fmt.Errorf("gateway destination reference required")
 		}
+		if r.ProfileID == "gemini-cli" {
+			switch r.AuthMode {
+			case "gateway-key":
+			case "token-helper":
+				return fmt.Errorf("Gemini CLI has no credential helper setting, so auth_mode token-helper is not available for gemini-cli")
+			default:
+				return fmt.Errorf("Gemini CLI supports auth_mode gateway-key only, not %q", r.AuthMode)
+			}
+		}
 		switch r.AuthMode {
 		case "gateway-key", "token-helper", "oidc":
 		default:
-			return fmt.Errorf("unsupported gateway authentication mode")
+			return fmt.Errorf("unsupported gateway auth_mode %q", r.AuthMode)
 		}
 		if r.Mode == "claude-apps-gateway" && r.AuthMode != "oidc" {
 			return fmt.Errorf("Claude apps gateway requires browser OIDC sign-in")
 		}
 		if r.Mode == "gateway" && r.AuthMode == "oidc" {
-			return fmt.Errorf("generic gateway OIDC needs an explicit supported auth adapter")
+			return fmt.Errorf("generic gateway auth_mode oidc needs an explicit supported auth adapter")
 		}
 		if strings.HasPrefix(r.ProfileID, "antigravity") && r.AuthMode != "gateway-key" {
 			return fmt.Errorf("Antigravity gateway mode requires its gateway-issued key")
@@ -157,9 +166,14 @@ func (r Registration) validateProfile(p Profile) error {
 		if r.AuthMode == "gateway-key" && (!envPattern.MatchString(r.CredentialEnv) || r.CredentialRef == "") {
 			return fmt.Errorf("gateway key needs credential_env and an opaque credential_ref")
 		}
-		if r.AuthMode == "token-helper" && (r.ProfileID != "codex" || r.CredentialRef == "" || r.TokenHelper == nil) {
-			return fmt.Errorf("token-helper currently requires Codex and an opaque credential reference")
+		if r.AuthMode == "token-helper" {
+			if e := r.validateTokenHelperClient(); e != nil {
+				return e
+			}
 		}
+	}
+	if e := r.fieldEffects().refusal(); e != nil {
+		return e
 	}
 	if r.TokenHelper != nil {
 		if r.AuthMode != "token-helper" || !strings.HasPrefix(r.TokenHelper.Command, "/") || strings.ContainsAny(r.TokenHelper.Command, "\x00\r\n") || r.TokenHelper.TimeoutMS < 0 || r.TokenHelper.TimeoutMS > 30000 || r.TokenHelper.RefreshIntervalMS < 0 {
@@ -182,9 +196,6 @@ func (r Registration) validateProfile(p Profile) error {
 			return e
 		}
 	}
-	if r.Platform != "" && !slices.Contains([]string{"linux", "darwin", "windows"}, r.Platform) {
-		return fmt.Errorf("unsupported platform")
-	}
 	if r.CredentialFile != "" && (r.ProfileID != "codex" || r.Mode != "direct" || !strings.HasPrefix(r.CredentialFile, "/") || strings.ContainsAny(r.CredentialFile, "\x00\r\n")) {
 		return fmt.Errorf("credential_file is supported only as an absolute Codex ADC path")
 	}
@@ -202,6 +213,38 @@ func (r Registration) validateProfile(p Profile) error {
 		return fmt.Errorf("invalid model identifier")
 	}
 
+	return nil
+}
+
+// validateTokenHelperClient checks that the profile can run a credential helper
+// and that every helper field is one the profile renders.
+func (r Registration) validateTokenHelperClient() error {
+	switch r.ProfileID {
+	case "codex":
+		if r.CredentialRef == "" || r.TokenHelper == nil {
+			return fmt.Errorf("token-helper for Codex needs token_helper and an opaque credential reference")
+		}
+	case "claude-code":
+		// apiKeyHelper is one command line: it has no timeout or refresh
+		// setting here, and the helper (not a reference) holds the credential,
+		// so a field the plan could not carry is refused instead of ignored.
+		if r.TokenHelper == nil {
+			return fmt.Errorf("token-helper for Claude Code needs token_helper")
+		}
+		if r.Protocol != Messages {
+			return fmt.Errorf("Claude Code runs apiKeyHelper only for the Anthropic Messages protocol")
+		}
+		if r.CredentialRef != "" {
+			return fmt.Errorf("token-helper for Claude Code takes no credential_ref: the helper supplies the credential")
+		}
+		if r.TokenHelper.TimeoutMS != 0 || r.TokenHelper.RefreshIntervalMS != 0 {
+			return fmt.Errorf("Claude Code's apiKeyHelper has no timeout_ms or refresh_interval_ms setting; leave them unset")
+		}
+	case "gemini-cli":
+		return fmt.Errorf("Gemini CLI has no credential helper setting, so token-helper is not available for gemini-cli")
+	default:
+		return fmt.Errorf("token-helper is supported for Codex and Claude Code only")
+	}
 	return nil
 }
 
@@ -302,6 +345,7 @@ func buildPlan(ctx context.Context, tenant string, r Registration, resolver Dest
 	if e := renderer(&p, r, d); e != nil {
 		return Plan{}, e
 	}
+	p.Warnings = append(p.Warnings, r.fieldEffects().warnings(r)...)
 
 	if r.GatewayServer != nil {
 		if strings.TrimSuffix(r.GatewayServer.PublicURL, "/") != strings.TrimSuffix(d.Endpoint, "/") {
@@ -323,6 +367,7 @@ func buildPlan(ctx context.Context, tenant string, r Registration, resolver Dest
 	}
 	return p, nil
 }
+
 // destinationEndpoint is secureEndpoint, except that a plain-HTTP loopback
 // gateway (127.0.0.1, localhost or ::1) is accepted so a local development
 // stack can render client configuration. Nothing leaves the machine over it.

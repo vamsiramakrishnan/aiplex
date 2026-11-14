@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/vamsiramakrishnan/aiplex/internal/harness/fragment"
 )
 
 // The diff AIPlex shows before writing, and when undoing, is computed over
@@ -126,11 +128,12 @@ func scrubString(v string) string {
 // key was sensitive.
 func redactTree(key string, v any, inherit bool) any {
 	switch t := v.(type) {
-	case *object:
+	case *fragment.Object:
 		class := keyClass(key)
-		out := newObject()
-		for _, k := range t.keys {
-			out.set(k, redactTree(k, t.vals[k], inherit || class == 2))
+		out := fragment.NewObject()
+		for _, k := range t.Keys() {
+			child, _ := t.Get(k)
+			out.Set(k, redactTree(k, child, inherit || class == 2))
 		}
 		return out
 	case []any:
@@ -157,11 +160,11 @@ func redactTree(key string, v any, inherit bool) any {
 
 // redactJSON renders a parsed JSON document redacted, in canonical form.
 func redactJSON(data []byte) (string, bool) {
-	o, err := parseObject(data)
+	o, err := fragment.ParseObject(data)
 	if err != nil {
 		return "", false
 	}
-	return string(redactTree("", o, false).(*object).marshal()), true
+	return string(redactTree("", o, false).(*fragment.Object).Marshal()), true
 }
 
 // collectSecrets gathers every string in a parsed TOML tree that rule 1 or 2

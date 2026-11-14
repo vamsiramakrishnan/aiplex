@@ -3,6 +3,8 @@ package clientplex
 import (
 	"fmt"
 	"strings"
+
+	"github.com/vamsiramakrishnan/aiplex/internal/harness/fragment"
 )
 
 func renderCodex(p *Plan, r Registration, d Destination) {
@@ -35,7 +37,7 @@ func renderCodex(p *Plan, r Registration, d Destination) {
 				timeout = 5000
 			}
 			fmt.Fprintf(&b, "timeout_ms = %d\nrefresh_interval_ms = %d\n", timeout, refresh)
-			p.Warnings = append(p.Warnings, "Configured token helper must print only the short-lived bearer token. Aiplex did not execute it or inspect credentials.")
+			p.Warnings = append(p.Warnings, "Configured token helper must print only the short-lived bearer token. Aiplex did not execute it or inspect credentials.", fmt.Sprintf("Registration field credential_ref (%q) names the credential the helper is expected to obtain; the reference is not resolved here.", r.CredentialRef))
 		}
 		p.Warnings = append(p.Warnings, "Codex requires Responses-compatible semantics; a Chat Completions endpoint alone is insufficient.")
 	}
@@ -68,7 +70,11 @@ func renderAntigravity(p *Plan, r Registration, d Destination) {
 		target = "Antigravity admin_settings.json (MDM)"
 	}
 	addJSON(p, target, map[string]any{"gateway": gateway, "models": map[string]any{"defaultModelId": r.ModelID, "list": modelList(r)}})
-	p.CredentialBindings = append(p.CredentialBindings, CredentialBinding{r.CredentialRef, "AGY_LLM_GATEWAY_API_KEY"})
+	bindEnv, line := credentialTarget(r, "AGY_LLM_GATEWAY_API_KEY")
+	p.CredentialBindings = append(p.CredentialBindings, CredentialBinding{r.CredentialRef, bindEnv})
+	if line != "" {
+		p.Artifacts = append(p.Artifacts, Artifact{"workstation shell", "shell", "reviewed-fragment", line})
+	}
 	p.PreserveHeaders = []string{"User-Agent", "X-Goog-Api-Client"}
 	p.Warnings = append(p.Warnings, "Antigravity gateway mode uses centralized service-account PAYG billing; included seat subscription quotas do not apply.", "Gateway must preserve attribution headers, optionally inject trusted X-Goog-User-Project, flush SSE, and explicitly acknowledge POST /v1beta:* telemetry.", "Antigravity web does not support enterprise gateway routing; ACP supports only the genai protocol.", "Client-provided cost-center headers are attribution hints, not trusted user/group identity.")
 }
@@ -82,6 +88,10 @@ func renderClaudeCode(p *Plan, r Registration, d Destination) {
 		}
 		p.Warnings = append(p.Warnings, "Claude apps gateway sign-in requires a human browser device flow; unattended CI must use provider authentication directly.", "Gateway-native managed settings require the deployed Claude apps gateway protocol and supported client version, not a generic Messages proxy.")
 		return
+	}
+	target := "~/.claude/settings.json"
+	if r.Managed {
+		target = "Claude Code managed-settings.json (MDM)"
 	}
 	env := map[string]string{}
 	if r.Mode == "direct" {
@@ -103,20 +113,80 @@ func renderClaudeCode(p *Plan, r Registration, d Destination) {
 			}
 			env["ANTHROPIC_VERTEX_PROJECT_ID"] = project
 			env["CLOUD_ML_REGION"] = location
-		} else {
-			env["ANTHROPIC_BASE_URL"] = d.Endpoint
 		}
-		p.CredentialBindings = append(p.CredentialBindings, CredentialBinding{r.CredentialRef, "ANTHROPIC_AUTH_TOKEN"})
-		p.Warnings = append(p.Warnings, "Resolve credential_ref at the workstation or trusted launcher; the returned token is not stored in this plan.")
+		if r.Protocol == Messages {
+			// The same fragment `aiplex connect --write` renders for Claude Code.
+			helper := ""
+			if r.AuthMode == "token-helper" {
+				helper = fragment.ShellCommand(append([]string{r.TokenHelper.Command}, r.TokenHelper.Args...))
+				p.Warnings = append(p.Warnings, "Claude Code runs the apiKeyHelper command for the gateway credential; it must print only the short-lived token. Aiplex did not execute it or inspect credentials. An ANTHROPIC_AUTH_TOKEN set in the workstation environment takes precedence over apiKeyHelper.")
+			} else {
+				bindClaudeToken(p, r)
+			}
+			p.Artifacts = append(p.Artifacts, Artifact{target, "json", "reviewed-fragment", string(fragment.ClaudeCodeSettings(d.Endpoint, r.ModelID, helper))})
+			addClaudeCopyLine(p, r)
+			p.PreserveHeaders = []string{"anthropic-beta", "anthropic-version"}
+			p.Warnings = append(p.Warnings, "Forward unknown provider-native fields and streaming events unchanged; preserve final message_delta/message_stop events and upstream error headers.")
+			return
+		}
+		bindClaudeToken(p, r)
 	}
 	if r.ModelID != "" {
 		env["ANTHROPIC_MODEL"] = r.ModelID
 	}
-	addJSON(p, "~/.claude/settings.json", map[string]any{"env": env})
+	addJSON(p, target, map[string]any{"env": env})
+	addClaudeCopyLine(p, r)
 	p.PreserveHeaders = []string{"anthropic-beta", "anthropic-version"}
 	p.Warnings = append(p.Warnings, "Forward unknown provider-native fields and streaming events unchanged; preserve final message_delta/message_stop events and upstream error headers.")
 }
 func renderClaudeDesktop(p *Plan, r Registration, d Destination) {
 	addJSON(p, "Claude Desktop managed configuration (MDM)", map[string]any{"bootstrapUrl": strings.TrimSuffix(d.Endpoint, "/") + "/user/bootstrap"})
 	p.Warnings = append(p.Warnings, "The Claude apps gateway must opt this user/group policy into desktop and provide /user/bootstrap; generic ANTHROPIC_BASE_URL does not configure Claude Desktop.", "CLI and Desktop sign in separately; deploy parentSettingsBehavior=merge on embedded Claude Code hosts to apply gateway egress policy.")
+}
+func renderGeminiCLI(p *Plan, r Registration, d Destination) {
+	// The same settings fragment `aiplex connect --write` renders; the base URL
+	// and key have no settings-file key, so they are environment variables.
+	p.Artifacts = append(p.Artifacts, Artifact{"~/.gemini/settings.json", "json", "reviewed-fragment", string(fragment.GeminiCLISettings(r.ModelID))})
+	p.Artifacts = append(p.Artifacts, Artifact{"workstation environment", "environment", "reviewed-fragment", fragment.GeminiBaseURLEnv + "=" + d.Endpoint + "\n"})
+	bindEnv, line := credentialTarget(r, fragment.GeminiKeyEnv)
+	p.CredentialBindings = append(p.CredentialBindings, CredentialBinding{r.CredentialRef, bindEnv})
+	if line != "" {
+		p.Artifacts = append(p.Artifacts, Artifact{"workstation shell", "shell", "reviewed-fragment", line})
+	}
+	p.Warnings = append(p.Warnings, "Gemini CLI sends "+fragment.GeminiKeyEnv+" as the API key; resolve credential_ref at the workstation or trusted launcher, the token is not stored in this plan.", "Gemini CLI has no credential helper setting, so a short-lived token must be placed in "+fragment.GeminiKeyEnv+" by the launcher.", "The settings fragment is the one `aiplex connect --write` writes, which was observed with Gemini CLI 0.67 (2026-11-10); this plan itself has not been validated against a running client.")
+}
+
+// claudeTokenEnv is the variable Claude Code reads for a bearer credential.
+const claudeTokenEnv = fragment.ClaudeCodeTokenEnv
+
+// credentialTarget is the variable credential_ref is bound to. Claude Code and
+// Gemini CLI each read one fixed variable; when credential_env names another
+// one (where the launcher holds the credential), the reference is bound to that
+// variable and the plan adds the shell line copying it into the client's own,
+// so a launcher that follows the binding and then runs the line ends up with
+// the credential, never an empty value.
+func credentialTarget(r Registration, clientEnv string) (bindEnv, copyLine string) {
+	if r.CredentialEnv != "" && r.CredentialEnv != clientEnv {
+		return r.CredentialEnv, fragment.CopyLine(clientEnv, r.CredentialEnv) + "\n"
+	}
+	return clientEnv, ""
+}
+
+// bindClaudeToken binds credential_ref to the variable Claude Code reads (or to
+// credential_env, see credentialTarget).
+func bindClaudeToken(p *Plan, r Registration) {
+	env, _ := credentialTarget(r, claudeTokenEnv)
+	p.CredentialBindings = append(p.CredentialBindings, CredentialBinding{r.CredentialRef, env})
+	p.Warnings = append(p.Warnings, "Resolve credential_ref at the workstation or trusted launcher; the returned token is not stored in this plan.")
+}
+
+// addClaudeCopyLine adds, after the settings fragment, the copy line from
+// credentialTarget.
+func addClaudeCopyLine(p *Plan, r Registration) {
+	if r.AuthMode != "gateway-key" {
+		return
+	}
+	if _, line := credentialTarget(r, claudeTokenEnv); line != "" {
+		p.Artifacts = append(p.Artifacts, Artifact{"workstation shell", "shell", "reviewed-fragment", line})
+	}
 }
