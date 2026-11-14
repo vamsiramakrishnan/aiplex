@@ -167,20 +167,22 @@ A Branchyard run on one machine rather than on a server (its issuer is `branchya
 
 ## Status: what was tested
 
-**Run together on 14 November 2026.** Branchyard's qualification script (`tools/qualify_aiplex.py` in the Branchyard repository) ran the real `by` (Branchyard commit be423a2) against a real `aiplex dev` (AIPlex commit f4e3991) on one machine over loopback: AIPlex's mock providers, a stand-in direct provider, and Branchyard's stand-in agent running a script as the harness. No model and no real coding agent were involved. It has two scenarios, a stored token and a Branchyard-signed token, of 24 checks each; all passed, twice in a row. The records are `docs/evidence/aiplex-control-plane-2026-11-14.json` and `docs/evidence/aiplex-signed-token-2026-11-14.json` in the Branchyard repository. What the stored-token scenario showed:
+**Run together on 14 November 2026.** Branchyard's qualification script (`tools/qualify_aiplex.py` in the Branchyard repository) ran the real `by` (Branchyard commit f9a5caf) against a real `aiplex dev` (AIPlex commit f4e3991) on one machine over loopback: AIPlex's mock providers, a stand-in direct provider, and Branchyard's stand-in agent running a script as the harness. No model and no real coding agent were involved. It has two scenarios, a stored token (32 checks) and a Branchyard-signed token (24 checks); all passed, twice in a row. The records are `docs/evidence/aiplex-control-plane-2026-11-14.json` and `docs/evidence/aiplex-signed-token-2026-11-14.json` in the Branchyard repository. What the stored-token scenario showed:
 
 - `by config validate` accepts the file `aiplex connect local --client branchyard --write` produces, as written and with other backends added.
 - Seven calls went through one turn's gateway on the Anthropic and OpenAI wires, one of them streamed. For each call routed to AIPlex there is exactly one ledger record, found by `--request-id` and by `--client-request-id`, whose `client_request_id` is Branchyard's call id and whose tags are the branch, the turn and the harness.
 - A call AIPlex refused (`MODEL_NOT_FOUND`) was final: its Branchyard route named two AIPlex backends, and AIPlex holds one record for it.
+- A call for a model no Branchyard route names went to AIPlex, which refused it (`MODEL_NOT_FOUND`, one record, with the tags), and not to the direct provider.
 - Headers the harness forged (`X-Client-Request-Id`, `X-AIPlex-Tags`) reached AIPlex as neither an id nor a tag.
-- A call with a plain Branchyard route, and a call no route takes, went to the direct provider and left no record in AIPlex. With AIPlex stopped, an AIPlex-routed call failed with Branchyard's own 502 and the direct provider received nothing.
+- A call with a plain Branchyard route went to the direct provider, which answered no other call, and left no record in AIPlex. With AIPlex stopped, an AIPlex-routed call failed with Branchyard's own 502 and the direct provider received nothing.
+- Four requests that hide their model (another spelling of a listed path, a path outside the list, Branchyard's pass-through path, a body its gateway cannot read) were refused by Branchyard's gateway itself: the direct provider received nothing and AIPlex's ledger gained no record. Another letter case of an AIPlex-routed model's name (`MOCK-CLAUDE`) went to AIPlex, which answered `MODEL_NOT_FOUND`, and not to the direct provider.
 - `by` was started with the token in `AIPLEX_TOKEN` and again under a second variable name, and no variable of the harness's environment held it. The response headers the harness received were on Branchyard's allow-list, and the token was in no file of the run and in no captured output.
 
 The signed-token scenario ran the same calls through a Branchyard server (`by serve`) whose backends have `auth = "turn-token"` and no key: no AIPlex token existed anywhere in the server's configuration, environment or data directory; before any grant the first call was refused `403 ACTION_DENIED`, which shows the token was verified and the caller was the bound agent; after the grant each call had one record with `caller_kind` `agent`; and a backend naming an audience the binding does not have was refused `401 UNAUTHENTICATED`.
 
 The first runs found two defects, both fixed before those records: the ledger record of a refused call had no tags (AIPlex), and the harness's environment held the token's variable (Branchyard).
 
-Branchyard's rule for a call no route takes changed after this run (such a call now goes to the AIPlex backends or is refused, never to a plain backend; see "No mixing"), so the bullet above about a call no route takes describes the earlier rule, and the run has not been repeated with the new one yet.
+This run is of Branchyard with its rule for a configuration that has both kinds of backend (see "No mixing"); the run before it, of Branchyard commit be423a2, was under the earlier rule, in which a call no route names went to the direct provider. With that earlier Branchyard, ten of the stored-token scenario's 32 checks fail.
 
 | Part | Tested in this repository | Run with the real Branchyard |
 | --- | --- | --- |
