@@ -13,12 +13,15 @@ Usage:
   aiplex get [flags]
   aiplex get [command]
 
+Aliases:
+  get, show, describe
+
 Examples:
   aiplex get instance github-abc
 
 Available Commands:
   instance    Get instance details
-  agent       Get agent details and cross-plane permissions
+  agent       Show an agent's details and the scopes it may be granted
   delegation  Get delegation details
 
 Flags:
@@ -84,7 +87,7 @@ Exit codes:
 ### `aiplex get agent`
 
 ```text
-Get agent details and cross-plane permissions
+Show an agent's details and the scopes it may be granted
 
 Usage:
   aiplex get agent <client-id> [flags]

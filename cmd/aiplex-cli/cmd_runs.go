@@ -34,7 +34,7 @@ import (
 func runsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "runs",
-		Short: "Inspect + operate on Tape-backed runs",
+		Short: "Inspect and operate agent runs",
 		Long: `Browse, inspect, and operate on durable agent runs surfaced from
 Tape's journal into AIPlex's audit projection. Operator actions
 (redrive, reconcile, cancel, signal, compensate) require the
@@ -116,7 +116,7 @@ func runsListCmd() *cobra.Command {
 func runsInspectCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "inspect <run_id>",
-		Short: "Show the projected summary for one run",
+		Short: "Show the summary of one run",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			run, err := newClient().GetRun(context.Background(), args[0])
@@ -209,7 +209,7 @@ func runsEffectsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "effects <run_id>",
 		Example: "  aiplex runs effects RUN_ID\n  aiplex runs effects RUN_ID -o json",
-		Short:   "Show what a run attempted to do, and each effect's outcome",
+		Short:   "Show each action a run took on a tool, and how it ended",
 		Long: `Show the run's effect events: started, confirmed, failed, duplicate, or
 unknown. An unknown outcome means the backend could not tell whether the
 effect happened; it is neither success nor failure. Resolve it with
@@ -252,7 +252,7 @@ func runsObligationsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "obligations <run_id>",
 		Example: "  aiplex runs obligations RUN_ID",
-		Short:   "Show the obligations a run created",
+		Short:   "Show the follow-up work a run owes, such as undoing an action",
 		Long: `Show the run's obligation events: follow-up work the run owes, such as
 an undo for an effect. Drain them with 'aiplex runs compensate'. The API
 reads at most the first 10000 events of the run for this view.`,
@@ -335,7 +335,7 @@ func runsHealthCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "health",
 		Example: "  aiplex runs health",
-		Short:   "Check whether the durable-run pipeline has delivered events",
+		Short:   "Check that run events are arriving, and when the last one came in",
 		Long: `Show when the API last ingested a run event, whether any run is known,
 and how many agent instances use the Tape runtime. Runs need the durable-run
 backend (Tape); with none connected the last ingest reads "none recorded".`,
@@ -485,7 +485,7 @@ func runsAuditCmd() *cobra.Command {
 func runsRedriveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "redrive <run_id>",
-		Short: "Re-drive a stuck or terminal run via the Tape admin RPC",
+		Short: "Re-drive a stuck or finished run: ask it to continue",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := newClient().RedriveRun(context.Background(), args[0]); err != nil {
@@ -500,7 +500,7 @@ func runsRedriveCmd() *cobra.Command {
 func runsReconcileCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "reconcile <run_id>",
-		Short: "Kick the reconciler to resolve UNKNOWN effects on this run",
+		Short: "Re-check the actions of a run whose outcome is unknown",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := newClient().ReconcileRun(context.Background(), args[0]); err != nil {
@@ -555,7 +555,7 @@ func runsSignalCmd() *cobra.Command {
 func runsCompensateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "compensate <run_id>",
-		Short: "Kick the compensator to drain pending obligations on this run",
+		Short: "Carry out the follow-up work a run still owes",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := newClient().CompensateRun(context.Background(), args[0]); err != nil {
@@ -570,7 +570,7 @@ func runsCompensateCmd() *cobra.Command {
 func runsCompactCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "compact <run_id>",
-		Short: "Compact this run now — zero bulky payloads, keep the audit envelope",
+		Short: "Clear a settled run's stored payloads now, keeping its audit summary",
 		Long: `compact triggers Tape's CompactRun out of band. The retention reactor
 handles the scheduled, policy-driven path; this command is the manual
 override for ops who want to reclaim payload bytes before the window

@@ -79,7 +79,6 @@ func budgetMemberCount(m budgets.Members) int {
 func budgetsListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
-		Aliases: []string{"ls"},
 		Short:   "List budgets (admin or deployer)",
 		Example: "  aiplex budgets list\n  aiplex budgets list -o json",
 		Args:    cobra.NoArgs,
@@ -109,7 +108,6 @@ func budgetsListCmd() *cobra.Command {
 func budgetsGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "get <id>",
-		Aliases: []string{"show", "describe"},
 		Short:   "Show one budget and where it stands",
 		Example: "  aiplex budgets get platform\n  aiplex budgets get platform -o yaml > budget.yaml",
 		Args:    cobra.ExactArgs(1),
@@ -541,7 +539,6 @@ func budgetsDeleteCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "delete <id>",
-		Aliases: []string{"remove", "rm"},
 		Short:   "Delete a budget",
 		Long:    "Stops the budget from being enforced. Its counters stay in the quota store until their windows end, so recreating it with the same unit and window resumes them. A budget with children cannot be deleted.",
 		Example: "  aiplex budgets delete platform --yes",

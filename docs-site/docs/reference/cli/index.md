@@ -66,7 +66,7 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex list`](./list.md) | List instances, agents, delegations or policy denials |
 | [`aiplex get`](./get.md) | Show one instance, agent or delegation |
 | [`aiplex logs`](./logs.md) | Stream logs from a deployed instance |
-| [`aiplex runs`](./runs.md) | Inspect and operate durable agent runs |
+| [`aiplex runs`](./runs.md) | Inspect and operate agent runs |
 | [`aiplex console`](./console.md) | Serve the Console locally against the current context |
 | [`aiplex tui`](./tui.md) | Open an interactive terminal dashboard |
 
@@ -141,7 +141,7 @@ Operate:
   list          List instances, agents, delegations or policy denials
   get           Show one instance, agent or delegation
   logs          Stream logs from a deployed instance
-  runs          Inspect and operate durable agent runs
+  runs          Inspect and operate agent runs
   console       Serve the Console locally against the current context
   tui           Open an interactive terminal dashboard
 

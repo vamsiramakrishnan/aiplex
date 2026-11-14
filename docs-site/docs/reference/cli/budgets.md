@@ -260,7 +260,7 @@ Usage:
   aiplex budgets delete <id> [flags]
 
 Aliases:
-  delete, remove, rm
+  delete, rm, remove
 
 Examples:
   aiplex budgets delete platform --yes

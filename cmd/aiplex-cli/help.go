@@ -51,7 +51,7 @@ var shortDescriptions = map[string]string{
 	"get":       "Show one instance, agent or delegation",
 	"catalog":   "Browse templates you can deploy",
 	"logs":      "Stream logs from a deployed instance",
-	"runs":      "Inspect and operate durable agent runs",
+	"runs":      "Inspect and operate agent runs",
 	"status":    "Show a dashboard summary of the platform",
 	"tui":       "Open an interactive terminal dashboard",
 	"console":   "Serve the Console locally against the current context",

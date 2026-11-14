@@ -77,13 +77,13 @@ func nativeGovernanceCmd() *cobra.Command {
 	}}
 	apply.Flags().Uint64Var(&revision, "plan-revision", 0, "Required saved plan revision")
 	apply.Flags().StringVar(&digest, "approval-digest", "", "Required digest of the reviewed plan")
-	cmd.AddCommand(apply, &cobra.Command{Use: "get-plan <plan-id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(apply, &cobra.Command{Use: "get-plan <plan-id>", Short: "Show a saved governance plan", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		out, e := newClient().GetNativePlan(cmd.Context(), args[0])
 		if e == nil {
 			show(out)
 		}
 		return e
-	}}, &cobra.Command{Use: "receipt <plan-id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	}}, &cobra.Command{Use: "receipt <plan-id>", Short: "Show the receipt of an applied governance plan", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		out, e := newClient().GetNativeReceipt(cmd.Context(), args[0])
 		if e == nil {
 			show(out)

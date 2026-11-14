@@ -110,7 +110,7 @@ func getInstanceHistory(cmd *cobra.Command, c *aiplex.Client, id string) error {
 func getAgentCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "agent <client-id>",
-		Short: "Get agent details and cross-plane permissions",
+		Short: "Show an agent's details and the scopes it may be granted",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
@@ -135,17 +135,17 @@ func getAgentCmd() *cobra.Command {
 				fmt.Printf("  SPIFFE ID:   %s\n", agent.SpiffeID)
 			}
 			if len(agent.AllowedScopes) > 0 {
-				fmt.Printf("  Allowed Scopes (Dimension A):\n")
+				fmt.Printf("  Allowed scopes (the most this agent may request):\n")
 				for _, s := range agent.AllowedScopes {
 					fmt.Printf("    - %s\n", s)
 				}
 			}
 
-			// Also fetch cross-plane permissions
+			// Also fetch the permissions grouped by module
 			perms, err := c.GetAgentPermissions(ctx, args[0])
 			if err == nil && perms != nil {
 				fmt.Println()
-				fmt.Println("  Cross-Plane Permissions:")
+				fmt.Println("  Permissions by module:")
 				for plane, scopes := range perms.Ceiling {
 					fmt.Printf("    %s:\n", plane)
 					for _, s := range scopes {

@@ -116,7 +116,6 @@ func (v toolConnView) authLabel() string {
 func mcpConnListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
-		Aliases: []string{"ls"},
 		Short:   "List MCP tool connections",
 		Example: "  aiplex mcp connections list\n  aiplex mcp connections list -o json",
 		Args:    cobra.NoArgs,
@@ -158,7 +157,6 @@ func toolCountCell(v toolConnView) string {
 func mcpConnGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "get <id>",
-		Aliases: []string{"show", "describe"},
 		Short:   "Show one MCP tool connection",
 		Example: "  aiplex mcp connections get local-tools\n  aiplex mcp connections get local-tools -o yaml",
 		Args:    cobra.ExactArgs(1),
@@ -658,7 +656,6 @@ func mcpConnDeleteCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "delete <id>",
-		Aliases: []string{"remove", "rm"},
 		Short:   "Delete an MCP tool connection",
 		Example: "  aiplex mcp connections delete docs --yes",
 		Args:    cobra.ExactArgs(1),

@@ -62,6 +62,9 @@ List resources of a kind (JSON or YAML)
 Usage:
   aiplex resources list <kind> [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex resources list tool-connection
 
@@ -93,6 +96,9 @@ Show one resource and its revision
 
 Usage:
   aiplex resources get <kind> <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex resources get tool-connection local-tools -o yaml
@@ -166,6 +172,9 @@ Delete a resource (its current revision is read for you)
 
 Usage:
   aiplex resources delete <kind> <id> [flags]
+
+Aliases:
+  delete, rm, remove
 
 Examples:
   aiplex resources delete tool-connection docs --yes

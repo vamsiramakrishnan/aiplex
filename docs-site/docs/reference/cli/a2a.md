@@ -304,7 +304,7 @@ Usage:
   aiplex a2a delegations get <id> [flags]
 
 Aliases:
-  get, show
+  get, show, describe
 
 Examples:
   aiplex a2a delegations get d-1
@@ -536,7 +536,7 @@ Usage:
   aiplex a2a connections delete <id> [flags]
 
 Aliases:
-  delete, remove, rm
+  delete, rm, remove
 
 Examples:
   aiplex a2a connections delete bedrock --yes

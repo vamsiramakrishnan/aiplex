@@ -252,7 +252,7 @@ Usage:
   aiplex mcp connections delete <id> [flags]
 
 Aliases:
-  delete, remove, rm
+  delete, rm, remove
 
 Examples:
   aiplex mcp connections delete docs --yes

@@ -112,7 +112,6 @@ func spAPQoS(ap aiplex.AccessPoint) string {
 func spAPListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
-		Aliases: []string{"ls"},
 		Short:   "List access points (administrators see all; others see the ones that admit them)",
 		Example: "  aiplex access-points list\n  aiplex access-points list -o json",
 		Args:    cobra.NoArgs,
@@ -158,7 +157,6 @@ func spAPListCmd() *cobra.Command {
 func spAPGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "get <id>",
-		Aliases: []string{"show", "describe"},
 		Short:   "Show one access point",
 		Example: "  aiplex access-points get local\n  aiplex access-points get local -o yaml > ap.yaml",
 		Args:    cobra.ExactArgs(1),
@@ -322,7 +320,6 @@ func spAPDeleteCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "delete <id>",
-		Aliases: []string{"remove", "rm"},
 		Short:   "Delete an access point",
 		Example: "  aiplex access-points delete team --yes",
 		Args:    cobra.ExactArgs(1),

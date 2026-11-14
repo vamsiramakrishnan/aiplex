@@ -173,6 +173,9 @@ List model surfaces
 Usage:
   aiplex llm surfaces list [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex llm surfaces list
 
@@ -204,6 +207,9 @@ Show one surface and its revision (-o json or -o yaml for the full specification
 
 Usage:
   aiplex llm surfaces get <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex llm surfaces get openai-prod
@@ -343,7 +349,7 @@ Usage:
   aiplex llm surfaces delete <id> [flags]
 
 Aliases:
-  delete, remove, rm
+  delete, rm, remove
 
 Examples:
   aiplex llm surfaces delete openai-prod --yes
@@ -453,6 +459,9 @@ AIPlex; its usage stays unknown until then.
 
 Usage:
   aiplex llm batches list [flags]
+
+Aliases:
+  list, ls
 
 Examples:
   aiplex llm batches list --state open

@@ -270,7 +270,7 @@ Usage:
   aiplex iam role-bindings delete <id> [flags]
 
 Aliases:
-  delete, remove, rm
+  delete, rm, remove
 
 Examples:
   aiplex iam role-bindings delete platform-admins --yes

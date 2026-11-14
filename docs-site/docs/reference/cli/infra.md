@@ -18,11 +18,11 @@ Examples:
   aiplex infra receipt plan-0123
 
 Available Commands:
-  approve     
-  execute     
-  receipt     
-  observe     
-  observation 
+  approve     Approve a reviewed infrastructure plan by its digest
+  execute     Run an approved infrastructure plan
+  receipt     Show the receipt of an executed infrastructure plan
+  observe     Check what an executed infrastructure plan produced
+  observation Show a saved observation of an executed infrastructure plan
 
 Flags:
   -h, --help   help for infra
@@ -50,6 +50,8 @@ Exit codes:
 ### `aiplex infra approve`
 
 ```text
+Approve a reviewed infrastructure plan by its digest
+
 Usage:
   aiplex infra approve <plan-id> [flags]
 
@@ -82,6 +84,8 @@ Exit codes:
 ### `aiplex infra execute`
 
 ```text
+Run an approved infrastructure plan
+
 Usage:
   aiplex infra execute <plan-id> [flags]
 
@@ -114,6 +118,8 @@ Exit codes:
 ### `aiplex infra receipt`
 
 ```text
+Show the receipt of an executed infrastructure plan
+
 Usage:
   aiplex infra receipt <plan-id> [flags]
 
@@ -144,6 +150,8 @@ Exit codes:
 ### `aiplex infra observe`
 
 ```text
+Check what an executed infrastructure plan produced
+
 Usage:
   aiplex infra observe <plan-id> [flags]
 
@@ -175,6 +183,8 @@ Exit codes:
 ### `aiplex infra observation`
 
 ```text
+Show a saved observation of an executed infrastructure plan
+
 Usage:
   aiplex infra observation <plan-id> [flags]
 

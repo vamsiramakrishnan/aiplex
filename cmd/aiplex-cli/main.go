@@ -167,6 +167,7 @@ Start here (no Docker, no cloud account):
 		}
 	}
 	applyShortDescriptions(root)
+	applyVerbAliases(root)
 	applyExamples(root)
 	registerCompletions(root)
 	confirmDestructive(root)

@@ -7,9 +7,16 @@ import (
 
 func infrastructureCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "infra", Short: "Review, execute and inspect saved infrastructure plans"}
+	shorts := map[string]string{
+		"approve":     "Approve a reviewed infrastructure plan by its digest",
+		"execute":     "Run an approved infrastructure plan",
+		"receipt":     "Show the receipt of an executed infrastructure plan",
+		"observe":     "Check what an executed infrastructure plan produced",
+		"observation": "Show a saved observation of an executed infrastructure plan",
+	}
 	for _, action := range []string{"approve", "execute", "receipt", "observe", "observation"} {
 		var digest, reason, approval, key string
-		c := &cobra.Command{Use: action + " <plan-id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		c := &cobra.Command{Use: action + " <plan-id>", Short: shorts[action], Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 			client := newClient()
 			var value any
 			var err error

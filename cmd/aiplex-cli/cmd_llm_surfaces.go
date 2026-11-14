@@ -387,7 +387,7 @@ func llmxSurfacesDeleteCmd() *cobra.Command {
 	var revision uint64
 	var yes bool
 	cmd := &cobra.Command{
-		Use: "delete <id>", Aliases: []string{"remove", "rm"}, Short: "Delete a surface (at its current revision unless --revision is given)", Example: "  aiplex llm surfaces delete openai-prod --yes", Args: cobra.ExactArgs(1),
+		Use: "delete <id>", Short: "Delete a surface (at its current revision unless --revision is given)", Example: "  aiplex llm surfaces delete openai-prod --yes", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
 			if revision == 0 {

@@ -53,6 +53,9 @@ prints the exact command for the next one.
 Usage:
   aiplex catalog list [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex catalog list
   aiplex catalog list --plane llmplex --page-size 50
@@ -89,6 +92,9 @@ Get template details
 
 Usage:
   aiplex catalog get <template-id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex catalog get github-mcp

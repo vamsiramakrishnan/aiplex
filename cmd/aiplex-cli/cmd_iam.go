@@ -69,7 +69,6 @@ func iamBindingsListCmd() *cobra.Command {
 	var group string
 	cmd := &cobra.Command{
 		Use:     "list",
-		Aliases: []string{"ls"},
 		Short:   "List role bindings (admin)",
 		Example: "  aiplex iam role-bindings list\n  aiplex iam role-bindings list --group platform-eng -o json",
 		Args:    cobra.NoArgs,
@@ -100,7 +99,6 @@ func iamBindingsListCmd() *cobra.Command {
 func iamBindingsGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "get <id>",
-		Aliases: []string{"show", "describe"},
 		Short:   "Show one role binding",
 		Example: "  aiplex iam role-bindings get local-admin\n  aiplex iam role-bindings get local-admin -o yaml > binding.yaml",
 		Args:    cobra.ExactArgs(1),
@@ -277,7 +275,6 @@ func iamBindingsDeleteCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "delete <id>",
-		Aliases: []string{"remove", "rm"},
 		Short:   "Delete a role binding (admin)",
 		Long:    "People who held a role only through this binding lose it on their next request. Deleting the binding that makes you an administrator can lock you out; the bootstrap role bindings file is the way back in.",
 		Example: "  aiplex iam role-bindings delete platform-admins --yes",

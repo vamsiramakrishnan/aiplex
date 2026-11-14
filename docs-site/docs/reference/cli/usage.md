@@ -125,6 +125,9 @@ Show every field of one usage record
 Usage:
   aiplex usage get <id> [flags]
 
+Aliases:
+  get, show, describe
+
 Examples:
   aiplex usage get ul_0123456789abcdef
 
@@ -321,6 +324,9 @@ List configured model prices
 Usage:
   aiplex usage prices list [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex usage prices list
   aiplex usage prices list -o wide
@@ -353,6 +359,9 @@ Show one price and its current revision
 
 Usage:
   aiplex usage prices get <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex usage prices get mock-gpt
@@ -443,6 +452,9 @@ Delete a price (uses the current revision unless --revision is given)
 
 Usage:
   aiplex usage prices delete <id> [flags]
+
+Aliases:
+  delete, rm, remove
 
 Examples:
   aiplex usage prices delete gemini-flash --yes

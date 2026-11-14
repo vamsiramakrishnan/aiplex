@@ -181,3 +181,32 @@ func TestExampleExtraction(t *testing.T) {
 		t.Fatalf("shellWords: %q", w)
 	}
 }
+
+// jargonInDescriptions are words from the code's internals that a user reading
+// --help should not meet: docs/naming.md says "module" for what the code
+// sometimes calls a plane, and the run backend's own names stay out of Short.
+var jargonInDescriptions = []string{"plane", "tape", "dimension", " rpc", "kick the", "projected", "run backend", "bulky"}
+
+// Every command, at any depth, has a one-line description of what it does
+// for the user, in the vocabulary of docs/naming.md.
+func TestEveryCommandHasAShortDescription(t *testing.T) {
+	root := newRootCmd()
+	if strings.TrimSpace(root.Short) == "" {
+		t.Error("aiplex has no description")
+	}
+	walkCommands(root, func(c *cobra.Command) {
+		short := strings.TrimSpace(c.Short)
+		if short == "" {
+			t.Errorf("%s has no description (Short)", c.CommandPath())
+			return
+		}
+		if strings.Contains(short, "\n") {
+			t.Errorf("%s: description is not one line: %q", c.CommandPath(), short)
+		}
+		for _, word := range jargonInDescriptions {
+			if strings.Contains(strings.ToLower(short), word) {
+				t.Errorf("%s: description uses internal jargon %q: %q", c.CommandPath(), strings.TrimSpace(word), short)
+			}
+		}
+	})
+}

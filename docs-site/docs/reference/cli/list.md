@@ -13,6 +13,9 @@ Usage:
   aiplex list [flags]
   aiplex list [command]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex list instances
   aiplex list denials

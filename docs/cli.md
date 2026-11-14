@@ -180,8 +180,8 @@ access point in place.
 The commands that take `--yes` include:
 
 - Subcommands named `delete`: `aiplex access-points delete`, `aiplex llm surfaces delete`, `aiplex mcp connections delete`,
-  `aiplex usage prices delete`, `aiplex agents delete`, `aiplex clients delete` and `aiplex resources delete`. `remove` and
-  `rm` are aliases of `delete` for access points, model surfaces and tool connections.
+  `aiplex usage prices delete`, `aiplex agents delete`, `aiplex clients delete` and `aiplex resources delete`. `rm` and `remove` are
+  aliases of every `delete` ([verb aliases](#verb-aliases)).
 - `aiplex undeploy`
 - `aiplex config delete-context`
 - `aiplex platform apply` (approves the Terraform changes) and `aiplex platform destroy`
@@ -199,11 +199,59 @@ The commands that write outside the API ask the same way, and refuse without a t
 and proceeds only if that line is `destroy`. There is no top-level `aiplex delete`, `aiplex remove` or
 `aiplex delete-context` command.
 
+## Verb aliases
+
+Three verbs have the same short names everywhere in the command tree:
+
+| Command | Also answers to |
+| --- | --- |
+| `list` | `ls` |
+| `get` | `show`, `describe` |
+| `delete` | `rm`, `remove` |
+
+`aiplex mcp connections ls`, `aiplex clients show local`, `aiplex budgets rm team-a` and `aiplex runs ls` all work. A
+command named `remove` (it detaches an entry from a list, such as a tool-call rule) answers to `rm` and `delete`. The
+aliases are decided in one function, `applyVerbAliases` in `cmd/aiplex-cli/aliases.go`, which walks the whole tree after
+it is built, so a command added later has them without declaring anything. If a group already has a real subcommand
+or alias with one of these names, that name is left off for the group and the subcommand keeps it. No group has such a
+conflict today, and a test fails if one appears without being listed. Other aliases (`ap` for `access-points`,
+`add` for `create`) are declared on their commands.
+
+Every command has a one-line description, which `aiplex <group> --help` lists. A test fails when one is empty or uses
+an internal word such as "plane" where [the glossary](naming.md) says "module".
+
 ## Shell completion
 
 `aiplex completion <shell>` prints a completion script for `bash`, `zsh`, `fish` or `powershell`. It completes
-commands and flags, and the IDs of access points, model surfaces, tool connections, prices and identity providers,
-by asking the current API with one request and a 1.5 second timeout. It is silent when the API does not answer.
+commands and flags, and the ids a command takes, by asking the current API with one request and a 1.5 second
+timeout. The ids are those of access points, model surfaces, tool connections, agent connections, budgets, prices,
+identity providers, hook policies, clients, agents and their identity bindings, role bindings, delegations, runs,
+deployed instances, catalog templates, modules, native governance bindings, model providers, callers (`aiplex who`
+completes the kind, then the ids of that kind), canonical user principals (`agents user-scopes`), and quota and usage
+ledger ids, for example `aiplex runs inspect <Tab>` or
+`aiplex agents identity get <agent> <Tab>`. `aiplex resources get <Tab>` completes the resource kinds, then the ids of
+the kind you typed. The names of your CLI contexts complete from the local configuration file.
+
+Completion runs inside your shell on every Tab, so it is restricted:
+
+- It sends one `GET` to a list route and nothing else, with the same URL and token as every other command.
+- It offers nothing, and prints nothing, when the API cannot be reached, the API refuses the request (not signed in,
+  or your role cannot read the list), or the list is empty. It sends no request when your stored login is known to be
+  expired (it does not refresh it). Under `aiplex dev` an unauthenticated request is served as the local developer,
+  so ids are offered there without signing in.
+- Only one page of a paged list is offered: the first 64 ids of a quota inventory kind, the newest page of the usage
+  ledger, and the first 50 callers of a kind. An id beyond the page still works when typed in full.
+- It never prompts, never writes a file (an expired token is not refreshed, and `~/.aiplex` is not created), and
+  never waits longer than the timeout.
+- An id from the server is offered only if it is made of letters, digits and `. _ : / @ + = , -`, does not start with
+  a dash and is at most 200 characters; anything else (white space, control characters, quotes, `$`, `;` and so on)
+  is dropped, so a hostile id cannot add a flag, a second candidate or a command to your command line. At most 200
+  ids are offered.
+
+Each command's ids are one row in `completionTable` (`cmd/aiplex-cli/completion_ids.go`). Arguments that cannot be
+completed are listed with the reason in `cannotCompleteIDs` (`completion_ids_test.go`): a new id you are about to
+choose, a file, a plan id that no list route returns, search text, and names in the bundled price catalogues or the external MCP Registry. A test walks the command tree and fails for a command that takes an argument and is in
+neither place. Flag values complete too for `--access-point`, `--tool`, `--context` and `--output`, through the same read-only client; other flags do not. Optional arguments written `[name]` in a command's usage are covered by the same test as required `<id>` ones.
 
 ```sh
 # Bash (~/.bashrc or ~/.bash_profile)

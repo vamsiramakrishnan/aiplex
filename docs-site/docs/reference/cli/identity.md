@@ -140,6 +140,9 @@ List user identity providers
 Usage:
   aiplex identity user-providers list [flags]
 
+Aliases:
+  list, ls
+
 Examples:
   aiplex identity user-providers list
 
@@ -171,6 +174,9 @@ Show one user identity provider
 
 Usage:
   aiplex identity user-providers get <id> [flags]
+
+Aliases:
+  get, show, describe
 
 Examples:
   aiplex identity user-providers get okta
@@ -255,6 +261,9 @@ Remove a user identity provider
 
 Usage:
   aiplex identity user-providers delete <id> [flags]
+
+Aliases:
+  delete, rm, remove
 
 Examples:
   aiplex identity user-providers delete okta

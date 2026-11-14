@@ -322,7 +322,6 @@ func a2aDelegationsListCmd() *cobra.Command {
 	var limit int
 	cmd := &cobra.Command{
 		Use:     "list [--agent <id>] [--limit N]",
-		Aliases: []string{"ls"},
 		Short:   "List recent delegations, optionally for one agent",
 		Example: "  aiplex a2a delegations list\n  aiplex a2a delegations list --agent research-agent --limit 20 -o json",
 		Args:    cobra.NoArgs,
@@ -413,7 +412,6 @@ func writeDelegationChain(w io.Writer, ch *aiplex.DelegationChain, depth int) {
 func a2aDelegationsGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "get <id>",
-		Aliases: []string{"show"},
 		Short:   "Show one delegation",
 		Example: "  aiplex a2a delegations get d-1\n  aiplex a2a delegations get d-1 -o yaml",
 		Args:    cobra.ExactArgs(1),
@@ -564,7 +562,6 @@ invoke it with 'aiplex a2a invoke':
 func a2aConnListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
-		Aliases: []string{"ls"},
 		Short:   "List agent connections",
 		Example: "  aiplex a2a connections list\n  aiplex a2a connections list -o json",
 		Args:    cobra.NoArgs,
@@ -597,7 +594,6 @@ func a2aConnListCmd() *cobra.Command {
 func a2aConnGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "get <id>",
-		Aliases: []string{"show", "describe"},
 		Short:   "Show one agent connection",
 		Example: "  aiplex a2a connections get bedrock\n  aiplex a2a connections get bedrock -o yaml",
 		Args:    cobra.ExactArgs(1),
@@ -629,7 +625,6 @@ func a2aConnDeleteCmd() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
 		Use:     "delete <id>",
-		Aliases: []string{"remove", "rm"},
 		Short:   "Delete an agent connection",
 		Example: "  aiplex a2a connections delete bedrock --yes",
 		Args:    cobra.ExactArgs(1),

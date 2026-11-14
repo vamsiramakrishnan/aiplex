@@ -73,7 +73,7 @@ Examples:
 	cmd.Flags().StringVar(&description, "description", "", "Description")
 	cmd.Flags().StringVar(&authMethod, "auth", "client_credentials", "Auth method: client_credentials, authorization_code, device_code")
 	cmd.Flags().StringSliceVar(&grantTypes, "grants", nil, "Grant types (default derives from --auth)")
-	cmd.Flags().StringSliceVar(&scopes, "scopes", nil, "Allowed scopes (Dimension A)")
+	cmd.Flags().StringSliceVar(&scopes, "scopes", nil, "Scopes this agent may ever request")
 	return cmd
 }
 
@@ -96,7 +96,7 @@ func deleteAgentCmd() *cobra.Command {
 func grantScopesCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "permissions <client-id>",
-		Short: "Show agent permissions across all planes",
+		Short: "Show the scopes an agent may be granted, grouped by module",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
@@ -130,7 +130,7 @@ func grantScopesCmd() *cobra.Command {
 func userScopesCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "user-scopes",
-		Short: "Manage user scopes (Dimension B)",
+		Short: "Show or replace the scopes granted to a user",
 	}
 
 	getCmd := &cobra.Command{
