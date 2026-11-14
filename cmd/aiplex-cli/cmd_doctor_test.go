@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -64,21 +65,24 @@ func TestDoctorUsesWhoamiAsAuthenticatedProbe(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var dashboardHits, whoamiHits int
+			// The handler runs on the server's goroutines; count with atomics.
+			var dashboardHits, whoamiHits atomic.Int64
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/healthz":
 					w.WriteHeader(http.StatusOK)
 				case "/api/v1/iam/whoami":
-					whoamiHits++
+					whoamiHits.Add(1)
 					if tc.hangup {
 						hj, ok := w.(http.Hijacker)
 						if !ok {
-							t.Fatal("test server cannot hijack")
+							t.Error("test server cannot hijack")
+							return
 						}
 						conn, _, err := hj.Hijack()
 						if err != nil {
-							t.Fatal(err)
+							t.Error(err)
+							return
 						}
 						conn.Close()
 						return
@@ -90,7 +94,7 @@ func TestDoctorUsesWhoamiAsAuthenticatedProbe(t *testing.T) {
 					}
 					_, _ = w.Write([]byte(`{"identity":{"principal_id":"p","email":"dev@localhost","subject":"dev"},"roles":["` + tc.role + `"],"scopes":[],"group_scopes":[]}`))
 				case "/api/v1/dashboard/stats":
-					dashboardHits++
+					dashboardHits.Add(1)
 					w.WriteHeader(http.StatusForbidden)
 				default:
 					w.WriteHeader(http.StatusNotFound)
@@ -104,8 +108,8 @@ func TestDoctorUsesWhoamiAsAuthenticatedProbe(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("exit error = %v, want failure %v\n%s", err, tc.wantErr, out)
 			}
-			if whoamiHits == 0 || dashboardHits != 0 {
-				t.Fatalf("probe calls: whoami=%d dashboard=%d", whoamiHits, dashboardHits)
+			if whoamiHits.Load() == 0 || dashboardHits.Load() != 0 {
+				t.Fatalf("probe calls: whoami=%d dashboard=%d", whoamiHits.Load(), dashboardHits.Load())
 			}
 			for _, want := range tc.wantLines {
 				if !strings.Contains(out, want) {
