@@ -120,7 +120,7 @@ Cluster deployment targets Google Cloud (GKE, Firestore) and is a multi-step ope
 
 AIPlex is **pre-1.0**. Interfaces, flags and output formats can change between releases.
 
-- **Validated in CI:** Go unit and integration tests; an end-to-end suite that runs the real binaries against local mock upstreams (`make e2e`); provider usage formats replayed from fixtures; Firestore transactions against the emulator; Console, Rust, Helm lint and schema checks.
+- **Validated in CI:** Go unit and integration tests; an end-to-end suite that runs the real binaries against local mock upstreams (`make e2e`); provider usage formats replayed from fixtures; Firestore transactions and budgets against the emulator; Console, Rust, Helm lint and schema checks.
 - **Run against live services:** the Gemini Developer API and z.ai, with ledger usage matching the provider's responses; Claude Code, Gemini CLI and Codex loading the configuration `aiplex connect --write` produces (Codex against the mock model only).
 - **Not validated:** live OpenAI or Anthropic first-party endpoints, Azure, Bedrock or Vertex; any comparison of cost figures against a provider invoice; a deployment to a live cloud project, load or availability; macOS and Windows; the release artifacts. Catalogue prices are a third-party snapshot and are not checked against provider price pages.
 

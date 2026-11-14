@@ -26,6 +26,11 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - Go SDK (`sdk/`) for the API. The Go client's `Error` carries `TraceID`, and the CLI prints it beside the request ID.
 - Unpublished Python (`sdk/python`, package `aiplex`) and TypeScript (`sdk/typescript`, `@aiplex/sdk`) clients for the HTTP API, mirroring the Go SDK's covered routes; tested with `make sdk-test`, against `aiplex dev`.
 - React Console covering the above, embedded in the CLI when built first; role-aware, so each view shows what the signed-in roles may do; brand identity and design tokens applied.
+- The Go SDK and the CLI reach what the API already had: a run's effects, obligations and budget charges, the runs health check and paging over run events (`aiplex runs effects|obligations|budgets|health`, `runs events --from-seq --limit`); IAM role bindings (`aiplex iam roles`, `iam role-bindings list|get|apply|delete`, `iam validate-principal`, `identity user-providers invalidate-membership`); A2APlex (`aiplex a2a invoke`, `a2a delegations list|get|update|chain`, `a2a connections list|get|delete`); tool connections (`aiplex tool-auth register <connection>`, `aiplex mcp connections call <id> <tool>`); and paging and filters (`catalog list --page --page-size`, `skills invocations --limit`, `get instance <id> --history`, `usage config`). Replacing a role binding requires the file to state its scopes. Input the client refuses exits with code 2 before any request. Not exercised against a connected cloud agent or a live authorization server.
+- `aiplex health` sends the CLI's token on its `/api/v1` probes only, does not follow redirects and treats only 2xx as healthy; `aiplex doctor` checks the token with `/api/v1/iam/whoami` and prints its roles. Before, both reported failures on a healthy deployment outside development mode.
+- The Python and TypeScript SDKs have the admin operations of the Go SDK: budgets (list, get, put, delete, preview), model surface put, delete and capacity, tool connection put and delete, hook policies (list, get, put, delete, test), usage configuration and feedback listing. Writes carry the revision in `If-Match`, stored fields an SDK does not model are written back unchanged, and a value the server did not send is `None` or `null`, never 0. Both read the per-TTL cache-write counters.
+- Console: a Role bindings tab on the Permissions page; an access point's routing state and cache purge; a Budgets tab under QuotaPlex with create, edit, delete and preview; a Hooks screen with a dry run (the editor takes the JSON document the API returns; YAML files are applied with `aiplex hooks policies set -f`); seconds metering for Live voice in the surface editor; a client registration prefilled from a profile; a run's effects, obligations and charges. The command palette is built from the navigation, so it follows the signed-in roles and the enabled modules. A value the API did not send is shown as unknown on the Dashboard and in lists, and figures kept after a failed refresh say when they were last refreshed. Tested with the API mocked, not against a live server.
+- Examples for the Python and TypeScript SDKs (`examples/sdk-python`, `examples/sdk-typescript`); `make examples-test` runs them when `EXAMPLES_INSTALL_SDKS=1`.
 
 ### Packaging and install
 
@@ -43,6 +48,7 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - `aiplex dev --detach` runs the local stack in the background, with its output in `~/.aiplex/dev.log`. `aiplex dev status` says whether it runs and where, and `aiplex dev stop` stops it. A second `aiplex dev` is refused. `--allow-origin` lets the local API call one more upstream origin.
 - The `aiplex dev` summary ends with numbered "Try next" steps, and says plainly when the Console is not built into the binary.
 - Release binaries embed the built Console; a source build says how to build it (`make console && make build`).
+- `aiplex dev` starts the API with user and agent identity federation enabled and runs three stand-in issuers on loopback (`idp`, `workload`, `unconfigured`); nothing is trusted until a provider or binding is applied. `aiplex dev token --issuer idp|workload|unconfigured` mints a token from one and prints the configuration to apply. A second tool connection, `local-tools-keyed`, needs an API key held behind a secret reference. The stand-in issuers are not real identity providers: no external IdP and no directory group lookup is exercised.
 
 ### Harness onboarding
 
@@ -63,6 +69,7 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 ### Request hooks
 
 - Hook policies (`/api/v1/hooks/policies`, `aiplex hooks policies list|get|set|delete|test`, operators only) bind ordered hooks to the tenant, an access point, a model surface or a tool connection; narrower scopes add hooks and cannot remove a broader one. Hooks run on model requests and responses (OpenAI Chat, OpenAI Responses, Anthropic Messages, Gemini, Bedrock Converse, embeddings) and MCP `tools/call` arguments and results, after admission and before the quota lease, and can allow, deny with a safe message (HTTP 403 `hook_denied` in the caller's protocol) or mask text. Built-in `redact` (pattern rules, not a guarantee of PII removal) and `size_limit`, and an `http` sidecar hook with the AIPlex contract and Presidio and LLM Guard adapters (written from their documentation; not run against the services). Fail closed: a sidecar that cannot decide refuses the request unless `fail_open` is set. Streams under a response hook are refused by default, or buffered and re-emitted for OpenAI Chat and Anthropic. WebSocket sessions are refused on a hooked scope. Decisions are in the usage ledger (`hooks`, filter `hook_decision`), spans and metrics, without content. See `docs/request-hooks.md`.
+- `streaming: buffer` also buffers, inspects and re-emits Gemini and OpenAI Responses streams; every repeated copy of the text in a Responses stream is rewritten. For all four stream formats, a stream that ends a line with a lone carriage return, has no blank line after its last event, or is cut off inside an event is refused instead of relayed uninspected. Tested against recorded fixtures, not live providers.
 
 ### Observability
 
@@ -97,12 +104,17 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - Estimated costs keep their unrounded amount in `cost.exact` and name the price in `cost.price_id`; summaries add exact values and round up once instead of adding rounded amounts. The rounding rule (up, at the price's scale) is documented.
 - models.dev is a second pinned catalogue snapshot (MIT, `THIRD_PARTY_NOTICES.md`). `catalog search` and `show` display both sources and flag meters they disagree on; `catalog import --source litellm|models.dev` chooses, and an import of a model the sources disagree on is refused until `--source` is given. `make update-price-catalog` refreshes both. The import dry run no longer says "needs --accept-partial" when the flag was given.
 - `aiplex usage prices backfill` and `POST /api/v1/usage/backfill` (admin) price records written before a price existed, using the price effective at each record's time. The cost becomes `estimated` with `backfilled_at` and `price_id`; settled and estimated costs are never changed, runs are idempotent and bounded (cursor), and Firestore updates only while the cost is still unknown. Records and summaries filter on `cost_basis`.
+- Cache-write tokens are recorded and priced per time-to-live (`cache_write_5m_tokens`, `cache_write_30m_tokens`, `cache_write_1h_tokens`, `cache_write_12h_tokens`), each a subset of `cache_write_tokens`. A positive 1h or 12h count with no rate of its own makes the cost unknown; 5m and 30m are the providers' defaults and fall under the base cache-write rate unless separately priced.
+- An OpenAI-compatible surface can declare `provider.usage_semantics: "deepseek"`: DeepSeek's cache-hit and cache-miss counts are checked against the prompt total, a consistent split records the hit as cached input, and anything else leaves the cache split unknown. The LiteLLM importer reads DeepSeek's cache-hit rate where it equals the cache-read rate. Built from DeepSeek's documentation, not validated against the live API.
+- A live voice session (`openai.v1.live`) can be metered by session seconds: `websocket.metering: "seconds"` with a maximum session length on the surface, and a quota binding with the `voice-seconds` profile. Admission reserves the maximum; settlement uses the length the provider confirms on a clean close, rounded up; a session with no confirmed length stays unknown and keeps its reservation until reconciled. Not validated against live OpenAI billing.
 
 ### Models (LLMPlex)
 
 - Native provider surfaces for OpenAI, Anthropic, Azure OpenAI, Bedrock, Gemini Developer, Google Cloud and OpenAI-compatible endpoints, over HTTP, SSE and WebSocket, with credentials as references.
 - Usage and rate-limit observation per provider format, covered by a conformance harness over fixtures built from provider documentation (see the [coverage matrix](docs/reference/usage-formats/coverage.md)).
 - Media operations and model batches with settlement, provider-capacity cooldown and headroom gate, and Envoy `LLMRoute` generation for gateway routing.
+- Gemini Live on the Gemini Developer API (`gemini.live.connect`), relayed with the surface's API key in the `x-goog-api-key` header only. One session is one request-count admission; its usage is advisory and token metering is refused. Tested against recorded fixtures and a fake upstream, not the live API.
+- An access point serves a model alias on multipart requests (audio transcription and translation, image edits), where it used to answer 503.
 
 ### Tools, agents, skills and clients
 
@@ -117,10 +129,14 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - Default-deny route policy by mounted pattern; tenant taken from the verified identity only; hardened CORS and request IDs.
 - Forwarded-address headers (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`) are ignored unless `TRUSTED_PROXY_HOPS` names the number of proxies in front of the API. In development mode, an anonymous request that carries one of them is refused with `403 PROXIED_DEVELOPMENT_REQUEST`.
 - `aiplex-authz`, a Rust `ext_authz` service, and a Rego scope policy.
+- Agent tokens signed ES384 verify, with each algorithm bound to one key type (RS256 to RSA, ES256 to P-256, ES384 to P-384); the AWS preset requests ES384. Not validated against a live AWS account. `aiplex-authz` still verifies RS256 only.
 
 ### Quota (QuotaPlex)
 
 - Opt-in budgets and admission for covered managed paths: unequal token, money and request allocations, periods, loans, admitted rates, concurrency, weighted scheduling, durable evidence and restart-safe settlement. Hard limits need qualification per deployment.
+- A cost budget can count priced managed tool calls with `include_tool_calls` (off by default; deployment actions are excluded). A priced and an unpriced request sharing one cost budget under `on_unknown_cost: allow_and_flag` no longer fail with "budget state shape mismatch".
+- Attempts left in the `unknown` state are reported: their count, the oldest dispatch time and the exposure held per meter (`aiplex quota unknown --older-than`, the `aiplex.quota.unknown.*` gauges, and one warning per tenant per scan once the oldest is older than `unknown_warn_after`). This reports and warns; it does not notify anyone or resolve an attempt.
+- Budgets on the Firestore stores are exercised on the Firestore emulator with two engines (requests, tokens and cost). Not run against managed Firestore.
 
 ### Platform and deployment
 
@@ -149,6 +165,11 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - `aiplex platform apply` refuses to run when the preflight fails. `--skip-preflight` overrides the check with a warning.
 - The console image is unprivileged nginx (`nginxinc/nginx-unprivileged`) that listens on 8080 as uid 101. Rebuild it from `console/Dockerfile` before upgrading the chart; the old `nginx:alpine` image will not start with the new security settings.
 - `OTEL_ENDPOINT` is deprecated in favour of `OTEL_EXPORTER_OTLP_ENDPOINT`. It is used only when the standard variable is unset, and a warning is logged.
+- The runs routes require a tenant by default. A caller with no tenant and no cross-tenant scope gets 403 `TENANT_REQUIRED`, and an identity that names more than one tenant gets 403 `TENANT_AMBIGUOUS`. Give run readers an `aiplex:tenant:<id>` scope before upgrading, or set `AIPLEX_REQUIRE_TENANT=0` on a single-tenant deployment (it logs a warning at startup). Development mode is unchanged.
+- Multipart requests served by an access point or the model gateway are read by one strict parser. An upload outside the subset that curl, the OpenAI Python SDK, requests and Node produce (a `name*` or `boundary*` parameter, a folded header, or a file name containing a backslash or a double quote, for example) is refused with 400.
+- A record with 12-hour cache writes priced by an imported catalogue price is now `unknown`, where it was charged at the base cache-write rate; add a `cache_write_12h_tokens` rate to price it.
+- The dashboard denials route honours `limit` from 1 to 1000 and refuses any other value with 400; it used to return 50 whatever was asked.
+- Go SDK: a malformed resource id is an `InputError` on every call, and the CLI exits with code 2 for it where some commands exited 1. `RunsHealth` and `UsageConfig` fields are pointers, so an absent value can be told from zero or empty. A non-JSON error body's first line (printable characters only, at most 300) is the error message, where it used to be the HTTP status text.
 
 ### Upgrading an existing deployment
 
@@ -161,3 +182,5 @@ An existing deployment needs steps before the Helm upgrade: the secret, Firestor
 - Release mechanics: GoReleaser builds `aiplex` and `aiplex-api` archives with checksums and a changelog; `install.sh` installs both.
 
 [Unreleased]: https://github.com/vamsiramakrishnan/aiplex/commits/main
+- The API reference states the role each route needs and the code it returns, corrected from a running API: 43 read routes were documented as open to any verified identity and are operator-only, and the 403 code is `ROLE_REQUIRED`. `tools/apidoc-authz-check.py` repeats the check.
+- `docs/naming.md` defines the vocabulary (plex, caller, surface, wire, connection) and `docs/project-status.md` holds the inventory of what is implemented and validated; the README carries the summary.
