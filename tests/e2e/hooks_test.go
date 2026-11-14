@@ -215,11 +215,22 @@ hooks:
 		contains(t, r.Body, "[EMAIL]", "anthropic masked text")
 		notContains(t, r.Body, e2eMarker, "anthropic stream")
 
-		// Gemini streams cannot be buffered: refused even with buffer.
-		r = e.post("/ap/hooked/v1beta/models/gemini-e2e:streamGenerateContent?alt=sse", `{"contents":[{"role":"user","parts":[{"text":"x"}]}]}`)
-		if r.Status != 403 {
-			t.Fatalf("gemini stream under buffer: %d %s", r.Status, r.Body)
+		// OpenAI Responses and Gemini streams repeat their text in later
+		// events; the mask must reach every copy.
+		r = e.post("/ap/hooked/v1/responses", `{"model":"resp-e2e","stream":true,"input":"hi `+e2eEmail+`"}`)
+		if r.Status != 200 || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/event-stream") {
+			t.Fatalf("responses buffer: %d %s", r.Status, r.Body)
 		}
+		contains(t, r.Body, "response.completed", "responses stream end")
+		contains(t, r.Body, "[EMAIL]", "responses masked text")
+		notContains(t, r.Body, e2eMarker, "responses stream")
+		r = e.post("/ap/hooked/v1beta/models/gemini-e2e:streamGenerateContent?alt=sse", `{"contents":[{"role":"user","parts":[{"text":"hi `+e2eEmail+`"}]}]}`)
+		if r.Status != 200 || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/event-stream") {
+			t.Fatalf("gemini buffer: %d %s", r.Status, r.Body)
+		}
+		contains(t, r.Body, "usageMetadata", "gemini stream usage")
+		contains(t, r.Body, "[EMAIL]", "gemini masked text")
+		notContains(t, r.Body, e2eMarker, "gemini stream")
 		deletePolicy(t, e, "tenant-buffer")
 		deletePolicy(t, e, "out")
 	})

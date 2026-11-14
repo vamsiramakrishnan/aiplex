@@ -224,11 +224,12 @@ func TestModelHooksStreamingAndFailClosedConfiguration(t *testing.T) {
 	if w.Code != 403 || f.calls.Load() != 0 || !strings.Contains(w.Body.String(), hooks.CodeDenied) {
 		t.Fatalf("stream with response hook: %d %s", w.Code, w.Body.String())
 	}
-	// Buffer is not available for Gemini streams: still refused.
+	// With buffer, a Gemini stream is sent upstream and its response is
+	// inspected before the caller sees it.
 	putHookPolicy(t, f.resources, strings.Replace(hookPolicySpec, `"scope"`, `"streaming":"buffer","scope"`, 1))
 	w = httptest.NewRecorder()
 	f.serve(w, f.request("streamGenerateContent", "", quotaHostModelBody, false), false)
-	if w.Code != 403 || f.calls.Load() != 0 {
+	if w.Code != 200 || f.calls.Load() != 1 {
 		t.Fatalf("gemini buffer: %d %s", w.Code, w.Body.String())
 	}
 	// A broken stored policy fails closed.
@@ -237,11 +238,12 @@ func TestModelHooksStreamingAndFailClosedConfiguration(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	f.serve(w, f.request("generateContent", "", quotaHostModelBody, false), false)
-	if w.Code != 503 || f.calls.Load() != 0 || !strings.Contains(w.Body.String(), hooks.CodeUnavailableConfig) {
+	if w.Code != 503 || f.calls.Load() != 1 || !strings.Contains(w.Body.String(), hooks.CodeUnavailableConfig) {
 		t.Fatalf("broken policy: %d %s", w.Code, w.Body.String())
 	}
 	for _, r := range records() {
-		if r.Status == usageledger.StatusOK {
+		// The buffered Gemini stream is the one exchange that went through.
+		if r.Status == usageledger.StatusOK && r.Operation != "models.streamGenerateContent" {
 			t.Fatalf("a refused exchange was recorded ok: %+v", r)
 		}
 	}

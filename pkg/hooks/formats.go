@@ -30,7 +30,11 @@ func Inspectable(format string) bool {
 // StreamBufferable reports whether a streamed response in this format can be
 // buffered, inspected and re-emitted as a valid stream.
 func StreamBufferable(format string) bool {
-	return format == FormatOpenAIChat || format == FormatAnthropicMessages
+	switch format {
+	case FormatOpenAIChat, FormatAnthropicMessages, FormatOpenAIResponses, FormatGemini:
+		return true
+	}
+	return false
 }
 
 // ExtractRequest returns the inspectable text of a native request body.
@@ -89,12 +93,9 @@ func ExtractResponse(format, mediaType string, body []byte) (*Content, error) {
 		err = anthropicResponse(c, root, "")
 	case FormatGemini:
 		if root.kind == 'a' {
-			// streamGenerateContent without alt=sse answers a JSON array.
-			for i, e := range root.elems {
-				if err = geminiResponse(c, e, index("", i)); err != nil {
-					break
-				}
-			}
+			// streamGenerateContent without alt=sse answers a JSON array of
+			// chunks: assembled and checked like the server-sent form.
+			err = geminiChunkArray(content, body, root)
 		} else {
 			err = geminiResponse(c, root, "")
 		}
@@ -446,7 +447,15 @@ func geminiContent(c *collector, content *node, loc, role, kind string) error {
 		}
 		matched := false
 		if t := p.get("text"); t != nil {
-			c.text(t, locator(ploc, "text"), role, kind)
+			if c.join != "" {
+				thought := false
+				if th := p.get("thought"); th != nil && th.kind == 'b' && c.doc < len(c.content.docs) {
+					thought = string(c.content.docs[c.doc][th.start:th.end]) == "true"
+				}
+				c.textJoined(fmt.Sprintf("%s.%t", c.join, thought), t, locator(ploc, "text"), role, kind)
+			} else {
+				c.text(t, locator(ploc, "text"), role, kind)
+			}
 			matched = true
 		}
 		if fc := p.first("functionCall", "function_call"); fc != nil {
@@ -485,7 +494,10 @@ func geminiResponse(c *collector, root *node, loc string) error {
 	}
 	for i, candidate := range candidates.elems {
 		if content := candidate.get("content"); content != nil {
-			if err := geminiContent(c, content, locator(index(locator(loc, "candidates"), i), "content"), "model", KindText); err != nil {
+			c.join = fmt.Sprintf("%s.%d", loc, i)
+			err := geminiContent(c, content, locator(index(locator(loc, "candidates"), i), "content"), "model", KindText)
+			c.join = ""
+			if err != nil {
 				return err
 			}
 		}
