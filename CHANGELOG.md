@@ -181,6 +181,8 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - No default client follows a redirect any more: the Go, Python and TypeScript SDK clients, and the CLI's sign-in, token-refresh and dev-token requests. A 301, 302, 303, 307 or 308 from the API is the error `redirect_refused`, naming only the scheme and host it pointed at. The Go and TypeScript clients used to follow, which could carry a token or a device code to the redirect target. If a proxy in front of the API redirects (http to https, for example), point `AIPLEX_URL` at the final address.
 - An agent runtime's 401 or 403 on `a2a invoke` is answered as 502 `AGENT_CREDENTIAL_REJECTED` and recorded with the class `upstream_auth`; it used to pass through as the API's own 401 or 403, which read as the caller's token being refused.
 - A Bedrock `InvokeModel` response under a model id that names a vendor other than Anthropic is no longer read by the Anthropic parser, whatever its shape. Ids that name no vendor are read as before.
+- MCP tool discovery (the deploy engine's and the CLI's) uses the official MCP Go SDK through one package, `pkg/mcpdiscover`. A server that answers only a bare `tools/list` without `initialize` is no longer accepted by discovery. Gateway-side MCP forwarding is unchanged.
+- Idempotent operator actions use `singleflight` and a size-capped expiring cache: two identical requests arriving together run the handler once, and the action runs detached from the first caller's cancellation (its deadline still applies), so a client disconnect cannot cause a second execution.
 
 ### Upgrading an existing deployment
 
