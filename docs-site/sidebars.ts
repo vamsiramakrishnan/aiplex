@@ -90,7 +90,7 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'ClientPlex',
           link: {type: 'doc', id: 'guides/clientplex'},
-          items: [L('clientplex', 'Client contracts'), L('harness-onboarding', 'Harness onboarding')],
+          items: [L('clientplex', 'Client contracts'), L('harness-onboarding', 'Harness onboarding'), L('branchyard', 'Branchyard')],
         },
         'guides/skillsplex',
         {
