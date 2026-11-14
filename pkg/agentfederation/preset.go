@@ -618,7 +618,7 @@ func presetList() []Preset {
 				"Set the Branchyard backend's audience to this binding's audience. AIPlex checks iss, aud, sub, iat, exp and by_purpose exactly; by_branch and by_turn are not checked.",
 				"The gateway authorizer aiplex-authz verifies RS256 only, so this token works on the managed access point path (/ap/{id}/...) and not on the gateway path.",
 				"A Branchyard that runs on one machine without a server (issuer branchyard:local:<id>, keys in a file) cannot be federated; give its backend an AIPlex token instead.",
-				"Not validated against a running Branchyard server: the tests use a stand-in issuer that signs tokens of the same shape.",
+				"Run against a real Branchyard server on 14 November 2026, on loopback over plain http (docs/branchyard.md has the record); not validated with an https issuer, a Cloud KMS signing key or a deployed AIPlex.",
 			},
 			loopbackIssuer: true,
 			// Contract section 7: exp is at most one hour after iat.

@@ -73,7 +73,7 @@ func TestDeriveBranchyard(t *testing.T) {
 		t.Fatalf("branchyard preset: algorithms %v, extra claims %v", p.Algorithms, p.AllowsRequiredClaims)
 	}
 	notes := strings.Join(p.Notes, " ")
-	for _, s := range []string{"EdDSA", "cannot be federated", "Not validated against a running Branchyard server", "aiplex-authz", "RS256 only", "/ap/{id}/", "at most one hour"} {
+	for _, s := range []string{"EdDSA", "cannot be federated", "Run against a real Branchyard server on 14 November 2026", "aiplex-authz", "RS256 only", "/ap/{id}/", "at most one hour"} {
 		if !strings.Contains(notes, s) {
 			t.Fatalf("notes do not say %q: %s", s, notes)
 		}

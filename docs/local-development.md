@@ -308,7 +308,7 @@ What a federated token is, and is not:
 What is not covered: the stand-in providers sign with an in-memory key that exists only while `aiplex dev` runs,
 and there is no directory (group lookup) provider. Real identity providers, their metadata and their group
 resolution have not been tried through this stack. The `branchyard` stand-in signs tokens of the shape the
-integration contract gives; a running Branchyard server has not been tried through this stack. To turn federation off in a test, set
+integration contract gives. A real Branchyard server has been run against `aiplex dev` separately, by Branchyard's own qualification script ([Branchyard](branchyard.md#status-what-was-tested)); this stack's tests use the stand-in. To turn federation off in a test, set
 `AIPLEX_USER_FEDERATION=disabled` and `AIPLEX_AGENT_FEDERATION=disabled` in `devstack.Options.Env`: a variable there replaces
 the stack's default entry (`mergeEnv`, no duplicates), and `TestDevStackFederationCanBeDisabled` checks that the presets
 then report `live_authentication: false`. `aiplex dev` itself has no flag for it.

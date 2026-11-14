@@ -164,9 +164,12 @@ nothing by itself; grant the principal it yields as for any binding.
 A Branchyard that runs on one machine without a server, whose issuer is `branchyard:local:{id}`
 and whose keys are a file, cannot be federated: give its backend an AIPlex token instead.
 
-Limits: the preset is tested with a stand-in issuer that signs tokens of the shape above
+Limits: in this repository the preset is tested with a stand-in issuer that signs tokens of the shape above
 (`aiplex dev token --issuer branchyard`, see [local development](local-development.md#a-branchyard-turn-token)).
-It has not been validated against a running Branchyard server. The gateway authorizer
+On 14 November 2026 it was also run against a real Branchyard server: `by serve` on loopback over plain http
+minted the token, a development AIPlex fetched the server's key set and verified it, and a token for another
+audience was refused ([Branchyard](branchyard.md#status-what-was-tested)). Not validated: an `https` issuer, a
+Cloud KMS signing key on the Branchyard side, a Branchyard tenant other than its default, a deployed AIPlex. The gateway authorizer
 `aiplex-authz` verifies RS256 only, so a turn token works on the managed access point path
 (`/ap/{id}/...`) and not on the gateway path.
 
