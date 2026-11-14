@@ -116,6 +116,7 @@ Not yet released. This section lists the 0.1.0 contents by area. Exercised again
 - Media operations and model batches with settlement, provider-capacity cooldown and headroom gate, and Envoy `LLMRoute` generation for gateway routing.
 - Gemini Live on the Gemini Developer API (`gemini.live.connect`), relayed with the surface's API key in the `x-goog-api-key` header only. One session is one request-count admission; its usage is advisory and token metering is refused. Tested against recorded fixtures and a fake upstream, not the live API.
 - An access point serves a model alias on multipart requests (audio transcription and translation, image edits), where it used to answer 503.
+- Anthropic Messages on Bedrock's second endpoint family (`bedrock-mantle.messages`, host `bedrock-mantle.{region}.api.aws`), with the gateway's AWS identity signed for the service name `bedrock-mantle` or a Bedrock API key held as a secret reference. The origin must be exactly the documented host for the surface's region, and a surface cannot mix Mantle and Bedrock Runtime operations. Metering equals the Bedrock Runtime Messages path for the same response. Built from AWS's documentation and tested against fake upstreams, not live AWS.
 
 ### Tools, agents, skills and clients
 

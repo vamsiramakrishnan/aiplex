@@ -64,7 +64,7 @@ Existing Envoy routes and direct provider calls do not automatically pass throug
 
 ## Usage coverage
 
-The [usage-format coverage matrix](reference/usage-formats/coverage.md) lists, per provider, surface and transport, whether usage is `exact`, `advisory` or `unsupported`. It has 49 exact rows, 10 advisory and 4 unsupported. "Exact" means the gateway reproduces the recorded fixture; the fixtures are recorded or documented provider responses, not live calls.
+The [usage-format coverage matrix](reference/usage-formats/coverage.md) lists, per provider, surface and transport, whether usage is `exact`, `advisory` or `unsupported`. It has 50 exact rows, 10 advisory and 3 unsupported. "Exact" means the gateway reproduces the recorded fixture; the fixtures are recorded or documented provider responses, not live calls.
 
 ## Validation
 
@@ -88,7 +88,7 @@ Not validated:
 - Any comparison of AIPlex's usage or cost figures against a provider invoice, and the Presidio and LLM Guard adapters against the real services.
 - A deployment to a live cloud project, and load, availability or backup-restore behaviour. The Google Cloud permissions table, the preflight, the custom deployer role and the narrowed runtime grants have not been run against a live project.
 - macOS and Windows; the container image build and push; the Homebrew cask; budgets on managed Firestore (they have run on the emulator only).
-- Features built from provider documentation and run only against fixtures and fake upstreams: Gemini Live on the Gemini Developer API (API-key header authentication on that endpoint was not observed working), DeepSeek usage semantics, live voice metering by seconds against OpenAI's billing, ES384 agent tokens against a live AWS account, and buffered inspection of Gemini and Responses streams.
+- Features built from provider documentation and run only against fixtures and fake upstreams: Gemini Live on the Gemini Developer API (API-key header authentication on that endpoint was not observed working), Anthropic Messages on the Bedrock Mantle endpoint (the SigV4 service name is taken from AWS's count-tokens page), DeepSeek usage semantics, live voice metering by seconds against OpenAI's billing, ES384 agent tokens against a live AWS account, and buffered inspection of Gemini and Responses streams.
 - Identity federation against a real identity provider through `aiplex dev`: its three issuers are loopback stand-ins. Console screens against a live deployment. ClientPlex plans against installed clients (the Claude Code token helper and the Gemini CLI profile included). `aiplex a2a invoke` against a connected cloud agent, and `aiplex tool-auth register` against a live authorization server.
 - OpenTelemetry export to a real collector, Jaeger, Cloud Trace or Cloud Monitoring. The telemetry overhead has not been measured.
 - The price catalogue is a third-party snapshot (LiteLLM, retrieved 2026-11-10; see [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)). Its prices have not been checked against provider price pages, and discounts and commitments are not reflected.
