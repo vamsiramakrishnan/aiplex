@@ -3,7 +3,13 @@ package modelapi
 import "fmt"
 
 func anthropicOperation(op Operation) bool {
-	return op.ID == "anthropic.messages" || op.ID == "models.rawPredict" || op.ID == "models.streamRawPredict"
+	return anthropicMessagesOperation(op) || op.ID == "models.rawPredict" || op.ID == "models.streamRawPredict"
+}
+
+// anthropicMessagesOperation reports the native Anthropic Messages wire: the
+// Claude API and the Bedrock Mantle endpoint (same request and response format).
+func anthropicMessagesOperation(op Operation) bool {
+	return op.ID == "anthropic.messages" || op.ID == BedrockMantleMessagesOperation
 }
 
 // serverToolCounters names the documented Anthropic server_tool_use request

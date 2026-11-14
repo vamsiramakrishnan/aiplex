@@ -314,6 +314,21 @@ func (g *Gateway) providerRequestHeaders(in http.Header) (http.Header, error) {
 		if len(betas) > 0 {
 			out.Set("Anthropic-Beta", strings.Join(betas, ","))
 		}
+	case ProviderBedrock:
+		if !g.surface.BedrockMantle() {
+			break
+		}
+		// Mantle Messages: the documented anthropic-version header, pinned.
+		// Beta features are not enabled on this surface.
+		for _, version := range in.Values("Anthropic-Version") {
+			if strings.TrimSpace(version) != BedrockMantleAnthropicVersion {
+				return nil, badRequest("anthropic-version is pinned to %s on bedrock-mantle", BedrockMantleAnthropicVersion)
+			}
+		}
+		if len(in.Values("Anthropic-Beta")) > 0 {
+			return nil, badRequest("anthropic-beta is not enabled on this surface")
+		}
+		out.Set("Anthropic-Version", BedrockMantleAnthropicVersion)
 	}
 	return out, nil
 }

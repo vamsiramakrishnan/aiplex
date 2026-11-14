@@ -86,9 +86,57 @@ Bedrock rows appear under the `anthropic` provider in the coverage matrix.
 | `bedrock` | `bedrock.converse-stream` | `POST /model/{model}/converse-stream` | `bedrock-converse` | AWS event stream | Request count, or `bedrock-converse-text` token profile | exact in the matrix |
 | `bedrock` | `bedrock.invoke` | `POST /model/{model}/invoke` | `bedrock-invoke` | HTTP | Request count, or `anthropic-text` token profile (Messages-shaped bodies only) | exact for Messages-shaped bodies. Other InvokeModel bodies are not observed. |
 | `bedrock` | `bedrock.invoke-stream` | `POST /model/{model}/invoke-with-response-stream` | `bedrock-invoke` | AWS event stream | Request count, or `anthropic-text` token profile (Messages-shaped chunks only) | exact for Messages-shaped chunks. Other chunks are not observed. |
+| `bedrock` | `bedrock-mantle.messages` | `POST /anthropic/v1/messages` on `bedrock-mantle.{region}.api.aws` | `anthropic-messages` | HTTP, SSE (`"stream": true`) | Request count, or `anthropic-text` token profile | exact in the matrix (`bedrock-mantle-messages`). See [Bedrock Mantle Messages](#bedrock-mantle-messages). |
 
 The matrix holds the level for each Bedrock row. The `anthropic-text` profile is admitted
 for Bedrock InvokeModel only when the body is Messages-shaped.
+
+#### Bedrock Mantle Messages
+
+`bedrock-mantle.messages` is the Anthropic Messages API on Bedrock's `bedrock-mantle`
+endpoint. The endpoint, signing name and request shape are taken from AWS's
+[Messages API page](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-messages-api.html)
+and [count tokens page](https://docs.aws.amazon.com/bedrock/latest/userguide/count-tokens.html)
+(read 2026-11-14).
+
+- **Endpoint.** `POST https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages`. The
+  model (an `anthropic.`-prefixed id) is in the body and must be in the surface's `models`.
+  Streaming is `"stream": true`, answered as Server-Sent Events.
+- **Surface.** Provider `bedrock` with `region`, protocol `anthropic-messages` (required), and
+  only this operation: Mantle and Bedrock Runtime are different hosts, so they are separate
+  surfaces. The origin must be exactly `https://bedrock-mantle.{region}.api.aws` for the
+  surface's `region`, with no port. Plain `http` is accepted only on a loopback host (tests and
+  local proxies). A different region, a suffixed host, a port, plain `http` to any other host,
+  or a region that is empty or contains anything but the AWS region form (letters, digits and
+  hyphens) is refused at save time, before anything is signed or sent. A `bedrock` surface
+  with protocol `anthropic-messages` must install this operation.
+- **Credentials.** Identity type `aws-default` signs with SigV4 for service `bedrock-mantle`
+  in the surface's region, or `auth` is an Amazon Bedrock API key as a secret reference in
+  header `x-api-key` (`api_key`, no prefix). A bearer `auth` is refused for Mantle. Missing or
+  expired AWS credentials refuse the request with `503 upstream identity unavailable`; it is
+  never sent unsigned. Caller credentials and `X-Amz-*` headers are not forwarded.
+- **Headers.** `anthropic-version` is pinned to the documented `2023-06-01`; a caller value
+  that differs is refused with `400`. `anthropic-beta` is not enabled on Mantle surfaces and
+  is refused with `400`. The outbound headers are built from an allowlist, so caller
+  `Authorization` and `X-Amz-*` headers never reach AWS or change the signature.
+- **Errors.** A `401` or `403` from Mantle (the gateway's credential refused) is answered as a
+  `502` in the Anthropic error shape (`{"type":"error","error":{"type":"api_error","code":"upstream_credential_rejected",…}}`),
+  since this wire's clients are Anthropic SDKs, not in the Bedrock Runtime shape.
+- **Usage.** The response is read by the Anthropic Messages observer, the same as for the
+  Claude API. A test feeds one Messages response through Mantle, through Bedrock
+  InvokeModel and through the Claude API, streaming and not, and finds the same final usage,
+  including the 5-minute and 1-hour cache-write counters, and the same settlement.
+- **Client paths.** The facade maps `/anthropic/v1/messages` (Anthropic SDK with
+  `base_url …/gateway/{id}/anthropic`) and `/v1/messages`; access points serve it on the
+  Messages wire. On the facade's `/anthropic/v1/messages` the SDK's `x-api-key` header
+  carries the caller's AIPlex token.
+- **SigV4 service name.** `bedrock-mantle` is named on AWS's count tokens page; the Messages
+  page says only "AWS SigV4 credentials".
+- **Not validated live.** Tested against a fixture built from AWS's documented Messages
+  format (`bedrock-mantle.sse`, not recorded from a live response) and fake upstreams only;
+  never against live AWS. Mantle's
+  `count_tokens`, the OpenAI-compatible APIs on the same host, Workspaces and cross-Region
+  model ids are not served.
 
 ### Gemini Developer API
 
@@ -415,13 +463,14 @@ only.
 | `openai` | `auth.type: bearer`, or identity type `bearer-env` |
 | `anthropic` | `auth.type: api_key` in header `x-api-key`, with no prefix |
 | `azure-openai` | `auth.type: api_key` in header `api-key`, with no prefix, or identity type `azure-default` (Entra) |
-| `bedrock` | `auth.type: bearer` (Bedrock API key), or identity type `aws-default` (SigV4) |
+| `bedrock` | `auth.type: bearer` (Bedrock API key), or identity type `aws-default` (SigV4, service `bedrock`). A Mantle surface: `auth.type: api_key` in header `x-api-key` with no prefix, or `aws-default` (SigV4, service `bedrock-mantle`) |
 | `openai-compatible` | `auth.type: bearer` or `none`, or identity type `bearer-env` |
 | `gemini-developer` | `auth.type: api_key` in header `x-goog-api-key`, with no prefix |
 
 Origins are checked at save time, for `https` origins. An `https` `gemini-developer` origin
 must be `generativelanguage.googleapis.com`. An `https` `bedrock` origin must be the Bedrock
-Runtime endpoint of its signing region. An `https` `azure-openai` origin must be an Azure
+Runtime endpoint of its signing region, or for a Mantle surface exactly
+`bedrock-mantle.{region}.api.aws`. An `https` `azure-openai` origin must be an Azure
 OpenAI or Foundry resource endpoint.
 
 ### Stream usage
@@ -476,7 +525,7 @@ No other credential type is accepted.
 | Header | Accepted on | Wire |
 | --- | --- | --- |
 | `Authorization: Bearer <token>` | All model routes, including the access point and facade routes below | Any |
-| `x-api-key` | `/ap/{id}/v1/messages`, `/ap/{id}/v1/messages/count_tokens`, `/ap/{id}/v1/models` (only when the request carries `anthropic-version`), `/api/v1/llm/gateway/{id}/v1/messages`, `/api/v1/llm/gateway/{id}/v1/messages/count_tokens` | Anthropic Messages |
+| `x-api-key` | `/ap/{id}/v1/messages`, `/ap/{id}/v1/messages/count_tokens`, `/ap/{id}/v1/models` (only when the request carries `anthropic-version`), `/api/v1/llm/gateway/{id}/v1/messages`, `/api/v1/llm/gateway/{id}/v1/messages/count_tokens`, `/api/v1/llm/gateway/{id}/anthropic/v1/messages` (Bedrock Mantle) | Anthropic Messages |
 | `x-goog-api-key` | `/ap/{id}/v1beta/…`, `/ap/{id}/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent`, `/api/v1/llm/gateway/{id}/v1beta/…`, the same Live path and the Developer API Live path (`/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`) on the facade, and facade paths ending in `:generateContent`, `:streamGenerateContent`, `:countTokens`, `:embedContent` or `:batchEmbedContents` | Google GenAI |
 | `api-key` | `/ap/{id}/v1/…` (other than the Anthropic paths above, so this includes `/v1/models` without `anthropic-version`), `/ap/{id}/openai/…` (Azure OpenAI shapes), `/api/v1/llm/gateway/{id}/openai/…` | OpenAI and Azure OpenAI |
 
@@ -526,7 +575,7 @@ closed.
 | `anthropic` | `base_url` `…/gateway/{id}` | `/v1/messages`, `/v1/messages/count_tokens`; `/v1/messages/batches`, `/v1/messages/batches/{id}`, `…/{id}/cancel`, `…/{id}/results` |
 | `azure-openai` (v1) | `base_url` `…/gateway/{id}/openai/v1` | `/openai/v1/chat/completions`, `/openai/v1/responses`, `/openai/v1/embeddings`, `/openai/v1/responses/{id}` (GET, DELETE) and `…/{id}/cancel` |
 | `azure-openai` (deployments) | `azure_endpoint` `…/gateway/{id}` | `/openai/deployments/{deployment}/chat/completions`, `/openai/deployments/{deployment}/embeddings` |
-| `bedrock` | `endpoint_url` `…/gateway/{id}` | `/model/{model}/converse`, `converse-stream`, `invoke`, `invoke-with-response-stream` |
+| `bedrock` | `endpoint_url` `…/gateway/{id}` | `/model/{model}/converse`, `converse-stream`, `invoke`, `invoke-with-response-stream`. A Mantle surface (Anthropic SDK `base_url` `…/gateway/{id}/anthropic`): `/anthropic/v1/messages` and `/v1/messages` |
 | `openai-compatible` | `base_url` `…/gateway/{id}{base}` | `{base}/chat/completions` |
 | `gemini-developer` | Google GenAI paths under `…/gateway/{id}` | `/v1beta/models/{model}:{generateContent, streamGenerateContent, countTokens, embedContent, batchEmbedContents, batchGenerateContent, predictLongRunning}`; `/v1beta/cachedContents[/{id}]`; `/v1beta/interactions[/{id}[/cancel]]`; `/v1beta/batches/{id}[:cancel]`; `/v1beta/models/{model}/operations/{id}`; `/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent` (GET upgrade for `gemini.live.connect`) |
 

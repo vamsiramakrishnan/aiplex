@@ -3,6 +3,7 @@ package modelapi
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -47,13 +48,65 @@ const (
 	StreamUsageOff     = "off"     // forward unchanged; streaming usage may stay unknown
 )
 
+// Bedrock "Mantle" endpoint: the Anthropic Messages API on bedrock-mantle.
+// Read from AWS's public documentation on 2026-11-14:
+//
+//   - https://docs.aws.amazon.com/bedrock/latest/userguide/inference-messages-api.html:
+//     base URL https://bedrock-mantle.{region}.api.aws/anthropic/v1/messages;
+//     "native access to Claude models using the Anthropic request and response
+//     format"; the model id (anthropic.-prefixed) is in the body; "Set
+//     anthropic-version: 2023-06-01 as an HTTP header"; authentication is an
+//     Amazon Bedrock API key (x-api-key in the examples) or AWS SigV4
+//     credentials; streaming is "stream": true (Server-Sent Events).
+//   - https://docs.aws.amazon.com/bedrock/latest/userguide/count-tokens.html:
+//     "Either a SigV4 signature with service name bedrock-mantle, or an Amazon
+//     Bedrock API key passed in the x-api-key header". The SigV4 service name
+//     bedrock-mantle is taken from this page: the Messages page says "AWS
+//     SigV4 credentials" for bedrock-mantle without naming the service.
+//   - https://docs.aws.amazon.com/bedrock/latest/userguide/endpoints.html: the
+//     bedrock-mantle.{region}.api.aws endpoints serve the OpenAI-compatible
+//     APIs and the Anthropic Messages API; IAM action bedrock-mantle:CreateInference.
+//
+// A surface that installs it serves only it: its origin is
+// https://bedrock-mantle.{provider.region}.api.aws, a different host from
+// Bedrock Runtime (Surface.validateProvider).
+const (
+	BedrockMantleMessagesOperation = "bedrock-mantle.messages"
+	bedrockMantleRef               = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-messages-api.html"
+	// BedrockMantleAnthropicVersion is the documented anthropic-version header.
+	BedrockMantleAnthropicVersion = "2023-06-01"
+	// BedrockMantleAPIKeyHeader is the documented Bedrock API key header.
+	BedrockMantleAPIKeyHeader = "x-api-key"
+)
+
+// BedrockMantle reports a Bedrock surface on the bedrock-mantle endpoint.
+func (s Surface) BedrockMantle() bool {
+	if s.Provider == nil || s.Provider.ID != ProviderBedrock {
+		return false
+	}
+	for _, o := range s.Operations {
+		if o.ID == BedrockMantleMessagesOperation {
+			return true
+		}
+	}
+	return false
+}
+
+// BedrockSigningService is the SigV4 service name of a Bedrock surface.
+func (s Surface) BedrockSigningService() string {
+	if s.BedrockMantle() {
+		return "bedrock-mantle"
+	}
+	return "bedrock"
+}
+
 // CredentialScheme names how the upstream credential is presented.
 type CredentialScheme string
 
 const (
 	SchemeBearer CredentialScheme = "bearer"    // Authorization: Bearer
 	SchemeHeader CredentialScheme = "api-key"   // provider-named API key header
-	SchemeSigV4  CredentialScheme = "aws-sigv4" // AWS Signature Version 4, service "bedrock"
+	SchemeSigV4  CredentialScheme = "aws-sigv4" // AWS Signature Version 4, service "bedrock" (or "bedrock-mantle")
 	SchemeEntra  CredentialScheme = "entra"     // Microsoft Entra bearer token
 	SchemeNone   CredentialScheme = "none"      // no upstream credential
 )
@@ -173,6 +226,7 @@ func providerCatalog() map[string][]providerOp {
 			bedrock("bedrock.converse-stream", "converse-stream", EventStream, FormatBedrockConverse, ProtocolBedrockConverse),
 			bedrock("bedrock.invoke", "invoke", HTTP, FormatBedrockInvoke, ProtocolBedrockInvoke),
 			bedrock("bedrock.invoke-stream", "invoke-with-response-stream", EventStream, FormatBedrockInvoke, ProtocolBedrockInvoke),
+			{Operation{ID: BedrockMantleMessagesOperation, Method: "POST", Path: "/anthropic/v1/messages", Transport: SSE, Action: Invoke, SourceURL: bedrockMantleRef}, FormatAnthropicMessages, ProtocolAnthropicMessages},
 		},
 		ProviderOpenAICompatible: {
 			chat("compat.chat-completions", "{base}/chat/completions", openaiRef+"/resources/chat/subresources/completions/methods/create"),
@@ -344,7 +398,32 @@ func (s Surface) validateProvider() error {
 		if !awsRegionPattern.MatchString(p.Region) {
 			return fmt.Errorf("bedrock requires a valid signing region")
 		}
-		if origin.Scheme == "https" && host != "bedrock-runtime."+p.Region+".amazonaws.com" && host != "bedrock-runtime-fips."+p.Region+".amazonaws.com" && host != "bedrock-runtime."+p.Region+".amazonaws.com.cn" {
+		if s.BedrockMantle() {
+			// The Mantle host serves no Bedrock Runtime operation.
+			for _, o := range s.Operations {
+				if o.ID != BedrockMantleMessagesOperation {
+					return fmt.Errorf("a bedrock-mantle surface serves only %s; use a separate surface for %s", BedrockMantleMessagesOperation, o.ID)
+				}
+			}
+			if s.Protocol != ProtocolAnthropicMessages {
+				return fmt.Errorf("a bedrock-mantle surface uses protocol %s", ProtocolAnthropicMessages)
+			}
+			// Exactly the documented host of the signing region, on the
+			// default port; plain HTTP only on a loopback host (tests and
+			// local proxies), never elsewhere.
+			switch origin.Scheme {
+			case "https":
+				if host != "bedrock-mantle."+p.Region+".api.aws" || origin.Port() != "" {
+					return fmt.Errorf("bedrock-mantle origin must be https://bedrock-mantle.%s.api.aws (the signing region's endpoint, no port)", p.Region)
+				}
+			default:
+				if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+					return fmt.Errorf("bedrock-mantle origin must be https://bedrock-mantle.%s.api.aws; plain http is accepted only on a loopback host", p.Region)
+				}
+			}
+		} else if s.Protocol == ProtocolAnthropicMessages {
+			return fmt.Errorf("protocol %s on bedrock requires the %s operation", ProtocolAnthropicMessages, BedrockMantleMessagesOperation)
+		} else if origin.Scheme == "https" && host != "bedrock-runtime."+p.Region+".amazonaws.com" && host != "bedrock-runtime-fips."+p.Region+".amazonaws.com" && host != "bedrock-runtime."+p.Region+".amazonaws.com.cn" {
 			return fmt.Errorf("bedrock origin must be the Bedrock Runtime endpoint of the signing region")
 		}
 	case ProviderAzureOpenAI:

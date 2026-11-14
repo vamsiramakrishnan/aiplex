@@ -111,6 +111,11 @@ func (g *Gateway) writeUpstreamAuthError(w http.ResponseWriter, operator bool) {
 	if g.surface.Provider != nil {
 		provider = g.surface.Provider.ID
 	}
+	if g.surface.BedrockMantle() {
+		// The Mantle wire is the Anthropic Messages API: its clients (the
+		// Anthropic SDK) read the Anthropic error shape.
+		provider = ProviderAnthropic
+	}
 	details := map[string]string{}
 	if operator {
 		details["surface_id"] = g.surface.ID

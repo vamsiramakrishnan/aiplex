@@ -64,7 +64,7 @@ interrupted session leaves its open lease unsettled.
 
 | Provider | exact | advisory | unsupported |
 | --- | --- | --- | --- |
-| anthropic | 9 | 1 | 3 |
+| anthropic | 10 | 1 | 2 |
 | azure-openai | 5 | 0 | 0 |
 | google | 18 | 5 | 1 |
 | openai | 13 | 4 | 0 |
@@ -78,7 +78,7 @@ interrupted session leaves its open lease unsettled.
 | anthropic | bedrock-converse-stream | aws-eventstream | exact | `bedrock-converse-stream-interrupted.jsonl`<br>`bedrock-converse-stream.jsonl` |  |
 | anthropic | bedrock-invoke | json | exact | `bedrock-invoke.json` |  |
 | anthropic | bedrock-invoke-stream | aws-eventstream | exact | `bedrock-invoke-stream-interrupted.jsonl`<br>`bedrock-invoke-stream.jsonl` |  |
-| anthropic | bedrock-mantle-messages | sse | unsupported | `bedrock-mantle.sse (format-checked)` | no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer |
+| anthropic | bedrock-mantle-messages | sse | exact | `bedrock-mantle.sse` | fixture built from AWS's documented Messages format (inference-messages-api.html), not recorded from a live bedrock-mantle response |
 | anthropic | count-tokens | json | advisory | `count-tokens.json` | POST /v1/messages/count_tokens: an input-size estimate, never consumption; only the request is counted and the response is never read for usage |
 | anthropic | managed-agents | json | unsupported | `managed-agents-session.json` | no Managed Agents operation: the session object usage is a documented cumulative snapshot (platform.claude.com/docs/en/managed-agents/session-observability, re-read 2026-11-10), but the session.usage event envelope is still not shown and a session has no single terminal exchange through which a snapshot could settle once without double counting repeated polls |
 | anthropic | message-batches | jsonl-file | exact | `batch-results-partial.jsonl`<br>`batch-results.jsonl` | batch-usage binding: admitted at create, settled once from complete per-line results through the gateway (succeeded lines only; batch-object usage is a cross-check, never added); GET /v1/messages/batches/{id}/results; a cache counter absent on any succeeded line leaves that sum unknown<br>batch-usage binding: admitted at create, settled once from complete per-line results through the gateway (succeeded lines only; batch-object usage is a cross-check, never added) |

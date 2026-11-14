@@ -28,7 +28,7 @@ type jsonObservation struct {
 
 func cumulativeUsage(op Operation) bool {
 	switch op.ID {
-	case "models.generateContent", "models.streamGenerateContent", "endpoints.generateContent", "endpoints.streamGenerateContent", "openai.chat-completions", "response.create", "response.get", "interaction.create", "interaction.get", "anthropic.messages",
+	case "models.generateContent", "models.streamGenerateContent", "endpoints.generateContent", "endpoints.streamGenerateContent", "openai.chat-completions", "response.create", "response.get", "interaction.create", "interaction.get", "anthropic.messages", BedrockMantleMessagesOperation,
 		"openai.v1.chat-completions", "openai.v1.responses", "azure.v1.chat-completions", "azure.v1.responses", "azure.deployments.chat-completions", "compat.chat-completions", "bedrock.converse", "bedrock.converse-stream":
 		return true
 	default:
@@ -40,7 +40,7 @@ func cumulativeUsage(op Operation) bool {
 // Messages API, Vertex rawPredict on the anthropic publisher, or a Bedrock
 // InvokeModel body whose model-native payload is the Messages shape.
 func (g *Gateway) anthropicWire(op Operation) bool {
-	return op.ID == "anthropic.messages" || (g.surface.Publisher == "anthropic" && anthropicOperation(op)) || bedrockInvoke(op)
+	return anthropicMessagesOperation(op) || (g.surface.Publisher == "anthropic" && anthropicOperation(op)) || bedrockInvoke(op)
 }
 
 func (g *Gateway) inspectJSON(ctx context.Context, owner Owner, op Operation, data []byte, terminal, includeUsage bool) (jsonObservation, error) {

@@ -337,6 +337,10 @@ func usageRoutes() []fixtureRoute {
 	advisory := func(provider, file, surface, transport string, call *fixtureCall, conv expectConvention, native nativeSemantics, final bool, reason string) fixtureRoute {
 		return fixtureRoute{provider: provider, file: file, surface: surface, transport: transport, status: statusAdvisory, reason: reason, call: call, conv: conv, native: native, final: final}
 	}
+	mantleDocumented := func(r fixtureRoute) fixtureRoute {
+		r.reason = "fixture built from AWS's documented Messages format (inference-messages-api.html), not recorded from a live bedrock-mantle response"
+		return r
+	}
 	formatOnly := func(r fixtureRoute, status conformanceStatus, reason string) fixtureRoute {
 		r.status, r.reason, r.formatOnly, r.strict = status, reason, true, strictNotApplicable
 		return r
@@ -406,7 +410,7 @@ func usageRoutes() []fixtureRoute {
 		exact("anthropic", "bedrock-converse.json", "bedrock-converse", "json", callConverse, convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "bedrock-converse-stream.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, true, strictSettles, ""),
 		exact("anthropic", "bedrock-converse-stream-interrupted.jsonl", "bedrock-converse-stream", "aws-eventstream", callConverseS, convAnthropic, natAnthropic, false, strictUnknown, ""),
-		formatOnly(exact("anthropic", "bedrock-mantle.sse", "bedrock-mantle-messages", "sse", with(callAnthropic, func(c *fixtureCall) { c.body = `{"model":"claude-fixture","max_tokens":8,"messages":[],"stream":true}` }), convAnthropic, natAnthropic, true, strictNotApplicable, ""), statusUnsupported, "no bedrock-mantle surface (SigV4 service bedrock-mantle, origin bedrock-mantle.{region}.api.aws); Messages SSE format checked through the Anthropic observer"),
+		mantleDocumented(exact("anthropic", "bedrock-mantle.sse", "bedrock-mantle-messages", "sse", callMantle, convAnthropic, natAnthropic, true, strictSettles, "")),
 
 		// ---------------- Google ----------------
 		formatOnly(exact("google", "gemini-generate.json", "gemini-generateContent", "json", callVertexGenerate, convGemini, natGemini, true, strictNotApplicable, ""), statusUnsupported, noDA),

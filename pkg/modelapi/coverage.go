@@ -32,7 +32,7 @@ func Coverage(op Operation) ExecutionCoverage {
 		// (Provider.UsageSemantics), which the quota host checks per
 		// invocation.
 		return ExecutionCoverage{RequestCount: true}
-	case "anthropic.messages", "models.rawPredict", "models.streamRawPredict":
+	case "anthropic.messages", BedrockMantleMessagesOperation, "models.rawPredict", "models.streamRawPredict":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "anthropic-text"}
 	case "interaction.create":
 		return ExecutionCoverage{RequestCount: true, TokenProfile: "gemini-interaction-text"}

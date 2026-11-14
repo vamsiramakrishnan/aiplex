@@ -178,6 +178,9 @@ func quotaProfileOperation(binding QuotaBinding) bool {
 		case "bedrock.invoke", "bedrock.invoke-stream":
 			// Anthropic Messages bodies on Bedrock InvokeModel.
 			return binding.Provider == "bedrock"
+		case "bedrock-mantle.messages":
+			// The Messages API on the bedrock-mantle endpoint.
+			return binding.Provider == "bedrock"
 		}
 		return false
 	case quotaProfileBedrockConverse:
