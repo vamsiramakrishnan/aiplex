@@ -46,6 +46,8 @@ describe('ClientPlex asynchronous editor and plan ownership', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     }
     const editor = screen.getByLabelText(/Use credential references/) as HTMLTextAreaElement
+    // The starter still has placeholders, which the page refuses to save, so a new registration starts from real values.
+    if (!initialRevision) fireEvent.change(editor, { target: { value: JSON.stringify({ id, profile_id: 'codex', mode: 'gateway', protocol: 'openai-responses', principal_binding: 'principal:user', destination_ref: 'gcp-gateway', auth_mode: 'gateway-key', credential_env: 'CODEX_KEY', credential_ref: 'secret:codex' }, null, 2) } })
     fireEvent.click(screen.getByRole('button', { name: 'Save registration' }))
     await waitFor(() => expect(writes).toBe(1))
 
