@@ -20,6 +20,8 @@ What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
     --api-key-env, which exposes one model)
   - a built-in MCP server with three tools (echo, add, reset_counter), and a
     second one that refuses requests without an API key
+  - a built-in mock agent runtime (Google Agent Runtime query wire, deterministic)
+    behind the agent connection "local-agent"; its bearer token is random per run
   - stand-in identity providers for federation (a workforce one, a workload
     one and one nobody configures), served on loopback; the API trusts them
     only after you configure them (see "aiplex dev token --help")

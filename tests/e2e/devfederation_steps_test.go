@@ -17,9 +17,9 @@ import (
 
 // realDev starts the real `aiplex dev --detach` with an isolated HOME and
 // returns a runner for shell scripts that see the test's aiplex first on PATH.
-func realDev(t *testing.T) (sh func(script string) (string, int), aiplexRun func(env []string, args ...string) (string, string, int)) {
+func realDev(t *testing.T) (sh func(script string) (string, int), aiplexRun func(env []string, args ...string) (string, string, int), home string) {
 	t.Helper()
-	home := t.TempDir()
+	home = t.TempDir()
 	port, err := devstack.FreePort()
 	if err != nil {
 		t.Fatal(err)
@@ -62,14 +62,14 @@ func realDev(t *testing.T) (sh func(script string) (string, int), aiplexRun func
 		t.Fatalf("dev --detach: %s %s", out, errOut)
 	}
 	t.Cleanup(func() { aiplexRun(nil, "dev", "stop") })
-	return sh, aiplexRun
+	return sh, aiplexRun, home
 }
 
 // The steps a reader follows work as written: the provider block that
 // `aiplex dev token --issuer idp` prints is valid shell when pasted unmodified,
 // and the workload block of docs/local-development.md runs as it stands.
 func TestDevDocumentedFederationSteps(t *testing.T) {
-	sh, run := realDev(t)
+	sh, run, _ := realDev(t)
 
 	t.Run("printed provider block runs unmodified", func(t *testing.T) {
 		tok, hint, code := run(nil, "dev", "token", "--user", "alice", "--issuer", "idp")

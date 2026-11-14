@@ -18,6 +18,7 @@ The implementation is in `cmd/aiplex-cli/cmd_dev.go` and `internal/devstack/`.
 | Mock model provider | `127.0.0.1`, a free port | Speaks the OpenAI Chat Completions, OpenAI Responses, Anthropic Messages and Gemini generateContent wires, one model on each. Replies are deterministic. |
 | Mock MCP server | `127.0.0.1`, a free port | Three tools: `echo`, `add` and `reset_counter`. |
 | Keyed MCP server | `127.0.0.1`, a free port | The same three tools, but it answers `401` to a request without its API key (header `X-Api-Key`). The key is random for each run. |
+| Mock agent runtime | `127.0.0.1`, a free port | One agent on the Google Agent Runtime query wire (`POST /v1/projects/aiplex-local/locations/local/reasoningEngines/mock-agent:query`). Deterministic: the reply is a function of the request. It answers `401` to a request without its bearer token, which is random for each run. |
 | Federation issuers | `127.0.0.1`, one free port | Serves only the public keys (JWKS) of three stand-in identity providers: `idp`, `workload` and `unconfigured`. See [identity federation](#identity-federation). |
 | Console | `127.0.0.1`, `--console-port` (default `9090`) | Served only when this binary carries a built Console. Otherwise the summary says how to build it. |
 
@@ -44,6 +45,7 @@ them as backends of one model. Both mocks fail on demand for model names that co
 (for example `gpt-fault-s503-n2` fails twice with 503).
 | `local-tools` | MCP tool connection | The built-in MCP server, with its three tools. Not created with `--no-tools`. |
 | `local-tools-keyed` | MCP tool connection | The keyed MCP server, with API-key authentication whose key is the secret reference `dev-tool-key`. Not created with `--no-tools`. It is not on the `local` access point; add it with `--tool local-tools-keyed` when you create one. See [the keyed tool connection](#the-keyed-tool-connection). |
+| `local-agent` | Agent connection | Provider `google-agent-runtime`, endpoint the mock agent runtime over plain `http` on loopback, identity profile `dev-agent-identity` (a `bearer-env` profile: it names the variable `AIPLEX_DEV_AGENT_TOKEN`, whose random value only the API process and the mock agent hold). Not on the `local` access point. See [agents](#agents-a2aplex). |
 | `local` | Access point | Admits callers of kinds `user`, `agent` and `client`, with no subject filter. Exposes the models of the surfaces above and, unless `--no-tools`, the tool connection. |
 
 The access point is at `$AIPLEX_URL/ap/local`. See [access points](access-points.md).
@@ -271,6 +273,70 @@ resolution have not been tried through this stack. To turn federation off in a t
 the stack's default entry (`mergeEnv`, no duplicates), and `TestDevStackFederationCanBeDisabled` checks that the presets
 then report `live_authentication: false`. `aiplex dev` itself has no flag for it.
 
+## Agents (A2APlex)
+
+`local-agent` is an agent connection to the mock agent runtime. Try it, in another terminal after `eval "$(aiplex dev env)"`:
+
+```sh
+aiplex a2a connections list
+aiplex a2a invoke local-agent --operation query --payload '{"input":{"message":"hello"}}'
+aiplex usage records --plane a2aplex
+aiplex a2a delegate --caller research-agent --callee local-agent --task summarise
+aiplex a2a delegations list --agent research-agent
+```
+
+The invoke returns `{"output":{"agent":"mock-agent","reply":"mock-agent: you said hello"}}`. The call goes through the
+normal path: the grant `a2a:agent:local-agent:query` is checked (the developer has `a2a:*`), the identity profile supplies the
+bearer token, the outbound endpoint policy allows the loopback origin, and a usage record is written (plane `a2aplex`,
+provider `google-agent-runtime`, operation `query`, status and HTTP status of the upstream). The mock reports no token counts or
+price, so the record's usage is `null` and its cost basis is `unknown`: unknown is shown as unknown, not `0`.
+
+What the mock agent is and is not: it is a fake that speaks one operation of one provider's wire, for trying the
+connection, grant and record path. It is not a model, runs no tools and makes no calls of its own. A reply says nothing about
+how a real agent runtime behaves. `stream-query` and the other providers' operations are not served (the mock answers `404`,
+and the record shows that).
+
+A delegation recorded with `aiplex a2a delegate` is reported history: the record carries who reported it (`reported_by`), and
+it is not proof that the caller was authorized to call the callee, nor that a call happened. It grants nothing: a caller with no
+`a2a:agent:local-agent:query` grant is still refused after a delegation names it. A pending delegation has no duration
+(unknown), not `0`.
+
+The origin rule. An agent connection's endpoint is a pinned `https` origin everywhere except development mode. In development mode
+only, because the local API is started with the endpoint policy's `allow_loopback` (the same setting that lets the API call
+the mock model and tool servers; the API refuses to start with it outside development mode), an endpoint may also be plain `http` on
+a literal loopback host: `127.0.0.0/8`, `::1` or `localhost`. It is not accepted for `0.0.0.0`, a link-local or metadata address
+(`169.254.169.254`), a name that only resolves to loopback (`127.0.0.1.nip.io`), a URL with userinfo, a path or a query. A redirect from the agent is never
+followed. `pkg/cloudagents/origin_test.go`, `internal/api/agent_connection_origin_test.go` and `tests/e2e/devagent_test.go` cover both modes.
+
+When an agent runtime answers `401` or `403`, it has refused the credential the API holds for the connection, not the caller's
+token (the caller never supplies it). The API answers `502` with the code `AGENT_CREDENTIAL_REJECTED`, a message that names the
+connection, and none of the runtime's body; the ledger records the call as an error with class `upstream_auth`, as for model
+surfaces, and the CLI says your token was accepted. Try it by changing the mock's token (`MockAgent.RotateToken`, used by
+`TestDevAgentRejectingTheGatewayCredential`).
+
+Plain `http` to a loopback name is also checked at connection time: for an origin such as `http://localhost:PORT`, every
+address the name resolves to must be loopback, so a resolver answering a public address for `localhost` is refused
+(`TestPlainHTTPOriginNeedsAllLoopbackAnswers`). The `https` rules are unchanged.
+
+To point a connection at an agent of your own on loopback, apply an `agent-connection` whose endpoint is its `http://127.0.0.1:PORT`
+origin and whose `identity_ref` names a profile the stack defines; the stack defines only `dev-agent-identity`, whose
+`allowed_origins` hold the mock agent's origin, so a different origin is refused (`aiplex dev` has no way to add an identity
+profile). Real cloud agent runtimes (Google, AWS, Foundry, Copilot Studio) and Copilot token refresh are not available locally.
+
+`aiplex a2a agents` lists deployed A2A agent instances, not agent connections, and stays empty here (see
+[skills and deployed instances](#skills-and-deployed-instances)).
+
+## Skills and deployed instances
+
+SkillsPlex is not seeded. `aiplex skills servers` lists deployed skill-server instances: the API reads them from its
+instance store (`ListSkillServers`, `internal/api/skills.go`), and an instance only exists after a deployment. Under `aiplex dev` the
+deploy engine uses the no-op Kubernetes client (`cmd/aiplex-api/server.go`), which applies and discovers nothing: a
+deployment would store an instance marked running with no skill server behind it. Seeding one would show a deployed skill
+that does not exist, so none is seeded. `aiplex skills invocations` lists reported invocation records
+(`aiplex skills record-invocation` writes one); a record with no skill server to have run it would be invented history, so
+none is seeded either. Both commands work and answer with empty lists. On a loopback API the CLI prints one line on stderr saying that deployed instances need a cluster
+(not with `-o json`). The same holds for `aiplex a2a agents`.
+
 ## The keyed tool connection
 
 `local-tools-keyed` points at the keyed MCP server, which refuses any request without its API key. The connection
@@ -330,6 +396,7 @@ The command starts the API with these variables. They are set by `internal/devst
 | `LOG_LEVEL` | `info` |
 | `CONSOLE_ORIGINS` | The Console's loopback origins, when the Console is served |
 | `AIPLEX_USER_FEDERATION`, `AIPLEX_AGENT_FEDERATION` | `enabled`. See [identity federation](#identity-federation). |
+| `AIPLEX_DEV_AGENT_TOKEN` | The mock agent's random bearer token, read through the `dev-agent-identity` profile in the connections file. |
 | `AIPLEX_TOOL_SECRET_DEV_TOOL_KEY` | The keyed tool connection's random key. `AIPLEX_TOOL_SECRET_DEV_MOCK_KEY` is a placeholder for the mock surfaces. |
 
 The command removes the variables that would change what the local API connects to, before it sets the
@@ -374,6 +441,7 @@ After the stack is ready, `aiplex dev` prints a summary. Its lines are:
 | `Models` | The models on the access point and the wire each one speaks. With the mock provider, the four mock models. For a real provider, its one model, and the environment variable the key came from. |
 | `Tools` | The tool connection and its tools. Absent with `--no-tools`. |
 | `Keyed tools` | The tool connection whose upstream needs an API key held as a secret reference. Absent with `--no-tools`. |
+| `Agent` | The agent connection to the mock agent runtime, with a command to invoke it. |
 | `Identity` | `federation on`, with the command that mints tokens from the stand-in identity providers. |
 | `Access point` | The access point name and its URL. |
 | `Price` | The placeholder prices for the mock models. For a real provider, the line says none is seeded. |
@@ -449,6 +517,8 @@ The summary and the environment filter define these limits:
 | Persistence | None. Stores are in memory. The stack does not use Firestore, AlloyDB or a cloud secret store. |
 | Identity provider | Only the local issuer. Hydra and Kratos are not used. Agent registrations are kept in the local registry only, because `HYDRA_ADMIN_URL` is not set. |
 | Federation | Turned on, against the three stand-in providers described in [identity federation](#identity-federation). No external identity provider, directory (group lookup) or real provider metadata is used; real ones have not been tried through this stack. |
+| Skills, deployed A2A agent instances | None. The no-op Kubernetes client deploys nothing, so `aiplex skills servers` and `aiplex a2a agents` are empty; see [skills and deployed instances](#skills-and-deployed-instances). |
+| Cloud agents | Only the mock agent runtime (`local-agent`). Google, AWS, Foundry and Copilot Studio agents are not reachable and were not tried through this stack. |
 | Tool credentials | `api_key` authentication works against the keyed MCP server with a development secret reference. OAuth connections, identity profiles (`gcp-adc`) and a cloud secret store are not available. |
 | Modules | The API uses its default module list. The `AIPLEX_MODULES` variable is removed from the inherited environment. |
 | Kubernetes, mesh, gateway | None. There is no Kubernetes deployment and no Envoy gateway. |
@@ -459,7 +529,7 @@ The summary and the environment filter define these limits:
 ## Loopback only
 
 Development mode binds to loopback. Everything the command starts listens on `127.0.0.1` only, the federation
-issuers' listener and the keyed MCP server included; `TestDevStackListensOnLoopbackOnly` checks the kernel's list of
+issuers' listener, the keyed MCP server and the mock agent runtime included; `TestDevStackListensOnLoopbackOnly` checks the kernel's list of
 listening sockets (`/proc/net/tcp`, `/proc/net/tcp6`). It covers the sockets of the test process and of its direct child
 processes (the API), runs on Linux only and is skipped where `/proc/net/tcp` cannot be read; elsewhere the loopback
 binding is by construction (`net.Listen("tcp", "127.0.0.1:0")`) and the API's own startup check. Turning federation on does not change who the developer is: anonymous requests are

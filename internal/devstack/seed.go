@@ -73,6 +73,8 @@ type Seeded struct {
 	// KeyedConnection is the tool connection that authenticates to its upstream
 	// with an API key held as a secret reference; empty when no tools were seeded.
 	KeyedConnection string
+	// AgentConnection is the agent connection to the mock agent runtime.
+	AgentConnection string
 	Tools           []string
 }
 
@@ -334,6 +336,14 @@ func (s *Stack) Seed(ctx context.Context, o SeedOptions) (*Seeded, error) {
 		ap["tools"] = []map[string]any{{"connection_ref": SeedConnection}}
 		out.Connection, out.Tools = SeedConnection, append([]string(nil), MockTools...)
 	}
+	agent := map[string]any{
+		"id": SeedAgentConnection, "tenant_id": DevTenant, "provider": "google-agent-runtime", "endpoint": s.AgentURL,
+		"resource_id": MockAgentResource, "identity_ref": AgentIdentityRef, "governance_mode": "invocation",
+	}
+	if err = api.Create(ctx, "/api/v1/a2a/connections/"+SeedAgentConnection, agent); err != nil {
+		return nil, fmt.Errorf("create agent connection: %w", err)
+	}
+	out.AgentConnection = SeedAgentConnection
 	if err = api.Create(ctx, "/api/v1/access-points/"+SeedAccessPoint, ap); err != nil {
 		return nil, fmt.Errorf("create access point: %w", err)
 	}

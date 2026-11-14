@@ -93,6 +93,11 @@ type Stack struct {
 	// else: the seeded connection to it holds the reference.
 	KeyedMCP    *MockMCP
 	KeyedMCPURL string
+	// Agent is the mock agent runtime the seeded agent connection points at. It
+	// requires a random bearer token (Agent.Token), held here and in the API
+	// process's environment under AgentTokenEnv and nowhere else.
+	Agent    *MockAgent
+	AgentURL string
 	// Federation is the set of loopback identity providers the API trusts only
 	// once they are configured through the identity APIs. It is set for every
 	// started stack.
@@ -176,7 +181,11 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Stack{opts: opts, Models: &MockModels{}, ModelsB: &MockModels{Name: "b"}, MCP: &MockMCP{}, KeyedMCP: &MockMCP{APIKeyHeader: KeyedMCPHeader, APIKeyValue: keyedKey}, exited: make(chan struct{})}
+	agentKey, err := randomKey()
+	if err != nil {
+		return nil, err
+	}
+	s := &Stack{opts: opts, Models: &MockModels{}, ModelsB: &MockModels{Name: "b"}, MCP: &MockMCP{}, KeyedMCP: &MockMCP{APIKeyHeader: KeyedMCPHeader, APIKeyValue: keyedKey}, Agent: &MockAgent{Token: agentKey}, exited: make(chan struct{})}
 	ok := false
 	defer func() {
 		if !ok {
@@ -200,7 +209,7 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	for _, srv := range []struct {
 		h   http.Handler
 		dst *string
-	}{{s.issuerHandler(), &s.IssuerURL}, {s.Models, &s.ModelsURL}, {s.ModelsB, &s.ModelsBURL}, {s.MCP, &s.MCPURL}, {s.KeyedMCP, &s.KeyedMCPURL}} {
+	}{{s.issuerHandler(), &s.IssuerURL}, {s.Models, &s.ModelsURL}, {s.ModelsB, &s.ModelsBURL}, {s.MCP, &s.MCPURL}, {s.KeyedMCP, &s.KeyedMCPURL}, {s.Agent, &s.AgentURL}} {
 		server, url, e := Listen(srv.h)
 		if e != nil {
 			return nil, e
@@ -262,6 +271,9 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 		"AIPLEX_AGENT_FEDERATION=enabled",
 		// The keyed tool connection's credential, under its secret reference.
 		keyedSecretEnv()+"="+s.KeyedMCP.APIKeyValue,
+		// The mock agent's bearer token, read through the bearer-env identity
+		// profile in the connections file (which holds this name, not a value).
+		AgentTokenEnv+"="+s.Agent.Token,
 	)
 	if s.providerE != "" {
 		// Hand the key to the API process only, under the development secret
@@ -391,7 +403,7 @@ func randomKey() (string, error) {
 const ProviderSecretRef = "dev-provider-key"
 
 func (s *Stack) writeConnections() (string, error) {
-	origins := []string{s.ModelsURL, s.ModelsBURL, s.MCPURL, s.KeyedMCPURL, s.IssuerURL}
+	origins := []string{s.ModelsURL, s.ModelsBURL, s.MCPURL, s.KeyedMCPURL, s.AgentURL, s.IssuerURL}
 	origins = append(origins, s.opts.ExtraOrigins...)
 	if s.opts.Provider != "mock" {
 		origin, _ := ProviderOrigin(s.opts.Provider)
@@ -403,7 +415,11 @@ func (s *Stack) writeConnections() (string, error) {
 		network["timeout"] = int64(s.opts.UpstreamTimeout)
 	}
 	path := filepath.Join(s.Dir, "connections.json")
-	return path, writeJSONFile(path, map[string]any{"network": network, "identities": []any{}})
+	identities := []any{map[string]any{
+		"id": AgentIdentityRef, "tenant_id": DevTenant, "type": "bearer-env", "token_env": AgentTokenEnv,
+		"allowed_origins": []string{s.AgentURL},
+	}}
+	return path, writeJSONFile(path, map[string]any{"network": network, "identities": identities})
 }
 
 // MintDeveloperToken returns an admin token for the local developer.

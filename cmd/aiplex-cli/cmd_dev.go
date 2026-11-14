@@ -81,6 +81,8 @@ What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
     --api-key-env, which exposes one model)
   - a built-in MCP server with three tools (echo, add, reset_counter), and a
     second one that refuses requests without an API key
+  - a built-in mock agent runtime (Google Agent Runtime query wire, deterministic)
+    behind the agent connection "local-agent"; its bearer token is random per run
   - stand-in identity providers for federation (a workforce one, a workload
     one and one nobody configures), served on loopback; the API trusts them
     only after you configure them (see "aiplex dev token --help")
@@ -472,6 +474,9 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	if seeded.Connection != "" {
 		row("Tools", seeded.Connection+": "+strings.Join(seeded.Tools, ", ")+"  (built-in MCP server)")
 		row("Keyed tools", seeded.KeyedConnection+"  (API key from a secret reference; try: aiplex mcp connections test "+seeded.KeyedConnection+")")
+	}
+	if seeded.AgentConnection != "" {
+		row("Agent", seeded.AgentConnection+"  (mock agent runtime on loopback; try: aiplex a2a invoke "+seeded.AgentConnection+" --operation query)")
 	}
 	if s.Federation != nil {
 		row("Identity", "federation on; stand-in providers on loopback: aiplex dev token --issuer idp|workload|unconfigured")

@@ -379,10 +379,10 @@ func TestDevStackListensOnLoopbackOnly(t *testing.T) {
 			}
 		}
 	}
-	if listening < 7 {
+	if listening < 8 { // API, mock models x2, MCP x2, mock agent, issuer, federation
 		t.Fatalf("found only %d listening sockets for the stack; the check is not seeing them", listening)
 	}
-	if !strings.HasPrefix(e.stack.Federation.URL, "http://127.0.0.1:") || !strings.HasPrefix(e.stack.KeyedMCPURL, "http://127.0.0.1:") {
+	if !strings.HasPrefix(e.stack.Federation.URL, "http://127.0.0.1:") || !strings.HasPrefix(e.stack.KeyedMCPURL, "http://127.0.0.1:") || !strings.HasPrefix(e.stack.AgentURL, "http://127.0.0.1:") {
 		t.Fatalf("federation %s, keyed MCP %s", e.stack.Federation.URL, e.stack.KeyedMCPURL)
 	}
 }

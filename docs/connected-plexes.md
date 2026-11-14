@@ -165,12 +165,20 @@ it is not proof that a call was authorized or that the reporter is who it
 says. The `aiplex list delegations` and `aiplex get delegation` commands still
 work and show the same fields.
 
-Limits: `aiplex a2a invoke` has been tested against local HTTP servers and the
-real API for refusals only. No connected cloud agent (Google, AWS, Foundry,
-Copilot Studio) is reachable locally, and creating an agent connection needs a
-configured native identity and an HTTPS cloud origin, so a successful invoke was
-not exercised end to end. The CLI does not create connections itself; use
-`resources apply`.
+An agent connection's endpoint is a pinned `https` origin. Only in development
+mode (`aiplex dev`), where the endpoint policy has `allow_loopback`, may it also
+be plain `http` on a literal loopback host (`127.0.0.0/8`, `::1`, `localhost`); a
+name that resolves to loopback, `0.0.0.0`, a link-local or metadata address and a
+URL with userinfo are refused in both modes, and a redirect from the agent is not
+followed. `aiplex dev` seeds `local-agent`, a connection to a deterministic mock agent
+runtime on the Google Agent Runtime query wire, so the connection, grant and
+usage-record path can be tried locally (see [local development](local-development.md#agents-a2aplex)).
+The mock is not a cloud agent: it serves one operation (`query`), runs no tools and
+reports no token counts, so its usage records show usage as `null` and cost as `unknown`.
+
+Limits: no connected cloud agent (Google, AWS, Foundry, Copilot Studio) is
+reachable locally and none was exercised end to end; only the mock runtime was.
+The CLI does not create connections itself; use `resources apply`.
 
 ## Native networking and Anvil fallback
 

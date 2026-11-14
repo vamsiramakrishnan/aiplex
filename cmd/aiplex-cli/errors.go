@@ -215,6 +215,14 @@ func explain(cmd *cobra.Command, args []string, err error) *cliError {
 		if apiErr.TraceID != "" {
 			hints = append(hints, "Trace ID: "+apiErr.TraceID)
 		}
+		if apiErr.Code == "AGENT_CREDENTIAL_REJECTED" {
+			// The runtime refused the gateway's credential for the connection,
+			// not the caller's token.
+			hints = append(hints, "Your token was accepted; the agent runtime refused the credential the API holds for this connection. Check its identity profile with: aiplex a2a connections get <id>")
+			if local {
+				hints = append(hints, "With aiplex dev, that credential is the mock agent's token in the API's environment; restart aiplex dev to get a matching pair.")
+			}
+		}
 		if local {
 			if p, e := devLogPath(); e == nil {
 				hints = append(hints, "The API log is at "+p)

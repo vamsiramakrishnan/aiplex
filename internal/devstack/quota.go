@@ -89,6 +89,8 @@ func quotaFile(tenant string, noTools, tariff bool) (map[string]any, error) {
 			add("llmplex", m.Surface, op, m.Model, provider, false)
 		}
 	}
+	// The seeded agent connection's one operation, counted as requests.
+	add("a2aplex", SeedAgentConnection, "query", "", "google-agent-runtime", false)
 	if !noTools {
 		for _, tool := range MockTools {
 			add("mcplex", SeedConnection, "tools/call:"+tool, "", "mcp", true)

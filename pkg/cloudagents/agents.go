@@ -16,6 +16,7 @@ import (
 
 	"errors"
 	"github.com/vamsiramakrishnan/aiplex/pkg/contracts"
+	"github.com/vamsiramakrishnan/aiplex/pkg/endpointpolicy"
 	"github.com/vamsiramakrishnan/aiplex/pkg/execution"
 )
 
@@ -50,12 +51,23 @@ var segment = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 var googleResource = regexp.MustCompile(`^projects/[A-Za-z0-9_-]+/locations/[a-z0-9-]+/reasoningEngines/[A-Za-z0-9_-]+$`)
 var runtimeARN = regexp.MustCompile(`^arn:(aws|aws-us-gov|aws-cn):bedrock-agentcore:[a-z0-9-]+:[0-9]{12}:runtime/[A-Za-z0-9_-]+$`)
 
-func (c Connection) Validate() error {
+// Validate checks the connection with the production rule: the endpoint is a
+// pinned HTTPS origin.
+func (c Connection) Validate() error { return c.ValidateWith(false) }
+
+// ValidateWith is Validate with the outbound endpoint policy's allow_loopback
+// setting (endpointpolicy.Config.AllowLoopback). With it false the rule is
+// exactly Validate's. With it true, which the API permits only in development
+// mode (cmd/aiplex-api/connected.go), an endpoint may also be plain http on a
+// loopback host, judged by the endpoint policy's own parser: 127.0.0.0/8, ::1
+// or localhost, never a name that merely resolves there, 0.0.0.0, a link-local
+// or metadata address, or a URL with userinfo.
+func (c Connection) ValidateWith(allowLoopback bool) error {
 	if !segment.MatchString(c.ID) || c.TenantID == "" || c.IdentityRef == "" || c.ResourceID == "" {
 		return fmt.Errorf("connection id, tenant, resource and identity reference required")
 	}
 	u, e := url.Parse(c.Endpoint)
-	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || u.Scheme != "https" {
+	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") || !(u.Scheme == "https" || allowLoopback && u.Scheme == "http" && loopbackOrigin(c.Endpoint)) {
 		return fmt.Errorf("agent endpoint must be a pinned HTTPS origin")
 	}
 	if c.GovernanceMode != "invocation" {
@@ -91,6 +103,19 @@ func (c Connection) Validate() error {
 	return nil
 }
 
+// loopbackOrigin reports whether the endpoint policy, with allow_loopback on,
+// accepts raw as an explicit origin. It is the policy's own parse, so the rule
+// for loopback HTTP has one definition.
+func loopbackOrigin(raw string) bool {
+	_, e := endpointpolicy.New(endpointpolicy.Config{AllowedOrigins: []string{raw}, AllowLoopback: true})
+	return e == nil
+}
+
+// AllowLoopbackHTTP is the endpoint policy's allow_loopback setting for the
+// connection's endpoint (see ValidateWith). It is not a switch of its own: pass
+// the value of the policy the invoker's HTTP client enforces.
+func AllowLoopbackHTTP(allow bool) Option { return func(v *Invoker) { v.allowLoopback = allow } }
+
 type Action struct {
 	Context                                              contracts.RequestContext
 	ConnectionID, ProviderResource, Operation, SessionID string
@@ -121,12 +146,11 @@ type Invoker struct {
 	auth       Authenticator
 	sessions   SessionStore
 	execution  ExecutionPreparer
+
+	allowLoopback bool
 }
 
 func NewInvoker(c Connection, a Authorizer, client *http.Client, credentials Authenticator, options ...Option) (*Invoker, error) {
-	if e := c.Validate(); e != nil {
-		return nil, e
-	}
 	if isNil(a) || client == nil || isNil(credentials) {
 		return nil, fmt.Errorf("authorizer, policy-constrained HTTP client and credential adapter are required")
 	}
@@ -137,6 +161,9 @@ func NewInvoker(c Connection, a Authorizer, client *http.Client, credentials Aut
 		if option != nil {
 			option(v)
 		}
+	}
+	if e := c.ValidateWith(v.allowLoopback); e != nil {
+		return nil, e
 	}
 	if v.execution != nil && isNil(v.execution) {
 		return nil, fmt.Errorf("typed-nil managed execution preparer is invalid")

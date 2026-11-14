@@ -92,6 +92,12 @@ type ConnectedHandler struct {
 	Tags *TagPolicy
 }
 
+// allowLoopback is the outbound endpoint policy's allow_loopback setting, false
+// when the handler has no runtime (nothing is then approved to call).
+func (h *ConnectedHandler) allowLoopback() bool {
+	return h != nil && h.Runtime != nil && h.Runtime.Config.Network.AllowLoopback
+}
+
 func NewConnectedHandler(store resources.Store, runtime *connections.Runtime, tenant TenantResolver, tools *toolauth.Service, development bool) *ConnectedHandler {
 	return &ConnectedHandler{Store: store, Runtime: runtime, Tenant: tenant, Tools: tools, Development: development}
 }
@@ -308,7 +314,7 @@ func (h *ConnectedHandler) validate(ctx context.Context, tenant, kind, id string
 		if c.ID != id || c.TenantID != tenant {
 			return fmt.Errorf("agent connection identity mismatch")
 		}
-		if e := c.Validate(); e != nil {
+		if e := c.ValidateWith(h.allowLoopback()); e != nil {
 			return e
 		}
 		if e := h.checkAgentGovernanceRef(ctx, tenant, c); e != nil {
@@ -755,7 +761,7 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	} else {
 		credential = cloudagents.BearerCredentials{Token: func(ctx context.Context) (string, error) { return h.Runtime.Token(ctx, tenant, c.IdentityRef) }}
 	}
-	options := []cloudagents.Option{cloudagents.WithSessionStore(cloudSessions{h.Store})}
+	options := []cloudagents.Option{cloudagents.WithSessionStore(cloudSessions{h.Store}), cloudagents.AllowLoopbackHTTP(h.allowLoopback())}
 	if h.Quota != nil {
 		options = append(options, cloudagents.WithExecutionPreparer(usage.agentPreparer(h.AgentExecutionPreparer(w, r, record, c))))
 	}
@@ -790,6 +796,17 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		// The caller never supplies the credential the agent runtime sees: the
+		// gateway presents the connection's own. So the runtime's 401 or 403
+		// means that credential was refused, not the caller's. Answer 502 with a
+		// code that says so, as the model path does, and relay none of the
+		// runtime's body. The ledger notes the class upstream_auth.
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+		usage.noteClass("upstream_auth")
+		Error(w, r, http.StatusBadGateway, AgentCredentialRejectedCode, "agent connection "+id+": the agent runtime refused the gateway's credential for it, so the request was not processed. This is not a problem with the credential you sent; ask the operator to check the connection's identity profile.")
+		return
+	}
 	for _, name := range []string{"Content-Type", "Cache-Control", "X-Request-Id", "Retry-After"} {
 		if v := response.Header.Get(name); v != "" {
 			w.Header().Set(name, v)
@@ -798,6 +815,10 @@ func (h *ConnectedHandler) InvokeAgent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(response.StatusCode)
 	copyNativeStream(w, usage.agentBody(response.Body))
 }
+
+// AgentCredentialRejectedCode is the error code of an agent invocation whose
+// runtime refused the gateway's credential for the connection.
+const AgentCredentialRejectedCode = "AGENT_CREDENTIAL_REJECTED"
 
 type resourceOwnership struct {
 	store     resources.Store

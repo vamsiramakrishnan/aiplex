@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
@@ -42,6 +43,9 @@ func skillsServersCmd() *cobra.Command {
 			}
 			printTable(headers, rows)
 			fmt.Printf("\n%d skill server(s)\n", len(servers))
+			if len(servers) == 0 {
+				emptyInstancesHint(cmd.ErrOrStderr())
+			}
 			return nil
 		},
 	}
@@ -147,4 +151,12 @@ func skillsInvocationsCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&skill, "skill", "s", "", "Filter by skill name")
 	cmd.Flags().IntVar(&limit, "limit", 100, "Most invocations to return (1 to 1000)")
 	return cmd
+}
+
+// emptyInstancesHint explains, for a local development API only, why a list of
+// deployed instances is empty. It goes to stderr and is not printed for -o json.
+func emptyInstancesHint(w io.Writer) {
+	if isLoopbackURL(resolveAPIURL()) {
+		fmt.Fprintln(w, "Deployed skill servers and A2A agent instances need a cluster; aiplex dev has none, so these lists stay empty. To try agents locally use: aiplex a2a connections list. See docs/local-development.md, \"Skills and deployed instances\".")
+	}
 }

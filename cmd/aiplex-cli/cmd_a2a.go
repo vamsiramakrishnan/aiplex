@@ -66,6 +66,9 @@ func a2aAgentsCmd() *cobra.Command {
 			}
 			printTable(headers, rows)
 			fmt.Printf("\n%d A2A agent(s)\n", len(cards))
+			if len(cards) == 0 {
+				emptyInstancesHint(cmd.ErrOrStderr())
+			}
 			return nil
 		},
 	}
