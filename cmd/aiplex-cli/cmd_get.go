@@ -21,12 +21,20 @@ func getCmd() *cobra.Command {
 }
 
 func getInstanceCmd() *cobra.Command {
-	return &cobra.Command{
+	var history bool
+	cmd := &cobra.Command{
 		Use:   "instance <id>",
 		Short: "Get instance details",
-		Args:  cobra.ExactArgs(1),
+		Long: `Get one instance's details. With --history, show its deploy history
+(deploy, undeploy and config changes) instead. The API returns at most 50
+history events for an instance.`,
+		Example: "  aiplex get instance i-1\n  aiplex get instance i-1 --history\n  aiplex get instance i-1 --history -o json",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
+			if history {
+				return getInstanceHistory(cmd, c, args[0])
+			}
 			inst, err := c.GetInstance(context.Background(), args[0])
 			if err != nil {
 				return fmt.Errorf("get instance: %w", err)
@@ -59,6 +67,43 @@ func getInstanceCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&history, "history", false, "Show the instance's deploy history instead of its details")
+	return cmd
+}
+
+// getInstanceHistory prints an instance's deploy history in the order the API
+// returns it.
+func getInstanceHistory(cmd *cobra.Command, c *aiplex.Client, id string) error {
+	history, err := c.GetHistory(cmd.Context(), id)
+	if err != nil {
+		return fmt.Errorf("get instance history: %w", err)
+	}
+	if history == nil {
+		history = []aiplex.DeployHistory{}
+	}
+	if spStructured(cmd, history) {
+		return nil
+	}
+
+	out := cmd.OutOrStdout()
+	if len(history) == 0 {
+		fmt.Fprintf(out, "No history recorded for instance %s.\n", id)
+		return nil
+	}
+	rows := make([][]string, 0, len(history))
+	for _, h := range history {
+		success := "no"
+		if h.Success {
+			success = "yes"
+		}
+		rows = append(rows, []string{runsTime(h.Timestamp), orUnknown(h.Action), success, orUnknown(h.PerformedBy), dashIfEmpty(h.Error)})
+	}
+	spTable(out, []string{"TIME", "ACTION", "SUCCESS", "BY", "ERROR"}, rows)
+	fmt.Fprintf(out, "\n%d history event(s)\n", len(history))
+	if len(history) >= 50 {
+		fmt.Fprintln(out, "The API returns at most 50 events; older ones are not shown.")
+	}
+	return nil
 }
 
 func getAgentCmd() *cobra.Command {

@@ -21,46 +21,70 @@ func catalogCmd() *cobra.Command {
 }
 
 func catalogListCmd() *cobra.Command {
-	var plane string
+	var (
+		plane    string
+		page     int
+		pageSize int
+	)
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List catalog templates",
+		Long: `List catalog templates one page at a time. --page is zero-based and
+--page-size is 1 to 100 (default 20). When another page exists the command
+prints the exact command for the next one.`,
+		Example: "  aiplex catalog list\n  aiplex catalog list --plane llmplex --page-size 50\n  aiplex catalog list --page 2 -o json",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c := newClient()
-			opts := &aiplex.ListCatalogOpts{}
-			if plane != "" {
-				opts.Plane = plane
+			if page < 0 {
+				return usageError("--page must be 0 or more")
 			}
-			page, err := c.ListCatalog(context.Background(), opts)
+			if pageSize < 1 || pageSize > 100 {
+				return usageError("--page-size must be between 1 and 100")
+			}
+			c := newClient()
+			result, err := c.ListCatalog(context.Background(), &aiplex.ListCatalogOpts{Plane: plane, Page: page, PageSize: pageSize})
 			if err != nil {
 				return fmt.Errorf("list catalog: %w", err)
 			}
-
-			if output == "json" {
-				printJSON(page)
+			if spStructured(cmd, result) {
 				return nil
 			}
 
+			out := cmd.OutOrStdout()
 			headers := []string{"ID", "PLANE", "NAME", "PROVIDER", "VERIFIED"}
-			var rows [][]string
-			for _, t := range page.Templates {
-				verified := ""
+			rows := make([][]string, 0, len(result.Templates))
+			for _, t := range result.Templates {
+				verified := "no"
 				if t.Verified {
 					verified = "yes"
 				}
-				rows = append(rows, []string{
-					t.ID, t.Plane, t.Name, t.Provider, verified,
-				})
+				rows = append(rows, []string{t.ID, t.Plane, t.Name, orUnknown(t.Provider), verified})
 			}
-			printTable(headers, rows)
-			fmt.Printf("\n%d template(s) (page %d)\n", page.Total, page.Page)
+			spTable(out, headers, rows)
+			fmt.Fprintf(out, "\n%d template(s) (page %d)\n", result.Total, result.Page)
+			// Pages run 0..(total-1)/pageSize. Compare without multiplying so a
+			// large --page cannot overflow.
+			if result.Total > 0 && page < (result.Total-1)/pageSize {
+				fmt.Fprintf(out, "\nMore: %s\n", catalogListNextCommand(plane, page+1, pageSize))
+			}
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVarP(&plane, "plane", "p", "", "Filter by plane: mcplex, a2aplex, llmplex")
+	cmd.Flags().IntVar(&page, "page", 0, "Page to show, zero-based")
+	cmd.Flags().IntVar(&pageSize, "page-size", 20, "Templates per page (1 to 100)")
 	return cmd
+}
+
+// catalogListNextCommand is the command that shows the page after this one. It
+// keeps the plane filter so the printed command returns the same listing.
+func catalogListNextCommand(plane string, page, pageSize int) string {
+	cmd := "aiplex catalog list"
+	if plane != "" {
+		cmd += " --plane " + runsShellArg(plane)
+	}
+	return fmt.Sprintf("%s --page %d --page-size %d", cmd, page, pageSize)
 }
 
 func catalogGetCmd() *cobra.Command {

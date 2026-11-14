@@ -290,7 +290,7 @@ Undeploys an instance. The response is `204` with no body.
 
 ### GET `/api/v1/instances/{id}/history`
 
-Returns up to 50 deploy history entries of the instance as a JSON array.
+Returns up to 50 deploy history entries of the instance as a JSON array. The CLI shows it with `aiplex get instance <id> --history`.
 
 #### History entry fields
 
@@ -489,7 +489,7 @@ only `ledger` or `legacy-store`.
 
 ### GET `/api/v1/dashboard/denials`
 
-Returns the most recent 50 policy denials as a JSON array. The route policy classifies it as `admin` and deployment-wide: denials are deployment-wide operator data, so a verified identity without the `admin` role is refused (`403 ROLE_REQUIRED`), and so is an identity bound to a tenant (`403 DEPLOYMENT_SCOPE_REQUIRED`). A verified identity alone is not enough.
+Returns the most recent policy denials, newest first, as a JSON array. The query parameter `limit` sets how many (1 to 1000; default 50). The route policy classifies it as `admin` and deployment-wide: denials are deployment-wide operator data, so a verified identity without the `admin` role is refused (`403 ROLE_REQUIRED`), and so is an identity bound to a tenant (`403 DEPLOYMENT_SCOPE_REQUIRED`). A verified identity alone is not enough.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -507,6 +507,7 @@ Returns the most recent 50 policy denials as a JSON array. The route policy clas
 |---|---|---|
 | 200 | none | Array returned |
 | 401 | `UNAUTHENTICATED` | No verified identity outside development mode |
+| 400 | `INVALID_LIMIT` | `limit` is not an integer from 1 to 1000 |
 | 403 | `ROLE_REQUIRED` | The identity does not hold the `admin` role |
 | 403 | `DEPLOYMENT_SCOPE_REQUIRED` | The identity is bound to a tenant |
 | 500 | `STORE_ERROR` | Store read failed |

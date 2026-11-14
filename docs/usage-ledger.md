@@ -741,6 +741,11 @@ the cost's `price_id` and `backfilled_at`, and each hook run.
 were unknown when written ([back-estimation](#back-estimation)). It shows the dry-run result first and asks before
 writing.
 
+`aiplex usage config` prints the usage settings the API serves (`GET /api/v1/usage/config`): the trace link
+template, whether feedback and feedback comments are accepted, and the tag keys a caller may set. An empty template
+is shown as `not set`, and an empty key list as `none`. A field the API did not send is shown as `unknown`. It is
+read-only and open to any signed-in caller.
+
 `aiplex usage summary` prints one row per group, with the group keys first. The default columns are
 `REQUESTS`, `ERRORS`, `DENIED`, `IN`, `OUT` and `COST`. `-o wide` adds `CACHE-W`, `MODALITY`, `UNITS`,
 `BATCH`, `UNKNOWN` and `BOUNDED`. `BATCH` counts batch records. `BOUNDED` counts records with `lower_bound`,

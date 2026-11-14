@@ -20,7 +20,7 @@ its own `--help`.
 | Models | `llm` (surfaces, routes, batches, capacity) | [model providers](model-providers.md), [model batches](model-batches.md) |
 | Tools | `mcp` (connections, registry, serve), `tools`, `tool-auth`, `skills` | [tool connection auth](tool-connection-auth.md), [policy rules](tool-policy-rules.md), [MCP Registry import](mcp-registry-import.md) |
 | Agents and identity | `agents`, `identity`, `a2a` | [agent identity federation](agent-identity-federation.md), [connected Plexes](connected-plexes.md) |
-| Usage and quota | `usage` (records, summary, prices, backfill, feedback), `quota`, `budgets`, `hooks` | [usage ledger](usage-ledger.md), [QuotaPlex administration](quotaplex-administration.md), [budgets](budgets.md), [request hooks](request-hooks.md) |
+| Usage and quota | `usage` (records, summary, prices, backfill, feedback, config), `quota`, `budgets`, `hooks` | [usage ledger](usage-ledger.md), [QuotaPlex administration](quotaplex-administration.md), [budgets](budgets.md), [request hooks](request-hooks.md) |
 | Operate | `status`, `resources`, `apply`, `validate`, `modules`, `platform`, `upgrade`, `infra`, `native`, `catalog`, `deploy`, `undeploy`, `list`, `get`, `logs`, `runs`, `console`, `tui` | [Google Cloud permissions](gcp-permissions.md), [modules](modules.md), [native agent governance](native-agent-governance.md) |
 | Additional | `completion`, `help` | [shell completion](#shell-completion) |
 

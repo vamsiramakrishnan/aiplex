@@ -178,18 +178,31 @@ type Pricing struct {
 // ListCatalogOpts are options for listing catalog templates.
 type ListCatalogOpts struct {
 	Plane string
-	Page  int
+	// Page is zero-based. PageSize zero leaves the server's default (20);
+	// the server accepts 1 to 100.
+	Page     int
+	PageSize int
 }
 
 // ListCatalog returns a paginated catalog listing.
 func (c *Client) ListCatalog(ctx context.Context, opts *ListCatalogOpts) (*CatalogPage, error) {
 	q := url.Values{}
 	if opts != nil {
+		// Zero means not set; a negative value would silently become the server's default.
+		if opts.Page < 0 {
+			return nil, fmt.Errorf("aiplex: catalog page must be 0 or more")
+		}
+		if opts.PageSize < 0 {
+			return nil, fmt.Errorf("aiplex: catalog page size must be 0 or more")
+		}
 		if opts.Plane != "" {
 			q.Set("plane", opts.Plane)
 		}
 		if opts.Page > 0 {
 			q.Set("page", fmt.Sprintf("%d", opts.Page))
+		}
+		if opts.PageSize > 0 {
+			q.Set("page_size", fmt.Sprintf("%d", opts.PageSize))
 		}
 	}
 	path := "/api/v1/catalog"
@@ -694,14 +707,34 @@ func (c *Client) RecordSkillInvocation(ctx context.Context, req *RecordSkillInvo
 	return &inv, err
 }
 
-// ListSkillInvocations returns recent invocations, optionally filtered.
-func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName string) ([]SkillInvocation, error) {
+// ListSkillInvocationsOpts bounds a ListSkillInvocations call. Limit zero
+// leaves the server's default (100); the server accepts 1 to 1000.
+type ListSkillInvocationsOpts struct {
+	Limit int
+}
+
+// ListSkillInvocations returns recent invocations, optionally filtered. Pass at
+// most one ListSkillInvocationsOpts to set the limit; without one the server's
+// default applies.
+func (c *Client) ListSkillInvocations(ctx context.Context, agentID, skillName string, opts ...ListSkillInvocationsOpts) ([]SkillInvocation, error) {
+	if len(opts) > 1 {
+		return nil, fmt.Errorf("at most one ListSkillInvocationsOpts")
+	}
 	q := url.Values{}
 	if agentID != "" {
 		q.Set("agent_id", agentID)
 	}
 	if skillName != "" {
 		q.Set("skill", skillName)
+	}
+	if len(opts) == 1 {
+		// Zero means not set; a negative value would silently become the server's default.
+		if opts[0].Limit < 0 {
+			return nil, fmt.Errorf("aiplex: skill invocation limit must be 0 or more")
+		}
+		if opts[0].Limit > 0 {
+			q.Set("limit", strconv.Itoa(opts[0].Limit))
+		}
 	}
 	path := "/api/v1/skills/invocations"
 	if encoded := q.Encode(); encoded != "" {

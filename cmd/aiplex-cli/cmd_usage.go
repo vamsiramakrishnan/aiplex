@@ -149,8 +149,74 @@ access point. "reported" records come from a harness's own telemetry
 harness reported one, has the basis "reported". The two sources can describe the
 same request, so a summary keeps them apart and never adds them silently.`,
 	}
-	cmd.AddCommand(usageRecordsCmd(), usageGetCmd(), usageSummaryCmd(), usageFeedbackCmd(), usagePricesCmd())
+	cmd.AddCommand(usageRecordsCmd(), usageGetCmd(), usageSummaryCmd(), usageFeedbackCmd(), usagePricesCmd(), usageConfigCmd())
 	return cmd
+}
+
+// usageConfigCmd shows the usage settings the deployment serves: the trace link
+// template, whether feedback and feedback comments are accepted, and the tag
+// keys a caller may set.
+func usageConfigCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "config",
+		Short: "Show the deployment's usage settings",
+		Long: `Show the usage settings the deployment serves: the trace link template,
+whether feedback and feedback comments are accepted, and the tag keys a caller
+may set. A template that is not configured is shown as "not set".`,
+		Example: "  aiplex usage config\n  aiplex usage config -o json",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := newClient().GetUsageConfig(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("usage config: %w", err)
+			}
+			if spStructured(cmd, cfg) {
+				return nil
+			}
+
+			spTable(cmd.OutOrStdout(), []string{"SETTING", "VALUE"}, [][]string{
+				{"Trace URL template", usageTraceCell(cfg.TraceURLTemplate)},
+				{"Feedback", usageYesNo(cfg.Feedback)},
+				{"Feedback comments", usageYesNo(cfg.FeedbackComments)},
+				{"Tag keys allowed", usageKeysCell(cfg.TagKeysAllowed)},
+			})
+			return nil
+		},
+	}
+}
+
+// usageTraceCell shows a template the API did not send as unknown, an explicit
+// empty template as not set.
+func usageTraceCell(v *string) string {
+	switch {
+	case v == nil:
+		return spUnknown
+	case *v == "":
+		return "not set"
+	}
+	return *v
+}
+
+func usageYesNo(v *bool) string {
+	switch {
+	case v == nil:
+		return spUnknown
+	case *v:
+		return "yes"
+	}
+	return "no"
+}
+
+// usageKeysCell shows a key list the API did not send as unknown, an explicit
+// empty list as none.
+func usageKeysCell(keys []string) string {
+	switch {
+	case keys == nil:
+		return spUnknown
+	case len(keys) == 0:
+		return "none"
+	}
+	return strings.Join(keys, ", ")
 }
 
 func usagePrint(v any) {

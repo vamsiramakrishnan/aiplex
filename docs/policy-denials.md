@@ -18,7 +18,9 @@ grants do not cover. Two components write them:
   request at the gateway before the API sees it.
 
 They are stored together and read together. `GET /api/v1/dashboard/denials`
-returns the 50 most recent; `aiplex list denials` prints them with the trace id
+returns the 50 most recent by default; `?limit=` (1 to 1000) asks for a different
+number, and a malformed or out-of-range value is refused with `400 INVALID_LIMIT`.
+`aiplex list denials` prints them with the trace id
 of the refused request; `GET /api/v1/dashboard/stats` reports
 `policy_denials_24h`, the count of the last 24 hours. Denials are deployment-wide
 operator data: reading them needs the `admin` role, and an identity bound to a

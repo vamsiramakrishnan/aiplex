@@ -101,19 +101,27 @@ func skillsInvocationsCmd() *cobra.Command {
 	var (
 		agentID string
 		skill   string
+		limit   int
 	)
 	cmd := &cobra.Command{
-		Use:   "invocations",
-		Short: "List recent skill invocations",
+		Use:     "invocations",
+		Short:   "List recent skill invocations",
+		Long:    "List recent skill invocations. --limit caps how many are returned (1 to 1000, default 100).",
+		Example: "  aiplex skills invocations\n  aiplex skills invocations --agent tutor-agent --limit 20\n  aiplex skills invocations -o json",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if limit < 1 || limit > 1000 {
+				return usageError("--limit must be between 1 and 1000")
+			}
 			c := newClient()
-			invs, err := c.ListSkillInvocations(context.Background(), agentID, skill)
+			invs, err := c.ListSkillInvocations(context.Background(), agentID, skill, aiplex.ListSkillInvocationsOpts{Limit: limit})
 			if err != nil {
 				return fmt.Errorf("list invocations: %w", err)
 			}
+			if invs == nil {
+				invs = []aiplex.SkillInvocation{}
+			}
 
-			if output == "json" {
-				printJSON(invs)
+			if spStructured(cmd, invs) {
 				return nil
 			}
 
@@ -130,12 +138,13 @@ func skillsInvocationsCmd() *cobra.Command {
 				}
 				rows = append(rows, []string{inv.ID, inv.AgentID, inv.SkillName, inv.Status, dur, trace})
 			}
-			printTable(headers, rows)
-			fmt.Printf("\n%d invocation(s)\n", len(invs))
+			spTable(cmd.OutOrStdout(), headers, rows)
+			fmt.Fprintf(cmd.OutOrStdout(), "\n%d invocation(s)\n", len(invs))
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&agentID, "agent", "", "Filter by agent ID")
 	cmd.Flags().StringVarP(&skill, "skill", "s", "", "Filter by skill name")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Most invocations to return (1 to 1000)")
 	return cmd
 }

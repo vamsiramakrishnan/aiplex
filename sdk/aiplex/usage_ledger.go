@@ -256,11 +256,13 @@ func (c *Client) ListUsageFeedback(ctx context.Context, recordID string) ([]Usag
 	return out.Feedback, nil
 }
 
-// UsageConfig is the deployment's usage settings the Console reads.
+// UsageConfig is the deployment's usage settings the Console reads. A field the
+// API did not send, or sent as null, is nil. An explicit empty value is a
+// non-nil pointer to "" or false, or a non-nil empty slice.
 type UsageConfig struct {
-	TraceURLTemplate string   `json:"trace_url_template"`
-	Feedback         bool     `json:"feedback"`
-	FeedbackComments bool     `json:"feedback_comments"`
+	TraceURLTemplate *string  `json:"trace_url_template"`
+	Feedback         *bool    `json:"feedback"`
+	FeedbackComments *bool    `json:"feedback_comments"`
 	TagKeysAllowed   []string `json:"tag_keys_allowed"`
 }
 
