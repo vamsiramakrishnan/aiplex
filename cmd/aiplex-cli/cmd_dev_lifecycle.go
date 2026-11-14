@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/vamsiramakrishnan/aiplex/internal/cliconfig"
+	"github.com/vamsiramakrishnan/aiplex/internal/devstack"
 )
 
 // devDetachedEnv marks the background `aiplex dev` started by --detach.
@@ -183,7 +184,7 @@ func devStatusCmd() *cobra.Command {
 				fmt.Fprintf(out, "  Model          %s\n", st.Model)
 			}
 			if st.Federation {
-				fmt.Fprintln(out, "  Identity       federation on; stand-in providers on loopback: aiplex dev token --issuer idp|workload|unconfigured")
+				fmt.Fprintln(out, "  Identity       "+devstack.IdentitySummary())
 			}
 			fmt.Fprintf(out, "  CLI context    %s\n", st.Context)
 			switch {

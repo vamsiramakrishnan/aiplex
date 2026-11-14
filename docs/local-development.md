@@ -20,6 +20,7 @@ The implementation is in `cmd/aiplex-cli/cmd_dev.go` and `internal/devstack/`.
 | Keyed MCP server | `127.0.0.1`, a free port | The same three tools, but it answers `401` to a request without its API key (header `X-Api-Key`). The key is random for each run. |
 | Mock agent runtime | `127.0.0.1`, a free port | One agent on the Google Agent Runtime query wire (`POST /v1/projects/aiplex-local/locations/local/reasoningEngines/mock-agent:query`). Deterministic: the reply is a function of the request. It answers `401` to a request without its bearer token, which is random for each run. |
 | Federation issuers | `127.0.0.1`, one free port | Serves only the public keys (JWKS) of three stand-in identity providers: `idp`, `workload` and `unconfigured`. See [identity federation](#identity-federation). |
+| Branchyard stand-in | `127.0.0.1`, a free port | Serves only `GET /.well-known/jwks.json`: the Ed25519 public key of a stand-in Branchyard server (Branchyard is a separate product that runs coding agents on git branches). Its issuer is this listener's URL. See [a Branchyard turn token](#a-branchyard-turn-token). |
 | Console | `127.0.0.1`, `--console-port` (default `9090`) | Served only when this binary carries a built Console. Otherwise the summary says how to build it. |
 
 The Console forwards its requests to the API and sets the developer token on each one. The mock model,
@@ -212,6 +213,9 @@ The stack runs three stand-in identity providers so you can try this without an 
 trusted until you configure them, exactly as a real provider is not. Their issuer names are `https` names that
 are only compared with the `iss` claim (identity presets accept `https` issuers only; the names end in
 `.invalid` and are never looked up). Their keys are served on one `127.0.0.1` listener, which serves nothing else.
+A fourth stand-in, `branchyard`, plays a Branchyard server (Branchyard is a separate product that runs coding
+agents on git branches; its server signs a short-lived token for each turn) and has a listener of its own; see
+[a Branchyard turn token](#a-branchyard-turn-token).
 
 | `--issuer` | Stands for | Audience | Configure it with |
 | --- | --- | --- | --- |
@@ -219,6 +223,7 @@ are only compared with the `iss` claim (identity presets accept `https` issuers 
 | `idp` | A workforce identity provider | `aiplex-dev-users` | `aiplex identity user-providers apply` |
 | `workload` | A workload identity provider, for agents | `aiplex-dev-agents` | `aiplex agents identity bind` |
 | `unconfigured` | An issuer nobody configured | `aiplex-dev-users` | Never. Its tokens are refused with `401`. |
+| `branchyard` | A Branchyard server's model gateway (EdDSA turn tokens) | `aiplex-dev-agents` | `aiplex agents identity bind --preset branchyard`. See [a Branchyard turn token](#a-branchyard-turn-token). |
 
 `aiplex dev token --issuer idp` prints the token on stdout and, on stderr, the issuer, JWKS address and audience
 and the exact provider to apply. Applying it and using the token:
@@ -252,6 +257,40 @@ by hand. Without the pipe, the printed line is
 `aiplex agents identity bind tutor ci --preset oidc --input issuer=... --input jwks_url=... --input audience=... --input subject=ci-1`.
 `tests/e2e/devfederation_steps_test.go` runs this block exactly as written.
 
+### A Branchyard turn token
+
+A turn is one step of a Branchyard agent on a branch; a turn token is the short-lived token a Branchyard server's
+model gateway mints for one turn and presents to AIPlex. A Branchyard tenant is Branchyard's own grouping of its
+users and repositories, not an AIPlex tenant. The `branchyard` stand-in plays a Branchyard server's model gateway, so the
+[`branchyard` preset](agent-identity-federation.md#branchyard) can be tried without one. Unlike the other stand-ins it
+has its own `127.0.0.1` listener, because the preset derives the key set from the issuer: its issuer is
+`http://127.0.0.1:PORT` (a Branchyard server without TLS on loopback has an issuer of that form) and its key is at
+`http://127.0.0.1:PORT/.well-known/jwks.json`. The preset accepts plain `http` only on a loopback address, and the
+API reaches loopback only in development mode. The stand-in serves nothing else, and the API does not trust it
+until an agent is bound to it.
+
+`aiplex dev token --issuer branchyard --tenant NAME` takes a Branchyard tenant instead of `--user` and prints a turn
+token shaped as Branchyard mints one: `alg` `EdDSA`, `sub` `branchyard:NAME`, `by_purpose` `aiplex`, `by_tenant`
+(the Branchyard tenant), `by_branch`, `by_turn`, a fresh `jti`, and one hour of life, the most the preset accepts. On stderr it prints the commands to register an agent and
+bind it. Binding the agent and using the token:
+
+```sh
+aiplex agents register branchyard-agent --name 'Branchyard acme' --scopes 'llm:model:mock-gpt,llm:surface:local-models:*'
+aiplex dev token --issuer branchyard --tenant acme 2>&1 >/dev/null | grep 'aiplex agents identity bind' | sh
+AIPLEX_TOKEN=$(aiplex dev token --issuer branchyard --tenant acme 2>/dev/null) aiplex whoami
+```
+
+The printed bind line is
+`aiplex agents identity bind branchyard-agent branchyard --preset branchyard --input server=http://127.0.0.1:PORT --input tenant=acme --input audience=aiplex-dev-agents`.
+To call a model through the access point `local`, grant the principal ID that stderr shows
+(`aiplex agents user-scopes set <principal-id> --scopes 'llm:model:mock-gpt,llm:surface:local-models:*'`) and send the
+token as `Authorization: Bearer`. `tests/e2e/identity_branchyard_test.go` does that, checks that the ledger record
+names the agent, and checks that a token with the wrong `by_purpose`, `aud`, `sub`, an expired `exp`, a lifetime
+over an hour or an `iss` with a trailing slash is refused with `401`. `TestDevBranchyardDocumentedSteps` in
+`tests/e2e/identity_branchyard_steps_test.go` runs the block above as written.
+`--user`, `--groups` and `--role` are refused with `--issuer branchyard`, and `--tenant` (a Branchyard tenant) with
+any other issuer.
+
 What a federated token is, and is not:
 
 - It is a different caller from the developer: its subject, principal ID and email (`NAME@idp.localhost`) differ.
@@ -268,7 +307,8 @@ What a federated token is, and is not:
 
 What is not covered: the stand-in providers sign with an in-memory key that exists only while `aiplex dev` runs,
 and there is no directory (group lookup) provider. Real identity providers, their metadata and their group
-resolution have not been tried through this stack. To turn federation off in a test, set
+resolution have not been tried through this stack. The `branchyard` stand-in signs tokens of the shape the
+integration contract gives; a running Branchyard server has not been tried through this stack. To turn federation off in a test, set
 `AIPLEX_USER_FEDERATION=disabled` and `AIPLEX_AGENT_FEDERATION=disabled` in `devstack.Options.Env`: a variable there replaces
 the stack's default entry (`mergeEnv`, no duplicates), and `TestDevStackFederationCanBeDisabled` checks that the presets
 then report `live_authentication: false`. `aiplex dev` itself has no flag for it.

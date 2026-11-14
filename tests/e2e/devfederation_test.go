@@ -379,11 +379,11 @@ func TestDevStackListensOnLoopbackOnly(t *testing.T) {
 			}
 		}
 	}
-	if listening < 8 { // API, mock models x2, MCP x2, mock agent, issuer, federation
+	if listening < 9 { // API, mock models x2, MCP x2, mock agent, issuer, federation, branchyard stand-in
 		t.Fatalf("found only %d listening sockets for the stack; the check is not seeing them", listening)
 	}
-	if !strings.HasPrefix(e.stack.Federation.URL, "http://127.0.0.1:") || !strings.HasPrefix(e.stack.KeyedMCPURL, "http://127.0.0.1:") || !strings.HasPrefix(e.stack.AgentURL, "http://127.0.0.1:") {
-		t.Fatalf("federation %s, keyed MCP %s", e.stack.Federation.URL, e.stack.KeyedMCPURL)
+	if !strings.HasPrefix(e.stack.Federation.URL, "http://127.0.0.1:") || !strings.HasPrefix(e.stack.KeyedMCPURL, "http://127.0.0.1:") || !strings.HasPrefix(e.stack.AgentURL, "http://127.0.0.1:") || !strings.HasPrefix(e.stack.Federation.Branchyard.URL, "http://127.0.0.1:") {
+		t.Fatalf("federation %s, keyed MCP %s, branchyard %s", e.stack.Federation.URL, e.stack.KeyedMCPURL, e.stack.Federation.Branchyard.URL)
 	}
 }
 
@@ -420,10 +420,10 @@ func TestDevCommandFederationAndKeyedTools(t *testing.T) {
 	}
 	t.Cleanup(func() { run(nil, "dev", "stop") })
 	contains(t, out, "Keyed tools    local-tools-keyed  (API key from a secret reference; try: aiplex mcp connections test local-tools-keyed)", "summary keyed tools row")
-	contains(t, out, "Identity       federation on; stand-in providers on loopback: aiplex dev token --issuer idp|workload|unconfigured", "summary identity row")
+	contains(t, out, "Identity       federation on; stand-in providers on loopback: aiplex dev token --issuer idp|workload|unconfigured|branchyard", "summary identity row")
 	t.Logf("new summary rows:\n%s", strings.Join(grepLines(out, "Keyed tools", "Identity  "), "\n"))
 	status, _, _ := run(nil, "dev", "status")
-	contains(t, status, "Identity       federation on", "status identity row")
+	contains(t, status, "Identity       federation on; stand-in providers on loopback: aiplex dev token --issuer idp|workload|unconfigured|branchyard", "status identity row")
 
 	// The keyed connection through the CLI, with the stored developer token.
 	tools, e2, code := run(nil, "mcp", "connections", "test", "local-tools-keyed")

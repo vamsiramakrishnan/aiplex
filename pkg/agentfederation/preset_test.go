@@ -7,7 +7,7 @@ import (
 )
 
 func TestCatalogListsPlanPresets(t *testing.T) {
-	want := []string{PresetGCPServiceAccount, PresetGCPAgentIdentity, PresetAWSSTSWebIdentity, PresetAWSEKSIRSA, PresetKubernetes, PresetAzureManagedID, PresetGitHubActions, PresetSPIFFEOIDC, PresetOIDC}
+	want := []string{PresetGCPServiceAccount, PresetGCPAgentIdentity, PresetAWSSTSWebIdentity, PresetAWSEKSIRSA, PresetKubernetes, PresetAzureManagedID, PresetGitHubActions, PresetSPIFFEOIDC, PresetOIDC, PresetBranchyard}
 	catalog := Catalog("https://aiplex.example.com")
 	if len(catalog) != len(want) {
 		t.Fatalf("catalog has %d presets, want %d", len(catalog), len(want))
@@ -129,6 +129,7 @@ func TestRenderPlanForEveryPreset(t *testing.T) {
 		PresetGitHubActions:     {"repository": "octo-org/octo-repo", "environment": "production"},
 		PresetSPIFFEOIDC:        {"issuer": "https://oidc.example.org", "jwks_url": "https://oidc.example.org/keys", "spiffe_id": "spiffe://example.org/agent"},
 		PresetOIDC:              {"issuer": "https://idp.example.com", "jwks_url": "https://idp.example.com/jwks", "subject": "agent-1"},
+		PresetBranchyard:        {"server": "https://branchyard.example.com", "tenant": "acme"},
 	}
 	for _, p := range Catalog("") {
 		b, err := NewBinding("tutor-agent", "prod", BindingRequest{Preset: p.ID, Inputs: inputs[p.ID]}, aud)

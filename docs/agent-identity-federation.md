@@ -47,18 +47,32 @@ stored binding always records the explicit issuer, JWKS URL, audience and subjec
 
 ## Presets
 
-Every preset accepts only RS256, ES256 and ES384 signatures and never accepts wildcards.
+No preset accepts wildcards. The `branchyard` preset (for Branchyard, a separate product that
+runs coding agents on git branches; see [Branchyard](#branchyard)) accepts only EdDSA signatures; every
+other preset accepts only RS256, ES256 and ES384. A binding's verifier accepts exactly its
+preset's list, so an EdDSA token is refused by an `oidc` binding even when the issuer
+publishes an Ed25519 key, and an RS256 token is refused by a `branchyard` binding. The
+catalog reports each preset's list in `algorithms`.
+
 Each algorithm is bound to one key type in the issuer's JWKS: RS256 to an RSA key of at
-least 2048 bits, ES256 to an EC key on P-256 and ES384 to an EC key on P-384. A token whose
-`alg` names a different algorithm than its key's type or curve is rejected, as are `none`,
-HS*, PS*, RS384 and ES512. EC signatures must be the raw `R||S` form of exactly 64 bytes
-(ES256) or 96 bytes (ES384); DER-encoded signatures are rejected. A JWK whose `alg`
-contradicts its `kty` or `crv`, whose point is not on its named curve, or whose coordinates
-are not full length is not loaded, so a token naming its `kid` fails as an unknown key.
+least 2048 bits, ES256 to an EC key on P-256, ES384 to an EC key on P-384 and EdDSA to an
+OKP key on Ed25519. A token is checked only against the key its `kid` names, under the one
+algorithm that key's type allows, so a key set that mixes RSA, EC and OKP keys works. A token
+whose `alg` names a different algorithm than its key's type or curve is rejected, as are
+`none`, HS*, PS*, RS384, ES512 and any spelling of EdDSA other than exactly `EdDSA`
+(`Ed25519`, `EDDSA`, `eddsa`). EC signatures must be the raw `R||S` form of exactly 64 bytes
+(ES256) or 96 bytes (ES384), and EdDSA signatures exactly 64 bytes; DER-encoded signatures
+are rejected. A JWK whose `alg` contradicts its `kty` or `crv`, whose point is not on its
+named curve, or whose coordinates are not full length is not loaded, so a token naming its
+`kid` fails as an unknown key. For OKP keys that also covers a curve other than `Ed25519`
+(`Ed448`, `X25519`), an `x` that is not exactly 32 bytes of unpadded base64url, a `y`, and a
+private `d`: an OKP key that carries `d` is dropped from the set. RSA and EC keys that carry
+`d` are loaded as they always were (their private part is ignored). Two keys with the same
+`kid`, of any types, make the whole key set unusable.
 
 This is what the AIPlex API verifies. The gateway authorizer `aiplex-authz` (the Envoy
-`ext_authz` check on the gateway path) verifies RS256 only, so an ES256 or ES384 federated
-token is accepted by the API and refused by that authorizer.
+`ext_authz` check on the gateway path) verifies RS256 only, so an ES256, ES384 or EdDSA
+federated token is accepted by the API and refused by that authorizer.
 For all presets except `azure-managed-identity`, a missing `audience` takes the
 server's default audience. That default is `AIPLEX_AGENT_FEDERATION_AUDIENCE`, or
 `PUBLIC_URL` when it is unset.
@@ -74,9 +88,87 @@ server's default audience. That default is `AIPLEX_AGENT_FEDERATION_AUDIENCE`, o
 | `github-actions` | `https://token.actions.githubusercontent.com` | `repo:{owner}/{repo}:environment:{env}` or `repo:{owner}/{repo}:ref:{ref}` | `repository`, exactly one of `environment` or `ref`, `repository_id` and `repository_owner_id` (optional, pinned as claims), `subject_format` (`name` default, or `immutable`, which requires both IDs), `audience` |
 | `spiffe-oidc` | Explicit `issuer` of an OIDC discovery provider | Explicit SPIFFE ID | `issuer`, `jwks_url`, `spiffe_id`, `audience` |
 | `oidc` | Explicit `issuer` | Explicit `subject` | `issuer`, `jwks_url`, `subject`, `audience` |
+| `branchyard` | A Branchyard server (a separate product that runs coding agents on git branches): `server`, exactly (keys at `server` + `/.well-known/jwks.json`) | `branchyard:{Branchyard tenant}` (`sub`). `by_purpose` is pinned to `aiplex`; the token may live at most an hour. | `server` (required), `tenant` (the Branchyard tenant, required), `audience`. See [Branchyard](#branchyard). |
 
 Input names are the ones in the preset catalog. Run `aiplex agents identity presets`
 to see the field list and each field's description and example.
+
+## Branchyard
+
+Branchyard is a separate product that runs coding agents on git branches. A Branchyard server
+gives each turn (one step of an agent on a branch) a model gateway, and that gateway can call
+an AIPlex access point as one of its model backends. With `auth = "turn-token"` on that
+backend, the gateway mints a turn token (a short-lived token for that turn only) and AIPlex
+verifies it against the server's published keys, so no AIPlex secret is stored in Branchyard.
+A Branchyard tenant is Branchyard's own grouping of its users and repositories; it is not an
+AIPlex tenant, and the binding lives in the AIPlex tenant that creates it.
+
+The turn token is a compact JWS with `alg` `EdDSA` and the `kid` of an Ed25519 key the server
+publishes as `kty` `OKP` at `{iss}/.well-known/jwks.json`. A key in that set may carry
+`alg: "EdDSA"` or no `alg`; any other `alg` drops the key. The token's claims are `iss` (the
+server's issuer), `aud` (the backend's `audience`), `sub` (`branchyard:{Branchyard tenant}`),
+`iat`, `exp`, `jti`, `by_purpose` (`aiplex`) and `by_tenant` (the Branchyard tenant),
+`by_branch` and `by_turn`.
+
+A `branchyard` binding derives the trust tuple from `server` and `tenant` (the Branchyard
+tenant):
+
+| Derived | Value |
+| --- | --- |
+| Issuer | `server`, compared byte for byte with `iss` |
+| JWKS URL | `server` + `/.well-known/jwks.json` |
+| Subject | `branchyard:` + the Branchyard tenant, in `sub` |
+| Required claim | `by_purpose` = `aiplex`, a string |
+| Audience | The `audience` input, or the server's default audience |
+| Lifetime | A numeric `iat`, and `exp` at most 3600 seconds after it |
+| Algorithms | `EdDSA` only |
+
+`aud` may be a string or an array that contains the binding audience; that is what the code
+accepts for every preset. Branchyard sends a string.
+
+The lifetime rule enforces what the integration contract says Branchyard mints: `exp` at most
+one hour after `iat`. A token without `iat`, with an `iat` that is not a number, or with
+`exp - iat` over 3600 seconds is refused at the `lifetime` check, whose reason gives the limit.
+Both values come from the token, so no clock skew applies. The limit is read from the preset
+when a token is verified; nothing is stored with the binding, and no other preset has it.
+
+`server` must be exactly `https://host` or `https://host:port`, as the server's tokens carry it:
+no path, no trailing slash (`https://by.example.com/` is a different issuer), no query, fragment,
+user information or percent escape. Plain `http` is accepted only on a loopback address, for a
+development server (a Branchyard server without TLS on loopback has an issuer such as
+`http://127.0.0.1:8421`). The outbound endpoint policy then decides, and it reaches loopback only
+when development mode allows it, both when the binding is saved and when keys are fetched. No
+other preset accepts an `http` issuer. The Branchyard tenant must be 1 to 128 of
+`A-Z a-z 0-9 . _ @ + -`. Branchyard itself allows any Branchyard tenant name without `/` or
+control characters; AIPlex accepts the subset with no whitespace, colon, wildcard or non-ASCII
+character, so two Branchyard tenants' subjects cannot look alike. A Branchyard tenant outside it
+cannot be federated. The preset accepts no other inputs (no `jwks_url`, `issuer` or `subject`)
+and no additional required claims.
+
+```sh
+aiplex agents register acme-branchyard --name "Branchyard: acme"
+aiplex agents identity bind acme-branchyard by --preset branchyard \
+  --input server=https://branchyard.example.com \
+  --input tenant=acme \
+  --input audience=https://aiplex.example.com
+aiplex agents identity plan acme-branchyard by    # the Branchyard backend configuration
+```
+
+A turn token from that server for the Branchyard tenant `acme` then authenticates as the agent
+`acme-branchyard`, and as nothing else: another Branchyard tenant's token has another subject,
+and a token whose `by_purpose` is missing or not the string `aiplex`, whose `aud`, `sub`, `exp`
+or `iss` differs, or whose lifetime is over an hour is refused (`401` on a live request; the dry
+run names the failed check). `by_branch` and `by_turn` are not checked. The binding grants
+nothing by itself; grant the principal it yields as for any binding.
+
+A Branchyard that runs on one machine without a server, whose issuer is `branchyard:local:{id}`
+and whose keys are a file, cannot be federated: give its backend an AIPlex token instead.
+
+Limits: the preset is tested with a stand-in issuer that signs tokens of the shape above
+(`aiplex dev token --issuer branchyard`, see [local development](local-development.md#a-branchyard-turn-token)).
+It has not been validated against a running Branchyard server. The gateway authorizer
+`aiplex-authz` verifies RS256 only, so a turn token works on the managed access point path
+(`/ap/{id}/...`) and not on the gateway path.
 
 ## Worked example
 
@@ -136,8 +228,9 @@ provider is rejected. Restart the API after changing these variables.
 
 - Nothing is provisioned in the other cloud. Plans are text for an operator to run.
 - Trust rests on the issuer's JWKS. JWKS URLs must pass the outbound endpoint policy
-  when a binding is saved. Issuers must be `https`. A JWKS URL may be plain `http` only when
-  its host is `localhost` or a loopback address. Even then the outbound endpoint policy refuses
+  when a binding is saved. Issuers must be `https`, except that a `branchyard` binding's
+  issuer may be plain `http` on a loopback address, where the JWKS is on that same origin. A
+  JWKS URL may be plain `http` only when its host is `localhost` or a loopback address. Even then the outbound endpoint policy refuses
   it unless the `network.allow_loopback` option is set in the connections file
   (`AIPLEX_CONNECTIONS_FILE`). The API refuses that option unless development mode is on
   (`AIPLEX_DEV_MODE`), and stops at startup otherwise.

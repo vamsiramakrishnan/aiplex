@@ -479,7 +479,7 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		row("Agent", seeded.AgentConnection+"  (mock agent runtime on loopback; try: aiplex a2a invoke "+seeded.AgentConnection+" --operation query)")
 	}
 	if s.Federation != nil {
-		row("Identity", "federation on; stand-in providers on loopback: aiplex dev token --issuer idp|workload|unconfigured")
+		row("Identity", devstack.IdentitySummary())
 	}
 	row("Access point", seeded.AccessPoint+"  ->  "+s.APIURL+"/ap/"+seeded.AccessPoint)
 	if seeded.Price != "" {

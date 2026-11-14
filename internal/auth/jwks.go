@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -15,9 +16,12 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vamsiramakrishnan/aiplex/pkg/agentfederation"
 )
 
 // TokenVerifier is the authentication boundary. Implementations must verify the
@@ -35,14 +39,21 @@ type JWKSConfig struct {
 	JWKSURL    string
 	HTTPClient *http.Client
 	CacheTTL   time.Duration
+	// Algorithms are the JWS algorithms this verifier accepts, each one of
+	// jwsAlgorithms. Empty means RS256, ES256 and ES384 (EdDSA is accepted
+	// only by a verifier that names it).
+	Algorithms []string
 }
 
-// JWKSVerifier verifies RS256, ES256 and ES384 JWTs with cached public keys.
-// Each algorithm is bound to one key type: RS256 to RSA, ES256 to P-256 and
-// ES384 to P-384. Other signature algorithms can be supplied through
+// JWKSVerifier verifies RS256, ES256, ES384 and EdDSA JWTs with cached public
+// keys. Each algorithm is bound to one key type: RS256 to RSA, ES256 to P-256,
+// ES384 to P-384 and EdDSA to Ed25519. A verifier accepts only the algorithms
+// its configuration names. Other signature algorithms can be supplied through
 // TokenVerifier without changing WIF logic.
 type JWKSVerifier struct {
 	cfg         JWKSConfig
+	algorithms  []string
+	accepted    string // the algorithms, as named in errors
 	mu          sync.Mutex
 	keys        map[string]any
 	refreshed   time.Time
@@ -66,6 +77,16 @@ func NewJWKSVerifier(cfg JWKSConfig) (*JWKSVerifier, error) {
 	if cfg.CacheTTL < time.Second || cfg.CacheTTL > 24*time.Hour {
 		return nil, fmt.Errorf("JWKS cache TTL must be between one second and 24 hours")
 	}
+	algorithms := defaultJWSAlgorithms
+	if len(cfg.Algorithms) > 0 {
+		algorithms = nil
+		for _, alg := range cfg.Algorithms {
+			if !slices.Contains(jwsAlgorithms, alg) || slices.Contains(algorithms, alg) {
+				return nil, fmt.Errorf("JWT algorithm %q is not supported or is listed twice", alg)
+			}
+			algorithms = append(algorithms, alg)
+		}
+	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 5 * time.Second}
 	}
@@ -76,7 +97,7 @@ func NewJWKSVerifier(cfg JWKSConfig) (*JWKSVerifier, error) {
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	cfg.HTTPClient = &client
-	return &JWKSVerifier{cfg: cfg}, nil
+	return &JWKSVerifier{cfg: cfg, algorithms: algorithms, accepted: agentfederation.AlgorithmList(algorithms)}, nil
 }
 
 func (v *JWKSVerifier) Verify(ctx context.Context, token string) (map[string]any, error) {
@@ -125,8 +146,8 @@ func (v *JWKSVerifier) VerifySignature(ctx context.Context, token string) (map[s
 		KeyID     string `json:"kid"`
 	}
 	h, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil || json.Unmarshal(h, &header) != nil || (header.Algorithm != "RS256" && header.Algorithm != "ES256" && header.Algorithm != "ES384") || header.KeyID == "" {
-		return nil, fmt.Errorf("JWT requires RS256, ES256 or ES384 and a key ID")
+	if err != nil || json.Unmarshal(h, &header) != nil || !slices.Contains(v.algorithms, header.Algorithm) || header.KeyID == "" {
+		return nil, fmt.Errorf("JWT requires %s and a key ID", v.accepted)
 	}
 	key, err := v.key(ctx, header.KeyID)
 	if err != nil {
@@ -150,6 +171,15 @@ func (v *JWKSVerifier) VerifySignature(ctx context.Context, token string) (map[s
 		if ok && spec.curve == k.Curve && header.Algorithm == spec.alg && len(signature) == 2*spec.size {
 			valid = ecdsa.Verify(k, spec.digest(signingInput), new(big.Int).SetBytes(signature[:spec.size]), new(big.Int).SetBytes(signature[spec.size:]))
 		}
+	case ed25519.PublicKey:
+		// Only Ed25519 keys are loaded as OKP keys. The header must name
+		// exactly EdDSA, and the signature must be exactly 64 bytes
+		// (RFC 8037 section 3.1). ed25519.Verify also refuses a
+		// non-canonical S.
+		spec := okpAlgorithms["Ed25519"]
+		if header.Algorithm == spec.alg && len(k) == spec.size && len(signature) == spec.signature {
+			valid = ed25519.Verify(k, signingInput, signature)
+		}
 	}
 	if !valid {
 		return nil, fmt.Errorf("invalid JWT signature")
@@ -168,6 +198,33 @@ func (v *JWKSVerifier) VerifySignature(ctx context.Context, token string) (map[s
 		return nil, fmt.Errorf("invalid trailing JWT payload")
 	}
 	return claims, nil
+}
+
+// jwsAlgorithms are every JWS algorithm the verifier knows. Each is bound to
+// exactly one key type, and a token is checked only against the key its kid
+// names, under the one algorithm that key's type allows:
+//
+//	RS256  RSA, at least 2048 bits
+//	ES256  EC on P-256 (ecAlgorithms)
+//	ES384  EC on P-384 (ecAlgorithms)
+//	EdDSA  OKP on Ed25519 (okpAlgorithms)
+var jwsAlgorithms = []string{"RS256", "ES256", "ES384", "EdDSA"}
+
+// defaultJWSAlgorithms are what a verifier accepts when its configuration
+// names none: every algorithm except EdDSA, which a caller asks for.
+var defaultJWSAlgorithms = []string{"RS256", "ES256", "ES384"}
+
+// okpAlgorithm binds one OKP curve to the only JWS algorithm it may verify.
+type okpAlgorithm struct {
+	alg       string
+	size      int // bytes of the public key x
+	signature int // bytes of a signature
+}
+
+// okpAlgorithms is keyed by the JWK crv value. Ed448, X25519 and X448 are not
+// signing curves this verifier supports and are not loaded.
+var okpAlgorithms = map[string]okpAlgorithm{
+	"Ed25519": {alg: "EdDSA", size: ed25519.PublicKeySize, signature: ed25519.SignatureSize},
 }
 
 // ecAlgorithm binds one JWK curve to the only JWS algorithm it may verify.
@@ -251,6 +308,7 @@ func (v *JWKSVerifier) key(ctx context.Context, kid string) (any, error) {
 			Curve     string `json:"crv"`
 			X         string `json:"x"`
 			Y         string `json:"y"`
+			D         string `json:"d"`
 		} `json:"keys"`
 	}
 	if json.Unmarshal(data, &set) != nil {
@@ -279,6 +337,26 @@ func (v *JWKSVerifier) key(ctx context.Context, kid string) (any, error) {
 				return nil, fmt.Errorf("duplicate JWKS key ID")
 			}
 			keys[j.KeyID] = &ecdsa.PublicKey{Curve: spec.curve, X: pointX, Y: pointY}
+			continue
+		}
+		if j.Type == "OKP" {
+			// An OKP key is loaded only on a curve in okpAlgorithms, with an
+			// alg that is absent or that curve's algorithm, a public x of
+			// exactly the curve's size, and neither a private d (a key set
+			// that publishes a private key is not trusted for that key) nor
+			// a y.
+			spec, ok := okpAlgorithms[j.Curve]
+			if !ok || (j.Algorithm != "" && j.Algorithm != spec.alg) || j.D != "" || j.Y != "" {
+				continue
+			}
+			x, err := base64.RawURLEncoding.DecodeString(j.X)
+			if err != nil || len(x) != spec.size {
+				continue
+			}
+			if _, duplicate := keys[j.KeyID]; duplicate {
+				return nil, fmt.Errorf("duplicate JWKS key ID")
+			}
+			keys[j.KeyID] = ed25519.PublicKey(x)
 			continue
 		}
 		if j.Type != "RSA" || (j.Algorithm != "" && j.Algorithm != "RS256") {

@@ -33,10 +33,13 @@ type DevTokenRequest struct {
 	User   string   `json:"user"`
 	Role   string   `json:"role,omitempty"` // none (default), deployer or admin; local issuer only
 	Groups []string `json:"groups,omitempty"`
-	// Issuer selects who signs the token: local (default), idp, workload or
-	// unconfigured. Only local tokens can carry a role: the others are for
-	// identity federation, where roles come from role bindings.
+	// Issuer selects who signs the token: local (default), idp, workload,
+	// unconfigured or branchyard. Only local tokens can carry a role: the
+	// others are for identity federation, where roles come from role bindings.
 	Issuer string `json:"issuer,omitempty"`
+	// Tenant is the Branchyard tenant of a branchyard token, which names a
+	// tenant instead of a user. Only the branchyard issuer takes it.
+	Tenant string `json:"tenant,omitempty"`
 }
 
 // DevTokenResponse is the issuer's answer. The token is the only secret.
@@ -54,6 +57,8 @@ type DevTokenResponse struct {
 	IssuerURL string `json:"issuer_url,omitempty"`
 	JWKSURL   string `json:"jwks_url,omitempty"`
 	Audience  string `json:"audience,omitempty"`
+	// Tenant is the Branchyard tenant a branchyard token is for.
+	Tenant string `json:"tenant,omitempty"`
 }
 
 var (
@@ -65,6 +70,12 @@ var (
 // The role is expressed as membership of the group the local role bindings
 // map to it, exactly as a real identity provider would.
 func (s *Stack) MintCallerToken(req DevTokenRequest) (*DevTokenResponse, error) {
+	if req.Issuer == IssuerBranchyard {
+		return s.mintBranchyard(req)
+	}
+	if req.Tenant != "" {
+		return nil, fmt.Errorf("--tenant applies to the branchyard issuer only")
+	}
 	user := strings.TrimSpace(req.User)
 	if !devUserPattern.MatchString(user) {
 		return nil, fmt.Errorf("user must be 1 to 63 lowercase letters, digits, dots, dashes or underscores, starting with a letter or digit")
@@ -148,6 +159,33 @@ func (s *Stack) mintFederated(f *FederatedIssuer, subject string, groups []strin
 		out.PrincipalID = federatedPrincipalID(f, subject)
 	}
 	return out, nil
+}
+
+// mintBranchyard signs a turn token from the Branchyard stand-in for one
+// tenant. It names a tenant, not a user, and carries no groups or role: the
+// API gives it the identity of the agent a branchyard binding names.
+func (s *Stack) mintBranchyard(req DevTokenRequest) (*DevTokenResponse, error) {
+	if s.Federation == nil || s.Federation.Branchyard == nil {
+		return nil, fmt.Errorf("issuer must be one of %s", strings.Join(IssuerNames, ", "))
+	}
+	switch {
+	case req.User != "":
+		return nil, fmt.Errorf("a branchyard token is for a tenant, not a user; use --tenant instead of --user")
+	case req.Role != "" && req.Role != "none":
+		return nil, fmt.Errorf("--role applies to the local issuer only; a branchyard token has the role the API's role bindings give the agent it is bound to")
+	case len(req.Groups) > 0:
+		return nil, fmt.Errorf("a branchyard token has a tenant and no groups")
+	case req.Tenant == "":
+		return nil, fmt.Errorf("--tenant is required with the branchyard issuer")
+	}
+	by := s.Federation.Branchyard
+	token, err := by.MintTurn(req.Tenant, "aiplex-dev/main", "turn-"+randomID(), CallerTokenTTL)
+	if err != nil {
+		return nil, err
+	}
+	subject := "branchyard:" + req.Tenant
+	return &DevTokenResponse{Token: token, Subject: subject, Role: "none", Groups: []string{}, ExpiresIn: int64(CallerTokenTTL.Seconds()), Issuer: IssuerBranchyard, IssuerURL: by.URL, JWKSURL: by.JWKSURL, Audience: by.Audience, Tenant: req.Tenant,
+		PrincipalID: auth.CanonicalPrincipalID(by.URL, auth.FederationPoolID(DevTenant), subject)}, nil
 }
 
 // issuerHandler is the issuer's JWKS and discovery handler plus DevTokenPath.
