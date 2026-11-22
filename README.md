@@ -141,3 +141,7 @@ Apache License 2.0. See [LICENSE](LICENSE). The price catalogue snapshot under `
 [docs-local]: https://vamsiramakrishnan.github.io/aiplex/docs/getting-started/local-development
 [docs-concepts]: https://vamsiramakrishnan.github.io/aiplex/docs/concepts
 [docs-install]: https://vamsiramakrishnan.github.io/aiplex/docs/getting-started/install-platform
+
+## Related projects
+
+- [anvil](https://github.com/vamsiramakrishnan/anvil). Generate MCP tools, CLIs and SDKs from existing API contracts.
