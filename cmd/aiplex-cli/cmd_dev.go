@@ -66,12 +66,15 @@ func devCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "dev",
-		Short: "Run AIPlex locally with a mock model, a mock MCP server and the Console (no Docker, no cloud)",
-		Long: `Starts a local AIPlex in development mode and shows it working end to end.
+		Short: "Start a local stack with a mock agent, models and MCP tools",
+		Long: `Run a mock agent, model providers and MCP tools locally. Connect an existing
+coding harness with "aiplex connect local --client codex".
 
 What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
   - aiplex-api in development mode (in-memory stores, loopback only)
   - a local token issuer: you are "developer@localhost" with the admin role
+  - a built-in mock agent runtime (Google Agent Runtime query wire, deterministic)
+    behind the agent connection "local-agent"; its bearer token is random per run
   - a built-in mock model provider with four deterministic models, one per
     wire: mock-gpt (OpenAI Chat Completions), mock-responses (OpenAI
     Responses), mock-claude (Anthropic Messages) and mock-gemini (Gemini
@@ -80,8 +83,6 @@ What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
     --api-key-env, which exposes one model)
   - a built-in MCP server with three tools (echo, add, reset_counter), and a
     second one that refuses requests without an API key
-  - a built-in mock agent runtime (Google Agent Runtime query wire, deterministic)
-    behind the agent connection "local-agent"; its bearer token is random per run
   - stand-in identity providers for federation (a workforce one, a workload
     one and one nobody configures), served on loopback; the API trusts them
     only after you configure them (see "aiplex dev token --help")
@@ -459,6 +460,9 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	row := func(label, value string) { fmt.Printf("  %-14s %s\n", label, value) }
 	row("API", s.APIURL+"  (development mode, in memory, loopback only)")
 	row("You", devstack.DevEmail+"  (admin; token from a local issuer, valid 12h)")
+	if seeded.AgentConnection != "" {
+		row("Agent", seeded.AgentConnection+"  (mock agent runtime on loopback; try: aiplex a2a invoke "+seeded.AgentConnection+" --operation query)")
+	}
 	switch seeded.Provider {
 	case "mock":
 		names, wires := make([]string, 0, len(seeded.Models)), make([]string, 0, len(seeded.Models))
@@ -475,9 +479,6 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	if seeded.Connection != "" {
 		row("Tools", seeded.Connection+": "+strings.Join(seeded.Tools, ", ")+"  (built-in MCP server)")
 		row("Keyed tools", seeded.KeyedConnection+"  (API key from a secret reference; try: aiplex mcp connections test "+seeded.KeyedConnection+")")
-	}
-	if seeded.AgentConnection != "" {
-		row("Agent", seeded.AgentConnection+"  (mock agent runtime on loopback; try: aiplex a2a invoke "+seeded.AgentConnection+" --operation query)")
 	}
 	if s.Federation != nil {
 		row("Identity", devstack.IdentitySummary())
@@ -543,8 +544,8 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	fmt.Println("    # 2. See what it cost and who made it")
 	fmt.Println("    aiplex usage records")
 	fmt.Println()
-	fmt.Println("    # Configure your coding agent for it (shows a diff, keeps a backup, undo with --undo)")
-	fmt.Println("    aiplex connect " + seeded.AccessPoint + " --client claude-code --write      # or codex, gemini-cli")
+	fmt.Println("    # Preview the configuration for your coding harness")
+	fmt.Println("    aiplex connect " + seeded.AccessPoint + " --client codex      # or claude-code, gemini-cli")
 	fmt.Println()
 	if consoleURL != "" {
 		fmt.Println("    # 3. Open the Console (URL also shown by: aiplex dev status)")

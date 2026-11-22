@@ -1,12 +1,12 @@
 ---
 title: Run AIPlex locally
 sidebar_label: Run locally
-description: Build the CLI, send a request through a local access point, and inspect the caller, tokens and estimated cost.
+description: Invoke an agent, call a model, run an MCP tool and connect a coding harness on your machine.
 ---
 
 # Run AIPlex locally
 
-Send a model request through an access point and inspect its usage record in the same terminal. The local development stack runs in memory with a mock model and an MCP tool server. Building it requires Git, Go 1.25 or newer, and Make.
+Try agents, models, tools and harnesses on your machine. The local stack runs a mock agent, model provider and MCP server. You need Git, Go 1.25 or newer, and Make.
 
 ## 1. Build and start
 
@@ -26,11 +26,23 @@ Local development mode accepts unauthenticated requests as admin. Keep it on loo
 
 ## 2. Send a request
 
+Invoke the local agent. It replies `mock-agent: hello`.
+
 ```bash
-aiplex dev try
+aiplex a2a invoke local-agent --operation query
 ```
 
-This sends “Hello” through `/ap/local/v1/chat/completions` and looks up **that call** by its AIPlex request ID. The output includes the model's reply and a ledger row showing the model, caller, access point, input and output tokens, and cost. The seeded model has a placeholder price, so its cost is an estimate. For scripts, `aiplex dev try -o json` returns `reply` and `record`.
+Call the mock model. Then run an MCP tool and print a harness configuration:
+
+```bash
+aiplex dev try
+aiplex mcp connections call local-tools echo --args '{"text":"hello"}'
+aiplex connect local --client codex
+```
+
+The tool echoes `hello`. The Codex configuration shows the model endpoint and MCP server. The CLI only prints these settings unless you request a file edit.
+
+`aiplex dev try` sends “Hello” through `/ap/local/v1/chat/completions` and looks up **that call** by its AIPlex request ID. The output includes the model's reply and a ledger row showing the model, caller, access point, input and output tokens, and cost. The seeded model has a placeholder price, so its cost is an estimate. For scripts, `aiplex dev try -o json` returns `reply` and `record`.
 
 ## 3. See who used what
 

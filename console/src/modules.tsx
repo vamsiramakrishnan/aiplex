@@ -12,18 +12,19 @@ export interface ConsoleModule {
   path: string
   label: string
   purpose: string
+  navOrder: number
   component: ComponentType
 }
 
 // Only components shipped with this console can execute. Discovery advertises
 // availability; it never supplies JavaScript URLs or arbitrary navigation.
 export const consoleModules: readonly ConsoleModule[] = [
-  { name: 'mcplex', path: '/mcplex', label: 'MCPlex', purpose: 'MCP tools', component: MCPlex },
-  { name: 'a2aplex', path: '/a2aplex', label: 'A2APlex', purpose: 'Remote agents', component: A2APlex },
-  { name: 'llmplex', path: '/llmplex', label: 'LLMPlex', purpose: 'Models', component: LLMPlex },
-  { name: 'skillsplex', path: '/skillsplex', label: 'SkillsPlex', purpose: 'Deployed skills', component: SkillsPlex },
-  { name: 'clientplex', path: '/clientplex', label: 'ClientPlex', purpose: 'Client setup', component: ClientPlex },
-  { name: 'quotaplex', path: '/quotaplex', label: 'QuotaPlex', purpose: 'Budgets and quota', component: QuotaOverview },
+  { name: 'mcplex', path: '/mcplex', label: 'MCPlex', purpose: 'MCP tools', navOrder: 3, component: MCPlex },
+  { name: 'a2aplex', path: '/a2aplex', label: 'A2APlex', purpose: 'A2A agents', navOrder: 1, component: A2APlex },
+  { name: 'llmplex', path: '/llmplex', label: 'LLMPlex', purpose: 'Models', navOrder: 2, component: LLMPlex },
+  { name: 'skillsplex', path: '/skillsplex', label: 'SkillsPlex', purpose: 'Deployed skills', navOrder: 5, component: SkillsPlex },
+  { name: 'clientplex', path: '/clientplex', label: 'ClientPlex', purpose: 'Harnesses', navOrder: 4, component: ClientPlex },
+  { name: 'quotaplex', path: '/quotaplex', label: 'QuotaPlex', purpose: 'Budgets and quota', navOrder: 6, component: QuotaOverview },
 ]
 
 export function enabledConsoleModules(descriptors: readonly ModuleDescriptor[]): ConsoleModule[] {

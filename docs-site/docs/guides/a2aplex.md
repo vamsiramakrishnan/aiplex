@@ -5,13 +5,22 @@ description: "Govern agent-to-agent access: deploy A2A agents, publish Agent Car
 
 # A2APlex
 
-A2APlex governs agent-to-agent traffic (A2A, HTTP/JSON). It has three parts:
+Use A2APlex to invoke an existing agent, deploy one in a cluster or inspect a reported delegation.
 
 - **Deployed A2A agents.** Deploy an agent from the catalog; the platform creates the workload and an `HTTPRoute`. Each deployed agent publishes an Agent Card at `/a2a/{instanceId}/.well-known/agent.json`.
-- **Native cloud agents.** Google, AWS, Foundry and Copilot agents are reached through tenant-scoped agent connections with actor-separated sessions.
+- **Native cloud agents.** Call Google, AWS, Foundry and Copilot agents through tenant-scoped connections. Each actor gets a separate session.
 - **Reported delegation history.** Delegation records show who delegated to whom.
 
-Opaque agent-internal model and tool calls need their own instrumentation to appear in history.
+## Try the local agent
+
+With `aiplex dev` running, invoke the seeded agent and inspect its usage:
+
+```bash
+aiplex a2a invoke local-agent --operation query
+aiplex usage records --plane a2aplex
+```
+
+The mock runtime replies `mock-agent: hello`. The ledger records the managed invocation. Instrument a remote agent separately to observe its internal calls.
 
 ## Commands
 
@@ -47,7 +56,7 @@ aiplex a2a invoke CONNECTION --operation invoke --payload-file request.json -o j
 aiplex a2a connections delete CONNECTION --yes
 ```
 
-The reply is written as it arrives, so a streamed reply appears incrementally; `-o json` waits for it and prints the status, content type, request id and body. The operation is the provider's and the caller needs the grant `a2a:agent:CONNECTION:OPERATION`. The payload is sent as given and is not logged. No connected cloud agent could be exercised locally; the CLI is tested against local servers and the real API's refusals. Native identity and registries (Google Agent Registry, AWS AgentCore Identity, Microsoft Entra Agent ID) belong to Identity: [Native agent governance](../library/native-agent-governance.md).
+The reply is written as it arrives, so a streamed reply appears incrementally; `-o json` waits for it and prints the status, content type, request id and body. Select an operation the provider supports. The caller needs the grant `a2a:agent:CONNECTION:OPERATION`. AIPlex forwards the payload without logging it. Live cloud agent invocations still require qualification. Native identity and registries (Google Agent Registry, AWS AgentCore Identity, Microsoft Entra Agent ID) belong to Identity: [Native agent governance](../library/native-agent-governance.md).
 
 ## Related
 

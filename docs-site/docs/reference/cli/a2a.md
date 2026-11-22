@@ -1,7 +1,7 @@
 ---
 title: aiplex a2a
 sidebar_label: a2a
-description: "Discover agents and delegate tasks between them (A2A)"
+description: "Invoke connected agents, discover A2A agents and inspect delegations"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.

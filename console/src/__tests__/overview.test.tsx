@@ -251,7 +251,7 @@ describe('connect wizard', () => {
   it('picks a profile, then shows URLs, auth steps, snippets and notes with copy buttons', async () => {
     vi.mocked(api.getConnect).mockResolvedValue(connect)
     wizard()
-    const select = await screen.findByLabelText('Client')
+    const select = await screen.findByRole('combobox', { name: 'Harness or client' })
     await waitFor(() => expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual(['Generic (any OpenAI, Anthropic, Google or MCP client)', 'Codex (openai-responses)']))
     fireEvent.change(select, { target: { value: 'codex' } })
     fireEvent.click(screen.getByRole('button', { name: 'Show connection details' }))

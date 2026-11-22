@@ -5,12 +5,14 @@ description: "Govern agent-to-model access: model surfaces, providers, metering 
 
 # LLMPlex
 
-LLMPlex routes and forwards native model operations. It covers HTTP, SSE and Live protocols, client wire facades, and provider surfaces for OpenAI, Anthropic, Azure OpenAI, Amazon Bedrock, the Gemini Developer API, OpenAI-compatible endpoints and the Google Cloud surfaces. Available protocols and models are explicit operator configuration; nothing is inferred from a model name.
+Choose a provider and expose a model under the name your application uses. Your SDK sends the provider's native requests. LLMPlex forwards them and records the usage the provider reports.
 
-There are two routing layers, and they are separate:
+Choose the entry point for your deployment:
 
-- **Envoy model routes** (`LLMRoute`) configure weighted backends and fallbacks in the gateway. Manage them with `aiplex llm routes` or the `routes` section of an `aiplex apply` file.
-- **Model surfaces** are saved resources the API uses for managed, native-protocol execution. A ClientPlex destination and an access point reference a surface; applying a route does not create one.
+- **Managed API.** Save a model surface with the provider, credentials, models and allowed operations. Reference it from an access point or a ClientPlex destination. Surfaces can support HTTP, SSE or live sessions.
+- **Cluster gateway.** Configure weighted backends and fallback with an Envoy `LLMRoute`. Use `aiplex llm routes` or the `routes` section of an `aiplex apply` file.
+
+See [Model providers](../library/model-providers.md) for supported protocols and providers.
 
 ## Commands
 

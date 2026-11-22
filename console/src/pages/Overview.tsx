@@ -37,7 +37,7 @@ function OperatorOverview() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Overview</h1>
-          <p className="text-gray-600 dark:text-gray-400">Who is calling, how they authenticate, what they can reach and what it costs.</p>
+          <p className="text-gray-600 dark:text-gray-400">Inspect caller identities, model and tool access, and recorded usage.</p>
         </div>
         <div>
           <label htmlFor={`${uid}-since`} className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Time range</label>

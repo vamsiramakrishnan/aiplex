@@ -1,17 +1,20 @@
 ---
 title: aiplex dev
 sidebar_label: dev
-description: "Run AIPlex on this machine with a mock model, mock tools and the Console"
+description: "Start a local stack with a mock agent, models and MCP tools"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.
 
 ```text
-Starts a local AIPlex in development mode and shows it working end to end.
+Run a mock agent, model providers and MCP tools locally. Connect an existing
+coding harness with "aiplex connect local --client codex".
 
 What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
   - aiplex-api in development mode (in-memory stores, loopback only)
   - a local token issuer: you are "developer@localhost" with the admin role
+  - a built-in mock agent runtime (Google Agent Runtime query wire, deterministic)
+    behind the agent connection "local-agent"; its bearer token is random per run
   - a built-in mock model provider with four deterministic models, one per
     wire: mock-gpt (OpenAI Chat Completions), mock-responses (OpenAI
     Responses), mock-claude (Anthropic Messages) and mock-gemini (Gemini
@@ -20,8 +23,6 @@ What runs, all on 127.0.0.1 and in memory (nothing persists after Ctrl+C):
     --api-key-env, which exposes one model)
   - a built-in MCP server with three tools (echo, add, reset_counter), and a
     second one that refuses requests without an API key
-  - a built-in mock agent runtime (Google Agent Runtime query wire, deterministic)
-    behind the agent connection "local-agent"; its bearer token is random per run
   - stand-in identity providers for federation (a workforce one, a workload
     one and one nobody configures), served on loopback; the API trusts them
     only after you configure them (see "aiplex dev token --help")

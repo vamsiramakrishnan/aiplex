@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Layout from '../components/Layout'
 import CommandPalette from '../components/CommandPalette'
 import { accessFrom } from '../hooks/useAccess'
+import { consoleModules } from '../modules'
 
 // Three entries added to the one navigation list, with no edit to the palette or to Layout.
 vi.mock('../components/navItems', async (orig) => {
@@ -17,7 +18,7 @@ vi.mock('../components/navItems', async (orig) => {
 })
 let access = accessFrom(['admin'])
 vi.mock('../hooks/useAccess', async (orig) => ({ ...(await orig<typeof import('../hooks/useAccess')>()), useAccess: () => access }))
-const llm = { name: 'llmplex', path: '/llmplex', label: 'LLMPlex', purpose: 'Models' }
+const llm = consoleModules.find((module) => module.name === 'llmplex')!
 let modules = [llm]
 vi.mock('../hooks/useModules', () => ({ useModules: () => ({ enabled: modules, error: null, loading: false, descriptors: [] }) }))
 vi.mock('../hooks/useAuth', () => ({ useAuth: () => ({ user: { email: 'a@b.c' }, logout: vi.fn(), ambient: true }) }))
@@ -94,6 +95,25 @@ describe('Command palette', () => {
     fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'models' } })
     expect(paletteLabels()).toEqual(['Go to LLMPlex'])
     expect(screen.getByRole('button', { name: 'Go to LLMPlex' })).toHaveAccessibleDescription('Models')
+  })
+
+  it('finds coding harnesses under the canonical ClientPlex route', () => {
+    access = accessFrom(['admin'])
+    modules = [consoleModules.find((module) => module.name === 'clientplex')!]
+    show()
+    expect(mainNav().getByRole('link', { name: 'ClientPlex', description: 'Harnesses' })).toHaveAttribute('href', '/clientplex')
+    fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'harness' } })
+    expect(paletteLabels()).toEqual(['Go to ClientPlex'])
+  })
+
+  it('keeps agents, models, tools, and harnesses in order when discovery order varies', () => {
+    access = accessFrom(['admin'])
+    modules = [...consoleModules].reverse()
+    show()
+    const group = within(mainNav().getByRole('group', { name: 'Modules' }))
+    expect(group.getAllByRole('link').map((link) => link.getAttribute('aria-label'))).toEqual([
+      'A2APlex', 'LLMPlex', 'MCPlex', 'ClientPlex', 'SkillsPlex', 'QuotaPlex',
+    ])
   })
 
   it('closes the mobile drawer when selecting the page already open', () => {

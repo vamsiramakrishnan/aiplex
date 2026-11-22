@@ -15,17 +15,17 @@ const DOCS_ORIGIN = 'https://vamsiramakrishnan.github.io';
 const DOCS_BASE_URL = '/aiplex/';
 
 const moduleLinks = [
-  {label: 'MCPlex (tools)', to: '/docs/guides/mcplex'},
-  {label: 'LLMPlex (models)', to: '/docs/guides/llmplex'},
-  {label: 'A2APlex (agents)', to: '/docs/guides/a2aplex'},
-  {label: 'QuotaPlex (budgets)', to: '/docs/guides/quotaplex'},
-  {label: 'ClientPlex (clients)', to: '/docs/guides/clientplex'},
-  {label: 'SkillsPlex (discovery)', to: '/docs/guides/skillsplex'},
+  {label: 'Agents · A2APlex', to: '/docs/guides/a2aplex'},
+  {label: 'Models · LLMPlex', to: '/docs/guides/llmplex'},
+  {label: 'Tools · MCPlex', to: '/docs/guides/mcplex'},
+  {label: 'Harnesses · ClientPlex', to: '/docs/guides/clientplex'},
+  {label: 'Budgets · QuotaPlex', to: '/docs/guides/quotaplex'},
+  {label: 'Skill discovery · SkillsPlex', to: '/docs/guides/skillsplex'},
 ];
 
 const config: Config = {
   title: 'AIPlex',
-  tagline: 'One control plane for agent access to models, tools, skills and other agents.',
+  tagline: 'A control plane for agents, models, tools and harnesses.',
   favicon: 'img/favicon.svg',
 
   future: {

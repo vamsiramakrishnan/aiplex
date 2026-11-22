@@ -44,18 +44,13 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'category',
-          label: 'MCPlex (tools)',
-          link: {type: 'doc', id: 'guides/mcplex'},
-          items: [
-            L('tool-connection-auth', 'Tool connection auth'),
-            L('tool-policy-rules', 'Policy rules on tool calls'),
-            L('mcp-registry-import', 'Import from the MCP Registry'),
-            L('mcp-runtime-authorization', 'Owned MCP OAuth execution'),
-          ],
+          label: 'Agents · A2APlex',
+          link: {type: 'doc', id: 'guides/a2aplex'},
+          items: [L('a2a-skills-audit', 'Reported history'), L('connected-plexes', 'Connected Plexes')],
         },
         {
           type: 'category',
-          label: 'LLMPlex (models)',
+          label: 'Models · LLMPlex',
           link: {type: 'doc', id: 'guides/llmplex'},
           items: [
             L('model-surfaces', 'Model surfaces'),
@@ -66,9 +61,20 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
-          label: 'A2APlex (agents)',
-          link: {type: 'doc', id: 'guides/a2aplex'},
-          items: [L('a2a-skills-audit', 'Reported history'), L('connected-plexes', 'Connected Plexes')],
+          label: 'Tools · MCPlex',
+          link: {type: 'doc', id: 'guides/mcplex'},
+          items: [
+            L('tool-connection-auth', 'Tool connection auth'),
+            L('tool-policy-rules', 'Policy rules on tool calls'),
+            L('mcp-registry-import', 'Import from the MCP Registry'),
+            L('mcp-runtime-authorization', 'Owned MCP OAuth execution'),
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Harnesses · ClientPlex',
+          link: {type: 'doc', id: 'guides/clientplex'},
+          items: [L('clientplex', 'Client contracts'), L('harness-onboarding', 'Harness onboarding'), L('branchyard', 'Branchyard')],
         },
         {
           type: 'category',
@@ -85,12 +91,6 @@ const sidebars: SidebarsConfig = {
             L('budgets', 'Budgets'),
             L('usage-ledger', 'Usage ledger'),
           ],
-        },
-        {
-          type: 'category',
-          label: 'ClientPlex',
-          link: {type: 'doc', id: 'guides/clientplex'},
-          items: [L('clientplex', 'Client contracts'), L('harness-onboarding', 'Harness onboarding'), L('branchyard', 'Branchyard')],
         },
         'guides/skillsplex',
         {

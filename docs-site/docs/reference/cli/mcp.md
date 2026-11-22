@@ -1,7 +1,7 @@
 ---
 title: aiplex mcp
 sidebar_label: mcp
-description: "Connect MCP tool servers and test them through the gateway"
+description: "Connect MCP servers, list their tools and call them through the gateway"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.

@@ -611,25 +611,19 @@ starts. A test that reports a data race in the API log fails.
 | `E2E_RACE=1` | Builds the API with `-race`. Used by `make e2e-race`. |
 | `E2E_KEEP_LOGS=1` | Keeps each test's API log. The log is written to the system temporary directory as `aiplex-e2e-<test name>.log`. A failed test always keeps its log. |
 
-The suite has 14 top-level test functions, in files such as `authz_test.go`, `models_test.go`,
-`usage_test.go`, `identity_test.go` and `restart_test.go`. `devcmd_test.go` checks how `aiplex dev` handles real provider key flags.
+`tests/e2e` runs the compiled binaries against local services. Its tests cover authorization, model protocols, tools, agent connections, harness configuration, usage and restarts.
 
 ## Demo
 
-`make demo` runs `tools/demo.sh`. The script:
+Run `make demo` to check agents, models, tools and harnesses in an isolated local stack. The script builds the CLI and API, then:
 
-1. Builds `aiplex` and `aiplex-api` into `$DEMO_BIN` (default `./bin` in the repository).
-2. Starts `aiplex dev --port $DEMO_PORT --no-console` (default port `18080`) with an isolated `HOME`.
-3. Evaluates `aiplex dev env`.
-4. Sends a chat completion and a streaming chat completion through the access point.
-5. Calls the MCP server through the access point: `initialize`, `tools/list` and `tools/call`.
-6. Runs `aiplex usage records` and `aiplex usage summary --by model`.
-7. Runs `aiplex connect local` and checks that its curl snippet is present.
-8. Stops `aiplex dev` with Ctrl+C.
+1. Invokes `local-agent` and checks the reply.
+2. Sends buffered and streaming chat requests to the mock model.
+3. Lists the exposed MCP tools and calls `local-tools__add`.
+4. Previews the Codex model and MCP settings in a temporary home.
+5. Reads the usage ledger, runs the generated curl example and stops the stack.
 
-It exits non-zero at the first failed step. On failure it prints the `aiplex dev` output and the tail of
-the API log. It needs Go and curl. Python is used only to read the connect output, and a sed fallback
-covers its absence.
+The demo uses port `18080` by default. Set `DEMO_PORT` to use another port and `DEMO_BIN` to change the binary directory. If a check fails, the script prints the local server output and recent API logs.
 
 ## Limits
 

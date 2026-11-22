@@ -4,7 +4,7 @@ Instructions for a coding agent, whatever harness it runs in. Two jobs: onboard 
 
 ## Onboard this machine to AIPlex
 
-AIPlex is a gateway for models, tools and agents. A coding agent reaches it through an access point (`/ap/<id>/...`). Do these steps in order and read each command's output before the next.
+AIPlex connects agents, models, tools and harnesses. Configure your harness to call models and tools through a team access point (`/ap/<id>/...`). Use `aiplex a2a invoke` to call a connected agent. Follow the steps below to configure this machine.
 
 1. Check the CLI is installed:
 

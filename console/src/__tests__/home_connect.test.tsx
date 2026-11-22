@@ -46,7 +46,7 @@ describe('Home for a caller without a role', () => {
 describe('connect wizard profile list', () => {
   it('does not offer a profile that only speaks the Claude apps gateway protocol', async () => {
     wrap(<ConnectWizard accessPointId="local" onClose={() => {}} />)
-    const select = await screen.findByLabelText('Client')
+    const select = await screen.findByRole('combobox', { name: 'Harness or client' })
     await waitFor(() => expect(within(select).getAllByRole('option').map(o => o.textContent)).toEqual([
       'Generic (any OpenAI, Anthropic, Google or MCP client)', 'Claude Code (anthropic-messages, claude-apps)',
     ]))

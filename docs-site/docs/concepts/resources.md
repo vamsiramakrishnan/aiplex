@@ -1,18 +1,18 @@
 ---
 title: Resources
-description: "Models, tools and skills: what callers use and how each is represented."
+description: "How AIPlex represents agents, models, tools and skills."
 ---
 
 # Resources
 
-Callers use three kinds of resource. A fourth, other agents, is governed by A2APlex.
+Agents can act as callers and as destinations. A harness uses its configured endpoints to reach the resources its caller may access.
 
 | Resource | Module | How it is represented |
 | --- | --- | --- |
+| **Agent** | [A2APlex](../guides/a2aplex.md) | A deployed A2A agent or a native cloud-agent connection. |
 | **Model** | [LLMPlex](../guides/llmplex.md) | A saved model surface: an operator-approved provider origin, credential and an allowlist of native operations and models. See [Native model surfaces](../library/model-surfaces.md) and [Model providers](../library/model-providers.md). |
 | **Tool** | [MCPlex](../guides/mcplex.md) | A managed MCP tool connection, with an upstream `auth` block and a `tools` policy. See [Tool connection auth](../library/tool-connection-auth.md). |
 | **Skill** | [SkillsPlex](../guides/skillsplex.md) | A deployed skill instance with a manifest of capabilities. |
-| **Agent** | [A2APlex](../guides/a2aplex.md) | A deployed A2A agent or a native cloud-agent connection. |
 
 ## Scopes
 

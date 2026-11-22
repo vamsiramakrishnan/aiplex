@@ -4,25 +4,20 @@ sidebar_label: Overview
 description: Every aiplex command, generated from the CLI's own help output.
 ---
 
-This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.
-
-## Global flags
-
-```text
-      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
-      --debug            Show debug output, including raw API errors
-  -h, --help             help for aiplex
-      --no-color         Disable colour (also: NO_COLOR=1)
-  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
-      --token string     Bearer token (env: AIPLEX_TOKEN)
-      --url string       AIPlex API URL (env: AIPLEX_URL)
-```
-
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| [`aiplex dev`](./dev.md) | Run AIPlex on this machine with a mock model, mock tools and the Console |
+| [`aiplex agents`](./agents.md) | Register agents, bind their cloud identities and set their permissions |
+| [`aiplex a2a`](./a2a.md) | Invoke connected agents, discover A2A agents and inspect delegations |
+| [`aiplex llm`](./llm.md) | Connect model providers (surfaces), and inspect routes, batches and capacity |
+| [`aiplex mcp`](./mcp.md) | Connect MCP servers, list their tools and call them through the gateway |
+| [`aiplex tools`](./tools.md) | Set a tool connection's credential type and which tools it allows |
+| [`aiplex tool-auth`](./tool-auth.md) | Authorize a downstream tool for yourself (OAuth sign-in to the tool) |
+| [`aiplex skills`](./skills.md) | Inspect skill servers and skill invocations |
+| [`aiplex connect`](./connect.md) | Print an access point configuration for your coding harness or SDK |
+| [`aiplex clients`](./clients.md) | Register a coding harness or IDE and review its connection plan |
+| [`aiplex dev`](./dev.md) | Start a local stack with a mock agent, models and MCP tools |
 | [`aiplex login`](./login.md) | Sign in to an AIPlex API and store the token for the current context |
 | [`aiplex logout`](./logout.md) | Forget the stored token for the current context |
 | [`aiplex auth`](./auth.md) | Credential helpers for tools that fetch a token by running a command |
@@ -33,20 +28,11 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex health`](./health.md) | Check that the API and its components answer |
 | [`aiplex version`](./version.md) | Show the CLI version, commit and whether the Console is built in |
 | [`aiplex init`](./init.md) | Set up AIPlex on a Google Cloud project (guided) |
-| [`aiplex quickstart`](./quickstart.md) | Create a cloud deployment end to end in one command |
+| [`aiplex quickstart`](./quickstart.md) | Deploy AIPlex and an example workload to Google Cloud |
 | [`aiplex access-points`](./access-points.md) | Create and manage access points: one URL with identity, access and quota |
-| [`aiplex connect`](./connect.md) | Print ready-to-paste client configuration for an access point |
 | [`aiplex who`](./who.md) | See every caller: how it signs in, what it can reach and its usage |
-| [`aiplex clients`](./clients.md) | Register developer clients (IDEs, CLIs) and review their connection plans |
-| [`aiplex llm`](./llm.md) | Connect model providers (surfaces), and inspect routes, batches and capacity |
-| [`aiplex mcp`](./mcp.md) | Connect MCP tool servers and test them through the gateway |
-| [`aiplex tools`](./tools.md) | Set a tool connection's credential type and which tools it allows |
-| [`aiplex tool-auth`](./tool-auth.md) | Authorize a downstream tool for yourself (OAuth sign-in to the tool) |
-| [`aiplex skills`](./skills.md) | Inspect skill servers and skill invocations |
-| [`aiplex agents`](./agents.md) | Register agents, bind their cloud identities and set their permissions |
 | [`aiplex identity`](./identity.md) | Let people sign in with your corporate identity provider |
 | [`aiplex iam`](./iam.md) | Map identity-provider groups to roles (admin, deployer, viewer) with role bindings |
-| [`aiplex a2a`](./a2a.md) | Discover agents and delegate tasks between them (A2A) |
 | [`aiplex usage`](./usage.md) | See what each request cost: records, totals and model prices |
 | [`aiplex quota`](./quota.md) | Inspect quota policy, balances, loans and admission decisions |
 | [`aiplex budgets`](./budgets.md) | Budgets: team and project limits above per-caller quota |
@@ -70,23 +56,53 @@ This page is generated from the output of `aiplex --help` for the CLI built from
 | [`aiplex console`](./console.md) | Serve the Console locally against the current context |
 | [`aiplex tui`](./tui.md) | Open an interactive terminal dashboard |
 
+## Global flags
+
+```text
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+  -h, --help             help for aiplex
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
+```
+
 ## Root help
 
 ```text
-AIPlex puts models, MCP tools and agents behind one gateway with one identity,
-one access policy and one usage ledger.
+Use AIPlex to invoke agents, call models, run tools and connect coding harnesses.
 
-Start here (no Docker, no cloud account):
-  aiplex dev --detach        start the local API with mock models and tools
-  aiplex dev try             send one model request and see its usage record
-  aiplex connect local       print client configuration for the local access point
-  aiplex dev stop            stop the local API
+Try these commands locally with the built-in mocks:
+  aiplex dev --detach
+  aiplex a2a invoke local-agent --operation query
+  aiplex dev try
+  aiplex mcp connections call local-tools echo --args '{"text":"hello"}'
+  aiplex connect local --client codex
+  aiplex dev stop
 
 Usage:
   aiplex [command]
 
+Agents:
+  agents        Register agents, bind their cloud identities and set their permissions
+  a2a           Invoke connected agents, discover A2A agents and inspect delegations
+
+Models:
+  llm           Connect model providers (surfaces), and inspect routes, batches and capacity
+
+Tools:
+  mcp           Connect MCP servers, list their tools and call them through the gateway
+  tools         Set a tool connection's credential type and which tools it allows
+  tool-auth     Authorize a downstream tool for yourself (OAuth sign-in to the tool)
+  skills        Inspect skill servers and skill invocations
+
+Harnesses:
+  connect       Print an access point configuration for your coding harness or SDK
+  clients       Register a coding harness or IDE and review its connection plan
+
 Get started:
-  dev           Run AIPlex on this machine with a mock model, mock tools and the Console
+  dev           Start a local stack with a mock agent, models and MCP tools
   login         Sign in to an AIPlex API and store the token for the current context
   logout        Forget the stored token for the current context
   auth          Credential helpers for tools that fetch a token by running a command
@@ -97,28 +113,13 @@ Get started:
   health        Check that the API and its components answer
   version       Show the CLI version, commit and whether the Console is built in
   init          Set up AIPlex on a Google Cloud project (guided)
-  quickstart    Create a cloud deployment end to end in one command
+  quickstart    Deploy AIPlex and an example workload to Google Cloud
 
-Connect clients:
+Access and identity:
   access-points Create and manage access points: one URL with identity, access and quota
-  connect       Print ready-to-paste client configuration for an access point
   who           See every caller: how it signs in, what it can reach and its usage
-  clients       Register developer clients (IDEs, CLIs) and review their connection plans
-
-Models:
-  llm           Connect model providers (surfaces), and inspect routes, batches and capacity
-
-Tools:
-  mcp           Connect MCP tool servers and test them through the gateway
-  tools         Set a tool connection's credential type and which tools it allows
-  tool-auth     Authorize a downstream tool for yourself (OAuth sign-in to the tool)
-  skills        Inspect skill servers and skill invocations
-
-Agents and identity:
-  agents        Register agents, bind their cloud identities and set their permissions
   identity      Let people sign in with your corporate identity provider
   iam           Map identity-provider groups to roles (admin, deployer, viewer) with role bindings
-  a2a           Discover agents and delegate tasks between them (A2A)
 
 Usage and quota:
   usage         See what each request cost: records, totals and model prices
@@ -170,3 +171,5 @@ Exit codes:
   5  conflict: the resource changed since it was read, or already exists
   6  the API could not be reached
 ```
+
+This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.

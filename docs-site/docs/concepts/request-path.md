@@ -7,13 +7,13 @@ description: Where the managed API and the cluster gateway apply identity, routi
 
 ## Managed API
 
-`aiplex dev` runs the managed API. A team can expose models and tools through one access point. A native agent connection has its own invocation URL.
+Connect a harness to a team access point for models and tools. The harness runs the agent loop and sends requests to the endpoints in its configuration. To invoke a native agent, use its saved connection.
 
 | Request | Entry point | What happens |
 | --- | --- | --- |
+| Invoke a native agent | `POST /api/v1/a2a/connections/{id}/invoke` | Check the grant for the connection and operation. A request-count binding can account for the exchange. The remote agent's internal work needs its own instrumentation. |
 | Generate a model response | e.g. `POST /ap/{id}/v1/chat/completions` | Admit the caller, resolve the model and check its grant. The model adapter handles the configured wire and reports observed usage. |
 | Call a tool | `POST /ap/{id}/mcp` with `tools/call` | Resolve the exposed connection and tool, apply tool policy and call the upstream. Tool discovery lists the tools visible to the caller. |
-| Invoke a native agent | `POST /api/v1/a2a/connections/{id}/invoke` | Check the grant for the connection and operation. A request-count binding can account for the exchange. The remote agent's internal work needs its own instrumentation. |
 | Discover skills | `GET /ap/{id}/skills` | List the exposed manifests. Reported skill invocations have a separate audit history. |
 
 For operations covered by [QuotaPlex](../guides/quotaplex.md), the API reserves exposure before dispatch. Trusted terminal evidence settles the attempt. An interrupted call can retain its hold. The [usage ledger](../library/usage-ledger.md) also runs with QuotaPlex disabled. [Order of checks](../library/request-lifecycle.md) · [Execution coverage](../library/quotaplex-execution-coverage.md)

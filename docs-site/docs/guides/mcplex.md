@@ -5,12 +5,10 @@ description: "Govern agent-to-tool access: deploy MCP servers, configure upstrea
 
 # MCPlex
 
-MCPlex governs agent-to-tool traffic over MCP (JSON-RPC). It has two parts:
+Connect an MCP server and choose which tools each caller can run. MCPlex handles upstream authentication and applies tool policy before forwarding the call.
 
-- **Deployed MCP servers.** Deploy a tool from the catalog; the platform creates the workload and an `MCPRoute` for it.
-- **Managed tool connections.** A tool connection is a saved resource that tells AIPlex how to reach an upstream MCP server and how to authenticate to it. Callers reach connections through access points (`/ap/{id}/mcp`) or the managed endpoints, and the API executes stateless JSON and finite-SSE calls.
-
-Registration alone does not execute or meter a tool. Metering of tool calls is described in [Quota and usage](../concepts/quota-and-usage.md).
+- **Managed API.** Save a tool connection. Callers can reach it through a team access point at `/ap/{id}/mcp` or through the connection’s own API. The managed path supports stateless JSON and finite SSE responses. [Tool metering](../concepts/quota-and-usage.md)
+- **Cluster gateway.** Deploy an MCP server from the catalog. AIPlex creates the workload and an Envoy `MCPRoute`.
 
 ## Deploy a server from the catalog
 

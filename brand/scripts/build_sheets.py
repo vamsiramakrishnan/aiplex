@@ -139,20 +139,26 @@ def wordmark(x, y, cap, ink):
     return f'<path transform="translate({x} {y}) scale({cap / 24:.4f})" d="{WM}" fill="{ink}"/>'
 
 
+# The four entry points are presented in the same order on the site and README.
+PRODUCT_MODULES = ("a2aplex", "llmplex", "mcplex", "clientplex")
+
+
 # ---------------------------------------------------------------- social card
 def social():
     W, H, bg = 1200, 630, N["950"]
     d = Doc("aiplex-social", W, H, "AIPlex",
-            "AIPlex social card: the reversed lockup, a one-line description and the six Plex modules with their names.")
+            "Connect agents, models, tools and harnesses through A2APlex, LLMPlex, MCPlex and ClientPlex. "
+            "Inspect usage and set budgets for managed calls.")
     d.add(f'<rect id="background" width="{W}" height="{H}" fill="{bg}"/>')
-    d.add(f'<g id="lanes-motif" opacity="0.10">{mark(930, 50, 14, INKD, INKD)}</g>')
-    d.add('<g id="lockup">' + lockup_h(80, 120, 3.5, INKD, GATED, INKD) + '</g>')
-    d.text(80, 346, "One gateway, identity, policy and usage ledger", 38, INKD, bg, 600)
-    d.text(80, 396, "between agents, models, tools and skills.", 38, INKD, bg, 600)
-    for i, n in enumerate(ICON_NAMES[:6]):
-        x = 80 + i * 178
-        d.icon(n, x, 494, 32, P.MODULES[n]["dark"])
-        d.text(x + 42, 518, LABEL[n], 21, INKD, bg, 500)
+    d.add('<g id="lockup">' + lockup_h(70, 49, 2.2, INKD, GATED, INKD) + '</g>')
+    d.text(72, 241, "Connect agents, models,", 76, INKD, bg, 600)
+    d.text(72, 326, "tools and harnesses.", 76, INKD, bg, 600)
+    d.text(75, 396, "Inspect usage and set budgets for managed calls.", 30, N["300"], bg, 400)
+    d.add(f'<path d="M72 469H1128" stroke="{N["700"]}" stroke-width="2"/>')
+    for i, n in enumerate(PRODUCT_MODULES):
+        x = 72 + i * 270
+        d.icon(n, x, 509, 48, P.MODULES[n]["dark"])
+        d.text(x + 60, 546, LABEL[n], 32, INKD, bg, 500)
     return d
 
 
@@ -160,16 +166,15 @@ def social():
 def banner():
     W, H = 1280, 320
     d = Doc("aiplex-banner", W, H, "AIPlex",
-            "AIPlex README banner: reversed lockup and description on an Ink panel with the six Plex modules and their "
-            "names; the panel carries its own background so it reads on light and dark pages.")
+            "Connect agents, models, tools and harnesses through A2APlex, LLMPlex, MCPlex and ClientPlex.")
     d.add(f'<rect id="panel" width="{W}" height="{H}" rx="16" fill="{INK}"/>')
-    d.add('<g id="lockup">' + lockup_h(72, 92, 2.75, INKD, GATED, INKD) + '</g>')
-    d.text(74, 236, "One governed path between agents, models, tools and skills.", 26, N["300"], INK, 400)
-    for i, n in enumerate(ICON_NAMES[:6]):
-        cx, cy = 884 + (i % 2) * 168, 72 + (i // 2) * 64
-        d.add(f'<rect x="{cx}" y="{cy}" width="152" height="52" rx="8" fill="{MISTD}"/>')
-        d.icon(n, cx + 14, cy + 12, 28, P.MODULES[n]["dark"])
-        d.text(cx + 52, cy + 33, LABEL[n], 19, INKD, MISTD, 500)
+    d.add('<g id="lockup">' + lockup_h(58, 30, 1.85, INKD, GATED, INKD) + '</g>')
+    d.text(60, 171, "Connect agents, models, tools and harnesses.", 52, INKD, INK, 600)
+    d.add(f'<path d="M60 216H1220" stroke="{N["700"]}" stroke-width="2"/>')
+    for i, n in enumerate(PRODUCT_MODULES):
+        x = 60 + i * 295
+        d.icon(n, x, 240, 52, P.MODULES[n]["dark"])
+        d.text(x + 64, 277, LABEL[n], 32, INKD, INK, 500)
     return d
 
 

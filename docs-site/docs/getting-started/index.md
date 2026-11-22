@@ -1,6 +1,6 @@
 ---
 title: Getting started
-description: Build from source, make a local model call, or choose a deployment guide.
+description: Build AIPlex and try agents, models, tools and harnesses locally.
 ---
 
 # Getting started
@@ -14,10 +14,18 @@ git clone https://github.com/vamsiramakrishnan/aiplex.git
 cd aiplex
 make build
 bin/aiplex dev --detach
-bin/aiplex dev try
 ```
 
-The local stack serves a mock model, MCP tools and a native agent on loopback. The last command sends a model request and looks it up in the ledger. Use `bin/aiplex dev stop` to stop the stack. For SDK setup, streaming, more callers and access points, follow [Run it locally](./local-development.md).
+Try these commands in the same terminal. The stack uses local mock services.
+
+```bash
+bin/aiplex a2a invoke local-agent --operation query
+bin/aiplex dev try
+bin/aiplex mcp connections call local-tools echo --args '{"text":"hello"}'
+bin/aiplex connect local --client codex
+```
+
+The agent replies, the model returns a response and usage record, and the MCP tool echoes `hello`. The last command prints the settings Codex can use. Run `bin/aiplex dev stop` when finished. [Local walkthrough](./local-development.md)
 
 To include the web Console, build with `make console && make build` (Node 22), then restart local development. The tagged-release workflow prepares archives, containers and a macOS Homebrew cask. The source build is the available installation path ahead of the first release.
 

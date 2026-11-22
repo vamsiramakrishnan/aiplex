@@ -72,7 +72,7 @@ sdk-test: ## Run the Python (sdk/python, in .venv) and TypeScript (sdk/typescrip
 	sdk/python/.venv/bin/python -m pytest sdk/python -q
 	cd sdk/typescript && npm ci --no-audit --no-fund && npm test
 
-demo: ## Scripted first run of `aiplex dev`: chat, stream, MCP tool call, usage, connect (exits non-zero on failure)
+demo: ## Scripted first run of `aiplex dev`: agent, model, MCP, harness preview, usage (exits non-zero on failure)
 	@bash tools/demo.sh
 
 release-smoke: ## Build the release archive for this machine, install it with install.sh and run aiplex dev from it
