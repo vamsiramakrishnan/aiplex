@@ -314,14 +314,20 @@ gateway routes, and `POST /api/v1/iam/native/bindings/{id}/read`.
 **CORS.** Allowed origins come only from `CONSOLE_ORIGINS`. See
 [server environment variables](helm-identity-config.md#server-environment-variables).
 
-- A listed origin is echoed in `Access-Control-Allow-Origin`. A `*` entry is answered with a literal
-  `*`. The request's origin is never reflected.
-- Credentials are never allowed cross-origin.
+- An explicitly listed origin takes precedence over a wildcard. A wildcard match returns
+  the literal `*` in `Access-Control-Allow-Origin`.
+- Cross-origin callers can supply a bearer token in `Authorization`. The API omits
+  `Access-Control-Allow-Credentials`, so browsers cannot use credentials mode `include`.
 - With no `CONSOLE_ORIGINS` and development mode off, no cross-origin read is allowed.
 - Allowed methods: `GET, POST, PUT, PATCH, DELETE, OPTIONS`.
 - Allowed request headers: `Authorization, Content-Type, X-Request-Id, Idempotency-Key,
   X-Aiplex-Funding-Account, X-Aiplex-Operation-Id, MCP-Protocol-Version`.
-- Exposed response headers: `X-Request-Id, X-Aiplex-Attempt-ID, Retry-After, ETag`.
+- Explicitly listed origins can also send `If-Match` for revision-checked edits
+  and `X-Client-Request-Id`, `Traceparent` and `Tracestate` to correlate calls.
+- Browsers can read `X-Request-Id`, `X-Aiplex-Request-Id`, `X-Aiplex-Error-Code`,
+  `X-Aiplex-Attempt-ID`, `Retry-After` and `ETag` on allowed origins. For an
+  access-point response, use `X-Aiplex-Request-Id` to find its ledger record
+  and `X-Aiplex-Error-Code` to identify an AIPlex refusal.
 - Preflight `Access-Control-Max-Age` is 86400 seconds.
 - `OPTIONS` requests get `204 No Content` before authorization runs.
 

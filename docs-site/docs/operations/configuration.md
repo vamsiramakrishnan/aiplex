@@ -17,7 +17,7 @@ The API reads its configuration from environment variables when it starts (`inte
 | `AIPLEX_PUBLIC_URL` | empty | Trusted HTTPS origin of the API. Needed for `aiplex connect`, client metadata and overview routes. |
 | `AIPLEX_TENANT_ID` | empty | Trusted single-tenant binding |
 | `TLS_CERT_FILE`, `TLS_KEY_FILE`, `CLIENT_CA_FILE` | empty | Serving certificate, key and client CA |
-| `CONSOLE_ORIGINS` | empty | Comma-separated Console origins for CORS. Empty means permissive, which is for local development only. |
+| `CONSOLE_ORIGINS` | empty | Comma-separated Console origins for CORS. Empty disables cross-origin reads in production and allows any origin in development. List the Console origin explicitly for revision-checked edits. |
 | `LOG_LEVEL` | `info` | Log level |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` and the other standard `OTEL_*` variables | empty | OpenTelemetry export. Off unless an endpoint is set. See [Observability](../library/observability.md). `OTEL_ENDPOINT` is a deprecated alias of `OTEL_EXPORTER_OTLP_ENDPOINT`. |
 | `AIPLEX_TRACE_PROPAGATE_UPSTREAM` | `true` | Send W3C `traceparent`/`tracestate` on upstream model, tool and agent requests. `false` strips them. |

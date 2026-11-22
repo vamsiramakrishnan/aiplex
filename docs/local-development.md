@@ -7,7 +7,18 @@ APIs and keeps them in memory. This page covers the command, its flags and outpu
 identity, real provider keys, where local state lives, what is not available, the loopback rule,
 and the end-to-end harness and demo.
 
-The implementation is in `cmd/aiplex-cli/cmd_dev.go` and `internal/devstack/`.
+From a fresh checkout, try one managed call in a single terminal:
+
+```bash
+make build
+bin/aiplex dev --detach
+bin/aiplex dev try
+bin/aiplex dev stop
+```
+
+`dev try` sends “Hello” to the seeded model through the local access point, then finds the matching usage record by the AIPlex request ID. The row shows the caller, model, tokens and estimated cost. `dev try -o json` returns the reply and record. The command reads the local context's saved token and requires a stack started with the mock provider.
+
+The implementation is in `cmd/aiplex-cli/cmd_dev.go`, `cmd/aiplex-cli/cmd_dev_try.go` and `internal/devstack/`.
 
 ## What `aiplex dev` starts
 
@@ -38,16 +49,12 @@ the mock MCP servers and the issuers run inside the `aiplex dev` process. The AP
 | `local-models-b` | Model surface | Mock provider only. Like `local-models`, on the second mock provider (`Mock B`), on no access point: a second backend for trying [routing](reliability-and-routing.md). |
 | `local-gemini` | Model surface | Mock provider only. Gemini generateContent wire, model `mock-gemini`. |
 | `mock-gpt`, `mock-responses`, `mock-claude`, `mock-gemini` | Prices | Mock provider only, one per model. Placeholder rates, so estimated cost shows in usage. The rates are illustrative, not a provider's prices. A real provider gets no price; set one with `aiplex usage prices set`. |
-
-`aiplex dev` also starts a second mock provider (printed as `Mock B`; its replies start
-with `[b]`) with no surface of its own, for trying [reliability and
-routing](reliability-and-routing.md#trying-it-locally): create surfaces on both mocks and list
-them as backends of one model. Both mocks fail on demand for model names that contain `fault`
-(for example `gpt-fault-s503-n2` fails twice with 503).
 | `local-tools` | MCP tool connection | The built-in MCP server, with its three tools. Not created with `--no-tools`. |
 | `local-tools-keyed` | MCP tool connection | The keyed MCP server, with API-key authentication whose key is the secret reference `dev-tool-key`. Not created with `--no-tools`. It is not on the `local` access point; add it with `--tool local-tools-keyed` when you create one. See [the keyed tool connection](#the-keyed-tool-connection). |
 | `local-agent` | Agent connection | Provider `google-agent-runtime`, endpoint the mock agent runtime over plain `http` on loopback, identity profile `dev-agent-identity` (a `bearer-env` profile: it names the variable `AIPLEX_DEV_AGENT_TOKEN`, whose random value only the API process and the mock agent hold). Not on the `local` access point. See [agents](#agents-a2aplex). |
 | `local` | Access point | Admits callers of kinds `user`, `agent` and `client`, with no subject filter. Exposes the models of the surfaces above and, unless `--no-tools`, the tool connection. |
+
+The second mock provider (`Mock B`) serves `local-models-b`. Its replies start with `[b]`. Use it as an alternate backend in a [routing policy](reliability-and-routing.md#trying-it-locally). Both mocks fail on demand for model names that contain `fault`, for example `gpt-fault-s503-n2` fails twice with HTTP 503.
 
 The access point is at `$AIPLEX_URL/ap/local`. See [access points](access-points.md).
 
@@ -70,12 +77,14 @@ From the cobra definitions in `cmd/aiplex-cli/cmd_dev.go`:
 | `-d`, `--detach` | off | Run in the background. Output goes to `~/.aiplex/dev.log`. Stop it with `aiplex dev stop`. |
 | `--allow-origin` | none | Extra upstream origin the local API may call, for example `https://mcp.example.com`. Repeatable. The loopback mock upstreams and the public OpenAI, Anthropic and Gemini APIs are always allowed. |
 | `--otel` | off | OTLP/HTTP endpoint of a collector you run, for example `http://127.0.0.1:4318`. Sets `OTEL_EXPORTER_OTLP_ENDPOINT` for the local API. Without it nothing is exported. See [observability](observability.md). |
-| `--quota` | off | Turns QuotaPlex on for the mock surfaces and tools, so budgets that count requests work. Mock provider only; the counters reset when the API restarts. See [budgets](budgets.md). |
+| `--quota` | off | Enables request budgets on mock models, tools and the agent. Counters reset on restart. |
+| `--quota-tariff` | off | Enables QuotaPlex and a mock USD tariff on `local-models` (0.001/request) and `local-tools` (0.002/call). Try the [shared spend example](../examples/budgets/README.md). |
 
-`aiplex dev` has four subcommands. `env`, `status` and `stop` take no flags beyond the global ones:
+`aiplex dev` has five subcommands. `try`, `env`, `status` and `stop` take only global flags.
 
 | Command | What it does |
 | --- | --- |
+| `aiplex dev try` | Sends one chat request through the local mock stack and shows the reply with its ledger record. |
 | `aiplex dev env` | Prints shell exports for the running local API, for `eval "$(aiplex dev env)"`. |
 | `aiplex dev status` | Shows whether `aiplex dev` is running, its pid, the API URL, the access point, the models, the Console and the API log. Exits 1 when none is running. |
 | `aiplex dev stop` | Stops the running `aiplex dev` and its local API. Exits 1 when none is running. |
@@ -486,7 +495,7 @@ After the stack is ready, `aiplex dev` prints a summary. Its lines are:
 | `Identity` | `federation on`, with the command that mints tokens from the stand-in identity providers. |
 | `Access point` | The access point name and its URL. |
 | `Price` | The placeholder prices for the mock models. For a real provider, the line says none is seeded. |
-| `Quota` | `off` unless `--quota` is given. With `--quota`, QuotaPlex runs on the mock surfaces and tools (request counts); the local API gets no operator quota file otherwise. |
+| `Quota` | `off` by default. The summary shows request counts with `--quota` and the active mock prices with `--quota-tariff`. |
 | `Telemetry` | Present only with `--otel`: the collector URL the local API exports traces and metrics to. Without it, nothing is exported. |
 | `CLI context` | The context that is current, and the one that is restored on stop. |
 | `Console` | The Console URL, or why it is not served. |
@@ -495,8 +504,7 @@ After the stack is ready, `aiplex dev` prints a summary. Its lines are:
 
 After the summary, `Ready in 0.1s. Try next` lists numbered steps, each with real commands:
 
-1. Send a chat request through the access point, after `eval "$(aiplex dev env)"`. The request is the
-   OpenAI Chat Completions example for `mock-gpt`.
+1. Run `aiplex dev try` on a mock stack. A stack started with a real provider prints a curl command for its wire protocol.
 2. `aiplex usage records`, to see what it cost and who made it.
 3. `aiplex connect local` for client configuration, and `aiplex dev status` to see the Console address. To write Claude Code's configuration into your home directory after a diff, `aiplex connect local --client claude-code --write` (keeps a backup; `aiplex connect --undo --client claude-code` restores it). See [harness onboarding](harness-onboarding.md). The written settings point at the local access point, which exists only while `aiplex dev` runs and is gone after a restart, so undo the write when you stop.
 4. With the mock provider, a second caller with no role: create `team`, which admits `bob@localhost`, mint bob's token
@@ -554,7 +562,7 @@ The summary and the environment filter define these limits:
 
 | Area | Local behavior |
 | --- | --- |
-| Quota | Off unless `--quota` is given (see the flags table). The quota file variable is removed from the API's environment. |
+| Quota | Off unless `--quota` or `--quota-tariff` is given (see the flags table). The quota file variable is removed from the API's environment. |
 | Persistence | None. Stores are in memory. The stack does not use Firestore, AlloyDB or a cloud secret store. |
 | Identity provider | Only the local issuer. Hydra and Kratos are not used. Agent registrations are kept in the local registry only, because `HYDRA_ADMIN_URL` is not set. |
 | Federation | Turned on, against the three stand-in providers described in [identity federation](#identity-federation). No external identity provider, directory (group lookup) or real provider metadata is used; real ones have not been tried through this stack. |
@@ -640,7 +648,7 @@ covers its absence.
 Each command below exists in this version of the CLI. The guide named after each one says what it does and what it does not.
 
 - `aiplex hooks policies list|get|set|delete|test`: bind request hooks to the tenant, an access point, a surface or a tool connection ([request hooks](request-hooks.md)).
-- `aiplex budgets list|get|create|update|delete|status|preview`: team and project limits above per-caller quota. Use `--quota` with `aiplex dev` so request budgets count ([budgets](budgets.md)).
+- `aiplex budgets list|get|create|update|delete|status|preview`: team and project limits above per-caller quota. Start the local stack with `--quota` for request budgets or `--quota-tariff` for mock cost budgets ([budgets](budgets.md)).
 - `aiplex access-points routing`: live routing and breaker state for an access point with routed backends ([reliability and routing](reliability-and-routing.md)).
 - `aiplex mcp registry search|show|import`: read the MCP Registry and import a streamable-HTTP remote as a tool connection ([MCP Registry import](mcp-registry-import.md)).
 - `aiplex usage prices catalog search|show|import` and `aiplex usage prices backfill`: the price catalogue and pricing of records written before a price existed ([usage ledger](usage-ledger.md#price-catalogue)).

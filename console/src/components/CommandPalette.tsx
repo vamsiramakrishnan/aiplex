@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useId, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useNavigation } from './navigation'
 
@@ -6,6 +6,7 @@ interface Command {
   id: string
   label: string
   section: string
+  purpose?: string
   action: () => void
 }
 
@@ -14,18 +15,20 @@ export default function CommandPalette() {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const resultId = useId()
   const navigate = useNavigate()
   // The same list, role filter and module filter as the side navigation. An entry the
   // navigation shows as unavailable (admin only, for an operator) is not offered here.
   const { openable, access } = useNavigation()
 
   const commands: Command[] = [
-    ...openable.map((item) => ({ id: `nav-${item.to}`, label: `Go to ${item.label}`, section: 'Navigation', action: () => navigate(item.to) })),
+    ...openable.map((item) => ({ id: `nav-${item.to}`, label: `Go to ${item.label}`, section: item.group, purpose: item.purpose, action: () => navigate(item.to) })),
     ...(access.isOperator ? [{ id: 'action-deploy', label: 'Deploy new instance', section: 'Actions', action: () => navigate('/deploy') }] : []),
   ]
 
-  const filtered = query
-    ? commands.filter((c) => c.label.toLowerCase().includes(query.toLowerCase()))
+  const search = query.trim().toLowerCase()
+  const filtered = search
+    ? commands.filter((c) => [c.label, c.purpose].some((text) => text?.toLowerCase().includes(search)))
     : commands
 
   const run = useCallback(
@@ -119,18 +122,23 @@ export default function CommandPalette() {
                   </p>
                   {items.map((cmd) => {
                     const idx = filtered.indexOf(cmd)
+                    const purposeId = cmd.purpose ? `${resultId}-${idx}-purpose` : undefined
                     return (
                       <button
                         key={cmd.id}
+                        type="button"
+                        aria-label={cmd.label}
+                        aria-describedby={purposeId}
                         onClick={() => run(cmd)}
                         onMouseEnter={() => setSelected(idx)}
-                        className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                        className={`flex w-full items-baseline justify-between gap-3 px-4 py-2 text-left text-sm transition-colors ${
                           idx === selected
                             ? 'bg-brand-600 text-brand-contrast'
                             : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
                         }`}
                       >
-                        {cmd.label}
+                        <span>{cmd.label}</span>
+                        {cmd.purpose && <span id={purposeId} className="text-right text-xs">{cmd.purpose}</span>}
                       </button>
                     )
                   })}

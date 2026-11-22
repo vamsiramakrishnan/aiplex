@@ -58,11 +58,14 @@ func (c *BudgetCache) now() time.Time {
 	return time.Now()
 }
 
-// Invalidate drops a tenant's cached tree.
+// Invalidate replaces the tenant snapshot, including any cold read in flight.
 func (c *BudgetCache) Invalidate(tenant string) {
 	c.mu.Lock()
-	delete(c.entries, tenant)
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = map[string]*budgetEntry{}
+	}
+	c.entries[tenant] = &budgetEntry{}
 }
 
 // LoadAll reads and validates the tenant's budgets straight from the store.
@@ -94,34 +97,48 @@ func (c *BudgetCache) Tree(ctx context.Context, tenant string) (*budgets.Tree, e
 	if ttl <= 0 {
 		ttl = budgetCacheTTL
 	}
-	now := c.now()
-	c.mu.Lock()
-	entry := c.entries[tenant]
-	c.mu.Unlock()
-	if entry != nil && now.Sub(entry.at) < ttl {
-		return entry.tree, nil
-	}
-	all, err := LoadBudgets(ctx, c.Store, tenant)
-	var tree *budgets.Tree
-	if err == nil {
-		if tree, err = budgets.NewTree(all); err != nil {
-			err = fmt.Errorf("%w: %v", errBudgetInvalid, err)
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-	}
-	if err != nil {
-		if entry != nil && now.Sub(entry.at) < ttl+budgetStaleGrace && !errors.Is(err, errBudgetInvalid) {
+		now := c.now()
+		c.mu.Lock()
+		entry := c.entries[tenant]
+		c.mu.Unlock()
+		if entry != nil && entry.tree != nil && now.Sub(entry.at) < ttl {
+			return entry.tree, nil
+		}
+
+		all, err := LoadBudgets(ctx, c.Store, tenant)
+		var tree *budgets.Tree
+		if err == nil {
+			if tree, err = budgets.NewTree(all); err != nil {
+				err = fmt.Errorf("%w: %v", errBudgetInvalid, err)
+			}
+		}
+		checkedAt := c.now()
+		c.mu.Lock()
+		if c.entries[tenant] != entry {
+			// A write invalidated this snapshot, or another reader replaced
+			// it. Read the current generation before returning a decision.
+			c.mu.Unlock()
+			continue
+		}
+		if err == nil || errors.Is(err, errBudgetInvalid) {
+			if c.entries == nil {
+				c.entries = map[string]*budgetEntry{}
+			}
+			// An invalid tree retires the previous verified snapshot. A
+			// subsequent store outage cannot make those old limits valid again.
+			c.entries[tenant] = &budgetEntry{at: now, tree: tree}
+		} else if entry != nil && entry.tree != nil && checkedAt.Sub(entry.at) < ttl+budgetStaleGrace {
+			c.mu.Unlock()
 			log.Warn().Err(err).Str("tenant", tenant).Msg("budget refresh failed; using the previous tree briefly")
 			return entry.tree, nil
 		}
-		return nil, err
+		c.mu.Unlock()
+		return tree, err
 	}
-	c.mu.Lock()
-	if c.entries == nil {
-		c.entries = map[string]*budgetEntry{}
-	}
-	c.entries[tenant] = &budgetEntry{at: now, tree: tree}
-	c.mu.Unlock()
-	return tree, nil
 }
 
 // SetBudgets attaches the budget source. Call it before serving.

@@ -5,7 +5,7 @@
 #   examples/mcp-tools    mcp.sh, and the MCP URL from `aiplex connect local`
 #   examples/usage-report report.sh
 #   examples/hooks        hooks.sh (redaction policy: masked and refused prompts)
-#   examples/budgets      budgets.sh, against its own `aiplex dev --quota`
+#   examples/budgets      request and shared spend examples, against `aiplex dev --quota-tariff`
 #   examples/sdk-python   example.py, with the aiplex Python SDK from sdk/python
 #   examples/sdk-typescript example.mjs, with @aiplex/sdk built from sdk/typescript
 #
@@ -258,16 +258,16 @@ kill -INT "$DEV_PID"
 wait "$DEV_PID" || fail "aiplex dev exited with an error on Ctrl+C"
 DEV_PID=""
 
-# ─── budgets (needs QuotaPlex on: aiplex dev --quota) ───────────────────────
-step "budgets: aiplex dev --quota"
-aiplex dev --port "$PORT" --no-console --quota >"$WORK/dev.out" 2>&1 &
+# ─── budgets (needs QuotaPlex on: aiplex dev --quota-tariff) ───────────────────────
+step "budgets: aiplex dev --quota-tariff"
+aiplex dev --port "$PORT" --no-console --quota-tariff >"$WORK/dev.out" 2>&1 &
 DEV_PID=$!
 for _ in $(seq 1 120); do
     aiplex dev env >/dev/null 2>&1 && break
-    kill -0 "$DEV_PID" 2>/dev/null || fail "aiplex dev --quota exited"
+    kill -0 "$DEV_PID" 2>/dev/null || fail "aiplex dev --quota-tariff exited"
     sleep 0.5
 done
-aiplex dev env >/dev/null 2>&1 || fail "aiplex dev --quota did not become ready"
+aiplex dev env >/dev/null 2>&1 || fail "aiplex dev --quota-tariff did not become ready"
 eval "$(aiplex dev env)"
 step "budgets: budgets.sh"
 out=$(bash "$EX/budgets/budgets.sh" 2>&1) || fail "budgets.sh: $out"
@@ -279,8 +279,13 @@ echo "$out"
 [[ "$out" == *"demo-org"* && "$out" == *"demo-team"* ]] || fail "budgets.sh: the ledger summary lacks the budgets: $out"
 [[ "$out" == *"Deleted budget demo-org"* ]] || fail "budgets.sh did not clean up: $out"
 ok "budgets.sh"
-step "Stop aiplex dev --quota"
+step "budgets: shared-spend.sh"
+out=$(bash "$EX/budgets/shared-spend.sh" 2>&1) || fail "shared-spend.sh: $out"
+echo "$out"
+[[ "$out" == *"quota_budget_exhausted"* && "$out" == *"0.003000"* ]] || fail "shared-spend.sh did not exhaust the mock USD budget: $out"
+ok "shared-spend.sh"
+step "Stop aiplex dev --quota-tariff"
 kill -INT "$DEV_PID"
-wait "$DEV_PID" || fail "aiplex dev --quota exited with an error on Ctrl+C"
+wait "$DEV_PID" || fail "aiplex dev --quota-tariff exited with an error on Ctrl+C"
 DEV_PID=""
 printf '\nEXAMPLES PASSED (%s checks passed, %s skipped)\n' "$PASSED" "$SKIPPED"

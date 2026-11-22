@@ -14,7 +14,7 @@ Runs the full setup pipeline end-to-end:
   3. deploy example   — deploy quickstart workload
   4. open console     — open the AIPlex console in browser
 
-This is the fastest way to go from nothing to a running AIPlex platform.
+For the local mock stack, run "aiplex dev --detach" and "aiplex dev try".
 
 Usage:
   aiplex quickstart [flags]

@@ -5,7 +5,7 @@ export default function Home() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-bold">Home</h1>
+        <h1 className="text-2xl font-bold">Overview</h1>
         <p className="text-gray-600 dark:text-gray-400">Who you are, the access points that admit you, and your own usage.</p>
       </header>
       <IdentityCard />

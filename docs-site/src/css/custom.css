@@ -12,14 +12,6 @@
 @import url('./brand-tokens.css');
 
 :root {
-  /* Diagram and card styling, derived from brand tokens. */
-  --aiplex-diagram-bg: var(--aiplex-color-bg);
-  --aiplex-diagram-line: var(--aiplex-color-text-muted);
-  --aiplex-diagram-box: var(--aiplex-color-surface);
-  --aiplex-diagram-text: var(--aiplex-color-text);
-  --aiplex-diagram-accent: var(--aiplex-color-primary);
-  --aiplex-surface-border: var(--aiplex-color-border);
-
   /* Code-block token colours: not brand colours; chosen to pass AA on the Prism
      code backgrounds (github light, dracula dark). */
   --aiplex-code-comment: #5a6370;
@@ -99,82 +91,6 @@ html .footer {
   overflow-wrap: anywhere;
 }
 
-/* Landing page */
-.aiplex-home {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 2.5rem 16px 4rem;
-}
-
-.aiplex-home h1 {
-  font-size: clamp(2rem, 6vw, 2.75rem);
-  margin-bottom: 0.75rem;
-}
-
-.aiplex-lede {
-  font-size: 1.15rem;
-  max-width: 46rem;
-  color: var(--aiplex-color-text-muted);
-}
-
-.aiplex-diagram {
-  margin: 2rem 0;
-  border: 1px solid var(--aiplex-surface-border);
-  border-radius: 8px;
-  background: var(--aiplex-diagram-bg);
-  overflow-x: auto;
-}
-
-.aiplex-diagram svg {
-  display: block;
-  min-width: 640px;
-  width: 100%;
-  height: auto;
-}
-
-.aiplex-links {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-  margin: 1.5rem 0 2.5rem;
-}
-
-.aiplex-link-card {
-  display: block;
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--aiplex-surface-border);
-  border-radius: 8px;
-  background: var(--aiplex-color-surface);
-  color: inherit;
-  text-decoration: none;
-}
-
-.aiplex-link-card:hover {
-  border-color: var(--aiplex-color-primary);
-  color: inherit;
-  text-decoration: none;
-}
-
-.aiplex-link-card strong {
-  display: block;
-  color: var(--aiplex-color-primary);
-  margin-bottom: 0.25rem;
-}
-
-.aiplex-link-card span {
-  color: var(--aiplex-color-text-muted);
-  font-size: 0.92rem;
-}
-
-.aiplex-modules {
-  display: block;
-  max-width: 100%;
-  overflow-x: auto;
-}
-
 /*
  * Code block token colours. The stock Prism themes fall below WCAG AA contrast
  * for several token types (comments, numbers, parameters). Prism applies colours
@@ -218,13 +134,31 @@ html .footer {
   color: var(--aiplex-code-comment) !important;
 }
 
-.aiplex-module-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  white-space: nowrap;
+/* Keep the reading surface consistent with the guides on the home page. */
+html[data-theme] {
+  --ifm-navbar-shadow: none;
+  --ifm-heading-letter-spacing: -0.03em;
 }
 
-.aiplex-module-name svg {
-  flex: none;
+.navbar, .footer {
+  border-color: var(--aiplex-color-border);
+  border-style: solid;
+  border-width: 0 0 1px;
+}
+
+.footer {
+  border-width: 1px 0 0;
+}
+
+.markdown h1, .markdown h2 {
+  letter-spacing: var(--ifm-heading-letter-spacing);
+  text-wrap: balance;
+}
+
+.menu__link {
+  line-height: 1.4;
+}
+
+.markdown th {
+  text-align: start;
 }

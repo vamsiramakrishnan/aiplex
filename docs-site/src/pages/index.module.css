@@ -1,0 +1,326 @@
+.home {
+  width: min(100%, 76rem);
+  margin-inline: auto;
+  padding-inline: clamp(1.25rem, 5vw, 3.75rem);
+  color: var(--aiplex-color-text);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(2rem, 5vw, 5rem);
+  padding-block: clamp(3rem, 6vw, 5rem);
+}
+
+.intro h1 {
+  margin: 0;
+  max-width: 16ch;
+  font-size: clamp(2.85rem, 4.55vw, 4.1rem);
+  font-weight: 650;
+  line-height: 1.02;
+  letter-spacing: -0.065em;
+  text-wrap: balance;
+}
+
+.intro p, .budget p {
+  max-width: 45ch;
+  margin-block: 1.25rem;
+  color: var(--aiplex-color-text-muted);
+  line-height: 1.6;
+}
+
+.intro p {
+  font-size: 1.11rem;
+}
+
+.actions, .shortcuts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.4rem;
+}
+
+.actions {
+  margin-top: 1.75rem;
+}
+
+.actions a, .sectionHead a, .budget a, .shortcuts a {
+  font-weight: 600;
+}
+
+.actions .primary {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  padding: 0.55rem 1.1rem;
+  color: var(--aiplex-color-primary-contrast);
+  background: var(--aiplex-color-primary);
+  border-radius: 0.375rem;
+}
+
+.actions .primary:hover {
+  background: var(--aiplex-color-primary-hover);
+  text-decoration: none;
+}
+
+.diagram {
+  margin: 0;
+  background-color: var(--aiplex-color-surface);
+  border: 1px solid var(--aiplex-color-border);
+  border-radius: 0.45rem;
+  overflow: hidden;
+}
+
+.diagram figcaption, .guideList h3 {
+  font-family: var(--aiplex-font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.diagram figcaption {
+  background: var(--aiplex-color-surface-raised);
+  padding: 0.65rem 1.15rem;
+  border-bottom: 1px solid var(--aiplex-color-border);
+}
+
+.diagramContents {
+  padding: clamp(1.15rem, 3vw, 2rem);
+  background-image: radial-gradient(var(--aiplex-color-border) 0.8px, transparent 0.8px);
+  background-size: 10px 10px;
+}
+
+.callers {
+  position: relative;
+  margin-bottom: 1.2rem;
+  color: var(--aiplex-color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.callers::after {
+  position: absolute;
+  content: '';
+  top: 100%;
+  left: 1.3rem;
+  height: 1.2rem;
+  border-left: 1px solid var(--aiplex-color-primary);
+}
+
+.gate {
+  position: relative;
+  display: flex;
+  gap: 0.85rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--aiplex-color-surface-raised);
+  border: 1px solid var(--aiplex-color-primary);
+  border-left-width: 3px;
+  border-radius: 0.25rem;
+}
+
+.gate svg {
+  color: var(--aiplex-color-primary);
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: none;
+}
+
+.diagram code {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.gate code {
+  color: var(--aiplex-color-text);
+  font-weight: 650;
+}
+
+.gate span, .detail {
+  display: block;
+  color: var(--aiplex-color-text-muted);
+  font-size: 0.88rem;
+}
+
+.routes, .guideList ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.routes li {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.65rem;
+  padding: 0.25rem 0 0.25rem 1.15rem;
+  margin: 0 0 0 1.3rem;
+  color: var(--aiplex-color-text);
+  font-size: 0.85rem;
+}
+
+.routes li:first-child {
+  padding-top: 0.85rem;
+}
+
+.routes li::before, .routes li::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  border-color: var(--aiplex-color-text-muted);
+  border-style: solid;
+}
+
+.routes li::before {
+  top: 0;
+  bottom: 0;
+  border-width: 0 0 0 1px;
+}
+
+.routes li::after {
+  bottom: 0.9rem;
+  width: 0.75rem;
+  border-width: 0 0 1px;
+}
+
+.routes li:last-child::before {
+  bottom: 0.9rem;
+}
+
+.routes code {
+  color: var(--aiplex-color-text-muted);
+  font-size: 0.82rem;
+}
+
+.guides {
+  border-top: 1px solid var(--aiplex-color-border);
+  padding-top: 2.25rem;
+}
+
+.sectionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.sectionHead h2, .budget h2 {
+  margin: 0;
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  letter-spacing: -0.045em;
+  line-height: 1.16;
+}
+
+.columns, .budget {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(2rem, 5vw, 5rem);
+}
+
+.guideList h3 {
+  color: var(--aiplex-color-text-muted);
+  margin: 0;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--aiplex-color-border);
+}
+
+.guideList li + li {
+  margin-top: 0;
+}
+
+.guide {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr auto;
+  align-items: start;
+  gap: 0.9rem;
+  padding-block: 1.1rem;
+  border-bottom: 1px solid var(--aiplex-color-border);
+  color: var(--aiplex-color-text);
+}
+
+.guide:hover {
+  color: var(--aiplex-color-primary);
+  text-decoration: none;
+}
+
+.guideIcon {
+  margin-top: 0.18rem;
+  color: var(--aiplex-color-primary);
+}
+
+.moduleName {
+  color: var(--aiplex-color-text-muted);
+  font: 500 0.76rem/1.35 var(--aiplex-font-mono);
+}
+
+.guide strong {
+  display: block;
+  font-size: 1.12rem;
+  font-weight: 650;
+}
+
+.arrow {
+  color: var(--aiplex-color-primary);
+}
+
+.budget {
+  align-items: center;
+  margin-top: 3.5rem;
+  padding: clamp(1.25rem, 3.1vw, 2.5rem);
+  background: var(--aiplex-mist);
+  border-radius: 0.45rem;
+}
+
+.budget p {
+  margin-block: 0.7rem;
+}
+
+.commands {
+  min-width: 0;
+}
+
+.commands > div {
+  margin: 0;
+  border: 1px solid var(--aiplex-color-border);
+  box-shadow: none;
+}
+
+.shortcuts {
+  padding-block: 1.25rem 3rem;
+  font-size: 0.88rem;
+}
+
+.home a:focus-visible {
+  outline: 2px solid var(--aiplex-color-focus-ring);
+  outline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+  .hero, .budget {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+
+  .intro h1 {
+    font-size: clamp(2.85rem, 9vw, 4.1rem);
+    max-width: 17ch;
+  }
+
+  .columns {
+    grid-template-columns: 1fr;
+    gap: 1.75rem;
+  }
+
+  .sectionHead {
+    margin-bottom: 1.25rem;
+  }
+
+  .budget {
+    margin-top: 2rem;
+  }
+}

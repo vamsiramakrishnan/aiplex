@@ -9,7 +9,7 @@ AIPlex is open source under the Apache 2.0 license.
 
 ## Set up
 
-Follow [Run it locally in a minute](./getting-started/local-development.md) to build the CLI and API and start `aiplex dev`. The repository's `CONTRIBUTING.md` has the full list of checks (Go tests, `make e2e`, `make demo`, `make examples-test`, the Console and this site).
+Follow [Run AIPlex locally](./getting-started/local-development.md) to build the CLI and API and start `aiplex dev`. The repository's `CONTRIBUTING.md` has the full list of checks (Go tests, `make e2e`, `make demo`, `make examples-test`, the Console and this site).
 
 ## Repository layout
 

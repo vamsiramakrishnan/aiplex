@@ -73,8 +73,8 @@ type Options struct {
 	// bindings when the tool connection is not seeded.
 	Quota        bool
 	QuotaNoTools bool
-	// QuotaTariff adds a placeholder per-request price (0.001 USD) on the
-	// primary surface and none elsewhere, for tests of cost budgets.
+	// QuotaTariff enables Quota with fixed mock tariffs on the primary model
+	// surface (0.001 USD/request) and tool connection (0.002 USD/call).
 	QuotaTariff bool
 }
 
@@ -160,6 +160,12 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	if opts.Provider == "" {
 		opts.Provider = "mock"
 	}
+	if opts.QuotaTariff {
+		opts.Quota = true
+	}
+	if opts.Quota && opts.Provider != "mock" {
+		return nil, fmt.Errorf("local quota profiles require --provider mock; configure a real provider in aiplex-api with AIPLEX_QUOTA_FILE (see docs/budgets.md)")
+	}
 	if opts.Provider != "mock" {
 		if _, err := ProviderOrigin(opts.Provider); err != nil {
 			return nil, err
@@ -173,9 +179,6 @@ func Start(ctx context.Context, opts Options) (*Stack, error) {
 	}
 	if opts.APIBinary == "" {
 		return nil, fmt.Errorf("API binary not set")
-	}
-	if opts.Quota && opts.Provider != "mock" {
-		return nil, fmt.Errorf("--quota covers the built-in mock surfaces; with --provider %s, enable QuotaPlex with an operator quota file (AIPLEX_QUOTA_FILE), see docs/budgets.md", opts.Provider)
 	}
 	keyedKey, err := randomKey()
 	if err != nil {

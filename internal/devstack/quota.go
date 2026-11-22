@@ -16,9 +16,9 @@ const QuotaModules = "mcplex,a2aplex,llmplex,skillsplex,clientplex,networking,qu
 // connection with request-count bindings, so tenant budgets that count
 // requests work locally without a hand-written policy.
 //
-// It deliberately has no token or money meters. Token and cost budgets need
-// operator-attested provider limits and price books for the models they
-// count; see examples/budgets for an operator-written file that has them.
+// It has no token bounds. The optional tariff prices a request on the primary
+// mock model surface and a call on the seeded mock tool connection. Only an
+// operator can attest token bounds and prices for real provider traffic.
 //
 // The membership age is the 24 hour maximum so a long-lived developer token
 // keeps its group view. The store is the API's in-memory one: counters reset

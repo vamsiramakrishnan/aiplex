@@ -10,7 +10,7 @@ Every example below is run by `make examples-test` (see [test.sh](test.sh)).
 | [mcp-tools](mcp-tools/README.md) | Give an IDE or MCP client a governed tool endpoint; the configuration `aiplex connect` prints | `curl` |
 | [usage-report](usage-report/README.md) | See who used what: usage by user, model, plane and tool after a few requests | `curl` |
 | [hooks](hooks/README.md) | Mask an email address and refuse a private key before they reach a model (request hooks) | `curl` |
-| [budgets](budgets/README.md) | Team and project request budgets: a refusal that names the budget, and the status and ledger for it | `curl`; needs `aiplex dev --quota` (`make examples-test` starts it) |
+| [budgets](budgets/README.md) | Enforce a team request limit or share USD 0.003 across a model and an MCP tool. Inspect the refusal, budget status and ledger. | `curl`, `python3`, `aiplex dev --quota-tariff` |
 | [sdk-python](sdk-python/README.md) | The Python SDK (`sdk/python`): access point, usage records and config, and one hook policy round trip | Python 3.10+; installed from the repository (skipped unless `EXAMPLES_INSTALL_SDKS=1`) |
 | [sdk-typescript](sdk-typescript/README.md) | The TypeScript SDK (`sdk/typescript`): the same calls as the Python example | Node 20+ and npm; built from the repository (skipped unless `EXAMPLES_INSTALL_SDKS=1`) |
 

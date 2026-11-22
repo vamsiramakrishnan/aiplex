@@ -1,12 +1,12 @@
 ---
-title: Run it locally in a minute
-sidebar_label: Run it locally in a minute
-description: Build AIPlex and start a local API with a mock model, a mock MCP server and a usage ledger using one command, aiplex dev.
+title: Run AIPlex locally
+sidebar_label: Run locally
+description: Build the CLI, send a request through a local access point, and inspect the caller, tokens and estimated cost.
 ---
 
-# Run it locally in a minute
+# Run AIPlex locally
 
-`aiplex dev` starts the API on your machine with a built-in mock provider and a built-in MCP server, creates an access point, signs you in as a local admin and prints what to try next. The mock provider has four models, one per wire: `mock-gpt` (OpenAI Chat Completions), `mock-responses` (OpenAI Responses), `mock-claude` (Anthropic Messages) and `mock-gemini` (Gemini generateContent). You need Go 1.25 or newer and `curl`. You do not need Docker, a cloud account or an API key.
+Send a model request through an access point and inspect its usage record in the same terminal. The local development stack runs in memory with a mock model and an MCP tool server. Building it requires Git, Go 1.25 or newer, and Make.
 
 ## 1. Build and start
 
@@ -15,110 +15,42 @@ git clone https://github.com/vamsiramakrishnan/aiplex.git
 cd aiplex
 make build
 export PATH="$PWD/bin:$PATH"
-aiplex dev
+aiplex dev --detach
 ```
 
-`make build` writes `bin/aiplex` and `bin/aiplex-api`. `aiplex dev` starts the API from the binary next to it, in memory on `127.0.0.1:8080`, and prints (output of a source build, copied as printed):
-
-```text
-  AIPlex local development
-
-  API            http://127.0.0.1:8080  (development mode, in memory, loopback only)
-  You            developer@localhost  (admin; token from a local issuer, valid 12h)
-  Models         mock-gpt, mock-claude, mock-responses, mock-gemini  (built-in mock provider, no API key)
-                 wires: OpenAI Chat, Anthropic Messages, OpenAI Responses, Gemini generateContent
-  Tools          local-tools: echo, add, reset_counter  (built-in MCP server)
-  Access point   local  ->  http://127.0.0.1:8080/ap/local
-  Price          placeholder rates for each mock model, so estimated cost shows in usage
-  Quota          off (optional: QuotaPlex reads an operator policy file named by AIPLEX_QUOTA_FILE)
-  CLI context    "local" (current)
-  Console        not in this binary (a source build without Node). Release binaries include it;
-                 from source: make console && make build (Node 22), then restart aiplex dev
-  API log        ~/.aiplex/dev-api.log
-
-  WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy 127.0.0.1:8080.
-
-  Ready in 0.1s. Try next, in another terminal:
-
-    # 1. Send a chat request through the access point
-    eval "$(aiplex dev env)"
-    curl -s "$AIPLEX_URL/ap/local/v1/chat/completions" \
-      -H "Authorization: Bearer $AIPLEX_TOKEN" -H "Content-Type: application/json" \
-      -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hello"}]}'
-    # (any OpenAI SDK works too: the eval line sets OPENAI_BASE_URL and OPENAI_API_KEY)
-
-    # 2. See what it cost and who made it
-    aiplex usage records
-
-    # 3. Point an MCP client or IDE at it, and see where the Console is
-    aiplex connect local
-    aiplex dev status
-
-  Press Ctrl+C to stop. State is in memory and is discarded on stop.
-```
-
-The Console is not part of a plain `make build` binary, and the summary says so. Release binaries include it. From source, run `make console && make build` (needs Node 22) and start `aiplex dev` again.
-
-Keep this terminal open. Ctrl+C stops everything and discards the state, and the CLI context you had before is restored.
-
-To run it in the background instead, use `aiplex dev --detach`. The summary then ends with the pid and the log file (`~/.aiplex/dev.log`). Check it with `aiplex dev status` and stop it with `aiplex dev stop`. A second `aiplex dev` is refused while one is running:
-
-```text
-Error: aiplex dev is already running (pid <pid>) at http://127.0.0.1:8080
-  Use it: eval "$(aiplex dev env)"
-  Or stop it first: aiplex dev stop
-```
+The API listens at `http://127.0.0.1:8080` and creates the `local` access point. The CLI signs you in as `developer@localhost`. Run `aiplex dev status` to find the API address, logs and Console availability.
 
 :::warning
-Development mode is unauthenticated and loopback-only. The API refuses to start in it on a non-loopback address. Do not expose, tunnel or proxy it.
+Local development mode accepts unauthenticated requests as admin. Keep it on loopback and avoid exposing it through a tunnel or proxy.
 :::
 
 ## 2. Send a request
 
-In a second terminal, from the same directory:
-
 ```bash
-export PATH="$PWD/bin:$PATH"
-eval "$(aiplex dev env)"
+aiplex dev try
 ```
 
-`aiplex dev env` exports `AIPLEX_URL` and `AIPLEX_TOKEN` for the CLI and for curl, and the base URL and key variables that OpenAI, Anthropic and Gemini SDKs read. With the mock provider it exports all six (`OPENAI_BASE_URL`, `OPENAI_API_KEY`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY`), each pointing at the access point. The token is accepted only by the local API that issued it and expires when that API stops.
-
-```bash
-curl -s "$AIPLEX_URL/ap/local/v1/chat/completions" \
-  -H "Authorization: Bearer $AIPLEX_TOKEN" -H "Content-Type: application/json" \
-  -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hello"}]}'
-```
-
-```json
-{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hello from the AIPlex mock model. You said: Hello","role":"assistant"}}],"created":1794287630,"id":"chatcmpl-mock-1794287630385369003","model":"mock-gpt","object":"chat.completion","usage":{"completion_tokens":9,"prompt_tokens":1,"total_tokens":10}}
-```
+This sends “Hello” through `/ap/local/v1/chat/completions` and looks up **that call** by its AIPlex request ID. The output includes the model's reply and a ledger row showing the model, caller, access point, input and output tokens, and cost. The seeded model has a placeholder price, so its cost is an estimate. For scripts, `aiplex dev try -o json` returns `reply` and `record`.
 
 ## 3. See who used what
 
 ```bash
-aiplex usage summary
+aiplex usage records
+aiplex usage summary --by model
 ```
 
-```text
-REQUESTS  ERRORS  DENIED  IN  OUT  COST
-1         0       0       1   9    USD 0.000006 (estimated)
+Use the `aiplex usage get` command printed by `dev try` to inspect the full record. The [usage ledger](../library/usage-ledger.md) preserves missing token counts and prices as `unknown`.
 
-1 records scanned.
-```
+To make the same request from an SDK or curl, export the local credentials in the calling shell:
 
 ```bash
-aiplex usage records
+eval "$(aiplex dev env)"
+curl --fail-with-body "$OPENAI_BASE_URL/chat/completions" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"model":"mock-gpt","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-```text
-TIME      MODEL/TOOL  CALLER               ACCESS POINT  STATUS  IN  OUT  COST
-just now  mock-gpt    developer@localhost  local         ok      1   9    USD 0.000006 (estimated)
-
-Record IDs and every counter: -o wide. One record in full: aiplex usage get <id>.
-```
-
-The call is in the [usage ledger](../library/usage-ledger.md). The cost is labelled estimated because the mock model has a placeholder price. Values that are not known are shown as `unknown`, not zero. Add `-o wide` to `aiplex usage records` for record IDs and every counter, and try `aiplex usage summary --by model` too.
+The mock stack seeds four native endpoints. OpenAI Chat Completions uses `mock-gpt`, OpenAI Responses uses `mock-responses`, Anthropic Messages uses `mock-claude`, and Gemini generateContent uses `mock-gemini`. The exports point each SDK family at the same local access point.
 
 ## 4. Create an access point and a price
 
@@ -152,18 +84,27 @@ To start from public list prices instead, `aiplex usage prices catalog search gp
 
 The access point `local` also serves the built-in MCP server at `http://127.0.0.1:8080/ap/local/mcp`. `aiplex connect local` prints ready-to-paste configuration: environment variables, a curl command and an MCP client configuration. See [Connect a client](./connect-client.md) and the repository's `examples/` directory, which has a script for each of these steps (OpenAI SDK, MCP tools, usage report) that `make examples-test` runs.
 
-## Use a real provider
+## Stop the stack
 
 ```bash
-export OPENAI_API_KEY=...        # your own key
-aiplex dev --provider openai --api-key-env OPENAI_API_KEY
+aiplex dev stop
 ```
 
-`--provider` takes `openai`, `anthropic` or `gemini` (the default is the mock). `--api-key-env` names the environment variable that holds the key; the key itself is never accepted as a flag, printed or written to disk. `--model` chooses the model. Without the variable set, `aiplex dev` stops with an error that names it. The project has not run this path against a live provider, so treat the first run as a test; provider charges apply.
+Stopping the stack discards local records and restores the previous CLI context. Exports from `aiplex dev env` last for the shell session.
+
+## Use a real provider
+
+After stopping the mock stack, set a provider key in a fresh shell. For example, with `GEMINI_API_KEY` already set:
+
+```bash
+bin/aiplex dev --provider gemini --api-key-env GEMINI_API_KEY
+```
+
+`--provider` takes `openai`, `anthropic` or `gemini` (the default is the mock). `--api-key-env` names the environment variable that holds the key; the key itself is never accepted as a flag, printed or written to disk. `--model` chooses the model. Without the variable set, `aiplex dev` stops with an error that names it. Live validation covers the Gemini Developer API and z.ai surfaces. First-party OpenAI and Anthropic endpoints still need live qualification. Real requests use the provider account and can incur charges. See [project status](../library/project-status.md).
 
 ## Other flags
 
-`--port` and `--console-port` change the ports, `--no-console` skips the Console, `--no-tools` skips the built-in MCP server's connection, `--detach` runs in the background, `--allow-origin` lets the local API call another upstream origin, `--quota` turns QuotaPlex on for the mock surfaces and tools so request budgets count ([Budgets](../library/budgets.md)), `--otel` exports traces and metrics to a collector you run ([Observability](../library/observability.md)), `--context` names the CLI context it creates, and `--api-bin` points at an `aiplex-api` binary. Run `aiplex dev --help` for the current list.
+`--port` and `--console-port` change the ports, `--no-console` skips the Console, `--no-tools` skips the built-in MCP server's connection, `--detach` runs in the background, `--allow-origin` lets the local API call another upstream origin, `--quota` turns QuotaPlex on for the mock surfaces and tools so request budgets count, `--quota-tariff` adds fixed mock USD rates per model and tool call ([Budgets](../library/budgets.md)), `--otel` exports traces and metrics to a collector you run ([Observability](../library/observability.md)), `--context` names the CLI context it creates, and `--api-bin` points at an `aiplex-api` binary. Run `aiplex dev --help` for the current list.
 
 If a port is taken, `aiplex dev` says so and suggests another with `--port` or `--console-port`. The CLI's options, output formats and exit codes are in [the CLI reference](../library/cli.md).
 

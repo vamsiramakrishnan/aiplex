@@ -14,6 +14,15 @@ const REPO = 'https://github.com/vamsiramakrishnan/aiplex';
 const DOCS_ORIGIN = 'https://vamsiramakrishnan.github.io';
 const DOCS_BASE_URL = '/aiplex/';
 
+const moduleLinks = [
+  {label: 'MCPlex (tools)', to: '/docs/guides/mcplex'},
+  {label: 'LLMPlex (models)', to: '/docs/guides/llmplex'},
+  {label: 'A2APlex (agents)', to: '/docs/guides/a2aplex'},
+  {label: 'QuotaPlex (budgets)', to: '/docs/guides/quotaplex'},
+  {label: 'ClientPlex (clients)', to: '/docs/guides/clientplex'},
+  {label: 'SkillsPlex (discovery)', to: '/docs/guides/skillsplex'},
+];
+
 const config: Config = {
   title: 'AIPlex',
   tagline: 'One control plane for agent access to models, tools, skills and other agents.',
@@ -81,16 +90,16 @@ const config: Config = {
       },
       items: [
         {
-          type: 'docSidebar',
-          sidebarId: 'docs',
-          position: 'left',
-          label: 'Docs',
-        },
-        {
           type: 'doc',
           docId: 'getting-started/index',
           position: 'left',
           label: 'Get started',
+        },
+        {
+          type: 'dropdown',
+          position: 'left',
+          label: 'Guides',
+          items: [{label: 'All guides', to: '/docs/guides'}, ...moduleLinks],
         },
         {
           type: 'doc',
@@ -124,12 +133,7 @@ const config: Config = {
         },
         {
           title: 'Modules',
-          items: [
-            {label: 'MCPlex (tools)', to: '/docs/guides/mcplex'},
-            {label: 'LLMPlex (models)', to: '/docs/guides/llmplex'},
-            {label: 'A2APlex (agents)', to: '/docs/guides/a2aplex'},
-            {label: 'QuotaPlex', to: '/docs/guides/quotaplex'},
-          ],
+          items: moduleLinks,
         },
         {
           title: 'Reference',

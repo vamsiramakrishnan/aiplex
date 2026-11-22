@@ -170,14 +170,20 @@ func CORS(allowedOrigins ...string) func(http.Handler) http.Handler {
 					break
 				}
 			}
-			if allow != "*" {
-				w.Header().Add("Vary", "Origin")
-			}
+			// Even a wildcard policy emits different headers when Origin is absent
+			// or when a named Console origin has additional request headers.
+			w.Header().Add("Vary", "Origin")
 			if origin != "" && allow != "" {
 				w.Header().Set("Access-Control-Allow-Origin", allow)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-Id, Idempotency-Key, X-Aiplex-Funding-Account, X-Aiplex-Operation-Id, MCP-Protocol-Version")
-				w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id, X-Aiplex-Attempt-ID, Retry-After, ETag")
+				headers := "Authorization, Content-Type, X-Request-Id, Idempotency-Key, X-Aiplex-Funding-Account, X-Aiplex-Operation-Id, MCP-Protocol-Version"
+				if allow != "*" {
+					// Named Console origins can send revision-checked edits and correlate
+					// managed calls. Keep the development wildcard's request policy intact.
+					headers += ", If-Match, X-Client-Request-Id, Traceparent, Tracestate"
+				}
+				w.Header().Set("Access-Control-Allow-Headers", headers)
+				w.Header().Set("Access-Control-Expose-Headers", "X-Request-Id, "+AccessPointRequestIDHeader+", "+errorcode.Header+", X-Aiplex-Attempt-ID, Retry-After, ETag")
 				w.Header().Set("Access-Control-Max-Age", "86400")
 			}
 			if r.Method == http.MethodOptions {
@@ -444,7 +450,7 @@ func Compress(next http.Handler) http.Handler {
 		}
 		// Set header indicating gzip is available but let the reverse proxy handle it.
 		// In production, Envoy Gateway handles compression at the edge.
-		w.Header().Set("Vary", "Accept-Encoding")
+		w.Header().Add("Vary", "Accept-Encoding")
 		next.ServeHTTP(w, r)
 	})
 }

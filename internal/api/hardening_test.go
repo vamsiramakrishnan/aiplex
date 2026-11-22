@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,6 +35,56 @@ func TestCORSNeverReflectsArbitraryOriginsWithAWildcard(t *testing.T) {
 		if test.want != "" && test.want != "*" && !strings.Contains(w.Header().Get("Vary"), "Origin") {
 			t.Errorf("%s: reflected origin without Vary: Origin", test.name)
 		}
+	}
+}
+
+func TestBrowserGatewayHeaders(t *testing.T) {
+	const console = "https://console.example"
+	for _, tc := range []struct {
+		name, origin  string
+		allowed       []string
+		expose, named bool
+	}{
+		{"named origin", console, []string{console}, true, true},
+		{"unlisted origin", "https://other.example", []string{console}, false, false},
+		{"wildcard", console, []string{"*"}, true, false},
+		{"named and wildcard", console, []string{"*", console}, true, true},
+		{"fallback wildcard", "https://other.example", []string{"*", console}, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodOptions, "/api/v1/mcp/connections/local", nil)
+			r.Header.Set("Origin", tc.origin)
+			r.Header.Set("Access-Control-Request-Method", http.MethodPut)
+			r.Header.Set("Access-Control-Request-Headers", "authorization, if-match")
+			w := httptest.NewRecorder()
+			CORS(tc.allowed...)(http.NotFoundHandler()).ServeHTTP(w, r)
+			if w.Code != http.StatusNoContent {
+				t.Fatalf("preflight: %d", w.Code)
+			}
+			if w.Header().Get("Vary") != "Origin" {
+				t.Error("preflight header policy varies by origin")
+			}
+			allow := strings.Split(w.Header().Get("Access-Control-Allow-Headers"), ", ")
+			for _, name := range []string{"If-Match", "X-Client-Request-Id", "Traceparent", "Tracestate"} {
+				if slices.Contains(allow, name) != tc.named {
+					t.Errorf("allowed %s: %v", name, allow)
+				}
+			}
+			r = httptest.NewRequest(http.MethodGet, "/ap/test/v1/models", nil)
+			r.Header.Set("Origin", tc.origin)
+			r.Header.Set("Accept-Encoding", "gzip")
+			w = httptest.NewRecorder()
+			CORS(tc.allowed...)(Compress(http.NotFoundHandler())).ServeHTTP(w, r)
+			if tc.named && !slices.Contains(w.Header().Values("Vary"), "Origin") {
+				t.Error("compression discarded the origin cache key")
+			}
+			expose := strings.Split(w.Header().Get("Access-Control-Expose-Headers"), ", ")
+			for _, name := range []string{"X-Aiplex-Request-Id", "X-Aiplex-Error-Code", "X-Aiplex-Attempt-ID"} {
+				if slices.Contains(expose, name) != tc.expose {
+					t.Errorf("exposed %s: %v", name, expose)
+				}
+			}
+		})
 	}
 }
 

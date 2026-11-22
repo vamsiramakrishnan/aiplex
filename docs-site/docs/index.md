@@ -1,46 +1,31 @@
 ---
 slug: /
 title: Overview
-description: What AIPlex is, what it governs, and where to find each feature in these docs.
+description: Choose a first task, identify the route your request takes, and find its policy and accounting contract.
 ---
 
 # AIPlex documentation
 
-AIPlex is a control plane for agent interactions. It puts MCP, A2A and model traffic behind one gateway, one auth stack, one policy layer and one audit trail.
+AIPlex lets a platform team give developers a stable URL for models and MCP tools, control access to upstreams, and attribute usage to the caller. Start with a local request, then choose the surface you want to operate.
 
-Three planes carry traffic:
-
-| Plane | Protocol | Governs | Route resource |
-| --- | --- | --- | --- |
-| [MCPlex](./guides/mcplex.md) | MCP (JSON-RPC) | Agent to tool | `MCPRoute` |
-| [A2APlex](./guides/a2aplex.md) | A2A (HTTP/JSON) | Agent to agent | `HTTPRoute` |
-| [LLMPlex](./guides/llmplex.md) | Provider APIs | Agent to model | `LLMRoute` |
-
-Four more modules share the same identity, permissions, revisioned storage and audit: [ClientPlex](./guides/clientplex.md) (developer client configuration), [SkillsPlex](./guides/skillsplex.md) (skill discovery and reported history), [QuotaPlex](./guides/quotaplex.md) (shared budgets and admission) and Networking (private connectivity plans, see [Networking and Anvil](./operations/networking.md)).
-
-## How to read these docs
-
-1. [Getting started](./getting-started/index.md) builds the CLI and API and runs them locally with one command, `aiplex dev`, then points to the Docker stack and the platform install.
-2. [Concepts](./concepts/index.md) explains callers, resources, access points, identity, and quota and usage.
-3. [Guides](./guides/index.md) cover each module and the identity features.
-4. [Operations](./operations/index.md) covers configuration, identity configuration for Helm, networking and production qualification.
-5. [Reference](./reference/index.md) holds the generated CLI reference, the SDK, the API route map, usage formats and metering profiles.
-
-## What is verified
-
-The pages under Guides, Operations and Reference that link into the `docs/` directory of the repository are rendered from those files at build time. They are the code-verified descriptions of each feature, including what is not implemented. Where this site and a code-verified page differ, the code-verified page wins.
-
-AIPlex is under active development. Each feature page states its boundary; read the "Limits" section of a page before relying on a feature in production, and see [Production qualification](./library/production-qualification.md).
-
-## Components
-
-| Component | Language | Purpose |
+| I want to | Start here | What I get |
 | --- | --- | --- |
-| AIPlex API | Go | REST API, deploy engine, consent handler, managed model, tool and access-point endpoints |
-| AIPlex Console | React and TypeScript | Web UI |
-| `aiplex-authz` | Rust | Scope authorization and JWT verification for the gateway `ext_authz` hook; see [Authorization policy](./operations/authorization-policy.md) |
-| AIPlex CLI | Go | Command-line interface, see the [CLI reference](./reference/cli/index.md) |
-| Ory Hydra and Kratos | Configured | OAuth token issuance, identity and social sign-in |
-| Envoy AI Gateway | Configured | `MCPRoute`, `HTTPRoute` and `LLMRoute` routing |
+| Make my first call | [Run locally](./getting-started/local-development.md) | A mock model reply and its matching ledger record |
+| Connect a coding client | [Connect a client](./getting-started/connect-client.md) | Endpoint and auth configuration for an existing client |
+| Give a team access | [Access points](./guides/access-points.md) | A named endpoint with model aliases, tools and caller policy |
+| Control shared spend | [QuotaPlex](./guides/quotaplex.md) | A local model call and tool call drawing from one budget |
+| Operate a deployment | [Operations](./operations/index.md) | Configuration, authorization, networking and qualification guides |
 
-The Terraform, Helm, Kubernetes and Ory configuration is under `deploy/` in the repository.
+## Which gateway receives the call?
+
+| Destination | Managed API | Cluster gateway |
+| --- | --- | --- |
+| [Model](./guides/llmplex.md) | Provider-native operations through a model surface or an access point | Envoy routes matching model traffic to an inference backend |
+| [MCP tool](./guides/mcplex.md) | A saved tool connection or the MCP endpoint at `/ap/{id}/mcp` | A deployed MCP server |
+| [Agent](./guides/a2aplex.md) | Invoke a saved native agent connection at `/api/v1/a2a/connections/{id}/invoke` | A deployed A2A workload |
+
+An access point can also publish [skill manifests](./guides/skillsplex.md). [ClientPlex](./guides/clientplex.md) configures clients. [QuotaPlex](./guides/quotaplex.md) admits and accounts for supported managed operations. The [request path](./concepts/request-path.md) shows where each acts.
+
+## Reference
+
+[CLI commands](./reference/cli/index.md) · [API routes](./api/overview.md) · [SDKs](./reference/sdk.md) · [Usage formats](./library/reference/usage-formats/coverage.md) · [Project status](./library/project-status.md)

@@ -109,13 +109,13 @@ A cost budget counts model calls only, unless its specification sets `"include_t
 
 With the field set, a managed tool call (the `mcplex` plane, through an access point or `/api/v1/mcp/connections/{id}/invoke`) by a member draws from the budget exactly as a model call does:
 
-* **Price.** The cost is what the quota policy's price book gives the tool call's binding meters (`requests`, `tool_calls`) in the budget's currency. A price book matches a tool call by `plane: mcplex`, the connection id as `resource_id`, or `operation` `tools/call:<tool>`. The usage ledger's price resources are not used.
+* **Price.** The quota policy prices the tool call’s billable binding meters in the budget’s currency. A request-count binding can price each call. A [tool-usage binding](quotaplex-integration.md#tool-response-size-and-duration-tool-usage) can also price response bytes and elapsed milliseconds. A price book matches a tool call by `plane: mcplex`, the connection id as `resource_id`, or `operation` `tools/call:<tool>`. The usage ledger's price resources are not used.
 * **Admission.** The priced call is reserved against the budget, in the same transaction as every other control, before the tool server is contacted. If the budget cannot cover it the call is refused (`QUOTA_BUDGET_EXHAUSTED`, HTTP 429 with `Retry-After`) and the tool server sees no request.
 * **No price.** A tool call with no matching price is refused with `QUOTA_BUDGET_COST_UNKNOWN` (`budget "…" is a cost budget and this tool call has no price`), before dispatch, under the default `on_unknown_cost: deny`. Under `allow_and_flag` it is admitted and counted in `unknown_cost_requests`, as for a model.
 * **Settlement.** A completed call settles at its priced usage. A call whose outcome is unknown (a truncated response, a stream without a final message, a timeout or a connection reset after the request was sent, a client disconnect) keeps its reservation as held exposure: it is never released as zero, and it keeps counting against the budget until recovery or reconciliation.
 * **Mixed spend.** Model and tool calls draw from the same counter, so `spent`, `reserved` and `remaining` in `status` include both.
 
-A managed tool call refused this way returns the budget's message and HTTP status. Through an access point it is a JSON-RPC error with `data.http_status`; on the connection's own invoke route it is a plain-text HTTP error. Neither carries the `QUOTA_BUDGET_*` code, which the managed tool gateway does not render (the code is in the API's admission decision and in its tests).
+Both tool routes return the budget refusal code in `X-Aiplex-Error-Code` and supply `Retry-After` for an exhausted budget. The connection’s invoke route returns the HTTP status and a plain-text message. The access point returns HTTP 200 with a JSON-RPC error for the original request ID. For exhaustion, clients see `error.code = -32003`, `error.data.http_status = 429` and `error.data.reason = "quota_budget_exhausted"`.
 
 Deployment actions run on the `mcplex` plane too (operation `tools/call:anvil.<phase>:…`), but they are not tool calls for this field. The deployment path marks its admissions as deployment actions, and a cost budget never draws from one or refuses one, whatever the price book says, even when the same member's tool calls have exhausted it. A `requests` budget still counts deployment actions, as it counts every call.
 
@@ -195,7 +195,7 @@ All routes are tenant-scoped; the tenant comes from the verified binding. Writes
 | `POST /api/v1/budgets/preview` | admin | The dry run above. |
 | `GET /api/v1/budgets/{id}/status` | any verified caller | Counters; scoped as described. |
 
-Budget definitions are cached for 5 seconds per replica and invalidated at once on the replica that handled a write. A replica that cannot refresh keeps using its previous tree for at most 30 more seconds, then refuses requests (`503 QUOTA_BUDGETS_UNAVAILABLE`). Saved budgets that do not validate (for example a tree broken by concurrent edits) also refuse requests until fixed; the system does not enforce a partial tree.
+Each replica caches budget definitions for 5 seconds. A local write invalidates the cached tree and forces any in-flight refresh of that tree to read again before publishing or using its result. A replica that cannot refresh keeps using its previous tree for at most 30 more seconds, then refuses requests (`503 QUOTA_BUDGETS_UNAVAILABLE`). Saved budgets that do not validate (for example a tree broken by concurrent edits) also refuse requests until fixed; the system does not enforce a partial tree.
 
 The [overview](access-points.md#the-single-pane) adds a `budgets` block to a subject's and an access point's detail: the applicable budgets, whether each matches directly or through a child, and their counters. Budgets that select by group apply per request from the token's groups, which the overview cannot know; it says so in its `note`. `counters` is `unavailable` when QuotaPlex is off, never zero.
 
@@ -234,7 +234,13 @@ Budget draws on the Firestore store have been exercised against the Firestore em
 
 ## Local development
 
-`aiplex dev --quota` writes a quota policy for the seeded mock surfaces and the tool connection, with `request-count` bindings, and starts the API with QuotaPlex on. Budgets that count requests then work with no hand-written policy; tokens and cost do not, because a token or cost budget needs operator-attested provider limits and price books that a local default would have to invent. The end-to-end tests start the same stack with a placeholder tariff (0.001 USD per request on the primary mock surface, 0.002 USD per call on the seeded tool connection) to exercise cost budgets, including `include_tool_calls`; `aiplex dev` has no flag for it. Run [examples/budgets](../examples/budgets/README.md) for the loop, and see its `quota-cost.json` for a hand-written policy with a placeholder per-request tariff. `make examples-test` runs the example.
+| Start the mock stack | What you can enforce |
+| --- | --- |
+| `aiplex dev --quota` | Request budgets across the seeded model, tool and agent bindings. |
+| `aiplex dev --quota-tariff` | Request budgets plus USD cost budgets. A request on `local-models` costs USD 0.001 and a call on `local-tools` costs USD 0.002. Other bindings are unpriced. |
+
+Both modes use in-memory counters. The tariffs are fixtures for exercising admission and settlement. Real prices and token bounds come from the operator policy. Run the [budget examples](../examples/budgets/README.md) to exhaust a request allowance or share USD 0.003 across one model call and one tool call.
+
 
 ## Not implemented, and not validated
 
@@ -243,8 +249,7 @@ Budget draws on the Firestore store have been exercised against the Firestore em
 * **Cross-currency roll-up** and currency conversion. A tree's cost budgets share one currency.
 * **Forecasting** and burn-rate projection.
 * **Agent cost, and tool tokens.** Cost and token budgets never count agent calls; token budgets never count tool calls. Cost budgets count tool calls only with `include_tool_calls`.
-* **Tool cost beyond a per-call price.** A tool call is priced from its binding meters (`requests`, `tool_calls`). Response bytes and duration are not metered, so a price cannot depend on them.
-* **Refusal codes on the tool wire.** A budget refusal of a tool call carries its message and HTTP status but not its `QUOTA_BUDGET_*` code (see [above](#tool-calls-in-a-cost-budget)).
+* **Tool-internal work.** Managed tool-usage bindings meter response bytes and elapsed milliseconds. Internal provider work such as rows scanned requires a separate trusted meter.
 * **Budgets without QuotaPlex.** Direct provider, Envoy and other paths that bypass managed dispatch are not metered, as for all of QuotaPlex.
 * **Per-principal counters inside a budget.** A budget has one shared counter. "Top spenders" come from the usage ledger, which is a separate record.
-* **Live validation.** Budgets are exercised with the in-memory store, mock upstreams and placeholder prices. Counters against managed Firestore (only the emulator was exercised, see above), real provider usage and live billing have not been compared with budgets. Tool calls in a cost budget are exercised against the mock tool server and a placeholder per-call price only.
+* **Live validation.** Budgets are exercised with the in-memory store, mock upstreams and placeholder prices. Counters against managed Firestore (only the emulator was exercised, see above), real provider usage and live billing have not been compared with budgets. Mixed model and tool spend is exercised end to end against local mocks and fixed tariffs. The tool-usage integration tests also exercise priced response bytes.

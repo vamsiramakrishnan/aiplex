@@ -187,7 +187,9 @@ func cleanEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(name, "AIPLEX_") || name == "HOME" {
+		// A client-specific override would take precedence over the test's
+		// temporary HOME and could direct connect --write to a real config.
+		if strings.HasPrefix(name, "AIPLEX_") || name == "HOME" || name == "CODEX_HOME" || name == "CLAUDE_CONFIG_DIR" {
 			continue
 		}
 		out = append(out, kv)
