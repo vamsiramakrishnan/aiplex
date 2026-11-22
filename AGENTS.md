@@ -37,12 +37,13 @@ AIPlex is a gateway for models, tools and agents. A coding agent reaches it thro
 
    It shows a diff, asks for confirmation (`--yes` when there is no terminal, only after the user agreed), backs up the original under `~/.aiplex/connect-backups`, merges rather than replaces, and refuses a file that is not valid JSON or TOML. It never writes a token value. Whatever it lists under "Still to do by hand" is shell environment the user must set, usually the access token. Undo with `aiplex connect --undo --client claude-code`. For Antigravity, `--write` writes only its MCP server list; its model settings are print-only. `--with-telemetry aiplex` points the client's OpenTelemetry export at this deployment's receiver.
 
-4. Verify with one request through the access point, then look at the ledger:
+4. For the local mock stack, make one managed request and inspect its matching ledger entry:
 
    ```bash
-   aiplex whoami
-   aiplex usage records --since 1h
+   aiplex dev try
    ```
+
+   On a remote deployment, use the configuration printed by `aiplex connect` to make the intended call, then find it with `aiplex usage records --request-id <X-Aiplex-Request-Id>`.
 
 5. Optional: give the agent read-only tools for inspecting AIPlex itself. `aiplex mcp serve` is a stdio MCP server (`whoami`, `list_access_points`, `get_connect_config`, `list_models`, `usage_summary`, `usage_records`). The Claude Code plugin in `integrations/claude-code` and the Gemini CLI extension in `integrations/gemini-cli` wire it up.
 

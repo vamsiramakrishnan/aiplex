@@ -22,11 +22,15 @@ func modulesCmd() *cobra.Command {
 			case "yaml":
 				printYAML(all)
 			default:
-				var rows [][]string
+				table := newTable(keyCol("MODULE"), col("VERSION"), col("CONTRACT"), col("CLI"), col("CAPABILITIES"))
 				for _, d := range all {
-					rows = append(rows, []string{d.Name, d.Version, d.ContractVersion, strings.Join(d.Capabilities, ", ")})
+					commands := make([]string, 0, len(d.Commands))
+					for _, command := range d.Commands {
+						commands = append(commands, command.Name)
+					}
+					table.add(d.Name, d.Version, d.ContractVersion, spDash(strings.Join(commands, ", ")), strings.Join(d.Capabilities, ", "))
 				}
-				printTable([]string{"MODULE", "VERSION", "CONTRACT", "CAPABILITIES"}, rows)
+				table.render(cmd.OutOrStdout())
 			}
 			return nil
 		},

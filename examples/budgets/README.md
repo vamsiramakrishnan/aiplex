@@ -12,11 +12,29 @@ bash examples/budgets/budgets.sh
 
 It creates a parent and a child budget, previews which budgets an `eng` request draws from, spends the child's allowance of two requests as a second caller, shows the refusal that names the budget, the status, and the same spend in the usage ledger (`aiplex usage summary --by budget`).
 
-`make examples-test` runs this script against its own `aiplex dev --quota`.
+## Share one USD budget across a model and a tool
 
-## Cost and token budgets
+Restart the local stack with its mock tariff enabled. From another terminal in the repository, run the example.
 
-Cost and token budgets need prices and bounds that a local default cannot honestly invent. They need an operator-written quota file: [quota-cost.json](quota-cost.json) is a minimal one with a **placeholder** per-request tariff (0.001 USD, not any provider's price) for one model surface. Use it as a starting point:
+```bash
+aiplex dev --quota-tariff
+# In another terminal
+bash examples/budgets/shared-spend.sh
+```
+
+The script creates a USD 0.003 daily budget for the local developer with `--include-tool-calls`. It removes the budget when it exits.
+
+| Call through `/ap/local` | Charge | Remaining |
+| --- | ---: | ---: |
+| Ask `mock-gpt` on `local-models` | USD 0.001 | USD 0.002 |
+| Call `local-tools__echo` | USD 0.002 | USD 0.000 |
+| Call echo again | Refused before dispatch | USD 0.000 |
+
+The final commands show the settled budget status and its usage summary. These local prices are per request and per call. Token-based budgets require operator-attested bounds. `make examples-test` runs both examples against the mock tariff.
+
+## Configure a real price policy
+
+[quota-cost.json](quota-cost.json) shows a minimal operator file for one surface. Replace its placeholder tariff and bindings for your deployment, then set these variables on the `aiplex-api` process.
 
 ```bash
 export AIPLEX_MODULES=mcplex,a2aplex,llmplex,skillsplex,clientplex,networking,quotaplex

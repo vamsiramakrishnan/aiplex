@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -55,15 +54,15 @@ func devStatePath() (string, error) {
 
 func devCmd() *cobra.Command {
 	var (
-		port, consolePort int
-		provider, keyEnv  string
-		model, apiBin     string
-		contextName       string
-		noConsole, open   bool
-		noTools, detach   bool
-		quota             bool
-		allowOrigins      []string
-		otelEndpoint      string
+		port, consolePort  int
+		provider, keyEnv   string
+		model, apiBin      string
+		contextName        string
+		noConsole, open    bool
+		noTools, detach    bool
+		quota, quotaTariff bool
+		allowOrigins       []string
+		otelEndpoint       string
 	)
 	cmd := &cobra.Command{
 		Use:   "dev",
@@ -121,7 +120,8 @@ A real provider key is read from the environment variable you name with
 --api-key-env. It is passed only to the local API process's environment; it
 is never printed, accepted as a flag value, or written to disk.`,
 		Example: `  aiplex dev
-  aiplex dev --quota    # QuotaPlex on, so budgets that count requests work
+  aiplex dev --quota          # count mock requests
+  aiplex dev --quota-tariff   # price model and tool calls for a shared USD budget
   aiplex dev --detach && aiplex dev status
   aiplex dev --provider openai --api-key-env OPENAI_API_KEY
   aiplex dev --provider anthropic --api-key-env ANTHROPIC_API_KEY --model claude-haiku-4-5
@@ -129,7 +129,7 @@ is never printed, accepted as a flag value, or written to disk.`,
   eval "$(aiplex dev env)"    # in another terminal: AIPLEX_URL, AIPLEX_TOKEN, OPENAI_BASE_URL, ...`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			o := devOptions{port: port, consolePort: consolePort, provider: provider, keyEnv: keyEnv, model: model, apiBin: apiBin, contextName: contextName, noConsole: noConsole, open: open, noTools: noTools, allowOrigins: allowOrigins, otel: otelEndpoint, quota: quota}
+			o := devOptions{port: port, consolePort: consolePort, provider: provider, keyEnv: keyEnv, model: model, apiBin: apiBin, contextName: contextName, noConsole: noConsole, open: open, noTools: noTools, allowOrigins: allowOrigins, otel: otelEndpoint, quota: quota, quotaTariff: quotaTariff}
 			if err := refuseIfDevRunning(); err != nil {
 				return err
 			}
@@ -143,30 +143,31 @@ is never printed, accepted as a flag value, or written to disk.`,
 	cmd.Flags().IntVar(&consolePort, "console-port", 9090, "Console port on 127.0.0.1")
 	cmd.Flags().StringVar(&provider, "provider", "mock", "Model provider: mock, openai, anthropic or gemini")
 	cmd.Flags().StringVar(&keyEnv, "api-key-env", "", "Name of the environment variable that holds the provider API key (not the key itself)")
-	cmd.Flags().StringVar(&model, "model", "", "Model to expose (default: mock-gpt, gpt-4o-mini, claude-haiku-4-5 or gemini-2.5-flash)")
+	cmd.Flags().StringVar(&model, "model", "", fmt.Sprintf("Model to expose (defaults: mock %s, OpenAI %s, Anthropic %s, Gemini %s)", devstack.DefaultModel("mock"), devstack.DefaultModel("openai"), devstack.DefaultModel("anthropic"), devstack.DefaultModel("gemini")))
 	cmd.Flags().StringVar(&apiBin, "api-bin", "", "Path to the aiplex-api binary (default: next to this binary, then PATH; built from source when run in the repository)")
 	cmd.Flags().StringVar(&contextName, "context", "local", "CLI context to create for the local API")
 	cmd.Flags().BoolVar(&noConsole, "no-console", false, "Do not serve the Console")
 	cmd.Flags().BoolVar(&open, "open", false, "Open the Console in a browser")
 	cmd.Flags().BoolVar(&quota, "quota", false, "Turn QuotaPlex on for the mock surfaces and tools so budgets that count requests work (mock provider only; counters reset when the API restarts)")
+	cmd.Flags().BoolVar(&quotaTariff, "quota-tariff", false, "Enable QuotaPlex with mock USD prices per call on local-models (0.001) and local-tools (0.002)")
 	cmd.Flags().BoolVar(&noTools, "no-tools", false, "Do not start the built-in MCP server's tool connection")
 	cmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run in the background; stop with: aiplex dev stop")
 	cmd.Flags().StringSliceVar(&allowOrigins, "allow-origin", nil, "Extra upstream origin the local API may call, e.g. https://mcp.example.com (repeatable)")
 	cmd.Flags().StringVar(&otelEndpoint, "otel", "", "Export OpenTelemetry traces and metrics (OTLP/HTTP) to this collector endpoint, e.g. http://127.0.0.1:4318")
-	cmd.AddCommand(devEnvCmd(), devStatusCmd(), devStopCmd(), devTokenCmd())
+	cmd.AddCommand(devTryCmd(), devEnvCmd(), devStatusCmd(), devStopCmd(), devTokenCmd())
 	return cmd
 }
 
 type devOptions struct {
-	port, consolePort int
-	provider, keyEnv  string
-	model, apiBin     string
-	contextName       string
-	noConsole, open   bool
-	noTools           bool
-	quota             bool
-	allowOrigins      []string
-	otel              string
+	port, consolePort  int
+	provider, keyEnv   string
+	model, apiBin      string
+	contextName        string
+	noConsole, open    bool
+	noTools            bool
+	quota, quotaTariff bool
+	allowOrigins       []string
+	otel               string
 }
 
 func runDev(parent context.Context, o devOptions) error {
@@ -211,7 +212,7 @@ func runDev(parent context.Context, o devOptions) error {
 	if err != nil {
 		return err
 	}
-	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins, ExtraOrigins: extra, Env: apiEnv, Quota: o.quota, QuotaNoTools: o.noTools})
+	stack, err := devstack.Start(ctx, devstack.Options{APIBinary: bin, Port: o.port, Provider: o.provider, APIKeyEnv: o.keyEnv, Log: logFile, ConsoleOrigins: origins, ExtraOrigins: extra, Env: apiEnv, Quota: o.quota, QuotaNoTools: o.noTools, QuotaTariff: o.quotaTariff})
 	if err != nil {
 		return fmt.Errorf("%w\n  API log: %s", err, logPath)
 	}
@@ -490,10 +491,17 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 			row("", hint)
 		}
 	}
-	if o.quota {
-		row("Quota", "on for the mock surfaces and tools (request counts); try: aiplex budgets create team --unit requests --amount 100 --window day --user alice@localhost")
-	} else {
-		row("Quota", "off (aiplex dev --quota turns it on for budgets that count requests; QuotaPlex otherwise reads an operator policy file named by AIPLEX_QUOTA_FILE)")
+	switch {
+	case o.quotaTariff:
+		tariff := "0.001 USD per local-models request"
+		if seeded.Connection != "" {
+			tariff += ", 0.002 USD per local-tools call"
+		}
+		row("Quota", "request counts and mock cost budgets ("+tariff+")")
+	case o.quota:
+		row("Quota", "request counts (try: aiplex budgets create team --unit requests --amount 100 --window day --access-point local)")
+	default:
+		row("Quota", "off (use --quota for request counts or --quota-tariff for mock cost budgets)")
 	}
 	ctxNote := "\"" + o.contextName + "\" (current"
 	if previous != "" {
@@ -516,11 +524,20 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 	}
 	fmt.Println()
 	fmt.Println("  WARNING: development mode serves unauthenticated requests as admin; never expose, tunnel or proxy " + strings.TrimPrefix(s.APIURL, "http://") + ".")
-	fmt.Printf("\n  Ready in %.1fs. Try next, in another terminal:\n\n", took.Seconds())
-	fmt.Println("    # 1. Send a chat request through the access point")
-	fmt.Println(`    eval "$(aiplex dev env)"`)
-	for _, line := range devTryLines(seeded) {
-		fmt.Println("    " + line)
+	if detached {
+		fmt.Printf("\n  Ready in %.1fs. Try next:\n\n", took.Seconds())
+	} else {
+		fmt.Printf("\n  Ready in %.1fs. Try next, in another terminal:\n\n", took.Seconds())
+	}
+	if seeded.Provider == "mock" {
+		fmt.Println("    # 1. Send a model request and see its usage record")
+		fmt.Println("    aiplex dev try")
+	} else {
+		fmt.Println("    # 1. Send a model request through the access point")
+		fmt.Println(`    eval "$(aiplex dev env)"`)
+		for _, line := range devTryLines(seeded) {
+			fmt.Println("    " + line)
+		}
 	}
 	fmt.Println()
 	fmt.Println("    # 2. See what it cost and who made it")
@@ -538,14 +555,18 @@ func printDevSummary(s *devstack.Stack, seeded *devstack.Seeded, o devOptions, p
 		fmt.Println("    aiplex dev status")
 	}
 	fmt.Println()
-	fmt.Println("    # 4. Optional: see what a caller with no role gets. Admission lets it reach the")
-	fmt.Println("    #    access point; calling a model also needs a grant from you (steps b and c)")
-	fmt.Println("    aiplex access-points create team --model " + seeded.Model + "=" + seeded.Surface + " --allow-users bob@localhost")
-	fmt.Println("    BOB=$(aiplex dev token --user bob)    # a: its stderr names bob's principal ID")
-	fmt.Println("    aiplex agents user-scopes set PRINCIPAL_ID --scopes llm:model:" + seeded.Model + ",llm:surface:" + seeded.Surface + ":*   # b")
-	fmt.Println("    curl -s \"$AIPLEX_URL/ap/team/v1/chat/completions\" -H \"Authorization: Bearer $BOB\" \\")
-	fmt.Println("      -H \"Content-Type: application/json\" -d '{\"model\":\"" + seeded.Model + "\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}'   # c")
-	fmt.Println()
+	if seeded.Protocol == "openai-chat" {
+		fmt.Println("    # 4. Optional: see what a caller with no role gets. Admission lets it reach the")
+		fmt.Println("    #    access point; calling a model also needs a grant from you (steps b and c)")
+		fmt.Println(`    eval "$(aiplex dev env)"`)
+		fmt.Println("    aiplex access-points create team --model " + seeded.Model + "=" + seeded.Surface + " --allow-users bob@localhost")
+		fmt.Println("    BOB=$(aiplex dev token --user bob)    # a: its stderr names bob's principal ID")
+		fmt.Println("    aiplex agents user-scopes set PRINCIPAL_ID --scopes llm:model:" + seeded.Model + ",llm:surface:" + seeded.Surface + ":*   # b")
+		fmt.Println("    curl -s \"$AIPLEX_URL/ap/team/v1/chat/completions\" -H \"Authorization: Bearer $BOB\" \\")
+		fmt.Println("      -H \"Content-Type: application/json\" -d '{\"model\":\"" + seeded.Model + "\",\"messages\":[{\"role\":\"user\",\"content\":\"Hi\"}]}'   # c")
+		fmt.Println()
+	}
+
 	if detached {
 		fmt.Println("  Running in the background. Stop it with: aiplex dev stop")
 	} else {
@@ -615,36 +636,24 @@ access point. The token is the local developer token; it is accepted only by
 the local API that issued it and expires when that API stops.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path, err := devStatePath()
+			st, _, err := readDevState()
 			if err != nil {
 				return err
 			}
-			raw, err := os.ReadFile(path)
-			if errors.Is(err, os.ErrNotExist) {
+			if st == nil {
 				return fmt.Errorf("no local AIPlex is running; start one with: aiplex dev")
-			}
-			if err != nil {
-				return err
-			}
-			var st devState
-			if err := json.Unmarshal(raw, &st); err != nil {
-				return fmt.Errorf("read %s: %w", path, err)
 			}
 			if !devReachable(st.URL) {
 				return fmt.Errorf("the local AIPlex at %s is not responding; start it with: aiplex dev", st.URL)
 			}
-			creds, err := cliconfig.LoadCredentials()
+			bearer, err := devStoredToken(st.Context)
 			if err != nil {
 				return err
-			}
-			entry := creds.GetToken(st.Context)
-			if entry == nil || entry.AccessToken == "" {
-				return fmt.Errorf("no token stored for context %q; restart: aiplex dev", st.Context)
 			}
 			ap := st.URL + "/ap/" + st.AccessPoint
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "export AIPLEX_URL=%s\n", shellQuote(st.URL))
-			fmt.Fprintf(w, "export AIPLEX_TOKEN=%s\n", shellQuote(entry.AccessToken))
+			fmt.Fprintf(w, "export AIPLEX_TOKEN=%s\n", shellQuote(bearer))
 			switch {
 			case st.Provider == "mock":
 				// The mock serves every wire: export each SDK family.
@@ -667,6 +676,18 @@ the local API that issued it and expires when that API stops.`,
 			return nil
 		},
 	}
+}
+
+func devStoredToken(contextName string) (string, error) {
+	creds, err := cliconfig.LoadCredentials()
+	if err != nil {
+		return "", err
+	}
+	entry := creds.GetToken(contextName)
+	if entry == nil || entry.AccessToken == "" {
+		return "", fmt.Errorf("no token stored for context %q; restart: aiplex dev", contextName)
+	}
+	return entry.AccessToken, nil
 }
 
 func devReachable(url string) bool {

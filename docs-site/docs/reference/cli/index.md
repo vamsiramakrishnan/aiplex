@@ -77,9 +77,10 @@ AIPlex puts models, MCP tools and agents behind one gateway with one identity,
 one access policy and one usage ledger.
 
 Start here (no Docker, no cloud account):
-  aiplex dev                 run AIPlex locally with a mock model and mock tools
-  eval "$(aiplex dev env)"   in another terminal: point SDKs and the CLI at it
+  aiplex dev --detach        start the local API with mock models and tools
+  aiplex dev try             send one model request and see its usage record
   aiplex connect local       print client configuration for the local access point
+  aiplex dev stop            stop the local API
 
 Usage:
   aiplex [command]

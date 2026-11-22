@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useId, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useModules } from '../hooks/useModules'
 import { ADMIN_REASON } from '../hooks/useAccess'
@@ -50,14 +50,15 @@ function Breadcrumbs() {
   )
 }
 
-const linkBase = 'block px-4 py-2 text-sm focus-visible:outline-offset-[-2px]'
+const linkBase = 'rounded px-3 py-2 text-sm focus-visible:outline-current focus-visible:outline-offset-[-2px]'
 
 export default function Layout() {
   const { user, logout, ambient } = useAuth()
   const { error } = useModules()
-  const { shown, hiddenForRole, access } = useNavigation()
+  const { groups, hiddenForRole, access } = useNavigation()
   const [dark, toggleDark] = useDarkMode()
   const [open, setOpen] = useState(false)
+  const navId = useId()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -79,9 +80,11 @@ export default function Layout() {
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-brand-600 focus:px-3 focus:py-2 focus:text-brand-contrast">Skip to content</a>
       {/* Phone top bar */}
       <header className="md:hidden flex items-center justify-between bg-gray-900 text-white px-4 py-2 sticky top-0 z-30">
-        <img src={logoReversed} alt="AIPlex" className="h-7 w-auto" />
-        <button type="button" aria-expanded={open} aria-controls="primary-nav" onClick={() => setOpen((v) => !v)} className="rounded border border-gray-600 px-3 py-1.5 text-sm">
-          {open ? 'Close menu' : 'Menu'}
+        <Link to="/overview" aria-label="AIPlex overview" className="rounded focus-visible:outline-current">
+          <img src={logoReversed} alt="" className="h-7 w-auto" />
+        </Link>
+        <button type="button" aria-expanded={open} aria-controls="primary-nav" onClick={() => setOpen((v) => !v)} className="rounded border border-gray-600 px-3 py-2 text-sm focus-visible:outline-current">
+          Menu
         </button>
       </header>
       {open && <div className="md:hidden fixed inset-0 z-30 bg-black/50" aria-hidden="true" onClick={() => setOpen(false)} />}
@@ -93,28 +96,41 @@ export default function Layout() {
         aria-label="Primary"
         className={`${open ? 'flex fixed inset-y-0 left-0 z-40 w-64 overflow-y-auto' : 'hidden'} md:flex md:sticky md:top-0 md:h-screen md:w-56 md:z-auto bg-gray-900 text-white flex-col shrink-0`}
       >
-        <div className="p-4 border-b border-gray-700">
+        <div className="flex items-center justify-between gap-2 border-b border-gray-700 p-4">
           {/* The sidebar is always dark, so it uses the reversed lockup in both themes. */}
-          <img src={logoReversed} alt="AIPlex" className="h-8 w-auto" />
-          <p className="text-xs text-gray-300 mt-1">A control plane for agent interactions across models, tools, agents and skills</p>
+          <Link to="/overview" aria-label="AIPlex overview" onClick={() => setOpen(false)} className="rounded focus-visible:outline-current">
+            <img src={logoReversed} alt="" className="h-8 w-auto" />
+          </Link>
+          <button type="button" aria-label="Close menu" onClick={() => setOpen(false)} className="rounded border border-gray-600 px-3 py-2 text-sm focus-visible:outline-current md:hidden">Close</button>
         </div>
-        <nav aria-label="Main" className="flex-1 py-4 overflow-y-auto">
-          {shown.map((item) => {
-            const blocked = item.need === 'admin' && !access.isAdmin
-            if (blocked) {
-              return (
-                <span key={item.to} role="link" aria-disabled="true" title={ADMIN_REASON} className={`${linkBase} text-gray-300 cursor-not-allowed`}>
-                  {item.label}<span className="block text-xs text-gray-300">Admin only</span>
-                </span>
-              )
-            }
-            return (
-              <NavLink key={item.to} to={item.to} className={({ isActive }) => `${linkBase} ${isActive ? 'bg-brand-600 text-brand-contrast' : 'text-gray-200 hover:bg-gray-800'}`}>
-                {item.label}
-              </NavLink>
-            )
-          })}
-          {hiddenForRole > 0 && <p className="px-4 pt-3 text-xs text-gray-300">Configuration screens need the admin or deployer role.</p>}
+        <nav aria-label="Main" className="flex-1 space-y-4 overflow-y-auto px-2 py-4">
+          {groups.map(({ label, items }) => (
+            <div key={label} role="group" aria-label={label}>
+              <p aria-hidden="true" className="px-3 pb-1 text-xs font-medium text-gray-300">{label}</p>
+              <ul className="space-y-0.5">
+                {items.map((item) => {
+                  const blocked = item.need === 'admin' && !access.isAdmin
+                  const purposeId = item.purpose ? `${navId}-${item.to}-purpose` : undefined
+                  return (
+                    <li key={item.to}>
+                      {blocked ? (
+                        <span role="link" aria-disabled="true" title={ADMIN_REASON} className={`${linkBase} block cursor-not-allowed text-gray-300`}>
+                          {item.label}<span className="block text-xs">Admin only</span>
+                        </span>
+                      ) : (
+                        <NavLink to={item.to} aria-label={item.label} aria-describedby={purposeId} onClick={() => setOpen(false)}
+                          className={({ isActive }) => `${linkBase} group flex items-baseline justify-between gap-2 ${isActive ? 'bg-brand-600 font-medium text-brand-contrast' : 'text-gray-200 hover:bg-gray-800'}`}>
+                          <span>{item.label}</span>
+                          {item.purpose && <span id={purposeId} className="text-right text-xs font-normal text-gray-300 group-aria-[current=page]:text-inherit">{item.purpose}</span>}
+                        </NavLink>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+          {hiddenForRole > 0 && <p className="px-3 text-xs text-gray-300">Configuration screens need the admin or deployer role.</p>}
         </nav>
 
         <div className="border-t border-gray-700 p-4 space-y-3">

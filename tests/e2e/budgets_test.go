@@ -14,11 +14,11 @@ import (
 )
 
 // budgetEnv starts the local stack with QuotaPlex on (generated request-count
-// policy plus a placeholder per-request tariff on the primary surface only)
+// policy plus tariffs on the primary mock model and tool connection)
 // and returns a caller factory.
 func budgetEnv(t *testing.T) (*env, func(sub string, groups ...string) string) {
 	t.Helper()
-	e := start(t, func(o *devstack.Options) { o.Quota, o.QuotaTariff = true, true })
+	e := start(t, func(o *devstack.Options) { o.QuotaTariff = true })
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if _, err := e.stack.Seed(ctx, devstack.SeedOptions{}); err != nil {
@@ -303,11 +303,34 @@ func TestBudgetsCostCountsToolCallsOnlyWhenOptedIn(t *testing.T) {
 		t.Fatalf("tia chat: %d %s", resp.Status, resp.Body)
 	}
 	before := called()
-	refused := tiaTools.call("local-tools__echo", map[string]any{"text": "over"})
-	if refused.Error == nil && refused.Status == 200 {
-		t.Fatalf("exhausted tool budget admitted a call: %s", refused.Raw)
+	for _, route := range []struct {
+		path string
+		tool string
+		want int
+	}{
+		{"/ap/local/mcp", "local-tools__echo", 200},
+		{"/api/v1/mcp/connections/local-tools/invoke", "echo", 429},
+	} {
+		body := `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"` + route.tool + `","arguments":{"text":"over"}}}`
+		refused := e.do("POST", route.path, body, "Authorization", "Bearer "+tia, "Content-Type", "application/json")
+		if refused.Status != route.want || refused.Header.Get("X-Aiplex-Error-Code") != "QUOTA_BUDGET_EXHAUSTED" || refused.Header.Get("Retry-After") == "" {
+			t.Fatalf("tool refusal on %s: %d %v %s", route.path, refused.Status, refused.Header, refused.Body)
+		}
+		contains(t, refused.Body, "is exhausted", "tool refusal names the exhausted budget")
+		if route.want == 200 {
+			var rpc rpcResponse
+			if err := json.Unmarshal([]byte(refused.Body), &rpc); err != nil || string(rpc.ID) != "9" || rpc.Error == nil || rpc.Error.Code != -32003 {
+				t.Fatalf("expected a JSON-RPC quota refusal: %s", refused.Body)
+			}
+			var data struct {
+				Reason     string `json:"reason"`
+				HTTPStatus int    `json:"http_status"`
+			}
+			if err := json.Unmarshal(rpc.Error.Data, &data); err != nil || data.Reason != "quota_budget_exhausted" || data.HTTPStatus != 429 {
+				t.Fatalf("quota refusal data: %s", rpc.Error.Data)
+			}
+		}
 	}
-	contains(t, refused.Raw, "is exhausted", "tool refusal says the budget is exhausted")
 	if called() != before {
 		t.Fatalf("the refused tool call reached the tool server")
 	}
@@ -315,7 +338,6 @@ func TestBudgetsCostCountsToolCallsOnlyWhenOptedIn(t *testing.T) {
 	if st["spent"] != "0.005000" || st["reserved"] != "0.000000" || st["include_tool_calls"] != true {
 		t.Fatalf("tool-spend status: %v", st)
 	}
-	t.Logf("tool refusal: status=%d %s", refused.Status, refused.Raw)
 	t.Logf("tool-spend status: %v", st)
 }
 

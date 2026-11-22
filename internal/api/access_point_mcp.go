@@ -522,15 +522,14 @@ func (h *ConnectedHandler) mcpToolsCall(w http.ResponseWriter, r *http.Request, 
 	}
 	// Bodies here are server-defined refusals (the managed path never relays
 	// an upstream error body); provider details are not exposed.
-	message, data := "", map[string]any{"http_status": out.status}
-	if reason, text, ok := aiplexError(out.header.Get("Content-Type"), out.body.Bytes()); ok {
-		message = text
-		if reason != "" {
-			data["reason"] = strings.ToLower(reason)
-		}
+	refusal := out.refusalCode()
+	reason, message, _ := aiplexError(out.header.Get("Content-Type"), out.body.Bytes())
+	if reason == "" {
+		reason = refusal
 	}
+	data := map[string]any{"http_status": out.status, "reason": strings.ToLower(reason)}
 	if len(message) > 512 || message == "" {
 		message = http.StatusText(out.status)
 	}
-	writeRPCError(w, http.StatusOK, id, code, out.refusalCode(), message, data)
+	writeRPCError(w, http.StatusOK, id, code, refusal, message, data)
 }

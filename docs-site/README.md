@@ -66,6 +66,18 @@ cp brand/.renders/social-card.png docs-site/static/img/aiplex-social-card.png
 
 The output is 1200 x 630.
 
+## Review a pull request build
+
+The **Docs site** CI job uploads the tested site as the `aiplex-docs-preview` artifact. Download the zip from the workflow run. From this directory, serve the artifact with the same `/aiplex/` base path and extensionless routes as GitHub Pages:
+
+```bash
+unzip -q ~/Downloads/aiplex-docs-preview.zip -d build-preview
+npm ci
+npm run serve -- --dir build-preview
+```
+
+Open the local URL printed by Docusaurus.
+
 ## Deployment
 
 On a push to `main` that changes `docs-site/**`, `docs/**`, `brand/**` or the workflow file, the workflow runs `npm ci && npm run build` in this directory and publishes `build/`.

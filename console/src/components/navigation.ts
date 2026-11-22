@@ -1,12 +1,14 @@
 import { useModules } from '../hooks/useModules'
 import { useAccess, type Access } from '../hooks/useAccess'
 import type { ConsoleModule } from '../modules'
-import { NAV_SPEC, type NavItem } from './navItems'
+import { NAV_GROUPS, NAV_SPEC, type NavItem } from './navItems'
 
 /** The full list: the static entries with the enabled modules in their slot. */
-export function resolveNav(modules: readonly Pick<ConsoleModule, 'path' | 'label'>[]): NavItem[] {
+export function resolveNav(modules: readonly Pick<ConsoleModule, 'path' | 'label' | 'purpose'>[]): NavItem[] {
   return NAV_SPEC.flatMap((spec): NavItem[] =>
-    'modules' in spec ? modules.map((m) => ({ to: m.path, label: m.label, need: 'operator' as const })) : [spec])
+    'modules' in spec
+      ? modules.map((m) => ({ to: m.path, label: m.label, purpose: m.purpose, group: 'Modules', need: 'operator' }))
+      : [spec])
 }
 
 /** An operator-only entry is hidden from everyone else. */
@@ -20,6 +22,8 @@ export function useNavigation() {
   const access = useAccess()
   const items = resolveNav(enabled)
   const shown = items.filter((item) => visibleTo(item, access))
-  const openable = shown.filter((item) => openableBy(item, access))
-  return { items, shown, openable, hiddenForRole: items.length - shown.length, access }
+  const groups = NAV_GROUPS.map((label) => ({ label, items: shown.filter((item) => item.group === label) }))
+    .filter((group) => group.items.length > 0)
+  const openable = groups.flatMap((group) => group.items.filter((item) => openableBy(item, access)))
+  return { groups, openable, hiddenForRole: items.length - shown.length, access }
 }

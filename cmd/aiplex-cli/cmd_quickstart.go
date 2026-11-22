@@ -20,7 +20,7 @@ func quickstartCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "quickstart",
-		Short: "Zero to running platform in one command",
+		Short: "Deploy AIPlex and an example workload to Google Cloud",
 		Long: `Runs the full setup pipeline end-to-end:
 
   1. aiplex init      — configure project and install tools
@@ -28,7 +28,7 @@ func quickstartCmd() *cobra.Command {
   3. deploy example   — deploy quickstart workload
   4. open console     — open the AIPlex console in browser
 
-This is the fastest way to go from nothing to a running AIPlex platform.`,
+For the local mock stack, run "aiplex dev --detach" and "aiplex dev try".`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 			fmt.Println("  ╔══════════════════════════════════════╗")

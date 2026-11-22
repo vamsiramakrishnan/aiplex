@@ -150,6 +150,11 @@ func extendConnectedModules(available map[string]*httpModule, h *api.ConnectedHa
 		r.Route("/a2a/connections", func(r chi.Router) { resourceRoutes(r, h, "agent-connection"); r.Post("/{id}/invoke", h.InvokeAgent) })
 	}
 	available["mcplex"].descriptor.APIPrefixes = []string{"/api/v1/mcp"}
+	available["mcplex"].descriptor.Commands = []modules.Command{
+		{Name: "mcp", Description: "Connect, test and call MCP tool servers"},
+		{Name: "tools", Description: "Configure tool credentials and policy"},
+		{Name: "tool-auth", Description: "Authorize a caller to use a tool connection"},
+	}
 	available["mcplex"].mount = func(r chi.Router) {
 		r.Get("/mcp/auth-types", h.ToolAuthTypes)
 		r.Route("/mcp/connections", func(r chi.Router) {

@@ -66,7 +66,8 @@ Usage:
 
 Examples:
   aiplex dev
-  aiplex dev --quota    # QuotaPlex on, so budgets that count requests work
+  aiplex dev --quota          # count mock requests
+  aiplex dev --quota-tariff   # price model and tool calls for a shared USD budget
   aiplex dev --detach && aiplex dev status
   aiplex dev --provider openai --api-key-env OPENAI_API_KEY
   aiplex dev --provider anthropic --api-key-env ANTHROPIC_API_KEY --model claude-haiku-4-5
@@ -74,6 +75,7 @@ Examples:
   eval "$(aiplex dev env)"    # in another terminal: AIPLEX_URL, AIPLEX_TOKEN, OPENAI_BASE_URL, ...
 
 Available Commands:
+  try         Send one local model request and show its reply and usage record
   env         Print shell exports for the running `aiplex dev` (use: eval "$(aiplex dev env)")
   status      Show whether aiplex dev is running, where, and the Console URL
   stop        Stop the running aiplex dev (and its local API)
@@ -87,7 +89,7 @@ Flags:
       --context string         CLI context to create for the local API (default "local")
   -d, --detach                 Run in the background; stop with: aiplex dev stop
   -h, --help                   help for dev
-      --model string           Model to expose (default: mock-gpt, gpt-4o-mini, claude-haiku-4-5 or gemini-2.5-flash)
+      --model string           Model to expose (defaults: mock mock-gpt, OpenAI gpt-4o-mini, Anthropic claude-haiku-4-5, Gemini gemini-3.1-flash-lite)
       --no-console             Do not serve the Console
       --no-tools               Do not start the built-in MCP server's tool connection
       --open                   Open the Console in a browser
@@ -95,6 +97,7 @@ Flags:
       --port int               API port on 127.0.0.1 (default 8080)
       --provider string        Model provider: mock, openai, anthropic or gemini (default "mock")
       --quota                  Turn QuotaPlex on for the mock surfaces and tools so budgets that count requests work (mock provider only; counters reset when the API restarts)
+      --quota-tariff           Enable QuotaPlex with mock USD prices per call on local-models (0.001) and local-tools (0.002)
 
 Global Flags:
       --debug           Show debug output, including raw API errors
@@ -104,6 +107,40 @@ Global Flags:
       --url string      AIPlex API URL (env: AIPLEX_URL)
 
 Use "aiplex dev [command] --help" for more information about a command.
+
+Exit codes:
+  0  success
+  1  error (including server errors)
+  2  invalid input: bad flags or arguments, or a specification the server rejected
+  3  not signed in, token rejected, or not permitted
+  4  not found
+  5  conflict: the resource changed since it was read, or already exists
+  6  the API could not be reached
+```
+
+### `aiplex dev try`
+
+```text
+Send Hello through the access point of a running mock development stack. Read its token from the saved local context and look up the call in the usage ledger by request ID.
+
+Usage:
+  aiplex dev try [flags]
+
+Examples:
+  aiplex dev --detach
+  aiplex dev try
+  aiplex dev stop
+
+Flags:
+  -h, --help   help for try
+
+Global Flags:
+      --context string   Use this CLI context for one command (env: AIPLEX_CONTEXT)
+      --debug            Show debug output, including raw API errors
+      --no-color         Disable colour (also: NO_COLOR=1)
+  -o, --output string    Output format: table, wide (every column, untruncated), json or yaml (default "table")
+      --token string     Bearer token (env: AIPLEX_TOKEN)
+      --url string       AIPlex API URL (env: AIPLEX_URL)
 
 Exit codes:
   0  success

@@ -12,6 +12,31 @@ contracts as any other independently deployed service.
 See [QuotaPlex requirements and limits](quotaplex-prerequisites.md) for the
 contracts and what hard enforcement requires.
 
+## Find a module in your deployment
+
+Run `aiplex modules list` to see the enabled modules, their CLI commands and their
+capabilities. For the API prefixes, Console paths and command descriptions of one
+module, run `aiplex modules inspect mcplex`. Both commands read the deployment's
+discovery endpoint, `GET /api/v1/modules`.
+
+| Module | CLI commands | Read a resource |
+| --- | --- | --- |
+| LLMPlex | `llm` | `GET /api/v1/llm/operations` |
+| MCPlex | `mcp`, `tools`, `tool-auth` | `GET /api/v1/mcp/auth-types` |
+| A2APlex | `a2a` | `GET /api/v1/a2a/agents` |
+| SkillsPlex | `skills` | `GET /api/v1/skills/servers` |
+| ClientPlex | `clients` | `GET /api/v1/clients/profiles` |
+| QuotaPlex | `quota`, `budgets` | `GET /api/v1/quota/policy` |
+
+QuotaPlex publishes `quota.managed-agent` for request-count accounting on
+bound native agent connections. It meters the HTTP exchange. Token use and
+downstream calls inside the remote agent require separate instrumentation.
+
+Each route applies its own [role and grant checks](authorization.md). To send a
+model or tool request through a shared access point, use `aiplex connect <id>`
+to get its caller-facing URLs. [Access points](access-points.md) describes the
+separate discovery and invocation paths.
+
 ## Registration and compatibility
 
 A module implements `Descriptor`, `Start`, `Ready`, and `Stop`. Register trusted

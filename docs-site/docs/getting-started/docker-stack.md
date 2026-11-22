@@ -5,7 +5,7 @@ description: Start the Firestore emulator, PostgreSQL, Ory Hydra and Kratos and 
 
 # Local stack with Docker
 
-Use this page when you need the API to run against the same kinds of services a deployment uses (Firestore emulator, PostgreSQL, Ory Hydra and Kratos, OPA), for example to work on the registry or identity code. For a first look at AIPlex, use [Run it locally in a minute](./local-development.md) instead: it needs only Go and has no Docker dependency.
+Use this page when you need the API to run against the same kinds of services a deployment uses (Firestore emulator, PostgreSQL, Ory Hydra and Kratos, OPA), for example to work on the registry or identity code. For a first look at AIPlex, use [Run AIPlex locally](./local-development.md) instead: it needs only Go and has no Docker dependency.
 
 This path runs the API in development mode against local emulators. Development mode uses development authentication and requires a loopback listener. Outside a cluster, Kubernetes deployment is a no-op, so local success does not establish cloud routing or provider access.
 

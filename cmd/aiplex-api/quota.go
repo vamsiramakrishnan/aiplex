@@ -413,7 +413,17 @@ func configureQuota(ctx context.Context, cfg *config.Config, store registry.Stor
 }
 
 func (m *quotaRuntime) Descriptor() modules.Descriptor {
-	return modules.Descriptor{Name: "quotaplex", Version: "0.3.0", ContractVersion: modules.ContractVersion, Capabilities: []string{"quota.managed-model", "quota.managed-tool", "quota.terminal-outbox", "quota.recovery", "quota.administration", "quota.scheduling"}, Navigation: []modules.Navigation{{Path: "/quotaplex", Title: "QuotaPlex"}}, Dependencies: []modules.Dependency{{Name: "identity", ContractVersion: modules.ContractVersion}}, APIPrefixes: []string{"/api/v1/quota"}}
+	return modules.Descriptor{
+		Name: "quotaplex", Version: "0.3.0", ContractVersion: modules.ContractVersion,
+		Capabilities: []string{"quota.managed-model", "quota.managed-tool", "quota.managed-agent", "quota.terminal-outbox", "quota.recovery", "quota.administration", "quota.scheduling"},
+		Navigation:   []modules.Navigation{{Path: "/quotaplex", Title: "QuotaPlex"}},
+		Dependencies: []modules.Dependency{{Name: "identity", ContractVersion: modules.ContractVersion}},
+		APIPrefixes:  []string{"/api/v1/quota"},
+		Commands: []modules.Command{
+			{Name: "quota", Description: "Inspect attempts and administer quota policy"},
+			{Name: "budgets", Description: "Manage team and project budgets"},
+		},
+	}
 }
 func (m *quotaRuntime) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
