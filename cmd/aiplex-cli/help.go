@@ -5,7 +5,7 @@ import "github.com/spf13/cobra"
 // shortDescriptions are the one-line descriptions `aiplex --help` shows for
 // top-level commands. Each says the outcome, not the mechanism.
 var shortDescriptions = map[string]string{
-	"dev":        "Run AIPlex on this machine with a mock model, mock tools and the Console",
+	"dev":        "Start a local stack with a mock agent, models and MCP tools",
 	"login":      "Sign in to an AIPlex API and store the token for the current context",
 	"logout":     "Forget the stored token for the current context",
 	"whoami":     "Show which API and identity the CLI is using, and your roles",
@@ -14,23 +14,23 @@ var shortDescriptions = map[string]string{
 	"doctor":     "Diagnose your setup and say what to fix",
 	"health":     "Check that the API and its components answer",
 	"init":       "Set up AIPlex on a Google Cloud project (guided)",
-	"quickstart": "Create a cloud deployment end to end in one command",
+	"quickstart": "Deploy AIPlex and an example workload to Google Cloud",
 	"version":    "Show the CLI version, commit and whether the Console is built in",
 
 	"access-points": "Create and manage access points: one URL with identity, access and quota",
-	"connect":       "Print ready-to-paste client configuration for an access point",
-	"clients":       "Register developer clients (IDEs, CLIs) and review their connection plans",
+	"connect":       "Print an access point configuration for your coding harness or SDK",
+	"clients":       "Register a coding harness or IDE and review its connection plan",
 	"who":           "See every caller: how it signs in, what it can reach and its usage",
 
 	"llm": "Connect model providers (surfaces), and inspect routes, batches and capacity",
 
-	"mcp":       "Connect MCP tool servers and test them through the gateway",
+	"mcp":       "Connect MCP servers, list their tools and call them through the gateway",
 	"tools":     "Set a tool connection's credential type and which tools it allows",
 	"tool-auth": "Authorize a downstream tool for yourself (OAuth sign-in to the tool)",
 	"skills":    "Inspect skill servers and skill invocations",
 
 	"agents":   "Register agents, bind their cloud identities and set their permissions",
-	"a2a":      "Discover agents and delegate tasks between them (A2A)",
+	"a2a":      "Invoke connected agents, discover A2A agents and inspect delegations",
 	"identity": "Let people sign in with your corporate identity provider",
 	"iam":      "Map identity-provider groups to roles (admin, deployer, viewer) with role bindings",
 

@@ -1,37 +1,40 @@
 .home {
-  width: min(100%, 76rem);
+  width: min(100%, 80rem);
   margin-inline: auto;
   padding-inline: clamp(1.25rem, 5vw, 3.75rem);
   color: var(--aiplex-color-text);
 }
 
-.hero {
+.hero, .budget {
   display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   align-items: center;
   gap: clamp(2rem, 5vw, 5rem);
-  padding-block: clamp(3rem, 6vw, 5rem);
 }
 
-.intro h1 {
+.hero {
+  padding-block: clamp(2.5rem, 6vw, 5rem);
+}
+
+.hero h1 {
   margin: 0;
-  max-width: 16ch;
-  font-size: clamp(2.85rem, 4.55vw, 4.1rem);
+  max-width: 20ch;
+  font-size: clamp(2.8rem, 4.25vw, 4rem);
   font-weight: 650;
-  line-height: 1.02;
-  letter-spacing: -0.065em;
+  line-height: 1.03;
+  letter-spacing: -0.06em;
   text-wrap: balance;
 }
 
-.intro p, .budget p {
-  max-width: 45ch;
-  margin-block: 1.25rem;
+.intro p, .budget p, .detail {
   color: var(--aiplex-color-text-muted);
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 .intro p {
-  font-size: 1.11rem;
+  max-width: 44ch;
+  margin: 0;
+  font-size: 1.08rem;
 }
 
 .actions, .shortcuts {
@@ -42,10 +45,10 @@
 }
 
 .actions {
-  margin-top: 1.75rem;
+  margin-top: 1.4rem;
 }
 
-.actions a, .sectionHead a, .budget a, .shortcuts a {
+.actions a, .budget a, .shortcuts a {
   font-weight: 600;
 }
 
@@ -64,219 +67,115 @@
   text-decoration: none;
 }
 
-.diagram {
+.journeys {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0;
-  background-color: var(--aiplex-color-surface);
-  border: 1px solid var(--aiplex-color-border);
-  border-radius: 0.45rem;
-  overflow: hidden;
-}
-
-.diagram figcaption, .guideList h3 {
-  font-family: var(--aiplex-font-mono);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-}
-
-.diagram figcaption {
-  background: var(--aiplex-color-surface-raised);
-  padding: 0.65rem 1.15rem;
-  border-bottom: 1px solid var(--aiplex-color-border);
-}
-
-.diagramContents {
-  padding: clamp(1.15rem, 3vw, 2rem);
-  background-image: radial-gradient(var(--aiplex-color-border) 0.8px, transparent 0.8px);
-  background-size: 10px 10px;
-}
-
-.callers {
-  position: relative;
-  margin-bottom: 1.2rem;
-  color: var(--aiplex-color-text-muted);
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.callers::after {
-  position: absolute;
-  content: '';
-  top: 100%;
-  left: 1.3rem;
-  height: 1.2rem;
-  border-left: 1px solid var(--aiplex-color-primary);
-}
-
-.gate {
-  position: relative;
-  display: flex;
-  gap: 0.85rem;
-  align-items: center;
-  padding: 0.75rem 1rem;
-  background: var(--aiplex-color-surface-raised);
-  border: 1px solid var(--aiplex-color-primary);
-  border-left-width: 3px;
-  border-radius: 0.25rem;
-}
-
-.gate svg {
-  color: var(--aiplex-color-primary);
-  width: 1.8rem;
-  height: 1.8rem;
-  flex: none;
-}
-
-.diagram code {
-  padding: 0;
-  border: none;
-  background: transparent;
-}
-
-.gate code {
-  color: var(--aiplex-color-text);
-  font-weight: 650;
-}
-
-.gate span, .detail {
-  display: block;
-  color: var(--aiplex-color-text-muted);
-  font-size: 0.88rem;
-}
-
-.routes, .guideList ul {
-  margin: 0;
-  padding: 0;
+  padding: 1px;
+  gap: 1px;
   list-style: none;
+  border-radius: 0.5rem;
+  background: var(--aiplex-color-border);
 }
 
-.routes li {
-  position: relative;
+.journeys li {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.65rem;
-  padding: 0.25rem 0 0.25rem 1.15rem;
-  margin: 0 0 0 1.3rem;
+  min-width: 0;
+  margin: 0;
+}
+
+.journey {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  padding: clamp(1.15rem, 2vw, 1.6rem);
+  background: var(--aiplex-color-bg);
   color: var(--aiplex-color-text);
-  font-size: 0.85rem;
 }
 
-.routes li:first-child {
-  padding-top: 0.85rem;
+.journeys li:first-child .journey {
+  border-top-left-radius: 0.45rem;
+  border-bottom-left-radius: 0.45rem;
 }
 
-.routes li::before, .routes li::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  border-color: var(--aiplex-color-text-muted);
-  border-style: solid;
+.journeys li:last-child .journey {
+  border-top-right-radius: 0.45rem;
+  border-bottom-right-radius: 0.45rem;
 }
 
-.routes li::before {
-  top: 0;
-  bottom: 0;
-  border-width: 0 0 0 1px;
+.journey:hover, .journey:focus-visible {
+  background: var(--aiplex-color-surface);
+  color: var(--aiplex-color-primary);
+  text-decoration: none;
 }
 
-.routes li::after {
-  bottom: 0.9rem;
-  width: 0.75rem;
-  border-width: 0 0 1px;
+.module, .operation {
+  font-family: var(--aiplex-font-mono);
+  font-size: 0.78rem;
 }
 
-.routes li:last-child::before {
-  bottom: 0.9rem;
-}
-
-.routes code {
-  color: var(--aiplex-color-text-muted);
-  font-size: 0.82rem;
-}
-
-.guides {
-  border-top: 1px solid var(--aiplex-color-border);
-  padding-top: 2.25rem;
-}
-
-.sectionHead {
+.module, .label {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
-  margin-bottom: 1.75rem;
+  gap: 0.6rem;
+  align-items: center;
 }
 
-.sectionHead h2, .budget h2 {
+.module {
+  color: var(--aiplex-color-text-muted);
+}
+
+.module svg {
+  color: var(--aiplex-color-primary);
+}
+
+.label {
+  justify-content: space-between;
+  font-size: clamp(1.4rem, 2vw, 1.9rem);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.label span {
+  color: var(--aiplex-color-primary);
+  font-size: 1rem;
+}
+
+.detail {
+  flex: 1;
+  font-size: 0.96rem;
+}
+
+.operation {
+  min-height: 3.4rem;
+  margin-top: 0.45rem;
+  padding: 0.65rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--aiplex-color-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--aiplex-color-text-muted);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.budget {
+  margin-top: clamp(2rem, 5vw, 4rem);
+  padding: clamp(1.25rem, 3.1vw, 2.5rem);
+  background: var(--aiplex-mist);
+  border-radius: 0.45rem;
+}
+
+.budget h2 {
   margin: 0;
   font-size: clamp(1.75rem, 3vw, 2.25rem);
   letter-spacing: -0.045em;
   line-height: 1.16;
 }
 
-.columns, .budget {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(2rem, 5vw, 5rem);
-}
-
-.guideList h3 {
-  color: var(--aiplex-color-text-muted);
-  margin: 0;
-  padding-bottom: 0.6rem;
-  border-bottom: 1px solid var(--aiplex-color-border);
-}
-
-.guideList li + li {
-  margin-top: 0;
-}
-
-.guide {
-  display: grid;
-  grid-template-columns: 1.5rem 1fr auto;
-  align-items: start;
-  gap: 0.9rem;
-  padding-block: 1.1rem;
-  border-bottom: 1px solid var(--aiplex-color-border);
-  color: var(--aiplex-color-text);
-}
-
-.guide:hover {
-  color: var(--aiplex-color-primary);
-  text-decoration: none;
-}
-
-.guideIcon {
-  margin-top: 0.18rem;
-  color: var(--aiplex-color-primary);
-}
-
-.moduleName {
-  color: var(--aiplex-color-text-muted);
-  font: 500 0.76rem/1.35 var(--aiplex-font-mono);
-}
-
-.guide strong {
-  display: block;
-  font-size: 1.12rem;
-  font-weight: 650;
-}
-
-.arrow {
-  color: var(--aiplex-color-primary);
-}
-
-.budget {
-  align-items: center;
-  margin-top: 3.5rem;
-  padding: clamp(1.25rem, 3.1vw, 2.5rem);
-  background: var(--aiplex-mist);
-  border-radius: 0.45rem;
-}
-
 .budget p {
+  max-width: 46ch;
   margin-block: 0.7rem;
 }
 
@@ -296,31 +195,39 @@
 }
 
 .home a:focus-visible {
+  position: relative;
   outline: 2px solid var(--aiplex-color-focus-ring);
-  outline-offset: 3px;
+  outline-offset: -2px;
+}
+
+@media (max-width: 960px) {
+  .journeys {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .journeys li:first-child .journey { border-bottom-left-radius: 0; }
+  .journeys li:nth-child(2) .journey { border-top-right-radius: 0.45rem; }
+  .journeys li:nth-child(3) .journey { border-bottom-left-radius: 0.45rem; }
+  .journeys li:last-child .journey { border-top-right-radius: 0; }
 }
 
 @media (max-width: 760px) {
   .hero, .budget {
     grid-template-columns: 1fr;
-    gap: 1.75rem;
+    gap: 1.25rem;
   }
 
-  .intro h1 {
-    font-size: clamp(2.85rem, 9vw, 4.1rem);
-    max-width: 17ch;
+  .hero h1 {
+    font-size: clamp(2.55rem, 7.5vw, 3.6rem);
+  }
+}
+
+@media (max-width: 480px) {
+  .journey {
+    padding: 0.85rem;
+    gap: 0.6rem;
   }
 
-  .columns {
-    grid-template-columns: 1fr;
-    gap: 1.75rem;
-  }
-
-  .sectionHead {
-    margin-bottom: 1.25rem;
-  }
-
-  .budget {
-    margin-top: 2rem;
-  }
+  .detail { font-size: 0.875rem; }
+  .module { flex-wrap: wrap; }
 }

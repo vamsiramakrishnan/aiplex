@@ -90,7 +90,7 @@ export default function ConnectWizard({ accessPointId, onClose }: { accessPointI
       </div>
       <div className="flex flex-wrap items-end gap-2">
         <div>
-          <label htmlFor={`${uid}-client`} className="block text-xs mb-1">Client</label>
+          <label htmlFor={`${uid}-client`} className="block text-xs mb-1">Harness or client</label>
           <select id={`${uid}-client`} value={choice} onChange={e => { setChoice(e.target.value); setShown(null) }} className={input}>
             <option value="generic">Generic (any OpenAI, Anthropic, Google or MCP client)</option>
             {(profiles.data ?? []).filter(connectable).map(p => <option key={p.id} value={p.id}>{p.name} ({p.protocols.join(', ')})</option>)}

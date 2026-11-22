@@ -1,13 +1,13 @@
 ---
 title: aiplex clients
 sidebar_label: clients
-description: "Register developer clients (IDEs, CLIs) and review their connection plans"
+description: "Register a coding harness or IDE and review its connection plan"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.
 
 ```text
-Register developer clients (IDEs, CLIs) and review their connection plans
+Register a coding harness or IDE and review its connection plan
 
 Usage:
   aiplex clients [flags]

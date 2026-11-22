@@ -12,7 +12,7 @@ export const NAV_SPEC: readonly NavSpec[] = [
   { to: '/access-points', label: 'Access points', group: 'Workspace' },
   { to: '/usage', label: 'Usage', group: 'Workspace' },
   { modules: true },
-  { to: '/agents', label: 'Agents', group: 'Operations', need: 'operator' },
+  { to: '/agents', label: 'Agents', purpose: 'Caller identities', group: 'Operations', need: 'operator' },
   { to: '/identity/users', label: 'User identity', group: 'Operations', need: 'operator' },
   { to: '/hooks', label: 'Hooks', group: 'Operations', need: 'operator' },
   { to: '/runs', label: 'Runs', group: 'Operations', need: 'operator' },

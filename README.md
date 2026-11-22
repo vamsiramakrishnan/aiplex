@@ -5,62 +5,63 @@
 
 # AIPlex
 
-Give each team one endpoint for its models and MCP tools. AIPlex checks who is calling, routes the request, and records what the caller used. Operators keep the upstream credentials and can set a shared spending limit across supported calls.
+**Connect agents, models, tools and harnesses.** When an agent calls a model, runs a tool or invokes another agent, you need to know who made the call and what it used. AIPlex checks the caller’s permissions and records managed usage in one ledger. Connect the harness once, then change its team’s model routes and tool permissions on the server.
 
 [Documentation][docs] · [Local development][docs-local] · [Quota and budgets][docs-quota] · [Project status](docs/project-status.md)
 
 ## Quick start
 
-Build from source with Go 1.25+ and Make. From one terminal:
+Build the CLI and start the local stack with Git, Make and Go 1.25+. The agent, models and MCP server run on your machine without provider keys.
 
 ```bash
 git clone https://github.com/vamsiramakrishnan/aiplex.git
 cd aiplex
 make build
-bin/aiplex dev --detach
-bin/aiplex dev try
+export PATH="$PWD/bin:$PATH"
+aiplex dev --detach
 ```
 
-The last command sends a real HTTP request through `/ap/local` to the built-in mock model, then finds that request in the usage ledger. The reply, caller, token counts and estimated cost come from the running stack. You can try it without a cloud account or provider key.
+| Try it | Run | What to look for |
+| --- | --- | --- |
+| **Agents** | `aiplex a2a invoke local-agent --operation query` | The connected agent replies to the query. |
+| **Models** | `aiplex dev try` | The model replies. Its usage record shows the caller, tokens and estimated cost. |
+| **Tools** | `aiplex mcp connections call local-tools echo --args '{"text":"hello"}'` | The MCP server returns `hello`. |
+| **Harnesses** | `aiplex connect local --client codex` | The CLI prints the model and MCP configuration for Codex. |
 
-```bash
-bin/aiplex connect local       # inspect the SDK and coding-client configuration
-bin/aiplex modules list        # see what this deployment exposes
-bin/aiplex dev stop            # stop the local processes and discard in-memory state
-```
-
-Local development accepts unauthenticated requests as admin. Keep it on loopback. For the SDK environment, foreground mode, or a real provider, see [Run it locally][docs-local]. To exercise streaming, MCP and client setup in one scripted run, use `make demo`.
+Run `aiplex dev stop` when finished. Local development accepts unauthenticated requests as admin. Keep it on loopback. To run all four checks in an isolated local stack, use `make demo`. [Local development][docs-local]
 
 ## How it works
 
-An **access point** belongs to an audience, such as the engineering team or a CI workload. The operator chooses its model aliases, tool connections and admitted callers. A coding client can use its existing protocol and authenticate with an AIPlex credential. The verified identity determines the caller kind. A delegated call can retain both the person and the agent.
+A harness such as Codex runs the agent loop. It sends a prompt to a model and can call a tool when the model requests one. With AIPlex, the operator chooses which models and tools to expose and who can call them. AIPlex checks each managed request and records the caller and observed usage. A native agent has its own invocation endpoint.
 
 ```text
-People · coding clients · agents
+Coding harness or agent workload
     │
     ├── AIPlex API
-    │   ├── /ap/{id}/…                         model calls, MCP tools, skill discovery
-    │   └── /api/v1/a2a/connections/{id}/invoke native agent calls
-    │       Managed execution → optional QuotaPlex admission → upstream → usage ledger
+    │   ├── /api/v1/a2a/connections/{id}/invoke  → connected agent
+    │   ├── /ap/{id}/v1/…                        → model (OpenAI wire shown)
+    │   └── /ap/{id}/mcp                         → MCP tool server
     │
-    └── Envoy AI Gateway                         cluster deployment
-        ├── /mcp/*  → MCPlex
-        ├── /a2a/*  → A2APlex                    ext_authz + rate limiting
-        └── /llm/*  → LLMPlex                    mTLS to deployed workloads
+    └── Envoy AI Gateway (cluster)
+        ├── /a2a/*  → deployed agents
+        ├── /llm/*  → model backends
+        └── /mcp/*  → deployed tool servers
 ```
 
-QuotaPlex acts on configured managed operations. Envoy and direct provider traffic sit outside that accounting boundary. The [request path][docs-path] and [execution coverage matrix](docs/quotaplex-execution-coverage.md) describe which controls apply.
+ClientPlex prepares the harness configuration. QuotaPlex can reserve budget before a managed call. It settles the charge when it confirms usage, such as provider-reported tokens or a completed tool call. Envoy applies its own authorization and rate limits. [Request paths][docs-path] · [Quota coverage](docs/quotaplex-execution-coverage.md)
 
-## How it is named
+<a id="how-it-is-named"></a>
 
-| Module | What you can do | Start here |
-| --- | --- | --- |
-| **LLMPlex** | Expose models under stable names and forward provider-native HTTP, streaming or supported WebSocket traffic. | [Model surfaces](docs/model-surfaces.md) · `aiplex llm` |
-| **MCPlex** | Give callers one MCP endpoint over tool connections with upstream authentication and per-tool policy. | [Tool connections](docs/tool-connection-auth.md) · `aiplex mcp` |
-| **A2APlex** | Invoke a connected native agent or deploy an A2A agent behind a cluster route. Inspect reported delegations. | [Connected agents](docs/connected-plexes.md) · `aiplex a2a` |
-| **SkillsPlex** | Discover deployed skill manifests and inspect reported invocations. | [Skill discovery and history](docs/a2a-skills-audit.md) · `aiplex skills` |
-| **ClientPlex** | Generate reviewed configuration for coding clients. The CLI can apply supported file changes with a diff, backup and undo. | [Client onboarding](docs/harness-onboarding.md) · `aiplex connect` |
-| **QuotaPlex** | Reserve budget before dispatch and settle from trusted usage. Share limits across callers and managed operations. | [Quota and budgets][docs-quota] · `aiplex budgets` · `aiplex quota` |
+## Modules
+
+| Module | What you use it for |
+| --- | --- |
+| **A2APlex** | Invoke a native agent through a saved connection, deploy an A2A agent or inspect delegation history. [Connected agents](docs/connected-plexes.md) |
+| **LLMPlex** | Expose named models and call them using their provider protocols. [Model surfaces](docs/model-surfaces.md) |
+| **MCPlex** | Connect MCP servers and decide which tools each caller may run. [Tool connections](docs/tool-connection-auth.md) |
+| **ClientPlex** | Configure a harness for the models and tools it can use. Preview supported file edits before applying them. [Harness onboarding](docs/harness-onboarding.md) |
+| **QuotaPlex** | Share a budget across supported managed calls and inspect what each call reserved or spent. [Quota and budgets][docs-quota] |
+| **SkillsPlex** | Discover skill manifests and inspect reported invocations. [Skill discovery and history](docs/a2a-skills-audit.md) |
 
 ## Try a shared budget
 
@@ -73,7 +74,7 @@ bash examples/budgets/shared-spend.sh
 aiplex dev stop
 ```
 
-A USD 0.003 budget covers a USD 0.001 model request and a USD 0.002 MCP call. The next tool call is refused. Both prices are local fixtures. In a deployment, the operator configures the price book and the operations it covers. Incomplete terminal evidence keeps exposure reserved. [Budget rules](docs/budgets.md) · [Quota administration](docs/quotaplex-administration.md)
+A USD 0.003 budget covers a USD 0.001 model request and a USD 0.002 MCP call. AIPlex blocks the next tool call before dispatch. Both prices are local fixtures. In a deployment, the operator configures the price book and the operations it covers. Incomplete terminal evidence keeps exposure reserved. [Budget rules](docs/budgets.md) · [Quota administration](docs/quotaplex-administration.md)
 
 ## Where to go next
 
@@ -87,7 +88,7 @@ A USD 0.003 budget covers a USD 0.001 model request and a USD 0.002 MCP call. Th
 
 ## Install
 
-The source build produces `bin/aiplex` and `bin/aiplex-api`. The first tagged release will enable the packaged distribution paths. For GKE, follow [Install the platform][docs-install] and run `aiplex platform preflight` to check the deployer's permissions.
+The source build produces `bin/aiplex` and `bin/aiplex-api`. Build from source until the first tagged release. For GKE, follow [Install the platform][docs-install] and run `aiplex platform preflight` to check the deployer's permissions.
 
 ## Project status
 

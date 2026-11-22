@@ -1,30 +1,19 @@
 # Naming and glossary
 
-This page says what the names in AIPlex mean, and which command, URL and package each one corresponds to. Where a word is used for more than one thing, the page says so instead of hiding it.
-
 ## What "plex" means
 
-A **plex** is a module that puts **many of one kind of thing behind one front**, as in *multiplex*: many signals, one line. You register many providers, servers or agents once; callers see a single, stable interface, and the plex applies the same identity check, policy and usage record to all of them.
+AIPlex groups its capabilities into modules. Start with the thing you want to use. The CLI and API use the names in the last two columns.
 
-LLMPlex, MCPlex, A2APlex and SkillsPlex each put many upstreams behind one endpoint. ClientPlex and QuotaPlex turn many client registrations, or many budgets and limits, into one configuration or one decision. **AIPlex** is those plexes plus the parts they share: identity, access points and the usage ledger.
-
-| Plex | Many of what | One what in front | CLI group | Managed API prefix |
+| Work with | Module | What you can do | CLI | Managed API |
 | --- | --- | --- | --- | --- |
-| **LLMPlex** | Models, across providers and wire protocols | One model endpoint per access point; requests are forwarded in the provider's native protocol | `aiplex llm` | `/api/v1/llm` |
-| **MCPlex** | MCP (Model Context Protocol) tool servers | One MCP endpoint per access point (`/ap/{id}/mcp`), with upstream authentication and tool policy | `aiplex mcp`, `aiplex tools`, `aiplex tool-auth` | `/api/v1/mcp` |
-| **A2APlex** | Agents: deployed agents that speak A2A (the Agent2Agent protocol), and native cloud agents | One way to invoke them, and one delegation history | `aiplex a2a` | `/api/v1/a2a` |
-| **SkillsPlex** | Deployed skills | One list of skills and one invocation history | `aiplex skills` | `/api/v1/skills` |
-| **ClientPlex** | Developer clients (IDEs and coding CLIs) | One reviewed configuration per client | `aiplex clients`, `aiplex connect` | `/api/v1/clients` |
-| **QuotaPlex** (opt-in) | Budgets, allocations and limits | One admission decision and one settlement per request | `aiplex quota`, `aiplex budgets` | `/api/v1/quota` |
+| Agents | **A2APlex** | Invoke a registered cloud agent or delegate work over the Agent2Agent protocol (A2A). | `aiplex a2a` | `/api/v1/a2a` |
+| Models | **LLMPlex** | Offer model endpoints across providers and forward requests in the provider's native protocol. | `aiplex llm` | `/api/v1/llm` |
+| Tools | **MCPlex** | Expose selected tools from MCP servers at one access point and control who can call them. | `aiplex mcp`, `aiplex tools`, `aiplex tool-auth` | `/api/v1/mcp` |
+| Harnesses and other clients | **ClientPlex** | Choose a profile, register a client and review its configuration. Use `connect` to point an installed harness at an access point. | `aiplex clients`, `aiplex connect` | `/api/v1/clients` |
+| Skills | **SkillsPlex** | List deployed skills and inspect their invocation history. | `aiplex skills` | `/api/v1/skills` |
+| Budgets and limits | **QuotaPlex** | Admit a supported managed call against its limits and settle it from usage evidence. | `aiplex budgets`, `aiplex quota` | `/api/v1/budgets`, `/api/v1/quota` |
 
-Things to know about the pattern:
-
-- **The plain word is the one you type.** CLI groups, API prefixes and scopes use the plain or protocol name (`llm`, `mcp`, `a2a`, `skills`, `clients`, `quota`). The Plex name is the module's name in the docs and the Console. `aiplex modules` lists the modules an API has enabled.
-- **MCPlex** is MCP + plex with the shared P written once. It is not spelled "MCPPlex".
-- **LLMPlex, MCPlex and A2APlex are named after what they speak** (model APIs, MCP, A2A); SkillsPlex, ClientPlex and QuotaPlex are named after what they hold.
-- **ClientPlex and QuotaPlex stretch the definition.** ClientPlex does not sit in front of clients; it holds many client registrations and produces one reviewed configuration for each. QuotaPlex holds no upstreams; it turns many budgets and limits into one decision. Both keep the "many of one, one front" shape.
-- **Not everything is a plex.** Identity, networking, access points and the usage ledger are shared parts that every plex uses, and keep plain names.
-- In Go code and Console filters a plex is sometimes called a **plane** (`models.PlaneLLMPlex`, "by plane"). Plane and plex mean the same module there.
+Run `aiplex modules list` to check which modules your API enables. Code and Console filters also use **plane** for the module handling a request. Identity, access points and the usage ledger are shared across modules.
 
 ## Glossary
 
@@ -44,8 +33,8 @@ Things to know about the pattern:
 | **Caller** | Whoever presents a credential. Every caller is exactly one kind: agent, client or user. The kind comes from the verified token and cannot be set by the request. See [callers](https://vamsiramakrishnan.github.io/aiplex/docs/concepts/callers). |
 | **Agent** | A registered workload, or an agent acting for a user. |
 | **User** | A person who signed in through an identity provider. |
-| **Client** | A registered developer client such as Claude Code, Codex or Antigravity (a ClientPlex registration). Not the same as an *OAuth client*, which is a credential type a tool connection can use, or an HTTP client library. |
-| **Harness** | A coding agent's host program (Claude Code, Codex, Gemini CLI). Used when talking about configuring one or receiving its telemetry; a registered harness is a client. |
+| **Client** | In access-point policy, a caller with a verified authorized party (`azp`) matching a ClientPlex registration. A workload or delegated actor keeps the `agent` kind and can also carry client attribution. |
+| **Harness** | The program that runs a coding agent’s work session. Claude Code, Codex and Gemini CLI are harnesses. A harness can use a developer’s token to call models and tools. Choosing `--client codex` selects configuration for Codex. The token determines the caller kind. |
 | **Principal** | In a delegated call, the user the call is made on behalf of. |
 | **Actor** | In a delegated call, the agent doing the calling (the token's `act` claim). Usage and audit records keep both principal and actor. |
 
@@ -58,7 +47,7 @@ Things to know about the pattern:
 | **Surface** | A saved model configuration in LLMPlex: an operator-approved provider origin, a credential reference, and an allowlist of operations and models. It is the model-side counterpart of a connection. See [model surfaces](model-surfaces.md). |
 | **Connection** | A registered upstream that is not a model: an MCP tool server (*tool connection*) or a cloud agent (*agent connection*). `aiplex connect` is unrelated; it prints client configuration. |
 | **Route** | Unqualified, a model routing rule in LLMPlex. Envoy routes and API routes (as in "route policy") are always qualified. |
-| **Profile** | Either a *client profile* (a supported developer client template) or a *metering profile* (how usage is read from one provider format). Always qualified. |
+| **Profile** | A *client profile* defines the protocols and configuration a client supports. A *metering profile* defines which usage a gateway can measure and enforce. |
 
 ### What is recorded and limited
 
@@ -93,6 +82,6 @@ Things to know about the pattern:
 | `aiplex tools` and `aiplex tool-auth` | `tools` is for operators: a tool connection's credential type and which tools it allows. `tool-auth` is for a user: sign yourself in to a downstream tool. |
 | `aiplex health`, `aiplex doctor`, `aiplex status` | `health` asks whether the API and its components answer. `doctor` checks your local setup and says what to fix. `status` summarises a deployed platform. |
 | `aiplex connect` and "connection" | `connect` prints or writes client configuration for an access point. A connection is an upstream tool server or agent. |
-| `aiplex connect --client branchyard` and a client | The flag's other values are developer clients (ClientPlex registrations). Branchyard is not one: its model gateway calls the access point with a token, and no client registration is involved. |
+| `aiplex connect --client branchyard` and a client | This target configures Branchyard’s model gateway to use an access point. Branchyard runs harnesses. Generating its configuration requires no ClientPlex registration. |
 | `aiplex identity` and `aiplex agents identity` | The first configures how people sign in. The second binds an agent to its cloud workload identity. |
 | `aiplex init` and `aiplex quickstart` | Both set up a cloud deployment: `init` is guided, `quickstart` runs end to end. Neither is the local path; that is `aiplex dev`. |

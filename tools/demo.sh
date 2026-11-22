@@ -2,11 +2,11 @@
 # Scripted first run of `aiplex dev`, used by `make demo` and CI.
 #
 # Builds the CLI and API, starts `aiplex dev` (mock model, mock MCP server,
-# in-memory API on 127.0.0.1) with an isolated HOME, then does what the
-# printed next steps say: a chat completion (JSON and streaming), an MCP tool
-# call, `aiplex usage records`/`summary`, and the curl snippet from
-# `aiplex connect`. Exits non-zero on the first failure. Needs Go and curl;
-# no Docker, network or cloud account.
+# mock agent and in-memory API on 127.0.0.1) with an isolated HOME, then
+# invokes the agent, calls the model (JSON and streaming) and MCP tool, previews
+# Codex configuration, and checks usage and the `aiplex connect` curl snippet.
+# Exits non-zero on the first failure. Needs Go and curl; no Docker, network or
+# cloud account.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,7 +33,7 @@ step "Build aiplex and aiplex-api"
 mkdir -p "$BIN"
 (cd "$ROOT" && go build -o "$BIN/aiplex" ./cmd/aiplex-cli && go build -o "$BIN/aiplex-api" ./cmd/aiplex-api) || fail "build"
 
-export HOME="$WORK/home" PATH="$BIN:$PATH"
+export HOME="$WORK/home" CODEX_HOME="$WORK/home/.codex" PATH="$BIN:$PATH"
 mkdir -p "$HOME"
 unset AIPLEX_URL AIPLEX_TOKEN
 
@@ -55,6 +55,11 @@ eval "$(aiplex dev env)"
 [[ -n "${AIPLEX_TOKEN:-}" && -n "${OPENAI_BASE_URL:-}" ]] || fail "aiplex dev env did not export AIPLEX_TOKEN and OPENAI_BASE_URL"
 echo "AIPLEX_URL=$AIPLEX_URL"
 echo "OPENAI_BASE_URL=$OPENAI_BASE_URL"
+
+step "Invoke the local agent"
+out=$(aiplex a2a invoke local-agent --operation query --payload '{"input":{"message":"hello"}}') || fail "agent invocation: $out"
+echo "$out"
+[[ "$out" == *"mock-agent: you said hello"* ]] || fail "unexpected agent reply"
 
 step "Chat completion through the access point"
 out=$(curl -sS --fail-with-body "$AIPLEX_URL/ap/local/v1/chat/completions" \
@@ -84,6 +89,12 @@ out=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}') || fail "tools/list:
 out=$(mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"local-tools__add","arguments":{"a":2,"b":40}}}') || fail "tools/call: $out"
 echo "$out"
 [[ "$out" == *'"text":"42"'* ]] || fail "tools/call add did not return 42"
+
+step "Preview Codex configuration (no files written)"
+out=$(aiplex connect local --client codex --write --dry-run) || fail "Codex configuration preview"
+echo "$out"
+[[ "$out" == *"/ap/local/v1"* && "$out" == *"/ap/local/mcp"* ]] || fail "Codex preview lacks model or MCP endpoint"
+[[ ! -e "$HOME/.codex/config.toml" ]] || fail "Codex dry run wrote configuration"
 
 step "aiplex usage records"
 out=$(aiplex usage records) || fail "usage records"

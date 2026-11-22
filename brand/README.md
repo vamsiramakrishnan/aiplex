@@ -83,7 +83,7 @@ Light bg = `#FFFFFF`, surface = `#F6F7F9`, raised = `#FFFFFF`. Dark bg = `#0B0D1
 
 There is one hue per Plex, for navigation, diagrams and icons. All share OKLCH chroma 0.15 (0.13 in dark mode). Hue changes in steps, and lightness alternates between neighbours, so adjacent items differ in lightness even when hue is not seen.
 
-| Module (navigation order) | Light | Ratio on white | Dark | Ratio on `#0B0D13` |
+| Module (palette contrast-check order) | Light | Ratio on white | Dark | Ratio on `#0B0D13` |
 |---|---|---|---|---|
 | MCPlex | `#0568A4` | 5.96 | `#58ACEF` | 7.92 |
 | A2APlex | `#C36D05` | 3.81 | `#FFBA81` | 11.65 |
@@ -198,8 +198,8 @@ Don't:
 | Docs navbar logo, dark theme | `logo/aiplex-lockup-horizontal-reversed.svg` |
 | Favicon (docs and Console) | `logo/aiplex-favicon.svg`. It switches with `prefers-color-scheme`; add an `.ico`/PNG fallback if needed. |
 | Console header | `logo/aiplex-lockup-horizontal-mono.svg` inlined so it takes the header's text colour, or the light/reversed pair |
-| Social card (`og:image`) | `social/aiplex-social-card.svg`. Platforms need a raster: `docs-site/static/img/aiplex-social-card.png` (1200 × 630) is the tracked copy, and `node brand/scripts/render.js export` writes a fresh one to `.renders/export/`. |
-| README banner | `social/aiplex-readme-banner.svg`. It has its own Ink panel, so it reads on light and dark pages. |
+| Social card (`og:image`) | `social/aiplex-social-card.svg` introduces agents, models, tools and harnesses, with the four module names in that order. Platforms need a raster: `docs-site/static/img/aiplex-social-card.png` (1200 × 630) is the tracked copy, and `node brand/scripts/render.js export` writes a fresh one to `.renders/export/`. |
+| README banner | `social/aiplex-readme-banner.svg`. The same four module icons and names sit on an Ink panel that reads on light and dark pages. |
 | Brand sheet | `brand-sheet.svg` on light pages, `brand-sheet-dark.svg` on dark pages (same content). |
 | Architecture diagram (README, docs) | `diagrams/architecture.svg` and `diagrams/architecture-dark.svg` (1200 × 660). In Markdown, use `<picture>` with `prefers-color-scheme` sources to swap them. |
 | App or PWA icon | `logo/aiplex-app-icon.svg` (512 base) |

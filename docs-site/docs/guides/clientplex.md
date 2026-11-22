@@ -1,37 +1,26 @@
 ---
-title: ClientPlex
-description: Connect Antigravity, Codex and Claude clients to supported model endpoints with reviewed configuration plans.
+title: Harnesses and ClientPlex
+description: Configure a coding harness for an access point or review a registered client's configuration plan.
 ---
 
-# ClientPlex
+# Harnesses and ClientPlex
 
-ClientPlex answers: which client is being configured, which protocol can it speak, which tenant-owned destination can serve it, and what configuration does the developer need?
+A harness runs a coding agent’s work session. To point an installed harness at a model and MCP tools, use `aiplex connect` with an access point. For example, preview the settings Codex would use with the local stack.
 
-```text
-Choose a client profile: Antigravity / Codex / Claude
-                         |
-                         v
-       Save registration + credential/network references
-                         |
-                         v
-       Resolve destination + check installed protocol
-                         |
-                         v
-       Review configuration fragments and required hosts
-                         |
-                         v
-       Developer merges configuration into native client
+```bash
+aiplex connect local --client codex --write --dry-run
 ```
 
-A destination can be a managed LLMPlex facade or an explicitly configured external gateway; direct mode uses the client's native provider authentication. ClientPlex does not install clients, issue credentials or grant model access. (The CLI's separate, opt-in `aiplex connect --write` merges a client configuration into the client's own config file with a backup; see [Harness onboarding](../library/harness-onboarding.md).) Credentials remain opaque references and plans leave existing workstation files intact. A rendered plan stays `configured-unverified` until the installed client, provider access and deployment have been qualified.
+The CLI shows the file diff and any shell variables you need to set. Apply the settings with `--write`, then run a turn in the harness. [Connect a harness](../getting-started/connect-client.md)
+
+## Review a client registration
+
+Use ClientPlex when an operator needs to save a client’s profile, principal binding and destination for review. Profiles cover coding harnesses and other clients, including Claude Desktop with its native Claude apps gateway sign-in.
 
 ```bash
 aiplex clients profiles
-aiplex clients register --help
-aiplex clients plan --help
-aiplex clients list
+aiplex clients register -f registration.json
+aiplex clients plan REGISTRATION_ID
 ```
 
-For an access point, `aiplex connect ACCESS_POINT --client claude-code` prints the configuration directly; see [Connect a client](../getting-started/connect-client.md).
-
-Read [ClientPlex](../library/clientplex.md) for profile and mode compatibility and the native Claude gateway artifacts, and [Connected Plexes](../library/connected-plexes.md#client-compatibility) for how destinations reference model surfaces.
+Choose a profile first, then supply its registration JSON. In gateway mode, ClientPlex resolves the destination in your tenant and checks protocol compatibility. In direct mode, the client uses its native cloud authentication. The plan returns configuration fragments, credential references and required hosts for review. A plan marked `configured-unverified` still needs a connection test from the installed client. [Profile and mode compatibility](../library/clientplex.md#client-contracts) · [Registration and revision rules](../library/clientplex.md#api-and-persistence)

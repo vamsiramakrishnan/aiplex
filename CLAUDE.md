@@ -4,7 +4,7 @@ Orientation for contributors and coding assistants. The README is the entry poin
 
 ## What this repository is
 
-AIPlex is a control plane for agent access to models, tools, skills and other agents. Callers (agents, users, clients) reach resources through one access point per audience (`/ap/{id}/...`). The API verifies the caller, applies admission and optional quota, forwards in the provider's native protocol, and writes a usage ledger record.
+AIPlex connects agents, models, tools and harnesses. Agents can call other agents through saved connections. Harnesses and workloads reach models and MCP tools through team access points (`/ap/{id}/...`). The API checks the caller, applies configured limits and records managed usage.
 
 The code is the source of truth.
 

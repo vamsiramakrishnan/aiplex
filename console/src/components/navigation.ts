@@ -4,10 +4,11 @@ import type { ConsoleModule } from '../modules'
 import { NAV_GROUPS, NAV_SPEC, type NavItem } from './navItems'
 
 /** The full list: the static entries with the enabled modules in their slot. */
-export function resolveNav(modules: readonly Pick<ConsoleModule, 'path' | 'label' | 'purpose'>[]): NavItem[] {
+export function resolveNav(modules: readonly Pick<ConsoleModule, 'path' | 'label' | 'purpose' | 'navOrder'>[]): NavItem[] {
+  const ordered = [...modules].sort((a, b) => a.navOrder - b.navOrder)
   return NAV_SPEC.flatMap((spec): NavItem[] =>
     'modules' in spec
-      ? modules.map((m) => ({ to: m.path, label: m.label, purpose: m.purpose, group: 'Modules', need: 'operator' }))
+      ? ordered.map((m) => ({ to: m.path, label: m.label, purpose: m.purpose, group: 'Modules', need: 'operator' }))
       : [spec])
 }
 

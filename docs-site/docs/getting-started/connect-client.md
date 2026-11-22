@@ -1,66 +1,52 @@
 ---
-title: Connect a client
-description: Create an access point and print ready-to-paste configuration for Claude, Codex or Antigravity.
+title: Connect a harness
+description: Point a coding harness at an AIPlex access point, review its settings and check a real call.
 ---
 
-# Connect a client
+# Connect a harness
 
-To see the output of `aiplex connect` without setting anything up, start [`aiplex dev`](./local-development.md) and run `aiplex connect local`. The named client profiles (`--client claude-code`, `codex`) apply only to an access point that offers a wire the client speaks. The `local` access point offers the four mock wires (OpenAI Chat, OpenAI Responses, Anthropic Messages and Gemini), so `claude-code`, `codex` and `antigravity` apply to it. `--client claude-desktop` is refused on any access point, with a reason: that client signs in through a Claude apps gateway server.
+Start [the local stack](./local-development.md). It creates the `local` access point with four model protocols and a mock MCP server. Preview the configuration for your installed harness.
 
-An [access point](../guides/access-points.md) gives a group of callers one stable URL, `https://<aiplex>/ap/{id}/…`, in front of models, MCP tools and skills. `aiplex connect` prints the URLs and configuration a client needs for it.
+```bash
+aiplex connect local --client claude-code --write --dry-run
+```
+
+Choose the profile that matches your harness. `--client` selects a configuration format. Access comes from the identity you present and the grants on each model and tool.
+
+| Harness | Profile | What `--write` configures |
+| --- | --- | --- |
+| Claude Code | `claude-code` | Anthropic Messages settings and MCP servers |
+| Codex | `codex` | Responses provider and MCP servers in `config.toml` |
+| Gemini CLI | `gemini-cli` | Gemini settings and MCP servers |
+| Antigravity | `antigravity` | Local stdio MCP server entry. The CLI prints the remaining model and remote MCP setup steps. |
 
 ## 1. Create an access point
 
-For the common case, create it from flags. `--model name=surface` exposes a model of a saved model surface under a client-facing name, `--tool` exposes a tool connection, and `--allow-groups` admits a group. With no `--allow-*` flag, every verified caller of the kinds in `--callers` (default `user,agent,client`) is admitted:
+Skip this step when using `local`. For a team, expose a saved model surface that speaks the harness’s protocol and a tool connection from your tenant. This example gives the `eng` group access to the local stack’s mock Claude model and tools.
 
 ```bash
-aiplex access-points create ide-platform-team --model gpt-4o-mini=openai --tool search --allow-groups eng
+aiplex access-points create ide-platform-team \
+  --model mock-claude=local-messages --tool local-tools --allow-groups eng
 ```
 
-For the full specification (QoS classes, expose lists, the fields in [Access points and the single pane](../library/access-points.md#specification)), write a specification file. The references (`surface_ref`, `connection_ref`) must name a model surface and tool connection that already exist in your tenant.
-
-```bash
-aiplex access-points apply -f ide.yaml
-aiplex access-points get ide-platform-team
-aiplex access-points quota-plan ide-platform-team   # only if the spec has a qos block
-```
+Set `AIPLEX_PUBLIC_URL` on a remote API to the trusted HTTPS origin clients can reach. The local stack sets its own origin. For a specification with QoS or individual tool allowlists, use `aiplex access-points apply -f ide.yaml`. [Access point specification](../library/access-points.md#specification)
 
 ## 2. Print the client configuration
 
 ```bash
-aiplex connect ide-platform-team
-aiplex connect ide-platform-team --client claude-code
-aiplex connect ide-platform-team -o json
+aiplex connect local                         # URLs, environment variables and curl
+aiplex connect local --client claude-code     # settings to apply manually
+aiplex connect local --client claude-code --write
 ```
 
-`--client` takes a client profile (for example `claude-code`, `codex`, `antigravity`) or `generic` for environment variables and curl. Snippets read the token from `$AIPLEX_TOKEN`; no token or secret is printed. `aiplex connect` needs `AIPLEX_PUBLIC_URL` set on the API to the trusted HTTPS origin; without it the API answers `409 PUBLIC_URL_REQUIRED`.
-
-Any verified caller that the access point admits can run `aiplex connect`. Operators get the full output. Other callers get a reduced one, with only their own caller kind and auth step. A caller the access point does not admit gets `not found`.
-
-To apply it instead of copying it, add `--write` (`claude-code`, `codex` or `gemini-cli`). The command merges the settings into the client's own config file after showing a diff, keeps a backup, never writes a token value, and `aiplex connect --undo` restores the backup. It does not install the client. See [Harness onboarding](../library/harness-onboarding.md).
-
-```bash
-aiplex connect ide-platform-team --client claude-code --write --dry-run
-aiplex connect ide-platform-team --client claude-code --write
-```
+Use your team’s access point ID in place of `local`. The write shows a diff, asks for confirmation and backs up the original files. Complete any printed authentication steps. Config files hold environment references or a token helper. To restore your files, run `aiplex connect --undo --client claude-code`. [File locations, token helpers and backups](../library/harness-onboarding.md)
 
 ## 3. Check what the client can reach
 
-```bash
-aiplex who --kind client
-aiplex who agent AGENT_ID
-```
+Start the harness, send a prompt to the configured model, then run `aiplex usage records --since 1h` to find the managed call. Check the caller, model and access point. Operators can inspect effective access for a registered client with `aiplex who client REGISTRATION_ID`. A harness using your workforce token can appear under your user identity.
+
+For Claude Code, Codex or Gemini CLI, add `--with-telemetry aiplex` when writing settings to configure the client’s own telemetry export. Complete the authentication steps it prints. The ledger marks those events as `reported`. [Harness telemetry](../library/harness-onboarding.md#telemetry-into-the-usage-ledger)
 
 ## ClientPlex plans
 
-To plan configuration for a client without an access point, use ClientPlex:
-
-```bash
-aiplex clients profiles
-aiplex clients register --help
-aiplex clients plan --help
-```
-
-See the [ClientPlex guide](../guides/clientplex.md).
-
-`aiplex connect <access-point> --client <client> --write` merges the configuration into the client's own file after showing a diff. It covers `claude-code`, `codex`, `gemini-cli` and `antigravity`; for Antigravity only its MCP server list is written, and its model settings stay print-only ([Harness onboarding](../library/harness-onboarding.md)). Add `--with-telemetry aiplex` to send the client's usage events to this deployment's receiver as reported records; the token is never written to the file.
+Use a [ClientPlex registration](../guides/clientplex.md) to review a client’s destination, protocol and configuration. Claude Desktop uses a native Claude apps gateway sign-in. Antigravity ACP supports printed configuration. To use an access point as the model backend for several harnesses running under Branchyard, choose the [Branchyard target](../library/harness-onboarding.md#branchyard).

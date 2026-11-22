@@ -58,11 +58,12 @@ func orNone(s string) string {
 
 // Command groups for `aiplex --help`, by what a person is trying to do.
 var commandGroups = []*cobra.Group{
-	{ID: "start", Title: "Get started:"},
-	{ID: "connect", Title: "Connect clients:"},
+	{ID: "agents", Title: "Agents:"},
 	{ID: "models", Title: "Models:"},
 	{ID: "tools", Title: "Tools:"},
-	{ID: "agents", Title: "Agents and identity:"},
+	{ID: "harnesses", Title: "Harnesses:"},
+	{ID: "start", Title: "Get started:"},
+	{ID: "access", Title: "Access and identity:"},
 	{ID: "usage", Title: "Usage and quota:"},
 	{ID: "operate", Title: "Operate:"},
 }
@@ -71,10 +72,10 @@ var commandGroups = []*cobra.Group{
 var groupOf = map[string]string{
 	"dev": "start", "login": "start", "auth": "start", "logout": "start", "whoami": "start", "config": "start", "ctx": "start",
 	"doctor": "start", "health": "start", "init": "start", "quickstart": "start", "version": "start",
-	"access-points": "connect", "connect": "connect", "clients": "connect", "who": "connect",
+	"access-points": "access", "connect": "harnesses", "clients": "harnesses", "who": "access",
 	"llm": "models",
 	"mcp": "tools", "tools": "tools", "tool-auth": "tools", "skills": "tools",
-	"agents": "agents", "a2a": "agents", "identity": "agents", "iam": "agents",
+	"agents": "agents", "a2a": "agents", "identity": "access", "iam": "access",
 	"usage": "usage", "quota": "usage", "hooks": "usage", "budgets": "usage",
 	"platform": "operate", "upgrade": "operate", "infra": "operate", "native": "operate", "resources": "operate",
 	"modules": "operate", "apply": "operate", "validate": "operate", "deploy": "operate", "undeploy": "operate",
@@ -87,15 +88,16 @@ var groupOf = map[string]string{
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "aiplex",
-		Short: "AIPlex CLI — one gateway, identity and audit trail for models, tools and agents",
-		Long: `AIPlex puts models, MCP tools and agents behind one gateway with one identity,
-one access policy and one usage ledger.
+		Short: "Invoke agents, call models, run tools and connect coding harnesses",
+		Long: `Use AIPlex to invoke agents, call models, run tools and connect coding harnesses.
 
-Start here (no Docker, no cloud account):
-  aiplex dev --detach        start the local API with mock models and tools
-  aiplex dev try             send one model request and see its usage record
-  aiplex connect local       print client configuration for the local access point
-  aiplex dev stop            stop the local API`,
+Try these commands locally with the built-in mocks:
+  aiplex dev --detach
+  aiplex a2a invoke local-agent --operation query
+  aiplex dev try
+  aiplex mcp connections call local-tools echo --args '{"text":"hello"}'
+  aiplex connect local --client codex
+  aiplex dev stop`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {

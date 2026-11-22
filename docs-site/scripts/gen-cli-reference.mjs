@@ -32,8 +32,8 @@ function help(args) {
 // the root command defines (cmd/aiplex-cli/main.go commandGroups). Any other
 // heading in a command's long text is prose, not a command list.
 const COMMAND_HEADINGS = new Set([
-  'Available Commands', 'Additional Commands', 'Get started', 'Connect clients', 'Models', 'Tools',
-  'Agents and identity', 'Usage and quota', 'Operate',
+  'Available Commands', 'Additional Commands', 'Agents', 'Models', 'Tools', 'Harnesses',
+  'Get started', 'Access and identity', 'Usage and quota', 'Operate',
 ]);
 function subcommands(text) {
   const out = [];
@@ -82,21 +82,26 @@ sidebar_label: Overview
 description: Every aiplex command, generated from the CLI's own help output.
 ---
 
-${NOTE}
-
-## Global flags
-
-\`\`\`text
-${(root.text.match(/^Flags:\n((?:  .*\n?)+)/m) || ['', ''])[1].replace(/\s+$/, '')}
-\`\`\`
-
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
 `;
 for (const c of top) idx += `| [\`aiplex ${c.name}\`](./${c.name}.md) | ${c.short} |\n`;
-idx += `\n## Root help\n\n\`\`\`text\n${root.text}\`\`\`\n`;
+idx += `
+## Global flags
+
+\`\`\`text
+${(root.text.match(/^Flags:\n((?:  .*\n?)+)/m) || ['', ''])[1].replace(/\s+$/, '')}
+\`\`\`
+
+## Root help
+
+\`\`\`text
+${root.text}\`\`\`
+
+${NOTE}
+`;
 await fs.writeFile(path.join(outDir, 'index.md'), idx);
 
 for (const c of top) {

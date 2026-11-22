@@ -1,7 +1,7 @@
 ---
 title: aiplex connect
 sidebar_label: connect
-description: "Print ready-to-paste client configuration for an access point"
+description: "Print an access point configuration for your coding harness or SDK"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.

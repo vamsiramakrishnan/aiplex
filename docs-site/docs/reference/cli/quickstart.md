@@ -1,7 +1,7 @@
 ---
 title: aiplex quickstart
 sidebar_label: quickstart
-description: "Create a cloud deployment end to end in one command"
+description: "Deploy AIPlex and an example workload to Google Cloud"
 ---
 
 This page is generated from the output of `aiplex --help` for the CLI built from `cmd/aiplex-cli`. Regenerate it with `npm run gen:cli` in `docs-site/`.
